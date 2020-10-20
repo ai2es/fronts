@@ -25,6 +25,7 @@ def read_xml_files(year, month, day):
     print(file_path)
     # read all the files in the directory
     files = glob.glob("%s/*%04d%02d%02d*.xml" % (file_path, year, month, day))
+    dss=[]
     for filename in files:
         print(filename)
         #Load XML Data
@@ -54,7 +55,7 @@ def read_xml_files(year, month, day):
                  fronttype.append(frontty)
                  lats.append(point.get("Lat"))
                  lons.append(point.get("Lon"))      
-        
+ #                print(lats,lons)
         #Now Create a Dataframe of the lists using the zip approach. 
         df = pd.DataFrame(list(zip(dates,frontnumber,fronttype,lats,lons)), columns =['Date','Front Number','Front Type','Latitude','Longitude']) 
         #Define Types to Avoid trouble later
@@ -100,7 +101,12 @@ def read_xml_files(year, month, day):
         #Concatenate Along a New Dimension we will label 'Front Type'
         ds = xr.concat(type_da, dim=types)
         ds = ds.rename({'concat_dim':'Type'})
-        return ds
+        dss.append(ds)
+    print('made it here')
+    timestep=pd.date_range(start=df['Date'].dt.strftime('%Y-%m-%d')[0], periods=8, freq='3H')
+    dns=xr.concat(dss, dim=timestep)
+    dns=dns.rename({'concat_dim':'Date'})
+    return dns
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create labeled data for the specified day")
@@ -112,6 +118,7 @@ if __name__ == "__main__":
     # read the polygons for the specified day
     print("reading the xml")
     xmls = read_xml_files(args.year, args.month, args.day)
+#    print(xmls)
 
 #One way to output - As a netCDF of just this timestep - the above could then be looped in bash,
 #and xarray used to open the multiple nc files:
@@ -125,16 +132,22 @@ if __name__ == "__main__":
 #ds = xr.concat(dss, dim=dates, name='Time')
 
     #cartopy map 
-    fig = plt.figure(figsize=(10, 8))
-    ax = plt.axes(projection=ccrs.LambertConformal(central_longitude=250))
-    ax.gridlines()
-    ax.add_feature(cfeature.COASTLINE)
-    ax.add_feature(cfeature.BORDERS)
-    ax.add_feature(cfeature.STATES)
-    ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree()) 
+    for i in range(0,8):
+        fig = plt.figure(figsize=(10, 8))
+        ax = plt.axes(projection=ccrs.LambertConformal(central_longitude=250))
+        ax.gridlines()
+        ax.add_feature(cfeature.COASTLINE)
+        ax.add_feature(cfeature.BORDERS)
+        ax.add_feature(cfeature.STATES)
+        ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree()) 
+    
+    #Ryan function to increase number of points in fronts
+
     
     #plot
-    #ds.Frequency.sel(Type= 'COLD_FRONT').plot(x='Longitude',y='Latitude',transform=ccrs.PlateCarree())
-    xmls.Frequency.sel(Type= 'WARM_FRONT').plot(x='Longitude',y='Latitude',transform=ccrs.PlateCarree())
-    plt.savefig('frequencyplot_%04d%02d%02d'%(args.year, args.month, args.day) + '.png', bbox_inches='tight')
+        xmls.Frequency.sel(Type= 'COLD_FRONT').isel(Date=i).plot(x='Longitude',y='Latitude',transform=ccrs.PlateCarree())
+        xmls.Frequency.sel(Type= 'WARM_FRONT').isel(Date=i).plot(x='Longitude',y='Latitude',transform=ccrs.PlateCarree())
+        outtime=str(xmls.Frequency.Date[i].dt.strftime('%Y%m%d%H').values)
+        print(outtime)
+        plt.savefig('frequencyplot_'+outtime + '.png', bbox_inches='tight',dpi=300)
     #plt.show()
