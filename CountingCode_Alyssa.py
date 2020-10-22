@@ -13,14 +13,13 @@ import pandas as pd
 import glob
 import argparse
 
-def read_xml_files(year, month, day, outdir, save):
+def read_xml_files(year, month, day, outdir):
     """
     Read in xml files for climatology
     :param year:
     :param month:
     :param day:
     :param outdir
-    :param save
     :return:
     """
     file_path = "/home/awoodward/xmls_2006122012-2020061900/%04d" % (year)
@@ -115,12 +114,11 @@ if __name__ == "__main__":
     parser.add_argument('--month', type=int, required=True, help="month for the data to be read in")
     parser.add_argument('--day', type=int, required=True, help="day for the data to be read in")
     parser.add_argument('--outdir', type=str, required=False, help="output directory for image files")
-    parser.add_argument('--save', help="save plot as")
     args = parser.parse_args()
     print(args)
     # read the polygons for the specified day
     print("reading the xml")
-    xmls = read_xml_files(args.year, args.month, args.day, args.outdir, args.save)
+    xmls = read_xml_files(args.year, args.month, args.day, args.outdir)
 #    print(xmls)
 
 #One way to output - As a netCDF of just this timestep - the above could then be looped in bash,
@@ -152,5 +150,5 @@ if __name__ == "__main__":
         xmls.Frequency.sel(Type= 'WARM_FRONT').isel(Date=i).plot(x='Longitude',y='Latitude',transform=ccrs.PlateCarree())
         outtime=str(xmls.Frequency.Date[i].dt.strftime('%Y%m%d%H').values)
         print(outtime)
-        plt.savefig('frequencyplot_'+outtime + '.png', bbox_inches='tight',dpi=300, xmls.save)
+        plt.savefig('frequencyplot_'+outtime + '.png', bbox_inches='tight',dpi=300)
     #plt.show()
