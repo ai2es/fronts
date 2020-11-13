@@ -131,7 +131,7 @@ if __name__ == "__main__":
     # One way to output - As a netCDF of just this timestep - the above could then be looped in bash,
     # and xarray used to open the multiple nc files:
     netcdf_outtime=str('%04d%02d%02d'%(args.year, args.month, args.day))
-    xmls.to_netcdf(os.path.join[args.netcdf_outdir, f'FrontalCounts_{netcdf_outtime}.nc'])
+    xmls.to_netcdf(os.path.join([args.netcdf_outdir, f'FrontalCounts_{netcdf_outtime}.nc']))
 
 # Here is an idea of how you might loop through your list of files to make this have a time dimension as well, using a list of xarrays
 # which you then concatenate.
