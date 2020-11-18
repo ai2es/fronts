@@ -33,7 +33,7 @@ def read_xml_files(year, month, day):
     for filename in files:
         print(filename)
         # Load XML Data
-        tree = ET.parse(filename, ET.XMLParser(encoding='utf-8-sig'))
+        tree = ET.parse(filename, parser=ET.XMLParser(encoding='utf-8'))
         root = tree.getroot()
         # Split Off Date, Could be Useful later
         date = filename.split('_')[-1].split('.')[0].split('f')[0]
@@ -135,8 +135,8 @@ if __name__ == "__main__":
     out_file_path = os.path.join(args.netcdf_outdir, out_file_name)
     xmls.to_netcdf(out_file_path)
 
- #   netcdf_outtime = str('%04d%02d%02d' % (args.year, args.month, args.day))
- # xmls.to_netcdf(os.path.join(args.netcdf_outdir, f'FrontalCounts_{netcdf_outtime}.nc'))
+#   netcdf_outtime = str('%04d%02d%02d' % (args.year, args.month, args.day))
+# xmls.to_netcdf(os.path.join(args.netcdf_outdir, f'FrontalCounts_{netcdf_outtime}.nc'))
 
 # Here is an idea of how you might loop through your list of files to make this have a time dimension as well, using a list of xarrays
 # which you then concatenate.
