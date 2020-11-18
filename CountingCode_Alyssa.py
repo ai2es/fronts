@@ -33,7 +33,7 @@ def read_xml_files(year, month, day):
     for filename in files:
         print(filename)
         # Load XML Data
-        tree = ET.parse(filename)
+        tree = ET.parse(filename, ET.XMLParser(encoding='utf-8'))
         root = tree.getroot()
         # Split Off Date, Could be Useful later
         date = filename.split('_')[-1].split('.')[0].split('f')[0]
