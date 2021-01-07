@@ -47,7 +47,7 @@ def read_xml_files(year, month, day):
         # Haversine Formula: Used to turn latitude and longitude into x and y coordinates.
         def haversine(lon1, lat1, lon2, lat2):
             # print(lon1, lon2, lat1, lat2)
-            # haversine formula
+            # haversine formula for Cartesian system
             dlon = lon2-lon1
             dlat = lat2-lat1
             a = math.sin(dlat/2)**2+math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
@@ -56,6 +56,7 @@ def read_xml_files(year, month, day):
             c = 2*math.asin(math.sqrt(a))
             km = 6371*c #(radius of earth in km = 6371)
             return dlon, dlat, km, dx, dy
+
         # Define Holding Lists for Data as Read from XML (Latitude and Longitude declared in lines 77 and 78)
         fronttype = []
         frontnumber = []
@@ -78,6 +79,7 @@ def read_xml_files(year, month, day):
             # Declare "temporary" x and y variables which will be used to add elements to the distance arrays.
             x_km_temp = 0
             y_km_temp = 0
+            x_km_360_temp = 0
             # Create x and y distance arrays
             x_km = []
             y_km = []
@@ -105,26 +107,33 @@ def read_xml_files(year, month, day):
                 dlon, dlat, km, dx, dy = haversine(lon1,lat1,lon2,lat2)
                 x_km_temp = x_km_temp + dx
                 y_km_temp = y_km_temp + dy
-                x_km = np.append(x_km, x_km_temp)
-                y_km = np.append(y_km, y_km_temp)
+                x_km.append(x_km_temp)
+                y_km.append(y_km_temp)
             # print(x_km,y_km)
             # print(front_points)
 
         # Reset front counter
         i = 0
-        # Separate front data
+        # Separate front data for Cartesian and 360 coordinate system
         for line in root.iter('Line'):
+            # Create 360 coordinate array
+            x_km_360 = []
+            for l in range(1,len(lats)):
+                x_km_360.append(x_km[l-1]-min(x_km))
             # Create new arrays for separate fronts
             x_km_new = []
             y_km_new = []
+            x_km_360_new = []
             i = i + 1
             # Counters for pulling specific data points
             if i == 1:
                 x_km_new = x_km[0:front_points[i-1]]
                 y_km_new = y_km[0:front_points[i-1]]
+                x_km_360_new = x_km_360[0:front_points[i-1]]
             elif i < len(front_points):
                 x_km_new = x_km[front_points[i-2]-1:front_points[i-1]-1]
                 y_km_new = y_km[front_points[i-2]-1:front_points[i-1]-1]
+                x_km_360_new = x_km_360[front_points[i-2]-1:front_points[i-1]-1]
 
             front_status = "Loading "+str(month)+"/"+str(day)+"/"+str(year)+" ("+str(z_time)+"Z): Front #"+str(i)+".........."
             # remove duplicates from arrays
@@ -133,7 +142,7 @@ def read_xml_files(year, month, day):
                 if num not in x_km_removed:
                     x_km_removed.append(num)
             if i < len(front_points):
-                print(front_status)
+                # print(front_status)
                 # print(x_km_new, y_km_new)
                 difference = len(x_km_new)-len(x_km_removed)
                 # print(difference)
@@ -141,44 +150,64 @@ def read_xml_files(year, month, day):
             # interpolate the arrays
             if difference == 0:
                 if (len(x_km_new)>3):
-                    f = interp1d(x_km_new, y_km_new, kind='quadratic')
+                    f = interp1d(x_km_new, y_km_new, kind='linear')
+                    f360 = interp1d(x_km_360_new, y_km_new, kind='linear')
                 elif (len(x_km_new)==3):
-                    f = interp1d(x_km_new, y_km_new, kind='quadratic')
+                    f = interp1d(x_km_new, y_km_new, kind='linear')
+                    f360 = interp1d(x_km_360_new, y_km_new, kind='linear')
                 elif (len(x_km_new)==2):
                     f = interp1d(x_km_new, y_km_new, kind='linear')
+                    f360 = interp1d(x_km_360_new, y_km_new, kind='linear')
                 elif (i < len(front_points)):
                     print("ERROR: There is only one point on this front, therefore it cannot be interpolated.")
 
             # test plot for separated fronts
             plt.figure(figsize=(8,4))
+            # plot Cartesian system
+            plt.subplot(1,2,1)
             plt.plot(x_km_new,y_km_new,'ro')
-            # if ((difference == 0) and i < len(front_points)): # Create new interval for interpolated x array and plot the interpolation if there is more than one point.
-                # xnew = np.linspace(-40000,40000)
-                # plt.plot(xnew,f(xnew),'--')
+            if ((difference == 0) and i < len(front_points)): # Create new interval for interpolated x array and plot the interpolation if there is more than one point.
+                xnew = np.linspace(min(x_km),max(x_km),endpoint=True)
+                plt.plot(xnew,f(xnew),'--')
             plt.grid()
-            plotTitle = str(month)+"/"+str(day)+"/"+str(year)+" ("+str(z_time)+"Z) - Front #"+str(i)
+            plotTitle = str(month)+"/"+str(day)+"/"+str(year)+" ("+str(z_time)+"Z) - Front #"+str(i) + " (Cartesian)"
+            plt.title(plotTitle)
+            plt.xlabel("Longitudinal distance (km)")
+            plt.ylabel("Latitudinal distance (km)")
+            plt.subplot(1,2,2)
+            plt.plot(x_km_360_new,y_km_new,'bo')
+            if ((difference == 0) and i < len(front_points)): # Create new interval for interpolated x array and plot the interpolation if there is more than one point.
+                xnew360 = np.linspace(min(x_km),max(x_km_360),endpoint=True)
+                plt.plot(xnew360,f360(xnew360),'--')
+            plt.grid()
+            plotTitle = str(month)+"/"+str(day)+"/"+str(year)+" ("+str(z_time)+"Z) - Front #"+str(i) + " (360)"
             plt.title(plotTitle)
             plt.xlabel("Longitudinal distance (km)")
             plt.ylabel("Latitudinal distance (km)")
             plotName = "C:/Users/sling/PycharmProjects/fronts/separated fronts/" + str(month)+"-"+str(day)+"-"+str(year)+" ("+str(z_time)+"Z) - Front #"+str(i) + '.png'
-
             #### WARNING: THIS CODE OUTPUTS HUNDREDS OF IMAGES AND MAY IMPACT SYSTEM PERFORMANCE. ####
             plt.savefig(plotName) # Comment this statement out to prevent plots from saving.
 
-            # generate and save plot to assure points are plotting correctly in x and y coordinate system
-            # plt.figure(figsize=(8,4))
-            # Create new interval for interpolated x array and plot the interpolation if there is more than one point.
-            # if (len(x_km)>1):
-            #    xnew = np.linspace(min(x_km),max(x_km))
-            #    plt.plot(xnew,f(xnew),'--')
-            # plt.plot(x_km,y_km,'ro')
-            # plt.title("Front example")
-            # plt.legend(loc='upper right')
-            # plt.grid()
-            # plt.xlabel("Longitudinal distance (km)")
-            # plt.ylabel("Latitudinal distance (km)")
-            # plotName = "C:/Users/sling/PycharmProjects/fronts/test plots/" + " Front" + str(i) + '.png'
-            # plt.savefig(plotName)
+            # test plot for all points of every front in the 3H period
+            plt.figure(figsize=(8,4))
+            # plot Cartesian system
+            plt.subplot(1,2,1)
+            plt.plot(x_km,y_km,'ro')
+            plt.grid()
+            plotTitle = str(month)+"/"+str(day)+"/"+str(year)+" ("+str(z_time)+"Z) - " + "(Cartesian)"
+            plt.title(plotTitle)
+            plt.xlabel("Longitudinal distance (km)")
+            plt.ylabel("Latitudinal distance (km)")
+            plt.subplot(1,2,2)
+            plt.plot(x_km_360,y_km,'bo')
+            plt.grid()
+            plotTitle = str(month)+"/"+str(day)+"/"+str(year)+" ("+str(z_time)+"Z) - " + "(360)"
+            plt.title(plotTitle)
+            plt.xlabel("Longitudinal distance (km)")
+            plt.ylabel("Latitudinal distance (km)")
+            plotName = "C:/Users/sling/PycharmProjects/fronts/test plots/" + str(month)+"-"+str(day)+"-"+str(year)+" ("+str(z_time)+"Z)"
+            #### WARNING: THIS CODE OUTPUTS HUNDREDS OF IMAGES AND MAY IMPACT SYSTEM PERFORMANCE. ####
+            plt.savefig(plotName) # Comment this statement out to prevent plots from saving.
 
         # Now Create a Dataframe of the lists using the zip approach.
         df = pd.DataFrame(list(zip(dates, frontnumber, fronttype, lats, lons)),
