@@ -30,7 +30,7 @@ def read_xml_files(year, month, day):
     global fronts_lon_array, fronts_lat_array
     global period_fronts_lon_array, period_fronts_lat_array
     global period_fronts_type, period_fronts_number_new, period_fronts_date
-    file_path = "C:/Users/sling/PycharmProjects/fronts/xmls_2006122012-2020061900"
+    file_path = "C:/Users/Andrew/PycharmProjects/fronts/xmls_2006122012-2020061900"
     print(file_path)
     # read all the files in the directory
     # files = glob.glob("%s/*%04d%02d%02d*.xml" % (file_path, year, month, day))
@@ -208,14 +208,14 @@ def read_xml_files(year, month, day):
                 x_km_360_new = x_km_360[front_points[i-2]-1:front_points[i-1]-1]
 
             # front_status = "Loading "+str(month)+"/"+str(day)+"/"+str(year)+" ("+str(z_time)+"Z): Front #"+str(i)+".........."
-            front_status = "Loading "+str(filename)+": Front #"+str(i)+".........."
+            # front_status = "Loading "+str(filename)+": Front #"+str(i)+".........."
             # check for duplicate points in arrays
             x_km_removed = []
             for num in x_km_new:
                 if num not in x_km_removed:
                     x_km_removed.append(num)
             if i < len(front_points):
-                print(front_status)
+                # print(front_status)
                 # print(x_km_new, y_km_new)
                 difference = len(x_km_new)-len(x_km_removed)
                 # print(difference)
@@ -400,7 +400,6 @@ def read_xml_files(year, month, day):
     dns2 = xr.concat(dss2, dim=timestep2)
     dns2 = dns2.rename({'concat_dim': 'Date'})
     # return dns, dns2
-    print(dns2)
     return dns2
 
 if __name__ == "__main__":
