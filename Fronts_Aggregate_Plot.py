@@ -17,7 +17,7 @@ if __name__ == "__main__":
     parser.add_argument('--year', type=int, required=True, help="year for the data to be read in")
     parser.add_argument('--month', type=int, required=False, help="month for the data to be read in")
     parser.add_argument('--day', type=int, required=False, help="day for the data to be read in")
-    #parser.add_argument('--image_outdir', type=str, required=False, help="output directory for image files")
+    parser.add_argument('--image_outdir', type=str, required=False, help="output directory for image files")
     parser.add_argument('--netcdf_indir', type=str, required=False, help="input directory for netcdf files")
     args = parser.parse_args()
     
