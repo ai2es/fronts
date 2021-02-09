@@ -7,17 +7,69 @@ import numpy as np
 import xarray as xr
 
 plt.switch_backend('agg')
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 import xml.etree.ElementTree as ET
 import pandas as pd
 import glob
 import argparse
 import os
-from scipy.interpolate import interp1d, CubicSpline, griddata
-from shapely import wkt
-from shapely.geometry import Point, Polygon, LineString
-import geopandas as gpd
+from shapely.geometry import LineString
+
+
+# Haversine formula - turns lats/lons into x/y and calculates distance between points
+def haversine(lon1, lat1, lon2, lat2):
+    # print(lon1, lon2, lat1, lat2)
+    # haversine formula for Cartesian system
+    dlon = lon2-lon1
+    dlat = lat2-lat1
+    a = math.sin(dlat/2)**2+math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    dx = (-dlon)*40075*math.cos((lat1+lat2)*math.pi/360)/360 # circumference of earth in km = 40075
+    dy = (-dlat)*40075/360
+    c = 2*math.asin(math.sqrt(a))
+    km = 6371*c # radius of earth in km = 6371
+    return dlon, dlat, km, dx, dy
+
+# Create geometric dataframe
+def geometric(x_km_new, y_km_new):
+    df_xy = pd.DataFrame(list(zip(x_km_new, y_km_new)), columns=['Longitude_km', 'Latitude_km'])
+    geometry = [xy for xy in zip(df_xy.Longitude_km,df_xy.Latitude_km)]
+    xy_linestring = LineString(geometry)
+    return xy_linestring
+
+# Plot x/y points at a specified interval
+def redistribute_vertices(xy_linestring, distance):
+    if xy_linestring.geom_type == 'LineString':
+        num_vert = int(round(xy_linestring.length / distance))
+        if num_vert == 0:
+            num_vert = 1
+        return LineString(
+            [xy_linestring.interpolate(float(n) / num_vert, normalized=True)
+            for n in range(num_vert + 1)])
+    elif xy_linestring.geom_type == 'MultiLineString':
+        parts = [redistribute_vertices(part, distance)
+            for part in xy_linestring]
+        return type(xy_linestring)([p for p in parts if not p.is_empty])
+    else:
+        raise ValueError('unhandled geometry %s', (xy_linestring.geom_type,))
+
+# Reverse haversine function - turns x and y coordinates back to latitude and longitude.
+def reverse_haversine(lons, lats, lon_new, lat_new, front_points, i, a, dx, dy):
+    if i==1:
+        if a==1:
+            lon1 = lons[a-1]
+            lat1 = lats[a-1]
+        else:
+            lon1 = lon_new[a-1]
+            lat1 = lat_new[a-1]
+    else:
+        if a==1:
+            lon1 = lons[front_points[i-2]]
+            lat1 = lats[front_points[i-2]]
+        else:
+            lon1 = lon_new[a-1]
+            lat1 = lat_new[a-1]
+    lat2 = lat1-(dy*(360/40075))
+    lon2 = lon1-(dx*(360/40075)/(math.cos((math.pi/360)*(lat1+lat2))))
+    return lon1, lon2, lat1, lat2
 
 def read_xml_files(year, month, day):
     """
@@ -34,9 +86,9 @@ def read_xml_files(year, month, day):
     print(file_path)
     # read all the files in the directory
     # files = glob.glob("%s/*%04d%02d%02d*.xml" % (file_path, year, month, day))
+    # files = glob.glob("%s/*%04d%02d*.xml" % (file_path, year, month))
     files = glob.glob("%s/*%04d*.xml" % (file_path, year))
     dss = []
-    dss2 = []
     # Counter for timer number
     fileNo = 1
     # Initialize x and y distance values for the haversine function.
@@ -48,58 +100,7 @@ def read_xml_files(year, month, day):
     period_fronts_number_new = []
     period_fronts_lon_array = []
     period_fronts_lat_array = []
-    # Haversine formula - turns lats/lons into x/y and calculates distance between points
-    def haversine(lon1, lat1, lon2, lat2):
-        # print(lon1, lon2, lat1, lat2)
-        # haversine formula for Cartesian system
-        dlon = lon2-lon1
-        dlat = lat2-lat1
-        a = math.sin(dlat/2)**2+math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-        dx = (-dlon)*40075*math.cos((lat1+lat2)*math.pi/360)/360 # circumference of earth in km = 40075
-        dy = (-dlat)*40075/360
-        c = 2*math.asin(math.sqrt(a))
-        km = 6371*c # radius of earth in km = 6371
-        return dlon, dlat, km, dx, dy
-    # Create geometric dataframe
-    def geometric(x_km_new, y_km_new):
-        df_xy = pd.DataFrame(list(zip(x_km_new, y_km_new)), columns=['Longitude_km', 'Latitude_km'])
-        geometry = [xy for xy in zip(df_xy.Longitude_km,df_xy.Latitude_km)]
-        xy_linestring = LineString(geometry)
-        return xy_linestring
-    # Plot x/y points at a specified interval
-    def redistribute_vertices(xy_linestring, distance):
-        if xy_linestring.geom_type == 'LineString':
-            num_vert = int(round(xy_linestring.length / distance))
-            if num_vert == 0:
-                num_vert = 1
-            return LineString(
-                [xy_linestring.interpolate(float(n) / num_vert, normalized=True)
-                for n in range(num_vert + 1)])
-        elif xy_linestring.geom_type == 'MultiLineString':
-            parts = [redistribute_vertices(part, distance)
-                    for part in xy_linestring]
-            return type(xy_linestring)([p for p in parts if not p.is_empty])
-        else:
-            raise ValueError('unhandled geometry %s', (xy_linestring.geom_type,))
-    # Reverse haversine function - turns x and y coordinates back to latitude and longitude.
-    def reverse_haversine(i, a, dx, dy):
-        if i==1:
-            if a==1:
-                lon1 = lons[a-1]
-                lat1 = lats[a-1]
-            else:
-                lon1 = lon_new[a-1]
-                lat1 = lat_new[a-1]
-        else:
-            if a==1:
-                lon1 = lons[front_points[i-2]]
-                lat1 = lats[front_points[i-2]]
-            else:
-                lon1 = lon_new[a-1]
-                lat1 = lat_new[a-1]
-        lat2 = lat1-(dy*(360/40075))
-        lon2 = lon1-(dx*(360/40075)/(math.cos((math.pi/360)*(lat1+lat2))))
-        return lon1, lon2, lat1, lat2
+
     for filename in files:
         z_time = (fileNo-1)*3
         fileNo = fileNo + 1
@@ -216,7 +217,6 @@ def read_xml_files(year, month, day):
                     x_km_removed.append(num)
             if i < len(front_points):
                 # print(front_status)
-                # print(x_km_new, y_km_new)
                 difference = len(x_km_new)-len(x_km_removed)
                 # print(difference)
 
@@ -261,7 +261,7 @@ def read_xml_files(year, month, day):
             for a in range(1,len(x_new)):
                 dx = x_new[a]-x_new[a-1]
                 dy = y_new[a]-y_new[a-1]
-                lon1, lon2, lat1, lat2 = reverse_haversine(i, a, dx, dy)
+                lon1, lon2, lat1, lat2 = reverse_haversine(lons, lats, lon_new, lat_new, front_points, i, a, dx, dy)
                 if a==1:
                     lon_new.append(lon1)
                     lat_new.append(lat1)
@@ -314,93 +314,37 @@ def read_xml_files(year, month, day):
                 front_dates.append(date)
                 period_fronts_date.append(date)
 
-        # Now Create a 3H Dataframe of the lists using the zip approach.
-        # df = pd.DataFrame(list(zip(front_dates, fronts_number, front_types, fronts_lat_array, fronts_lon_array)),
-        #                  columns=['Date', 'Front Number', 'Front Type', 'Latitude', 'Longitude'])
-        # Define Types to Avoid trouble later
-        # df['Latitude'] = df.Latitude.astype(float)
-        # df['Longitude'] = df.Longitude.astype(float)
-        # df['Front Number'] = df['Front Number'].astype(int)
-        # df['Date'] = pd.to_datetime(df['Date'], format='%Y%m%d%H')
-
-
-        # Define your grid - here I am using 0.25 degree
-        # xit = np.linspace(130,370,961)
-        # xit = np.concatenate((np.linspace(-180, 10, 761), np.linspace(170, 180, 41)[0:40]))
-        # yit = np.linspace(0, 80, 321)
-
-        # Now Use a Little Trick to Map the data to a New Grid as Pandas Data Columns - in Place.
-        # Note that if the values are outside the bins, then these will be placed in 0, len(xit).
-        # Remember there is always one less bin than there is a value.
-        # df = df.assign(xit=np.digitize(df['Longitude'].values, xit))
-        # df = df.assign(xit=np.digitize(df['Longitude'].values, xit))
-        # df = df.assign(xit=np.digitize(df['Longitude'].values, xit))
-        # df = df.assign(yit=np.digitize(df['Latitude'].values, yit))
-
-        # types = df['Front Type'].unique()
-
-        # type_da = []
-        # for i in range(0, len(types)):
-            # type_df = df[df['Front Type'] == types[i]]
-            # groups = type_df.groupby(['xit', 'yit'])
-
-            # Create a Numpy Array to Count Frequency
-            # frequency = np.zeros((yit.shape[0] + 1, xit.shape[0] + 1))
-
-            # for group in groups:
-                # Here we count in the appropriate location, and avoid double counting - assign to location
-                # frequency[group[1].yit.values[0], group[1].xit.values[0]] += np.where(
-                #    len(group[1]['Front Number']) >= 1, 1, 0)
-
-                # Trim to clean up the final bin where anything outside domain lands
-            # frequency = frequency[1:322, 1:802]
-
-            # Now turn it into an xarray DataArray
-            # ds = xr.Dataset(data_vars={"Frequency": (['Latitude', 'Longitude'], frequency)},
-            #                coords={'Latitude': yit, 'Longitude': xit})
-            # ds = xr.DataArray(frequency,dims=('Latitude', 'Longitude'),coords={'Latitude': yit,'Longitude':xit})
-            # Append this type of front to the list for concatenation
-            # type_da.append(ds)
-        # Concatenate Along a New Dimension we will label 'Front Type'
-        # ds = xr.concat(type_da, dim=types)
-        # ds = ds.rename({'concat_dim': 'Type'})
-        # dss.append(ds)
-    # timestep = pd.date_range(start=df['Date'].dt.strftime('%Y-%m-%d')[0], periods=8, freq='3H')
-    # dns = xr.concat(dss, dim=timestep)
-    # dns = dns.rename({'concat_dim': 'Date'})
-
     # 24H dataframe
-    df2 = pd.DataFrame(list(zip(period_fronts_date, period_fronts_number_new, period_fronts_type, period_fronts_lat_array, period_fronts_lon_array)),
+    df = pd.DataFrame(list(zip(period_fronts_date, period_fronts_number_new, period_fronts_type, period_fronts_lat_array, period_fronts_lon_array)),
         columns=['Date', 'Front Number', 'Front Type', 'Latitude', 'Longitude'])
-    df2['Latitude'] = df2.Latitude.astype(float)
-    df2['Longitude'] = df2.Longitude.astype(float)
-    df2['Front Number'] = df2['Front Number'].astype(int)
-    df2['Date'] = pd.to_datetime(df2['Date'], format='%Y%m%d%H')
-    xit2 = np.concatenate((np.linspace(-180, 10, 761), np.linspace(170, 180, 41)[0:40]))
-    yit2 = np.linspace(0, 80, 321)
-    df2 = df2.assign(xit2=np.digitize(df2['Longitude'].values, xit2))
-    df2 = df2.assign(yit2=np.digitize(df2['Latitude'].values, yit2))
-    types2 = df2['Front Type'].unique()
-    type_da2 = []
-    for i in range(0, len(types2)):
-        type_df2 = df2[df2['Front Type'] == types2[i]]
-        groups2 = type_df2.groupby(['xit2', 'yit2'])
-        frequency2 = np.zeros((yit2.shape[0] + 1, xit2.shape[0] + 1))
-        for group2 in groups2:
-            frequency2[group2[1].yit2.values[0], group2[1].xit2.values[0]] += np.where(
-                len(group2[1]['Front Number']) >= 1, 1, 0)
-        frequency2 = frequency2[1:322, 1:802]
-        ds2 = xr.Dataset(data_vars={"Frequency": (['Latitude', 'Longitude'], frequency2)},
-                        coords={'Latitude': yit2, 'Longitude': xit2})
-        type_da2.append(ds2)
-    ds2 = xr.concat(type_da2, dim=types2)
-    ds2 = ds2.rename({'concat_dim': 'Type'})
-    dss2.append(ds2)
-    timestep2 = pd.date_range(start=df2['Date'].dt.strftime('%Y-%m-%d')[0], periods=1, freq='24H')
-    dns2 = xr.concat(dss2, dim=timestep2)
-    dns2 = dns2.rename({'concat_dim': 'Date'})
-    # return dns, dns2
-    return dns2
+    df['Latitude'] = df.Latitude.astype(float)
+    df['Longitude'] = df.Longitude.astype(float)
+    df['Front Number'] = df['Front Number'].astype(int)
+    df['Date'] = pd.to_datetime(df['Date'], format='%Y%m%d%H')
+    xit = np.concatenate((np.linspace(-180, 0, 721), np.linspace(0, 180, 721)[1:721]))
+    yit = np.linspace(0, 80, 321)
+    df = df.assign(xit=np.digitize(df['Longitude'].values, xit))
+    df = df.assign(yit=np.digitize(df['Latitude'].values, yit))
+    types = df['Front Type'].unique()
+    type_da = []
+    for i in range(0, len(types)):
+        type_df = df[df['Front Type'] == types[i]]
+        groups = type_df.groupby(['xit', 'yit'])
+        frequency = np.zeros((yit.shape[0] + 1, xit.shape[0] + 1))
+        for groups in groups:
+            frequency[groups[1].yit.values[0], groups[1].xit.values[0]] += np.where(
+                len(groups[1]['Front Number']) >= 1, 1, 0)
+        frequency = frequency[1:322, 1:1443]
+        ds = xr.Dataset(data_vars={"Frequency": (['Latitude', 'Longitude'], frequency)},
+                        coords={'Latitude': yit, 'Longitude': xit})
+        type_da.append(ds)
+    ds = xr.concat(type_da, dim=types)
+    ds = ds.rename({'concat_dim': 'Type'})
+    dss.append(ds)
+    timestep = pd.date_range(start=df['Date'].dt.strftime('%Y-%m-%d')[0], periods=1, freq='24H')
+    dns = xr.concat(dss, dim=timestep)
+    dns = dns.rename({'concat_dim': 'Date'})
+    return dns
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create labeled data for the specified day")
@@ -410,111 +354,12 @@ if __name__ == "__main__":
     parser.add_argument('--image_outdir', type=str, required=False, help="output directory for image files")
     parser.add_argument('--netcdf_outdir', type=str, required=False, help="output directory for netcdf files")
     args = parser.parse_args()
-    #   print(args)
     # read the polygons for the specified day
-    #   print("reading the xml")
-    # xmls, xmls2 = read_xml_files(args.year, args.month, args.day)
-    xmls2 = read_xml_files(args.year, args.month, args.day)
-    #    print(xmls)
+    xmls = read_xml_files(args.year, args.month, args.day)
 
     # One way to output - As a netCDF of just this timestep - the above could then be looped in bash,
     # and xarray used to open the multiple nc files:
     netcdf_outtime = str('%04d%02d%02d' % (args.year, args.month, args.day))
     out_file_name = 'FrontalCounts_%s.nc' % netcdf_outtime
     out_file_path = os.path.join(args.netcdf_outdir, out_file_name)
-    # xmls.to_netcdf(out_file_path)
-    xmls2.to_netcdf(out_file_path)
-
-#   netcdf_outtime = str('%04d%02d%02d' % (args.year, args.month, args.day))
-# xmls.to_netcdf(os.path.join(args.netcdf_outdir, f'FrontalCounts_{netcdf_outtime}.nc'))
-
-# Here is an idea of how you might loop through your list of files to make this have a time dimension as well, using a list of xarrays
-# which you then concatenate.
-# dss = []
-# ds = xr.DataArray(CF_frequency,dims=('Latitude', 'Longitude'),coords={'Latitude': yit,'Longitude':xit})
-# dss.append(ds)
-# ds = xr.concat(dss, dim=dates, name='Time')
-
-# 3H cartopy map
-# for i in range(0,8):
-#    fig = plt.figure(figsize=(20, 14))
-#    outtime=str(xmls.Frequency.Date[i].dt.strftime('%Y%m%d%H').values)
-#    print(outtime)
-#    ax = plt.subplot(2,2,1,projection=ccrs.LambertConformal(central_longitude=250))
-#    ax.gridlines()
-#    ax.add_feature(cfeature.COASTLINE)
-#    ax.add_feature(cfeature.BORDERS)
-#    ax.add_feature(cfeature.STATES)
-#    ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree())
-#    xmls.Frequency.sel(Type='COLD_FRONT').isel(Date=i).plot(x='Longitude', y='Latitude', transform=ccrs.PlateCarree())
-#    ax = plt.subplot(2,2,2,projection=ccrs.LambertConformal(central_longitude=250))
-#    ax.gridlines()
-#    ax.add_feature(cfeature.COASTLINE)
-#    ax.add_feature(cfeature.BORDERS)
-#    ax.add_feature(cfeature.STATES)
-#    ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree())
-#    xmls.Frequency.sel(Type='WARM_FRONT').isel(Date=i).plot(x='Longitude', y='Latitude', transform=ccrs.PlateCarree())
-#    ax = plt.subplot(2,2,3,projection=ccrs.LambertConformal(central_longitude=250))
-#    ax.gridlines()
-#    ax.add_feature(cfeature.COASTLINE)
-#    ax.add_feature(cfeature.BORDERS)
-#    ax.add_feature(cfeature.STATES)
-#    ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree())
-#    xmls.Frequency.sel(Type='OCCLUDED_FRONT_DISS').isel(Date=i).plot(x='Longitude', y='Latitude', transform=ccrs.PlateCarree())
-#    ax = plt.subplot(2,2,4,projection=ccrs.LambertConformal(central_longitude=250))
-#    ax.gridlines()
-#    ax.add_feature(cfeature.COASTLINE)
-#    ax.add_feature(cfeature.BORDERS)
-#    ax.add_feature(cfeature.STATES)
-#    ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree())
-#    xmls.Frequency.sel(Type='STATIONARY_FRONT').isel(Date=i).plot(x='Longitude', y='Latitude', transform=ccrs.PlateCarree())
-#    plt.savefig(os.path.join(args.image_outdir,f'{outtime}_frequencyplot.png'), bbox_inches='tight',dpi=300)
-
-
-# Daily cartopy maps
-fig = plt.figure(figsize=(20, 14))
-ax = plt.subplot(2,2,1,projection=ccrs.LambertConformal(central_longitude=250))
-ax.gridlines()
-ax.add_feature(cfeature.COASTLINE)
-ax.add_feature(cfeature.BORDERS)
-ax.add_feature(cfeature.STATES)
-ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree())
-xmls2.Frequency.sel(Type='COLD_FRONT').isel(Date=0).plot(x='Longitude', y='Latitude', transform=ccrs.PlateCarree())
-#plt.savefig(os.path.join(args.image_outdir,'COLD_FRONT_frequencyplot.png'), bbox_inches='tight',dpi=300)
-ax = plt.subplot(2,2,2,projection=ccrs.LambertConformal(central_longitude=250))
-ax.gridlines()
-ax.add_feature(cfeature.COASTLINE)
-ax.add_feature(cfeature.BORDERS)
-ax.add_feature(cfeature.STATES)
-ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree())
-xmls2.Frequency.sel(Type='WARM_FRONT').isel(Date=0).plot(x='Longitude', y='Latitude', transform=ccrs.PlateCarree())
-#plt.savefig(os.path.join(args.image_outdir,'WARM_FRONT_frequencyplot.png'), bbox_inches='tight',dpi=300)
-ax = plt.subplot(2,2,3,projection=ccrs.LambertConformal(central_longitude=250))
-ax.gridlines()
-ax.add_feature(cfeature.COASTLINE)
-ax.add_feature(cfeature.BORDERS)
-ax.add_feature(cfeature.STATES)
-ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree())
-xmls2.Frequency.sel(Type='OCCLUDED_FRONT_DISS').isel(Date=0).plot(x='Longitude', y='Latitude', transform=ccrs.PlateCarree())
-#plt.savefig(os.path.join(args.image_outdir,'OCCLUDED_FRONT_frequencyplot.png'), bbox_inches='tight',dpi=300)
-ax = plt.subplot(2,2,4,projection=ccrs.LambertConformal(central_longitude=250))
-ax.gridlines()
-ax.add_feature(cfeature.COASTLINE)
-ax.add_feature(cfeature.BORDERS)
-ax.add_feature(cfeature.STATES)
-ax.set_extent([130, 370, 0, 80], crs=ccrs.PlateCarree())
-xmls2.Frequency.sel(Type='STATIONARY_FRONT').isel(Date=0).plot(x='Longitude', y='Latitude', transform=ccrs.PlateCarree())
-# plt.savefig(os.path.join(args.image_outdir,'%d-%d-%d_frequencyplot.png' % (args.year, args.month, args.day)), bbox_inches='tight',dpi=300)
-plt.savefig(os.path.join(args.image_outdir,'%d_frequencyplot.png' % (args.year)), bbox_inches='tight',dpi=300)
-print("Daily plot created.")
-
-# Ryan function to increase number of points in fronts
-
-
-# plot
-# xmls.Frequency.sel(Type= 'COLD_FRONT').isel(Date=i).plot(x='Longitude',y='Latitude',transform=ccrs.PlateCarree())
-# xmls.Frequency.sel(Type= 'WARM_FRONT').isel(Date=i).plot(x='Longitude',y='Latitude',transform=ccrs.PlateCarree())
-# outtime=str(xmls.Frequency.Date[i].dt.strftime('%Y%m%d%H').values)
-# print(outtime)
-# plt.savefig(os.path.join(args.image_outdir,f'frequencyplot_{outtime}.png'), bbox_inches='tight',dpi=300)
-# plt.show()
+    xmls.to_netcdf(out_file_path)
