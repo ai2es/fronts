@@ -82,12 +82,12 @@ def read_xml_files(year, month, day):
     global fronts_lon_array, fronts_lat_array
     global period_fronts_lon_array, period_fronts_lat_array
     global period_fronts_type, period_fronts_number_new, period_fronts_date
-    file_path = "C:/Users/Andrew/PycharmProjects/fronts/xmls_2006122012-2020061900"
+    file_path = "C:/Users/sling/PycharmProjects/fronts/xmls_2006122012-2020061900"
     print(file_path)
     # read all the files in the directory
-    # files = glob.glob("%s/*%04d%02d%02d*.xml" % (file_path, year, month, day))
+    files = glob.glob("%s/*%04d%02d%02d*.xml" % (file_path, year, month, day))
     # files = glob.glob("%s/*%04d%02d*.xml" % (file_path, year, month))
-    files = glob.glob("%s/*%04d*.xml" % (file_path, year))
+    # files = glob.glob("%s/*%04d*.xml" % (file_path, year))
     dss = []
     # Counter for timer number
     fileNo = 1
@@ -164,7 +164,7 @@ def read_xml_files(year, month, day):
                 lat2 = lats[l]
                 dlon, dlat, km, dx, dy = haversine(lon1,lat1,lon2,lat2)
                 # check for errors in the data and correct them
-                if (dx>750 or dy>750 or dx<750 or dy<750):
+                if (dx>750 or dy>750 or dx<-750 or dy<-750):
                     if (lon1>0 and lon2<0):
                         lon2 = -lon2
                         dlon, dlat, km, dx, dy = haversine(lon1,lat1,lon2,lat2)
@@ -314,34 +314,36 @@ def read_xml_files(year, month, day):
                 front_dates.append(date)
                 period_fronts_date.append(date)
 
-    # 24H dataframe
-    df = pd.DataFrame(list(zip(period_fronts_date, period_fronts_number_new, period_fronts_type, period_fronts_lat_array, period_fronts_lon_array)),
-        columns=['Date', 'Front Number', 'Front Type', 'Latitude', 'Longitude'])
-    df['Latitude'] = df.Latitude.astype(float)
-    df['Longitude'] = df.Longitude.astype(float)
-    df['Front Number'] = df['Front Number'].astype(int)
-    df['Date'] = pd.to_datetime(df['Date'], format='%Y%m%d%H')
-    xit = np.concatenate((np.linspace(-180, 0, 721), np.linspace(0, 180, 721)[1:721]))
-    yit = np.linspace(0, 80, 321)
-    df = df.assign(xit=np.digitize(df['Longitude'].values, xit))
-    df = df.assign(yit=np.digitize(df['Latitude'].values, yit))
-    types = df['Front Type'].unique()
-    type_da = []
-    for i in range(0, len(types)):
-        type_df = df[df['Front Type'] == types[i]]
-        groups = type_df.groupby(['xit', 'yit'])
-        frequency = np.zeros((yit.shape[0] + 1, xit.shape[0] + 1))
-        for groups in groups:
-            frequency[groups[1].yit.values[0], groups[1].xit.values[0]] += np.where(
-                len(groups[1]['Front Number']) >= 1, 1, 0)
-        frequency = frequency[1:322, 1:1443]
-        ds = xr.Dataset(data_vars={"Frequency": (['Latitude', 'Longitude'], frequency)},
-                        coords={'Latitude': yit, 'Longitude': xit})
-        type_da.append(ds)
-    ds = xr.concat(type_da, dim=types)
-    ds = ds.rename({'concat_dim': 'Type'})
-    dss.append(ds)
-    timestep = pd.date_range(start=df['Date'].dt.strftime('%Y-%m-%d')[0], periods=1, freq='24H')
+        # 24H dataframe
+        df = pd.DataFrame(list(zip(period_fronts_date, period_fronts_number_new, period_fronts_type, period_fronts_lat_array, period_fronts_lon_array)),
+            columns=['Date', 'Front Number', 'Front Type', 'Latitude', 'Longitude'])
+        df['Latitude'] = df.Latitude.astype(float)
+        df['Longitude'] = df.Longitude.astype(float)
+        df['Front Number'] = df['Front Number'].astype(int)
+        df['Date'] = pd.to_datetime(df['Date'], format='%Y%m%d%H')
+        # xit = np.concatenate((np.linspace(-180, 0, 721), np.linspace(0, 180, 721)[1:721]))
+        xit = np.linspace(-180, 180, 1441)
+        yit = np.linspace(0, 80, 321)
+        df = df.assign(xit=np.digitize(df['Longitude'].values, xit))
+        df = df.assign(yit=np.digitize(df['Latitude'].values, yit))
+        types = df['Front Type'].unique()
+        type_da = []
+        for i in range(0, len(types)):
+            type_df = df[df['Front Type'] == types[i]]
+            groups = type_df.groupby(['xit', 'yit'])
+            frequency = np.zeros((yit.shape[0] + 1, xit.shape[0] + 1))
+            for group in groups:
+                frequency[group[1].yit.values[0], group[1].xit.values[0]] += np.where(
+                    len(group[1]['Front Number']) >= 1, 1, 0)
+            frequency = frequency[1:322, 1:1442]
+            # print(frequency)
+            ds = xr.Dataset(data_vars={"Frequency": (['Latitude', 'Longitude'], frequency)},
+                            coords={'Latitude': yit, 'Longitude': xit})
+            type_da.append(ds)
+        ds = xr.concat(type_da, dim=types)
+        ds = ds.rename({'concat_dim': 'Type'})
+        dss.append(ds)
+        timestep = pd.date_range(start=df['Date'].dt.strftime('%Y-%m-%d')[0], periods=8, freq='3H')
     dns = xr.concat(dss, dim=timestep)
     dns = dns.rename({'concat_dim': 'Date'})
     return dns
