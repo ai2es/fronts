@@ -8,7 +8,7 @@ def run_frequency_plot_daily(start_year, end_year, start_month, end_month, start
          month = b
          for c in range(start_day,end_day+1):
              day = c
-             os.system("python Fronts_Aggregate_Plot.py --year %d --month %d --day %d --netcdf_outdir %s --image_outdir %s" % (year,
+             os.system("python Fronts_Aggregate_Plot.py --year %d --month %d --day %d --netcdf_indir %s --image_outdir %s" % (year,
                 month, day, netcdf_outdir, image_outdir))
 
 def run_frequency_plot_monthly(start_year, end_year, start_month, end_month, netcdf_outdir, image_outdir):
@@ -16,13 +16,13 @@ def run_frequency_plot_monthly(start_year, end_year, start_month, end_month, net
         year = a
         for b in range(start_month,end_month+1):
             month = b
-            os.system("python Fronts_Aggregate_Plot.py --year %d --month %d --netcdf_outdir %s --image_outdir %s" % (year,
+            os.system("python Fronts_Aggregate_Plot.py --year %d --month %d --netcdf_indir %s --image_outdir %s" % (year,
                 month, netcdf_outdir, image_outdir))
 
 def run_frequency_plot_yearly(start_year, end_year, netcdf_outdir, image_outdir):
     for a in range(start_year,end_year+1):
         year = a
-        os.system("python Fronts_Aggregate_Plot.py --year %d --netcdf_outdir %s --image_outdir %s" % (year, netcdf_outdir, image_outdir))
+        os.system("python Fronts_Aggregate_Plot.py --year %d --netcdf_indir %s --image_outdir %s" % (year, netcdf_outdir, image_outdir))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create labeled data for the specified day")
