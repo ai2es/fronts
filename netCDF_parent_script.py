@@ -1,14 +1,14 @@
 import os
 import argparse
 
-def run_andrew_code(start_year, end_year, start_month, end_month, start_day, end_day, netcdf_outdir, image_outdir):
+def run_create_NC_files(start_year, end_year, start_month, end_month, start_day, end_day, netcdf_outdir, image_outdir):
     for a in range(start_year,end_year+1):
      year = a
      for b in range(start_month,end_month+1):
          month = b
          for c in range(start_day,end_day+1):
              day = c
-             os.system("python andrew_code.py --year %d --month %d --day %d --netcdf_outdir %s --image_outdir %s" % (year,
+             os.system("python create_NC_files.py --year %d --month %d --day %d --netcdf_outdir %s --image_outdir %s" % (year,
                 month, day, netcdf_outdir, image_outdir))
 
 if __name__ == "__main__":
@@ -23,5 +23,5 @@ if __name__ == "__main__":
     parser.add_argument('--netcdf_outdir', type=str, required=True, help="output directory for netcdf files")
     args = parser.parse_args()
     # read the polygons for the specified day
-    run_andrew_code(args.start_year, args.end_year, args.start_month, args.end_month, args.start_day,
+    run_create_NC_files(args.start_year, args.end_year, args.start_month, args.end_month, args.start_day,
                     args.end_day, args.netcdf_outdir, args.image_outdir)
