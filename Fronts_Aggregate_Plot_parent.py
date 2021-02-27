@@ -1,3 +1,5 @@
+# Function that loops through a specific date range to create daily, monthly, or yearly frequency plots.
+
 import os
 import argparse
 
