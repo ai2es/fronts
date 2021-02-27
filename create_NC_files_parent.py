@@ -1,3 +1,5 @@
+# Function that loops through a specific date range to create daily netCDF files.
+
 import os
 import argparse
 
@@ -22,6 +24,6 @@ if __name__ == "__main__":
     parser.add_argument('--image_outdir', type=str, required=True, help="output directory for image files")
     parser.add_argument('--netcdf_outdir', type=str, required=True, help="output directory for netcdf files")
     args = parser.parse_args()
-    # read the polygons for the specified day
+    # start the loop for creating daily files in the specified date range
     run_create_NC_files(args.start_year, args.end_year, args.start_month, args.end_month, args.start_day,
                     args.end_day, args.netcdf_outdir, args.image_outdir)
