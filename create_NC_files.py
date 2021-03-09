@@ -1,9 +1,12 @@
-# Function used to create netCDF files from the fronts' xml data.
+"""
+Function used to create netCDF files from the fronts' xml data.
 
-# Imports
+Code started by: Alyssa Woodward (alyssakwoodward@ou.edu)
+Code completed by: Andrew Justin (andrewjustin@ou.edu)
+Last updated: 3/9/2021 13:34 CST by Andrew Justin
+"""
+
 import math
-
-# mpl.use('agg', force=True)
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
@@ -15,12 +18,39 @@ import glob
 import argparse
 import os
 from shapely.geometry import LineString
-
-# Importing other files that are involved in the workflow
 import Plot_separated_fronts
 
-# Haversine function - turns lats/lons into x/y and calculates distance between points
 def haversine(lon1, lat1, lon2, lat2):
+    """
+    Converts lons/lats into x/y and calculates distance between points.
+
+    Parameters
+    ----------
+    lon1: float
+        First longitude point in degrees to be interpolated.
+    lat1: float
+        First latitude point in degrees to be interpolated.
+    lon2: float
+        Second longitude point in degrees to be interpolated.
+    lat2: float
+        Second latitude point in degrees to be interpolated.
+
+    Returns
+    -------
+    dlon: float
+        Longitudinal distance between the two points in degrees.
+    dlat: float
+        Latitudinal distance between the two points in degrees.
+    dx: float
+        Longitudinal distance between the two points in kilometers (km).
+    dy: float
+        Latitudinal distance between the two points in kilometers (km).
+
+    Sources
+    -------
+    https://stackoverflow.com/questions/4913349/haversine-formula-in-python-bearing-and-distance-between-two-gps-points
+    https://stackoverflow.com/questions/24617013/convert-latitude-and-longitude-to-x-and-y-grid-system-using-python
+    """
     dlon = lon2-lon1
     dlat = lat2-lat1
     a = math.sin(dlat/2)**2+math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
@@ -30,16 +60,49 @@ def haversine(lon1, lat1, lon2, lat2):
     km = 6371*c # radius of earth in km = 6371
     return dlon, dlat, dx, dy
 
-# Create geometric dataframe from non-interpolated x/y coordinates
 def geometric(x_km_new, y_km_new):
+    """
+    Turn longitude/latitude distance (km) lists into LineString for interpolation.
+
+    Parameters
+    ----------
+    x_km_new: list
+        List containing longitude coordinates of fronts in kilometers.
+    y_km_new: list
+        List containing latitude coordinates of fronts in kilometers.
+
+    Returns
+    -------
+    xy_linestring: LineString
+        LineString object containing coordinates of fronts in kilometers.
+
+    """
     df_xy = pd.DataFrame(list(zip(x_km_new, y_km_new)), columns=['Longitude_km', 'Latitude_km'])
     geometry = [xy for xy in zip(df_xy.Longitude_km,df_xy.Latitude_km)]
     xy_linestring = LineString(geometry)
     return xy_linestring
 
-# Interpolate x/y coordinates at a specific distance. This will allow us to create points at a specified interval to connect
-# the non-interpolated x/y coordinates.
 def redistribute_vertices(xy_linestring, distance):
+    """
+    Interpolate x/y coordinates at a specified distance.
+
+    Parameters
+    ----------
+    xy_linestring: LineString
+        LineString object containing coordinates of fronts in kilometers.
+    distance: int
+        Distance at which to interpolate the x/y coordinates.
+
+    Returns
+    -------
+    xy_vertices: MultiLineString
+        Normalized MultiLineString that contains the interpolate coordinates of fronts in kilometers.
+
+    Sources
+    -------
+    https://stackoverflow.com/questions/34906124/interpolating-every-x-distance-along-multiline-in-shapely/35025274# \
+    35025274
+    """
     if xy_linestring.geom_type == 'LineString':
         num_vert = int(round(xy_linestring.length / distance))
         if num_vert == 0:
@@ -54,8 +117,43 @@ def redistribute_vertices(xy_linestring, distance):
     else:
         raise ValueError('unhandled geometry %s', (xy_linestring.geom_type,))
 
-# Reverse haversine function - turns interpolated x/y coordinates back to latitude and longitude coordinates.
 def reverse_haversine(lons, lats, lon_new, lat_new, front_points, i, a, dx, dy):
+    """
+    Turns interpolated points from x/y coordinates to lon/lat coordinates.
+
+    Parameters
+    ----------
+    lons: list
+        List containing original longitude coordinates of fronts.
+    lats: list
+        List containing original latitude coordinates of fronts.
+    lon_new: list
+        List that will contain interpolated longitude coordinates of fronts.
+    lat_new: list
+        List that will contain interpolated latitude coordinates of fronts.
+    front_points: list
+        List that shows which points are in each front using indices.
+    i: int
+        Current front number.
+    a: int
+        Current index of the lon_new and lat_new lists.
+    dx: float
+        Distance between the two selected longitude coordinates in kilometers.
+    dy: float
+        Distance between the two selected latitude coordinates in kilometers.
+
+    Returns
+    -------
+    lon1: float
+        First longitude point in degrees.
+    lat1: float
+        First latitude point in degrees.
+    lon2: float
+        Second longitude point in degrees.
+    lat2: float
+        Second latitude point in degrees.
+
+    """
     if i==1:
         if a==1:
             lon1 = lons[a-1]
@@ -76,92 +174,66 @@ def reverse_haversine(lons, lats, lon_new, lat_new, front_points, i, a, dx, dy):
 
 def read_xml_files(year, month, day):
     """
-    Read in xml files for climatology
-    :param year:
-    :param month:
-    :param day:
-    :return:
+    Reads the xml files to pull frontal objects.
+
+    Parameters
+    ----------
+    year: int
+    month: int
+    day: int
+
+    Returns
+    -------
+    dns: Dataset
+        Xarray dataset containing frontal data organized by date, type, number, and coordinates.
+
     """
     file_path = "C:/Users/sling/PycharmProjects/fronts/xmls_2006122012-2020061900"
     print(file_path)
-    # read all the files in the directory
-    # files = glob.glob("%s/*%04d%02d%02d*.xml" % (file_path, year, month, day))
-
-    # code for grabbing files every 6H starting at 0Z #
     files = []
     files.extend(glob.glob("%s/*%04d%02d%02d00f*.xml" % (file_path, year, month, day)))
     files.extend(glob.glob("%s/*%04d%02d%02d06f*.xml" % (file_path, year, month, day)))
     files.extend(glob.glob("%s/*%04d%02d%02d12f*.xml" % (file_path, year, month, day)))
     files.extend(glob.glob("%s/*%04d%02d%02d18f*.xml" % (file_path, year, month, day)))
-    # print(files)
-
-    # code for grabbing files every 6H starting at 3Z #
-    # files = []
-    # files.extend(glob.glob("%s/*%04d%02d%02d03f*.xml" % (file_path, year, month, day)))
-    # files.extend(glob.glob("%s/*%04d%02d%02d09f*.xml" % (file_path, year, month, day)))
-    # files.extend(glob.glob("%s/*%04d%02d%02d15f*.xml" % (file_path, year, month, day)))
-    # files.extend(glob.glob("%s/*%04d%02d%02d21f*.xml" % (file_path, year, month, day)))
-    # print(files)
-
-    dss = []
-    # Counter for timer number
-    fileNo = 1
-    # Initialize x and y distance values for the haversine function.
-    dx = 0
-    dy = 0
-    # create arrays for fronts in different periods
+    dss = [] # Dataset with front data organized by front type.
     for filename in files:
-        z_time = (fileNo-1)*3
-        fileNo = fileNo + 1
         print(filename)
-        # Load XML Data
         tree = ET.parse(filename, parser=ET.XMLParser(encoding='utf-8'))
         root = tree.getroot()
-        # Split Off Date, Could be Useful later
         date = filename.split('_')[-1].split('.')[0].split('f')[0]
-        # Define Holding Lists for Data as Read from XML (Latitude and Longitude declared earlier)
         fronttype = []
         frontnumber = []
-        fronts_number = [] # this array is for the interpolated points' front types
+        fronts_number = [] # List array is for the interpolated points' front numbers.
         dates = []
-        # Define counter for front number.
-        i = 0
+        i = 0 # Define counter for front number.
         lats = []
         lons = []
-        # Define counter for point number.
         point_number = 0
-        # Create array to assign points to a specific front, or assign it a value if a front has already been analyzed.
-        front_points = []
-        # Create array to assign front types to interpolated points.
+        front_points = [] # List that shows which points are in each front.
         front_types = []
-        # Create array to assign dates to interpolated points.
         front_dates = []
-        # Create arrays for holding interpolated lat/lon data points.
         fronts_lon_array = []
         fronts_lat_array = []
-        # Iterate through all Frontal Line objects
         for line in root.iter('Line'):
-            # Add to counter for each new front.
             i = i + 1
-            # Store relevant info for dataframe.
             frontno = i
             frontty = line.get("pgenType")
+
             # Declare "temporary" x and y variables which will be used to add elements to the distance arrays.
             x_km_temp = 0
             y_km_temp = 0
-            # Create x and y distance arrays
+
             x_km = []
             y_km = []
-            # print("Front %d" % i)
             if point_number != 0:
                 front_points.append(point_number)
-            # Collect all data points along the front.
             for point in line.iter('Point'):
                 point_number = point_number + 1
                 dates.append(date)
                 frontnumber.append(frontno)
                 fronttype.append(frontty)
                 lats.append(float(point.get("Lat")))
+
                 # For longitude - we want to convert these values to a 360° system. This will allow us to properly
                 # interpolate across the dateline. If we were to use a longitude domain of -180° to 180° rather than
                 # 0° to 360°, the interpolated points would wrap around the entire globe.
@@ -171,10 +243,10 @@ def read_xml_files(year, month, day):
                     lons.append(float(point.get("Lon")))
 
         # This is the second step in converting longitude to a 360° system. Fronts that cross the prime meridian are
-        # only partially corrected due to one side of the front having a negative longitude coordinate. So, we will convert
-        # the positive points to the system as well for a consistent adjustment. It is important to note that these fronts
-        # that cross the prime meridian (0°E/W) will have a range of 0° to 450° rather than 0° to 360°. This will NOT
-        # affect the interpolation of the fronts.
+        # only partially corrected due to one side of the front having a negative longitude coordinate. So, we will
+        # convert the positive points to the system as well for a consistent adjustment. It is important to note that
+        # these fronts that cross the prime meridian (0°E/W) will have a range of 0° to 450° rather than 0° to 360°.
+        # This will NOT affect the interpolation of the fronts.
         for x in range(0,len(front_points)):
             if x==0:
                 for y in range(0,front_points[x-1]):
@@ -185,7 +257,6 @@ def read_xml_files(year, month, day):
                     if(lons[y]<90 and max(lons[front_points[x-1]:front_points[x]])>270):
                         lons[y] = lons[y] + 360
 
-        # Create x/y coordinate arrays through use of the haversine function.
         for l in range(1,len(lats)):
             lon1 = lons[l-1]
             lat1 = lats[l-1]
@@ -197,57 +268,45 @@ def read_xml_files(year, month, day):
             x_km.append(x_km_temp)
             y_km.append(y_km_temp)
 
-        # Reset front counter
+        # Reset the front counter.
         i = 0
-        # Separate front data for x/y coordinate systems.
+
         for line in root.iter('Line'):
-            # Pull front number and type
             frontno = i
             frontty = line.get("pgenType")
-            # Create new arrays for separate fronts
+
+            # Create new arrays for holding coordinates from separate fronts.
             x_km_new = []
             y_km_new = []
+
             i = i + 1
-            # Assign points in x/y coordinates to new arrays for easy analysis.
             if i == 1:
                 x_km_new = x_km[0:front_points[i-1]-1]
                 y_km_new = y_km[0:front_points[i-1]-1]
             elif i < len(front_points):
                 x_km_new = x_km[front_points[i-2]-1:front_points[i-1]-1]
                 y_km_new = y_km[front_points[i-2]-1:front_points[i-1]-1]
-
-            # Perform necessary interpolation steps if the new coordinate array (front) has more than one point. If there is
-            # one point or no points at all, the front will not be interpolated.
             if len(x_km_new)>1:
-                # Create arrays of interpolated points in lat/lon coordinates
                 lon_new = []
                 lat_new = []
-                distance = 25 # Cartesian interval distance in km
-                # Check to see whether points in the array are erroneous. Erroneous points can be caused by invalid
-                # latitude/longitude coordinates in the data files.
+                distance = 25 # Cartesian interval distance in kilometers.
                 if (max(x_km_new)>100000 or min(x_km_new)<-100000 or max(y_km_new)>100000 or min(y_km_new)<-100000):
-                    print("ERROR: Front %d contains corrupt data points, no points will be interpolated from this front." % i)
+                    print("ERROR: Front %d contains corrupt data points, no points will be interpolated from the front."
+                          % i)
                 else:
-                    xy_linestring = geometric(x_km_new, y_km_new) # turn Cartesian arrays into LineString
-                    xy_vertices = redistribute_vertices(xy_linestring, distance) # redistribute Cartesian points every 25km
+                    xy_linestring = geometric(x_km_new, y_km_new)
+                    xy_vertices = redistribute_vertices(xy_linestring, distance)
                     x_new,y_new = xy_vertices.xy
-
-
-
-                    # Convert interpolated x/y points back to lat/lon coordinates through the reverse haversine function.
                     for a in range(1,len(x_new)):
                         dx = x_new[a]-x_new[a-1]
                         dy = y_new[a]-y_new[a-1]
-                        lon1, lon2, lat1, lat2 = reverse_haversine(lons, lats, lon_new, lat_new, front_points, i, a, dx, dy)
-                        # Assign interpolated points in lat/lon to new arrays that will contain all interpolated points of
-                        # all fronts found in the data file.
+                        lon1, lon2, lat1, lat2 = reverse_haversine(lons, lats, lon_new, lat_new, front_points, i, a, dx,
+                                                                   dy)
                         if a==1:
                             lon_new.append(lon1)
                             lat_new.append(lat1)
                         lon_new.append(lon2)
                         lat_new.append(lat2)
-                    # Convert longitude points back to the normal range (-180° to 180°) and assign the interpolated points
-                    # to arrays with their respective coordinates, number, type, and date.
                     for c in range(0,len(lon_new)):
                         if (lon_new[c]>179.999):
                             fronts_lon_array.append(lon_new[c]-360)
@@ -258,25 +317,6 @@ def read_xml_files(year, month, day):
                         front_types.append(frontty)
                         front_dates.append(date)
 
-                        # The following functions will make plots of the front's or file's xy coordinates before and/or
-                        # after interpolation. These are mainly used for debugging purposes and should be commented out
-                        # when not debugging to prevent system performance issues.
-
-                        # Plot individual fronts in xy coordinates before and after interpolation
-                        #Plot_separated_fronts.plot_front_xy(x_km_new, y_km_new, x_new, y_new, date, args.image_outdir, i)
-
-                        # Plot individual fronts in lat/lon coordinates after interpolation. Remember that these arrays
-                        # contain longitude coordinates that are in the 360° system and fronts that cross the prime meridian
-                        # (0°E/W) may have longitude coordinates with values up to 450°.
-                        #Plot_separated_fronts.plot_front_latlon(lon_new, lat_new, date, args.image_outdir, i)
-
-                        # Plot all fronts in xy coordinates before interpolation. These arrays contain all points in the
-                        # current xml file. Remember that longitudinal distances are still based on the 360° system used
-                        # before interpolation.
-                        #if i==1:
-                            #Plot_separated_fronts.plot_file_xy(x_km, y_km, date, args.image_outdir)
-
-        # Create 6H dataframe
         df = pd.DataFrame(list(zip(front_dates, fronts_number, front_types, fronts_lat_array, fronts_lon_array)),
             columns=['Date', 'Front Number', 'Front Type', 'Latitude', 'Longitude'])
         df['Latitude'] = df.Latitude.astype(float)
@@ -292,7 +332,9 @@ def read_xml_files(year, month, day):
         for i in range(0, len(types)):
             type_df = df[df['Front Type'] == types[i]]
             groups = type_df.groupby(['xit', 'yit'])
-            # Create a variable for the total number of fronts that occur in each grid space.
+
+            # Create variable "frequency" that describes the number of times a specific front type is present in each
+            # gridspace.
             frequency = np.zeros((yit.shape[0] + 1, xit.shape[0] + 1))
             for group in groups:
                 frequency[group[1].yit.values[0], group[1].xit.values[0]] += np.where(
@@ -300,6 +342,7 @@ def read_xml_files(year, month, day):
             frequency = frequency[1:322, 1:1442]
             ds = xr.Dataset(data_vars={"Frequency": (['Latitude', 'Longitude'], frequency)},
                             coords={'Latitude': yit, 'Longitude': xit})
+
             type_da.append(ds)
         ds = xr.concat(type_da, dim=types)
         ds = ds.rename({'concat_dim': 'Type'})
@@ -317,9 +360,9 @@ if __name__ == "__main__":
     parser.add_argument('--image_outdir', type=str, required=False, help="output directory for image files")
     parser.add_argument('--netcdf_outdir', type=str, required=False, help="output directory for netcdf files")
     args = parser.parse_args()
-    # read the polygons for the specified day
+
     xmls = read_xml_files(args.year, args.month, args.day)
-    # Output the fronts in a netCDF file.
+
     netcdf_outtime = str('%04d%02d%02d' % (args.year, args.month, args.day))
     out_file_name = 'FrontalCounts_%s.nc' % netcdf_outtime
     out_file_path = os.path.join(args.netcdf_outdir, out_file_name)
