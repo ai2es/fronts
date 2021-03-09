@@ -18,11 +18,31 @@ import theta_wetbulb as wb
 
 def read_xml_files_ERA5(year, month, day, hour):
     """
-    Read in xml files for climatology
-    :param year:
-    :param month:
-    :param day:
-    :return:
+    Read the xml files to pull frontal objects.
+
+    Parameters
+    ----------
+    year: int
+    month: int
+    day: int
+    hour: int
+        Hour of the day in UTC.
+
+    Returns
+    -------
+    df: DataFrame
+        DataFrame containing frontal data organized by date, type, number, and coordinates.
+    cold_front: ndarray
+        Numpy array containing indices where cold fronts are present in the DataFrame.
+    warm_front: ndarray
+        Numpy array containing indices where warm fronts are present in the DataFrame.
+    occluded_front: ndarray
+        Numpy array containing indices where occluded fronts are present in the DataFrame.
+    stationary_front: ndarray
+        Numpy array containing indices where stationary fronts are present in the DataFrame.
+    dryline: ndarray
+        Numpy array containing indices where drylines are present in the DataFrame.
+
     """
     file_path = "C:/Users/sling/PycharmProjects/fronts/xmls_2006122012-2020061900"
     print(file_path)
@@ -167,24 +187,25 @@ def read_xml_files_ERA5(year, month, day, hour):
         occluded_front_diss = np.where(df['Front Type']=='OCCLUDED_FRONT_DISS')[0]
         stationary_front = np.where(df['Front Type']=='STATIONARY_FRONT')[0]
         dryline = np.where(df['Front Type']=='DRY_LINE')[0]
-
+        print(type(warm_front))
         return df, cold_front, warm_front, occluded_front, stationary_front, dryline
 
 def cold_front_latlon_arrays(df, cold_front):
-    """Return coordinates for points where cold fronts are located.
+    """
+    Return coordinates for points where cold fronts are located.
 
     Parameters
     ----------
-    df: dataframe
-        Dataframe containing points, front type, front number, and date.
-    cold_front: array
+    df: DataFrame
+        DataFrame containing points, front type, front number, and date.
+    cold_front: ndarray
         Numpy array containing indices where cold fronts are located in the dataframe.
 
     Returns
     -------
-    cold_front_lon: array
+    cold_front_lon: ndarray
         Numpy array with points of longitude where cold fronts are located.
-    cold_front_lat: array
+    cold_front_lat: ndarray
         Numpy array with points of latitude where cold fronts are located.
 
     """
@@ -196,20 +217,21 @@ def cold_front_latlon_arrays(df, cold_front):
     return cold_front_lon, cold_front_lat
 
 def warm_front_latlon_arrays(df, warm_front):
-    """Return coordinates for points where warm fronts are located.
+    """
+    Return coordinates for points where warm fronts are located.
 
     Parameters
     ----------
-    df: dataframe
-        Dataframe containing points, front type, front number, and date.
-    warm_front: array
+    df: DataFrame
+        DataFrame containing points, front type, front number, and date.
+    warm_front: ndarray
         Numpy array containing indices where warm fronts are located in the dataframe.
 
     Returns
     -------
-    warm_front_lon: array
+    warm_front_lon: ndarray
         Numpy array with points of longitude where warm fronts are located.
-    warm_front_lat: array
+    warm_front_lat: ndarray
         Numpy array with points of latitude where warm fronts are located.
 
     """
@@ -222,20 +244,21 @@ def warm_front_latlon_arrays(df, warm_front):
 
 
 def occluded_front_latlon_arrays(df, occluded_front):
-    """Return coordinates for points where occluded fronts are located.
+    """
+    Return coordinates for points where occluded fronts are located.
 
     Parameters
     ----------
-    df: dataframe
-        Dataframe containing points, front type, front number, and date.
-    occluded_front: array
+    df: DataFrame
+        DataFrame containing points, front type, front number, and date.
+    occluded_front: ndarray
         Numpy array containing indices where occluded fronts are located in the dataframe.
 
     Returns
     -------
-    occluded_front_lon: array
+    occluded_front_lon: ndarray
         Numpy array with points of longitude where occluded fronts are located.
-    occluded_front_lat: array
+    occluded_front_lat: ndarray
         Numpy array with points of latitude where occluded fronts are located.
 
     """
@@ -247,20 +270,21 @@ def occluded_front_latlon_arrays(df, occluded_front):
     return occluded_front_lon, occluded_front_lat
 
 def stationary_front_latlon_arrays(df, stationary_front):
-    """Return coordinates for points where stationary fronts are located.
+    """
+    Return coordinates for points where stationary fronts are located.
 
     Parameters
     ----------
-    df: dataframe
-        Dataframe containing points, front type, front number, and date.
-    stationary_front: array
+    df: DataFrame
+        DataFrame containing points, front type, front number, and date.
+    stationary_front: ndarray
         Numpy array containing indices where stationary fronts are located in the dataframe.
 
     Returns
     -------
-    stationary_front_lon: array
+    stationary_front_lon: ndarray
         Numpy array with points of longitude where stationary fronts are located.
-    stationary_front_lat: array
+    stationary_front_lat: ndarray
         Numpy array with points of latitude where stationary fronts are located.
 
     """
@@ -272,21 +296,22 @@ def stationary_front_latlon_arrays(df, stationary_front):
     return stationary_front_lon, stationary_front_lat
 
 def dryline_latlon_arrays(df, dryline):
-    """Return coordinates for points where dryline fronts are located.
+    """
+    Return coordinates for points where drylines are located.
 
     Parameters
     ----------
-    df: dataframe
-        Dataframe containing points, front type, front number, and date.
-    dryline: array
-        Numpy array containing indices where dryline fronts are located in the dataframe.
+    df: DataFrame
+        DataFrame containing points, front type, front number, and date.
+    dryline: ndarray
+        Numpy array containing indices where drylines are located in the dataframe.
 
     Returns
     -------
-    dryline_front_lon: array
-        Numpy array with points of longitude where dryline fronts are located.
-    dryline_front_lat: array
-        Numpy array with points of latitude where dryline fronts are located.
+    dryline_front_lon: ndarray
+        Numpy array with points of longitude where drylines are located.
+    dryline_front_lat: ndarray
+        Numpy array with points of latitude where drylines are located.
 
     """
     dryline_lon = []
@@ -297,36 +322,39 @@ def dryline_latlon_arrays(df, dryline):
     return dryline_lon, dryline_lat
 
 def wind_components_dataset(ds_U10m, ds_V10m):
-    """Returns xarray dataset containing u (zonal) and v (meridional) wind components.
+    """
+    Returns xarray dataset containing u (zonal) and v (meridional) wind components.
 
     Parameters
     ----------
     ds_U10m: Dataset
-        Dataset containing u wind components at 10 meters above the surface.
+        Dataset containing u wind components at 10 meters above the surface. Wind speed is in meters per second.
     ds_V10m: Dataset
-        Dataset containing v wind components at 10 meters above the surface.
+        Dataset containing v wind components at 10 meters above the surface. Wind speed is in meters per second.
 
     Returns
     -------
     ds_wind: Dataset
-        Dataset containing both u and v wind components at 10 meters above the surface.
+        Dataset containing both u and v wind components at 10 meters above the surface. Wind speed is in meters per
+        second.
 
     """
     ds_wind = xr.merge((ds_U10m, ds_V10m))
     return ds_wind
 
 def plot_background(extent):
-    """Returns plot background.
+    """
+    Returns new background for the plot.
 
     Parameters
     ----------
-    extent: Array
-        Extent/boundaries of the plot.
+    extent: ndarray
+        Numpy array containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat].
 
     Returns
     -------
-    ax: GeoAxes
-        New background for the plot.
+    ax: GeoAxesSubplot
+        New plot background.
 
     """
     crs = ccrs.LambertConformal(central_longitude=250)
