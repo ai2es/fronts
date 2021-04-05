@@ -13,7 +13,6 @@ import create_NC_files
 import xml.etree.ElementTree as ET
 import numpy as np
 import pandas as pd
-import math
 import theta_wetbulb as wb
 
 def read_xml_files_ERA5(year, month, day, hour):
@@ -44,7 +43,7 @@ def read_xml_files_ERA5(year, month, day, hour):
         Numpy array containing indices where drylines are present in the DataFrame.
 
     """
-    file_path = "C:/Users/sling/PycharmProjects/fronts/xmls_2006122012-2020061900"
+    file_path = "E:/FrontsProjectData/xmls_2006122012-2020061900"
     print(file_path)
     files = glob("%s/pres_pmsl_%d%02d%02d%02df000.xml" % (file_path, year, month, day, hour))
 
@@ -182,12 +181,21 @@ def read_xml_files_ERA5(year, month, day, hour):
         df = df.assign(yit=np.digitize(df['Latitude'].values, yit))
 
         cold_front = np.where(df['Front Type']=='COLD_FRONT')[0]
+        cold_front_diss = np.where(df['Front Type']=='COLD_FRONT_DISS')[0]
+        cold_front_form = np.where(df['Front Type']=='COLD_FRONT_FORM')[0]
         warm_front = np.where(df['Front Type']=='WARM_FRONT')[0]
+        warm_front_diss = np.where(df['Front Type']=='WARM_FRONT_DISS')[0]
+        warm_front_form = np.where(df['Front Type']=='WARM_FRONT_FORM')[0]
         occluded_front = np.where(df['Front Type']=='OCCLUDED_FRONT')[0]
         occluded_front_diss = np.where(df['Front Type']=='OCCLUDED_FRONT_DISS')[0]
+        occluded_front_form = np.where(df['Front Type']=='OCCLUDED_FRONT_FORM')[0]
         stationary_front = np.where(df['Front Type']=='STATIONARY_FRONT')[0]
+        stationary_front_diss = np.where(df['Front Type']=='STATIONARY_FRONT_DISS')[0]
+        stationary_front_form = np.where(df['Front Type']=='STATIONARY_FRONT_FORM')[0]
+        instability = np.where(df['Front Type']=='INSTABILITY')[0]
+        trof = np.where(df['Front Type']=='TROF')[0]
+        tropical_trof = np.where(df['Front Type']=='TROPICAL_TROF')[0]
         dryline = np.where(df['Front Type']=='DRY_LINE')[0]
-        print(type(warm_front))
         return df, cold_front, warm_front, occluded_front, stationary_front, dryline
 
 def cold_front_latlon_arrays(df, cold_front):
@@ -359,12 +367,40 @@ def plot_background(extent):
     """
     crs = ccrs.LambertConformal(central_longitude=250)
     ax = plt.axes(projection=crs)
-    ax.gridlines()
+    #ax.gridlines()
     ax.add_feature(cfeature.COASTLINE.with_scale('50m'), linewidth=0.5)
     ax.add_feature(cfeature.BORDERS,linewidth=0.5)
     ax.add_feature(cfeature.STATES,linewidth=0.5)
     ax.set_extent(extent, crs=ccrs.PlateCarree())
     return ax
+
+def create_datasets(year, month, day, netcdf_ERA5_indir):
+    in_file_name_2mT = 'ERA5Global_%d_3hrly_2mT.nc' % (year)
+    in_file_name_2mTd = 'ERA5Global_%d_3hrly_2mTd.nc' % (year)
+    in_file_name_sp = 'ERA5Global_%d_3hrly_sp.nc' % (year)
+    in_file_name_U10m = 'ERA5Global_%d_3hrly_U10m.nc' % (year)
+    in_file_name_V10m = 'ERA5Global_%d_3hrly_V10m.nc' % (year)
+
+    ds_2mT = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_2mT))
+    ds_2mTd = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_2mTd))
+    ds_sp = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_sp))
+    ds_U10m = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_U10m))
+    ds_V10m = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_V10m))
+
+    timestring = "%d-%02d-%02d" % (year, month, day)
+
+    ds_2mT = ds_2mT.sel(time='%s' % timestring)
+    ds_2mTd = ds_2mTd.sel(time='%s' % timestring)
+    ds_sp = ds_sp.sel(time='%s' % timestring)
+    ds_U10m = ds_U10m.sel(time='%s' % timestring)
+    ds_V10m = ds_V10m.sel(time='%s' % timestring)
+    ds_wind = wind_components_dataset(ds_U10m, ds_V10m)
+
+    ds = xr.merge((ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m))
+
+    ds_theta_w = wb.theta_w_calculation(ds.t2m, ds.d2m, ds.sp)
+
+    return ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_wind, ds_theta_w
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create labeled data for the specified day")
@@ -390,52 +426,39 @@ if __name__ == "__main__":
     if args.year == None:
         print('ERROR: Year must be declared.')
     else:
-        in_file_name_2mT = 'ERA5_%d_3hrly_2mT.nc' % (args.year)
-        in_file_name_2mTd = 'ERA5_%d_3hrly_2mTd.nc' % (args.year)
-        in_file_name_sp = 'ERA5_%d_3hrly_sp.nc' % (args.year)
-        in_file_name_U10m = 'ERA5_%d_3hrly_U10m.nc' % (args.year)
-        in_file_name_V10m = 'ERA5_%d_3hrly_V10m.nc' % (args.year)
+        ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_wind, ds_theta_w = create_datasets(args.year, args.month, args.day,
+                                                                                        args.netcdf_ERA5_indir)
 
-        ds_2mT = xr.open_mfdataset("%s/%s" % (args.netcdf_ERA5_indir, in_file_name_2mT))
-        ds_2mTd = xr.open_mfdataset("%s/%s" % (args.netcdf_ERA5_indir, in_file_name_2mTd))
-        ds_sp = xr.open_mfdataset("%s/%s" % (args.netcdf_ERA5_indir, in_file_name_sp))
-        ds_U10m = xr.open_mfdataset("%s/%s" % (args.netcdf_ERA5_indir, in_file_name_U10m))
-        ds_V10m = xr.open_mfdataset("%s/%s" % (args.netcdf_ERA5_indir, in_file_name_V10m))
-
-        timestring = "%d-%02d-%02dT%02d:00:00" % (args.year, args.month, args.day, args.hour)
-
-        ds_2mT = ds_2mT.sel(time='%s' % timestring)
-        ds_2mTd = ds_2mTd.sel(time='%s' % timestring)
-        ds_sp = ds_sp.sel(time='%s' % timestring)
-        ds_U10m = ds_U10m.sel(time='%s' % timestring)
-        ds_V10m = ds_V10m.sel(time='%s' % timestring)
-        ds_wind = wind_components_dataset(ds_U10m, ds_V10m)
-
-        ds = xr.merge((ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m))
-
-        ds_theta_w = wb.theta_w_calculation(ds.t2m, ds.d2m, ds.sp)
-
-    extent = [-100, -90, 39, 46]
+    extent = [238, 283, 25, 50]
     ax = plot_background(extent)
 
     plotname = "%d-%02d-%02d-%02dz" % (args.year, args.month, args.day, args.hour)
     plt.title("%d-%02d-%02d-%02dz" % (args.year, args.month, args.day, args.hour))
+    
+    ds_theta_w = ds_theta_w.to_dataset(name='theta_w')
 
-    ds_2mT.t2m.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
+    #ds_theta_w.theta_w.sel(latitude=slice(extent[3]+10,extent[2]-10), longitude=slice(extent[0]-10,extent[1]+10)).plot(
+    #    ax=ax,x='longitude',y='latitude', cmap="terrain_r", transform=ccrs.PlateCarree())
+
+    #ds_2mT.t2m.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
+    ds_2mTd.d2m.plot(ax=ax,x='longitude',y='latitude', cmap='terrain_r', transform=ccrs.PlateCarree())
     #ds_sp.sp.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
     #ds.sp.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
     #ds.u10.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
-    #ds.v10.sel(latitude=slice(38.5,35), longitude=slice(250,320), time='%s' % timestring).plot(ax=ax,x='longitude'
-                #,y='latitude',transform=ccrs.PlateCarree())
+    #ds.v10.sel(latitude=slice(38.5,35), longitude=slice(240,320)).plot(ax=ax,x='longitude',
+    #            y='latitude',transform=ccrs.PlateCarree())
 
-    plt.barbs(ds.longitude.values, ds.latitude.values, u=ds_U10m.u10.values*1.94384, v=ds_V10m.v10.values*1.94384,
-              linewidth=0.15, color='black',
-              length=math.sqrt(np.power((extent[1]-extent[0]),2)+np.power((extent[3]-extent[2]),2))/4,
-              sizes={'height': 0.5, 'width': 0}, transform=ccrs.PlateCarree())
-    plt.scatter(x=cold_front_lon, y=cold_front_lat, s=0.25, transform=ccrs.PlateCarree(), marker='o', color='blue')
-    plt.scatter(x=warm_front_lon, y=warm_front_lat, s=0.25, transform=ccrs.PlateCarree(), marker='o', color='red')
-    plt.scatter(x=occluded_front_lon, y=occluded_front_lat, s=0.25, transform=ccrs.PlateCarree(), marker='o',
+    barbs_longitude = ds_2mT.longitude.values[::4]
+    barbs_latitude = ds_2mT.latitude.values[::4]
+    barbs_u = ds_U10m.u10.values[::4,::4]
+    barbs_v = ds_V10m.v10.values[::4,::4]
+
+    #plt.barbs(barbs_longitude, barbs_latitude, u=barbs_u*1.94384, v=barbs_v*1.94384, linewidth=0.3,
+    #          color='black', length=4, sizes={'height': 0.5, 'width': 0}, transform=ccrs.PlateCarree())
+    plt.scatter(x=cold_front_lon, y=cold_front_lat, s=4, transform=ccrs.PlateCarree(), marker='^', color='blue')
+    plt.scatter(x=warm_front_lon, y=warm_front_lat, s=4, transform=ccrs.PlateCarree(), marker='o', color='red')
+    plt.scatter(x=occluded_front_lon, y=occluded_front_lat, s=4, transform=ccrs.PlateCarree(), marker='o',
                 color='purple')
-    plt.scatter(x=dryline_lon, y=dryline_lat, s=0.25, transform=ccrs.PlateCarree(), marker='o', color='orange')
+    plt.scatter(x=dryline_lon, y=dryline_lat, s=4, transform=ccrs.PlateCarree(), marker='o', color='orange')
 
-    plt.savefig(os.path.join(args.image_outdir,'%s_ERA5_plot.png' % plotname), bbox_inches='tight', dpi=2000)
+    plt.savefig(os.path.join(args.image_outdir,'%s_ERA5_plot.png' % plotname), bbox_inches='tight', dpi=1000)
