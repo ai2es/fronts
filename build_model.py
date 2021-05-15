@@ -1,31 +1,22 @@
 """UNet model"""
 
-import numpy as np
 import xarray as xr
 import pandas as pd
 from glob import glob
-import time
 import argparse
 from keras_unet_collection import models
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import CategoricalCrossentropy
 import Plot_ERA5
 import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 import os
 import matplotlib.pyplot as plt
-import pickle
-from tensorflow.keras.utils import Sequence
 import numpy as np
 global list_IDs
-import tensorflow.keras
 
-def training_generator(frontobject_window_files, surfacedata_window_files):
+def training_generator(frontobject_window_files, surfacedata_window_files, input_name, output_name):
 
     num_indices = len(frontobject_window_files)
-    num_batches = int(num_indices/7) # 7 different sets of latitude arrays per longitude array
-    print(num_batches)
 
     for i in range(0,num_indices,126):
         time = pd.read_pickle(frontobject_window_files[i]).time.values
@@ -43,14 +34,14 @@ def training_generator(frontobject_window_files, surfacedata_window_files):
                 lons = fronts_dss.longitude.values
                 for l in range(0,2):
                     for m in range(0,6):
-                        fronts_da = fronts_dss.sel(latitude=slice(lats[0+l],lats[15+l]),
-                                                   longitude=slice(lons[7*m],lons[7*m+15])).to_array()
-                        sfcdata_da = sfcdata_dss.sel(latitude=slice(lats[0+l],lats[15+l]),
-                                                     longitude=slice(lons[7*m],lons[7*m+15])).to_array()
-                        print(fronts_da)
-                        print(sfcdata_da)
-                        yield({'input': sfcdata_da,
-                               'output': fronts_da})
+                        fronts = fronts_dss.sel(latitude=slice(lats[0+l],lats[15+l]),
+                                                longitude=slice(lons[7*m],lons[7*m+15])
+                                                ).to_array().T.values.reshape(1,16,16,1)
+                        sfcdata = sfcdata_dss.sel(latitude=slice(lats[0+l],lats[15+l]),
+                                                  longitude=slice(lons[7*m],lons[7*m+15])
+                                                  ).to_array().T.values.reshape(1,16,16,6)
+                        yield({input_name: sfcdata,
+                               output_name: fronts})
 
 def load_files(pickle_indir):
     print("\n=== LOADING FILES ===")
@@ -99,8 +90,6 @@ def file_removal(frontobject_window_files, surfacedata_window_files, pickle_indi
 # UNet model
 def train_unet(frontobject_window_files, surfacedata_window_files):
 
-    generator = training_generator(frontobject_window_files, surfacedata_window_files)
-
     print("Creating unet....", end='')
     model = models.unet_2d((16, 16, 6), [16, 32, 64, 128, 256], n_labels=1, stack_num_down=3,
                             stack_num_up=3, activation='ReLU', output_activation='Softmax',
@@ -111,28 +100,13 @@ def train_unet(frontobject_window_files, surfacedata_window_files):
     model.compile(loss='categorical_crossentropy', optimizer=Adam(lr=1e-4), metrics=tf.keras.metrics.AUC())
     print('done')
 
-    #model.summary()
+    layer_names=[layer.name for layer in model.layers]
+    input_name = layer_names[0]
+    output_name = layer_names[-1]
 
-    #while tries>0:
-    #    try:
-    history = model.fit_generator(generator=generator, verbose=1, epochs=5, steps_per_epoch=2)
-    #    except:
-    #        time.sleep(2)
-    #        tries -= 1
-    #        print("Model fit failed... %d tries left" % tries)
+    generator = training_generator(frontobject_window_files, surfacedata_window_files, input_name, output_name)
 
-#    print('\nSaving model history....', end='')
-#    model_history_file = open('%s/front_model_unet_20epochs.txt' % model_outdir,'w')
-#    model_history_file.write(str(history.history))
-#    model_history_file.close()
-#    print('done')
-
-#    print("Saving model....", end='')
-#    filename = '%s/front_model_unet_20epochs.h5' % model_outdir
-#    model.save(filename)
-#    print("done")
-
-    #evaluate_model(X_test, filename, frontobject_conus_df, train_length)
+    history = model.fit_generator(generator=generator, steps_per_epoch=1, verbose=1, epochs=5)
 
 def evaluate_model(X_test, filename, frontobject_conus_df, train_length):
 
@@ -148,7 +122,6 @@ def evaluate_model(X_test, filename, frontobject_conus_df, train_length):
 
     print(prediction)
     print(prediction.shape)
-
 
     prediction_dss = frontobject_conus_df.to_xarray()
     prediction_df = prediction_dss.sel(time=prediction_dss.time.values[train_length+1::])
