@@ -11,9 +11,12 @@ import Plot_ERA5
 import cartopy.crs as ccrs
 import os
 import matplotlib.pyplot as plt
+import pickle
 import numpy as np
+from tensorflow.keras.utils import to_categorical
 global list_IDs
 
+"""
 def training_generator(frontobject_window_files, surfacedata_window_files, input_name, output_name):
 
     num_indices = len(frontobject_window_files)
@@ -40,8 +43,24 @@ def training_generator(frontobject_window_files, surfacedata_window_files, input
                         sfcdata = sfcdata_dss.sel(latitude=slice(lats[0+l],lats[15+l]),
                                                   longitude=slice(lons[7*m],lons[7*m+15])
                                                   ).to_array().T.values.reshape(1,16,16,6)
-                        yield({input_name: sfcdata,
-                               output_name: fronts})
+                        yield({input_name: sfcdata},
+                              {output_name: fronts})
+"""
+
+def training_generator(frontobject_window_files, surfacedata_window_files, input_name, output_name):
+
+    i = 0
+    while True:
+        lons = pd.read_pickle(frontobject_window_files[i]).longitude.values[0:16]
+        lats = pd.read_pickle(frontobject_window_files[i]).latitude.values[0:16]
+        fronts = pd.read_pickle(frontobject_window_files[i]).sel(longitude=lons, latitude=lats
+                                                                 ).to_array().T.values.reshape(1,16,16)
+        binarized_fronts = to_categorical(fronts, num_classes=3)
+        sfcdata = pd.read_pickle(surfacedata_window_files[i]).sel(longitude=lons, latitude=lats
+                                                                  ).to_array().T.values.reshape(1,16,16,6)
+        i += 1
+        yield({input_name: sfcdata},
+              {output_name: binarized_fronts})
 
 def load_files(pickle_indir):
     print("\n=== LOADING FILES ===")
@@ -51,7 +70,7 @@ def load_files(pickle_indir):
 
     print("Collecting surface data files....", end='')
     surfacedata_window_files = sorted(glob("%s/*/*/*/SurfaceData*lon*lat*.pkl" % pickle_indir))
-    print("done, %d files found\n" % len(surfacedata_window_files))
+    print("done, %d files found" % len(surfacedata_window_files))
 
     return frontobject_window_files, surfacedata_window_files
 
@@ -91,75 +110,81 @@ def file_removal(frontobject_window_files, surfacedata_window_files, pickle_indi
 def train_unet(frontobject_window_files, surfacedata_window_files):
 
     print("Creating unet....", end='')
-    model = models.unet_2d((16, 16, 6), [16, 32, 64, 128, 256], n_labels=1, stack_num_down=3,
+    model = models.unet_2d((16, 16, 6), [16, 32, 64, 128, 256], n_labels=3, stack_num_down=3,
                             stack_num_up=3, activation='ReLU', output_activation='Softmax',
                             batch_norm=True, pool=True, unpool=True, name='unet')
     print('done')
 
     print('Compiling unet....', end='')
-    model.compile(loss='categorical_crossentropy', optimizer=Adam(lr=1e-4), metrics=tf.keras.metrics.AUC())
+    cce = tf.keras.losses.CategoricalCrossentropy(from_logits=False, reduction="auto",
+                                                  name="categorical_crossentropy")
+    adam = tf.keras.optimizers.Adam(learning_rate=1e-4)
+
+    model.compile(loss=cce, optimizer=adam, metrics=tf.keras.metrics.AUC())
     print('done')
 
     layer_names=[layer.name for layer in model.layers]
     input_name = layer_names[0]
     output_name = layer_names[-1]
 
+    batch_size = 1
+    num_indices = len(frontobject_window_files)-10
+    num_batches = int(num_indices/126/batch_size)
+
     generator = training_generator(frontobject_window_files, surfacedata_window_files, input_name, output_name)
 
-    history = model.fit_generator(generator=generator, steps_per_epoch=1, verbose=1, epochs=5)
+    history = model.fit(generator, steps_per_epoch=126, verbose=1, epochs=num_batches, batch_size=batch_size,
+                        use_multiprocessing=False)
 
-def evaluate_model(X_test, filename, frontobject_conus_df, train_length):
+    model.save('E:/FrontsProjectData/models/front_model.h5')
+
+def evaluate_model(frontobject_window_files, surfacedata_window_files):
 
     print("==========================\n"
           "==== MODEL EVALUATION ====\n"
           "==========================\n")
+
     print("Loading model....", end='')
-    model = tf.keras.models.load_model(filename)
+    model = tf.keras.models.load_model('E:/FrontsProjectData/models/front_model.h5')
     print("done")
-    print("Testing model....", end='')
-    prediction = model.predict(X_test)
-    print("done")
+
+    fronts_filename = 'E:/FrontsProjectData/pickle_files/2008/05/25/FrontObjects_2008052521_lon(260_264)_lat(41_45).pkl'
+    sfcdata_filename = 'E:/FrontsProjectData/pickle_files/2008/05/25/SurfaceData_2008052521_lon(260_264)_lat(41_45).pkl'
+    lons = pd.read_pickle(fronts_filename).longitude.values[1:]
+    lats = pd.read_pickle(fronts_filename).latitude.values[1:]
+
+    fronts = pd.read_pickle(fronts_filename).sel(longitude=lons, latitude=lats)
+    sfcdata = pd.read_pickle(sfcdata_filename).sel(longitude=lons, latitude=lats)
+
+    prediction = model.predict(sfcdata.to_array().T.values.reshape(1,16,16,6)).reshape(16,16,3)
+    print(prediction.shape)
 
     print(prediction)
-    print(prediction.shape)
 
-    prediction_dss = frontobject_conus_df.to_xarray()
-    prediction_df = prediction_dss.sel(time=prediction_dss.time.values[train_length+1::])
-    print(prediction_df)
+    identifier = np.zeros([16,16])
+    print("Reformatting predictions....", end='')
+    for i in range(0,16):
+        for j in range(0,16):
+            if prediction[i][j][1] > 0.5:
+                identifier[i][j] = 1
+            elif prediction[i][j][2] > 0.5:
+                identifier[i][j] = 2
 
-    identifier = np.empty((prediction.shape[0],prediction.shape[1],prediction.shape[2]),dtype=int)
-    print(prediction.shape)
-    print(identifier.shape)
-
-    print("Binarizing predictions....",end='')
-    for i in range(0, 1129):
-        for j in range(0, 96):
-            for k in range(0, 96):
-                no_front_prob = prediction[i][j][k][0]
-                cold_front_prob = prediction[i][j][k][1]
-                warm_front_prob = prediction[i][j][k][2]
-                if cold_front_prob > 0.17:
-                    identifier[i][j][k] = 1
-                elif warm_front_prob > 0.17:
-                    identifier[i][j][k] = 2
-                else:
-                    identifier[i][j][k] = 0
-
-    prediction_df.identifier.values = identifier.reshape(96,96,1129)
+    fronts.identifier.values = identifier
 
     extent = [238, 283, 25, 50]
     ax = Plot_ERA5.plot_background(extent)
 
-    prediction_df.identifier.sel(time='2009-08-10T21:00:00').plot(ax=ax, x='longitude', y='latitude',
-                                                                  transform=ccrs.PlateCarree())
+    fronts.identifier.plot(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree())
     plt.savefig('E:/FrontsProjectData/models/model_prediction_plot.png', bbox_inches='tight', dpi=1000)
+    plt.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--pickle_indir', type=str, required=True, help='Path of pickle files containing front object'
                                                                         ' and surface data.')
     parser.add_argument('--file_removal', type=str, required=False, help='Remove extra files that cannot be used? '
-                                                                        '(True/False)')
+                                                                         '(True/False)')
     parser.add_argument('--model_outdir', type=str, required=False, help='Path where models will saved to')
     parser.add_argument('--model_filepath', type=str, required=False, help='Path where model for evaluation is saved')
     args = parser.parse_args()
@@ -175,8 +200,8 @@ if __name__ == "__main__":
                 print("ERROR: The number of front object and surface data files are not the same. You must remove "
                       "the extra files before data\ncan be processed by setting the '--file_removal' argument to "
                       "'True'.")
-        train_unet(frontobject_window_files, surfacedata_window_files)
-
+        evaluate_model(frontobject_window_files, surfacedata_window_files)
+        #train_unet(frontobject_window_files, surfacedata_window_files)
     else:
         print("ERROR: No directory for pickle files included, please declare where pickle files are located using the "
               "'--pickle_indir'\nargument.")
