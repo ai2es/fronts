@@ -2,168 +2,183 @@
 
 import random
 import pandas as pd
-from glob import glob
 import argparse
 from keras_unet_collection import models, losses
 import tensorflow as tf
-from tensorflow.keras.optimizers import Adam
-import gpu_config
 import Plot_ERA5
 import cartopy.crs as ccrs
-import os
+from keras.optimizers import Adam
 import matplotlib.pyplot as plt
 import pickle
 import numpy as np
 from tensorflow.keras.utils import to_categorical
+import file_manager as fm
 
-def generate_nonempty_file_lists(frontobject_window_files, surfacedata_window_files):
-    print("\n=== GENERATING NON-EMPTY FILE LISTS ===")
-    nonempty_front_files = []
-    nonempty_sfcdata_files = []
-    file_count = len(frontobject_window_files)
-    for i in range(0,file_count):
-        print("\rProcessing files....%d/%d" % (i,file_count), end='')
-        fronts = pd.read_pickle(frontobject_window_files[i]).identifier.values.flatten()
-        identifiers = np.count_nonzero(fronts)
-        if identifiers > 0:
-            nonempty_front_files.append(frontobject_window_files[i])
-            nonempty_sfcdata_files.append(surfacedata_window_files[i])
-    print("Processing files....done          ")
-    print("Saving lists....", end='')
-    with open('nonempty_front_files.pkl', 'wb') as f:
-        pickle.dump(nonempty_front_files, f)
-    with open('nonempty_sfcdata_files.pkl', 'wb') as f:
-        pickle.dump(nonempty_sfcdata_files, f)
-    print("done")
-
-def training_generator(nonempty_front_files, nonempty_sfcdata_files, input_name, output_name, batch_size):
+def training_generator(frontobject_conus_files, surfacedata_conus_files, map_size, empty_split, input_name, output_name,
+                       batch_size):
 
     while True:
-        indices = random.choices(range(len(nonempty_front_files)), k=batch_size)
-        for i in range(batch_size):
-            lons = pd.read_pickle(nonempty_front_files[indices[i]]).longitude.values[0:16]
-            lats = pd.read_pickle(nonempty_front_files[indices[i]]).latitude.values[0:16]
-            fronts = pd.read_pickle(nonempty_front_files[indices[i]]).sel(longitude=lons, latitude=lats
-                                                                          ).to_array().T.values.reshape(1,16,16)
+        front_dss = np.empty(shape=(batch_size,map_size,map_size,3))
+        sfcdata_dss = np.empty(shape=(batch_size,map_size,map_size,6))
+        indices = random.choices(range(len(frontobject_conus_files)-1), k=int(batch_size*(1-empty_split)))
+        for i in range(len(indices)):
+            with open(frontobject_conus_files[indices[i]], 'rb') as front_file:
+                front_ds = pickle.load(front_file)
+            with open(surfacedata_conus_files[indices[i]], 'rb') as sfcdata_file:
+                sfcdata_ds = pickle.load(sfcdata_file)
+            lon_index = random.choices(range(289-map_size))[0]
+            lat_index = random.choices(range(113-map_size))[0]
+            lons = front_ds.longitude.values[lon_index:lon_index+map_size]
+            lats = front_ds.latitude.values[lat_index:lat_index+map_size]
+            fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_size, map_size)
             binarized_fronts = to_categorical(fronts, num_classes=3)
-            sfcdata = pd.read_pickle(nonempty_sfcdata_files[indices[i]]).sel(longitude=lons, latitude=lats
-                                                                             ).to_array().T.values.reshape(1,16,16,6)
-            yield({input_name: sfcdata},
-                  {output_name: binarized_fronts})
+            sfcdata = sfcdata_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_size, map_size, 6)
+            front_dss[i] = binarized_fronts[0]
+            sfcdata_dss[i] = sfcdata[0]
+            front_file.close()
+            front_ds.close()
+            sfcdata_file.close()
+            sfcdata_ds.close()
+        yield ({input_name: sfcdata_dss},
+               {output_name: front_dss})
 
-def load_files(pickle_indir):
-    print("\n=== LOADING FILES ===")
-    print("Collecting front object files....", end='')
-    frontobject_window_files = sorted(glob("%s/*/*/*/FrontObjects*lon*lat*.pkl" % pickle_indir))
-    print("done, %d files found" % len(frontobject_window_files))
+def validation_generator(frontobject_conus_files, surfacedata_conus_files, map_size, empty_split, input_name, output_name,
+                         batch_size):
 
-    print("Collecting surface data files....", end='')
-    surfacedata_window_files = sorted(glob("%s/*/*/*/SurfaceData*lon*lat*.pkl" % pickle_indir))
-    print("done, %d files found" % len(surfacedata_window_files))
+    while True:
+        front_dss = np.empty(shape=(batch_size,map_size,map_size,3))
+        sfcdata_dss = np.empty(shape=(batch_size,map_size,map_size,6))
+        indices = random.choices(range(len(frontobject_conus_files)-1), k=int(batch_size*(1-empty_split)))
+        for i in range(batch_size):
+            with open(frontobject_conus_files[indices[i]], 'rb') as front_file:
+                front_ds = pickle.load(front_file)
+            with open(surfacedata_conus_files[indices[i]], 'rb') as sfcdata_file:
+                sfcdata_ds = pickle.load(sfcdata_file)
+            lon_index = random.choices(range(289-map_size))[0]
+            lat_index = random.choices(range(113-map_size))[0]
+            lons = front_ds.longitude.values[lon_index:lon_index+map_size]
+            lats = front_ds.latitude.values[lat_index:lat_index+map_size]
+            fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_size, map_size)
+            binarized_fronts = to_categorical(fronts, num_classes=3)
+            sfcdata = sfcdata_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_size, map_size, 6)
+            front_dss[i] = binarized_fronts[0]
+            sfcdata_dss[i] = sfcdata[0]
+            front_file.close()
+            front_ds.close()
+            sfcdata_file.close()
+            sfcdata_ds.close()
+        yield ({input_name: sfcdata_dss},
+               {output_name: front_dss})
 
-    return frontobject_window_files, surfacedata_window_files
-
-def file_removal(frontobject_window_files, surfacedata_window_files, pickle_indir):
-
-    print("=== FILE REMOVAL ===")
-
-    extra_files = len(surfacedata_window_files) - len(frontobject_window_files)
-    total_sfc_files = len(surfacedata_window_files)
-
-    frontobject_window_files_no_prefix = []
-    surfacedata_window_files_no_prefix = []
-
-    for i in range(0,len(frontobject_window_files)):
-        frontobject_window_files_no_prefix.append(frontobject_window_files[i].replace('FrontObjects_',''))
-    for j in range(0,len(surfacedata_window_files)):
-        surfacedata_window_files_no_prefix.append(surfacedata_window_files[j].replace('SurfaceData_',''))
-
-    frontobject_window_files_no_prefix = np.array(frontobject_window_files_no_prefix)
-    surfacedata_window_files_no_prefix = np.array(surfacedata_window_files_no_prefix)
-
-    k = 0
-    x = 0
-    print("Removing %d extra files....0/%d" % (extra_files, extra_files), end='\r')
-    for filename in surfacedata_window_files_no_prefix:
-        k = k + 1
-        if filename not in frontobject_window_files_no_prefix:
-            os.rename(surfacedata_window_files[k-1],
-                      surfacedata_window_files[k-1].replace("%s" % pickle_indir,
-                                                            "%s/unusable_pickle_files" % pickle_indir))
-            x += 1
-        print("Removing %d extra files....%d%s (%d/%d)" % (extra_files, 100*(k/total_sfc_files), '%', x, extra_files),
-              end='\r')
-    print("Removing %d extra files....done")
 
 # UNet model
-def train_unet():
-    print("\n==== MODEL TRAINING ====")
+def train_unet(frontobject_conus_files, surfacedata_conus_files, map_size, empty_split,
+               learning_rate, train_epochs, train_steps, train_batch_size, valid_steps, valid_batch_size, valid_freq,
+               workers, job_number):
+    """
+    Function that trains the unet model and saves the model along with its weights.
+    """
+    print("\n=== MODEL TRAINING ===")
     print("Creating unet....", end='')
-    model = models.unet_2d((16, 16, 6), [16, 32, 64, 128, 256], n_labels=3, stack_num_down=3,
-                            stack_num_up=3, activation='ReLU', output_activation='Softmax',
-                            batch_norm=True, pool=True, unpool=True, name='unet')
-    print('done')
 
+    model = models.unet_2d((map_size, map_size, 6), filter_num=[16, 32, 64, 128, 256], n_labels=3, stack_num_down=5,
+                           stack_num_up=5, activation='LeakyReLU', output_activation='Softmax',
+                           batch_norm=True, pool=True, unpool=True, name='unet')
+    print('done')
     print('Compiling unet....', end='')
     dice = losses.dice
     tversky = losses.tversky
-    adam = Adam(learning_rate=1e-4)
+    adam = Adam(learning_rate=learning_rate)
 
     model.compile(loss=dice, optimizer=adam, metrics=tf.keras.metrics.AUC())
     print('done')
 
-    layer_names=[layer.name for layer in model.layers]
+    model.summary()
+
+    layer_names = [layer.name for layer in model.layers]
     input_name = layer_names[0]
     output_name = layer_names[-1]
 
-    nonempty_front_files = pd.read_pickle('nonempty_front_files.pkl')
-    nonempty_sfcdata_files = pd.read_pickle('nonempty_sfcdata_files.pkl')
+    train_gen = training_generator(frontobject_conus_files, surfacedata_conus_files, map_size, empty_split, input_name,
+                                   output_name, train_batch_size)
+    valid_gen = validation_generator(frontobject_conus_files, surfacedata_conus_files, map_size, empty_split,
+                                     input_name, output_name, valid_batch_size)
 
-    batch_size = 100
+    history = model.fit(train_gen, validation_data=valid_gen, validation_freq=valid_freq, epochs=train_epochs,
+                        steps_per_epoch=train_steps, validation_steps=valid_steps, verbose=2, workers=workers)
 
-    generator = training_generator(nonempty_front_files, nonempty_sfcdata_files, input_name, output_name, batch_size)
+    model.save('/work/earnestb13/ajustin/fronts/models/model_%d.h5' % job_number)
+    model.save_weights("/work/earnestb13/ajustin/fronts/models/model_%d_weights.h5" % job_number)
 
-    history = model.fit(generator, epochs=2, steps_per_epoch=100)
 
-    model.save('E:/FrontsProjectData/models/front_model_dice.h5')
-
-def evaluate_model(frontobject_window_files, surfacedata_window_files):
-
-    print("\n==== MODEL EVALUATION ====")
-    dice = losses.dice
+def evaluate_model(job_number, map_size):
+    print("\n=== MODEL EVALUATION ===")
     print("Loading model....", end='')
-    model = tf.keras.models.load_model('E:/FrontsProjectData/models/front_model_dice.h5', custom_objects={'dice': dice})
+    dice = losses.dice
+    model = tf.keras.models.load_model('/work/earnestb13/ajustin/fronts/models/model_%d.h5' % job_number,
+                                       custom_objects={'dice': dice})
+    model.load_weights("/work/earnestb13/ajustin/fronts/models/model_%d_weights.h5" % job_number)
     print("done")
 
-    fronts_filename = 'E:/FrontsProjectData/pickle_files/2008/05/25/FrontObjects_2008052521_lon(260_264)_lat(41_45).pkl'
-    sfcdata_filename = 'E:/FrontsProjectData/pickle_files/2008/05/25/SurfaceData_2008052521_lon(260_264)_lat(41_45).pkl'
-    lons = pd.read_pickle(fronts_filename).longitude.values[1:]
-    lats = pd.read_pickle(fronts_filename).latitude.values[1:]
+    fronts_filename = '/work/earnestb13/ajustin/fronts/pickle_files/2008/05/25/FrontObjects_2008052521_conus.pkl'
+    sfcdata_filename = '/work/earnestb13/ajustin/fronts/pickle_files/2008/05/25/SurfaceData_2008052521_conus.pkl'
+    fronts_ds = pd.read_pickle(fronts_filename)
+    sfcdata_ds = pd.read_pickle(sfcdata_filename)
 
-    fronts = pd.read_pickle(fronts_filename).sel(longitude=lons, latitude=lats)
-    sfcdata = pd.read_pickle(sfcdata_filename).sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1,16,16,6)
+    lon_index = random.choices(range(289-map_size))[0]
+    lat_index = random.choices(range(113-map_size))[0]
+    lons = fronts_ds.longitude.values[lon_index:lon_index+map_size]
+    lats = fronts_ds.latitude.values[lat_index:lat_index+map_size]
 
-    prediction = model.predict(sfcdata).reshape(16,16,3)
-    #print(prediction.shape)
+    fronts = fronts_ds.sel(longitude=lons, latitude=lats)
+    fronts_new = fronts_ds.sel(longitude=lons, latitude=lats)
+    sfcdata = sfcdata_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_size, map_size, 6)
+
+    print("Predicting values....", end='')
+    prediction = model.predict(sfcdata)
+    print("done")
 
     print(prediction)
 
-    identifier = np.zeros([16,16])
+    identifier = np.zeros([map_size, map_size])
     print("Reformatting predictions....", end='')
-    for i in range(0,16):
-        for j in range(0,16):
-            if prediction[i][j][1] > prediction[i][j][0] and prediction[i][j][1] > prediction[i][j][2]:
+    threshold = 0.5
+    for i in range(0, map_size):
+        for j in range(0, map_size):
+            if prediction[0][j][i][1] > threshold:
+                # if prediction[0][j][i][1] > prediction[0][j][i][0] and prediction[0][j][i][1] > prediction[0][j][i][2]:
                 identifier[i][j] = 1
-            elif prediction[i][j][2] > prediction[i][j][0] and prediction[i][j][2] > prediction[i][j][1]:
+            elif prediction[0][j][i][2] > threshold:
+                # elif prediction[0][j][i][2] > prediction[0][j][i][0] and prediction[0][j][i][2] > prediction[0][j][i][1]:
                 identifier[i][j] = 2
+    print("done")
 
-    fronts.identifier.values = identifier
+    # The fronts dataset has dimensions latitude x longitude, while the identifier array was created with the format of
+    # longitude x longitude, so we need to swap the axes.
+    fronts_new.identifier.values = identifier
+    time = fronts.time.values
 
-    extent = [238, 283, 25, 50]
+    print("Generating plots....", end='')
+    prediction_plot(fronts_new, time, job_number)
+    truth_plot(fronts, time, job_number)
+    print("done")
+
+
+def prediction_plot(fronts_new, time, job_number):
+    extent = [220, 300, 29, 53]
     ax = Plot_ERA5.plot_background(extent)
+    fronts_new.identifier.plot(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+    plt.title("%s Prediction Plot" % time)
+    plt.savefig('/work/earnestb13/ajustin/fronts/models/model_%d_prediction_plot.png' % job_number, bbox_inches='tight', dpi=300)
+    plt.close()
 
+
+def truth_plot(fronts, time, job_number):
+    extent = [220, 300, 29, 53]
+    ax = Plot_ERA5.plot_background(extent)
     fronts.identifier.plot(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree())
-    plt.savefig('E:/FrontsProjectData/models/model_prediction_plot.png', bbox_inches='tight', dpi=1000)
+    plt.title("%s Truth Plot" % time)
+    plt.savefig('/work/earnestb13/ajustin/fronts/models/model_%d_truth_plot.png' % job_number, bbox_inches='tight', dpi=300)
     plt.close()
 
 if __name__ == "__main__":
@@ -174,26 +189,38 @@ if __name__ == "__main__":
                                                                          '(True/False)')
     parser.add_argument('--model_outdir', type=str, required=False, help='Path where models will saved to')
     parser.add_argument('--model_filepath', type=str, required=False, help='Path where model for evaluation is saved')
+    parser.add_argument('--learning_rate', type=float, required=True, help='Learning rate for Unet optimizer')
+    parser.add_argument('--train_epochs', type=int, required=True, help='Number of epochs for the Unet training')
+    parser.add_argument('--train_steps', type=int, required=True, help='Number of steps for each epoch in training')
+    parser.add_argument('--train_batch_size', type=int, required=True, help='Batch size for the Unet training')
+    parser.add_argument('--valid_steps', type=int, required=True, help='Number of steps for each epoch in validation')
+    parser.add_argument('--valid_batch_size', type=int, required=True, help='Batch size for the Unet validation')
+    parser.add_argument('--valid_freq', type=int, required=True, help='How many epochs to pass before each validation')
+    parser.add_argument('--workers', type=int, required=True, help='Number of workers for the Unet')
+    parser.add_argument('--empty_split', type=float, required=True, help='How much empty front object data to use (10% = 0.1)')
+    parser.add_argument('--map_size', type=int, required=True, help='Size of the map for the Unet. This will be a square'
+                                                                    ' with each side being the size of map_size. (i.e.'
+                                                                    ' setting this to 32 yields a 32x32 Unet and map.')
+    parser.add_argument('--job_number', type=int, required=True, help='Slurm job number')
     args = parser.parse_args()
-
-    gpu_config.memory_growth()
-
+	
     if args.pickle_indir is not None:
-        frontobject_window_files, surfacedata_window_files = load_files(args.pickle_indir)
-        #generate_nonempty_file_lists(frontobject_window_files, surfacedata_window_files)
-        if len(frontobject_window_files) != len(surfacedata_window_files):
+        frontobject_conus_files, surfacedata_conus_files = fm.load_conus_files(args.pickle_indir)
+        if len(frontobject_conus_files) != len(surfacedata_conus_files):
             if args.file_removal == 'True':
-                file_removal(frontobject_window_files, surfacedata_window_files, args.pickle_indir)
+                fm.file_removal(frontobject_conus_files, surfacedata_conus_files, args.pickle_indir)
                 print("====> NOTE: Extra files have been removed, a new list of files will now be loaded. <====")
-                frontobject_window_files, surfacedata_window_files = load_files(args.pickle_indir)
+                frontobject_conus_files, surfacedata_conus_files = fm.load_conus_files(args.pickle_indir)
+                #fm.generate_file_lists(frontobject_conus_files, surfacedata_conus_files)
             else:
                 print("ERROR: The number of front object and surface data files are not the same. You must remove "
                       "the extra files before data\ncan be processed by setting the '--file_removal' argument to "
                       "'True'.")
-        #train_unet(frontobject_window_files, surfacedata_window_files)
-        train_unet()
-        evaluate_model(frontobject_window_files, surfacedata_window_files)
+        #fm.generate_file_lists(frontobject_conus_files, surfacedata_conus_files)
+        train_unet(frontobject_conus_files, surfacedata_conus_files, args.map_size, args.empty_split, args.learning_rate,
+                   args.train_epochs, args.train_steps, args.train_batch_size, args.valid_steps, args.valid_batch_size,
+                   args.valid_freq, args.workers, args.job_number)
+        evaluate_model(args.job_number, args.map_size)
     else:
         print("ERROR: No directory for pickle files included, please declare where pickle files are located using the "
               "'--pickle_indir'\nargument.")
-
