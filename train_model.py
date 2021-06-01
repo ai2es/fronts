@@ -92,8 +92,7 @@ def validation_generator(frontobject_conus_files, surfacedata_conus_files, map_s
         sfcdata_dss = np.empty(shape=(batch_size,map_size,map_size,6))
         for i in range(batch_size):
             identifiers = 0
-            # Open random files with random coordinate domains until a sample contains at least 25 fronts. This is to
-            # prevent the model from predicting too few fronts.
+            # Open random files with random coordinate domains until a sample contains at least 'valid_fronts' fronts. 
             while identifiers < valid_fronts:
                 index = random.choices(range(len(frontobject_conus_files)-1), k=1)[0]
                 with open(frontobject_conus_files[index], 'rb') as front_file:
