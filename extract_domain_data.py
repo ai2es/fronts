@@ -433,11 +433,11 @@ def save_fronts_SF_OF_to_pickle(ds, year, month, day, hour, pickle_outdir):
                 if types[k] == 'STATIONARY_FRONT':
                     if frequency[k][i][j] > 0:
                         fronttype[i][j] = 3
-                    else:
-                        fronttype[i][j] = 0
                 elif types[k] == 'OCCLUDED_FRONT':
                     if frequency[k][i][j] > 0:
                         fronttype[i][j] = 4
+                    else:
+                        fronttype[i][j] = 0
 
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
@@ -537,18 +537,12 @@ def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir):
                 elif types[k] == 'WARM_FRONT':
                     if frequency[k][i][j] > 0:
                         fronttype[i][j] = 2
-                    else:
-                        fronttype[i][j] = 0
                 elif types[k] == 'STATIONARY_FRONT':
                     if frequency[k][i][j] > 0:
                         fronttype[i][j] = 3
-                    else:
-                        fronttype[i][j] = 0
                 elif types[k] == 'OCCLUDED_FRONT':
                     if frequency[k][i][j] > 0:
                         fronttype[i][j] = 4
-                    else:
-                        fronttype[i][j] = 0
                 elif types[k] == 'DRY_LINE':
                     if frequency[k][i][j] > 0:
                         fronttype[i][j] = 5
