@@ -1,8 +1,8 @@
 """
-Function that extracts data from a given domain and saves it into a pickle file.
+Function that extracts variable and front data from a given domain and saves it into a pickle file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 6/29/2021 8:40 PM CDT
+Last updated: 6/30/2021 10:30 AM CDT
 """
 
 import argparse
@@ -15,6 +15,7 @@ import glob
 import numpy as np
 import xml.etree.ElementTree as ET
 import variables
+
 
 def read_xml_files_360(year, month, day):
     """
@@ -29,21 +30,20 @@ def read_xml_files_360(year, month, day):
     Returns
     -------
     dns: Dataset
-        Xarray dataset containing frontal data organized by date, type, number, and coordinates.
-
+        Xarray dataset containing frontal object data organized by date, type, number, and coordinates.
     """
     file_path = "/ourdisk/hpc/ai2es/ajustin/xmls_2006122012-2020061900"
     print(file_path)
 
-    #files = []
-    #files.extend(glob.glob("%s/*%04d%02d%02d00f*.xml" % (file_path, year, month, day)))
-    #files.extend(glob.glob("%s/*%04d%02d%02d06f*.xml" % (file_path, year, month, day)))
-    #files.extend(glob.glob("%s/*%04d%02d%02d12f*.xml" % (file_path, year, month, day)))
-    #files.extend(glob.glob("%s/*%04d%02d%02d18f*.xml" % (file_path, year, month, day)))
+    # files = []
+    # files.extend(glob.glob("%s/*%04d%02d%02d00f*.xml" % (file_path, year, month, day)))
+    # files.extend(glob.glob("%s/*%04d%02d%02d06f*.xml" % (file_path, year, month, day)))
+    # files.extend(glob.glob("%s/*%04d%02d%02d12f*.xml" % (file_path, year, month, day)))
+    # files.extend(glob.glob("%s/*%04d%02d%02d18f*.xml" % (file_path, year, month, day)))
 
     files = sorted(glob.glob("%s/*%04d%02d%02d*.xml" % (file_path, year, month, day)))
 
-    dss = [] # Dataset with front data organized by front type.
+    dss = []  # Dataset with front data organized by front type.
     for filename in files:
         print(filename)
         tree = ET.parse(filename, parser=ET.XMLParser(encoding='utf-8'))
@@ -51,13 +51,13 @@ def read_xml_files_360(year, month, day):
         date = filename.split('_')[-1].split('.')[0].split('f')[0]
         fronttype = []
         frontnumber = []
-        fronts_number = [] # List array is for the interpolated points' front numbers.
+        fronts_number = []  # List array is for the interpolated points' front numbers.
         dates = []
-        i = 0 # Define counter for front number.
+        i = 0  # Define counter for front number.
         lats = []
         lons = []
         point_number = 0
-        front_points = [] # List that shows which points are in each front.
+        front_points = []  # List that shows which points are in each front.
         front_types = []
         front_dates = []
         fronts_lon_array = []
@@ -85,8 +85,8 @@ def read_xml_files_360(year, month, day):
                 # For longitude - we want to convert these values to a 360 system. This will allow us to properly
                 # interpolate across the dateline. If we were to use a longitude domain of -180 to 180 rather than
                 # 0 to 360, the interpolated points would wrap around the entire globe.
-                if (float(point.get("Lon"))<0):
-                    lons.append(float(point.get("Lon"))+360)
+                if float(point.get("Lon")) < 0:
+                    lons.append(float(point.get("Lon")) + 360)
                 else:
                     lons.append(float(point.get("Lon")))
 
@@ -95,22 +95,22 @@ def read_xml_files_360(year, month, day):
         # convert the positive points to the system as well for a consistent adjustment. It is important to note that
         # these fronts that cross the prime meridian (0E/W) will have a range of 0 to 450 rather than 0 to 360.
         # This will NOT affect the interpolation of the fronts.
-        for x in range(0,len(front_points)):
-            if x==0:
-                for y in range(0,front_points[x-1]):
-                    if(lons[y]<90 and max(lons[0:front_points[x-1]])>270):
+        for x in range(0, len(front_points)):
+            if x == 0:
+                for y in range(0, front_points[x - 1]):
+                    if lons[y] < 90 and max(lons[0:front_points[x - 1]]) > 270:
                         lons[y] = lons[y] + 360
             else:
-                for y in range(front_points[x-1],front_points[x]):
-                    if(lons[y]<90 and max(lons[front_points[x-1]:front_points[x]])>270):
+                for y in range(front_points[x - 1], front_points[x]):
+                    if lons[y] < 90 and max(lons[front_points[x - 1]:front_points[x]]) > 270:
                         lons[y] = lons[y] + 360
 
-        for l in range(1,len(lats)):
-            lon1 = lons[l-1]
-            lat1 = lats[l-1]
+        for l in range(1, len(lats)):
+            lon1 = lons[l - 1]
+            lat1 = lats[l - 1]
             lon2 = lons[l]
             lat2 = lats[l]
-            dlon, dlat, dx, dy = nc.haversine(lon1,lat1,lon2,lat2)
+            dlon, dlat, dx, dy = nc.haversine(lon1, lat1, lon2, lat2)
             x_km_temp = x_km_temp + dx
             y_km_temp = y_km_temp + dy
             x_km.append(x_km_temp)
@@ -129,33 +129,34 @@ def read_xml_files_360(year, month, day):
 
             i = i + 1
             if i == 1:
-                x_km_new = x_km[0:front_points[i-1]-1]
-                y_km_new = y_km[0:front_points[i-1]-1]
+                x_km_new = x_km[0:front_points[i - 1] - 1]
+                y_km_new = y_km[0:front_points[i - 1] - 1]
             elif i < len(front_points):
-                x_km_new = x_km[front_points[i-2]-1:front_points[i-1]-1]
-                y_km_new = y_km[front_points[i-2]-1:front_points[i-1]-1]
-            if len(x_km_new)>1:
+                x_km_new = x_km[front_points[i - 2] - 1:front_points[i - 1] - 1]
+                y_km_new = y_km[front_points[i - 2] - 1:front_points[i - 1] - 1]
+            if len(x_km_new) > 1:
                 lon_new = []
                 lat_new = []
-                distance = 25 # Cartesian interval distance in kilometers.
-                if (max(x_km_new)>100000 or min(x_km_new)<-100000 or max(y_km_new)>100000 or min(y_km_new)<-100000):
+                distance = 25  # Cartesian interval distance in kilometers.
+                if (max(x_km_new) > 100000 or min(x_km_new) < -100000 or max(y_km_new) > 100000 or min(
+                        y_km_new) < -100000):
                     print("ERROR: Front %d contains corrupt data points, no points will be interpolated from the front."
                           % i)
                 else:
                     xy_linestring = nc.geometric(x_km_new, y_km_new)
                     xy_vertices = nc.redistribute_vertices(xy_linestring, distance)
-                    x_new,y_new = xy_vertices.xy
-                    for a in range(1,len(x_new)):
-                        dx = x_new[a]-x_new[a-1]
-                        dy = y_new[a]-y_new[a-1]
-                        lon1, lon2, lat1, lat2 = nc.reverse_haversine(lons, lats, lon_new, lat_new, front_points, i, a, dx,
-                                                                   dy)
-                        if a==1:
+                    x_new, y_new = xy_vertices.xy
+                    for a in range(1, len(x_new)):
+                        dx = x_new[a] - x_new[a - 1]
+                        dy = y_new[a] - y_new[a - 1]
+                        lon1, lon2, lat1, lat2 = nc.reverse_haversine(lons, lats, lon_new, lat_new, front_points,
+                                                                      i, a, dx, dy)
+                        if a == 1:
                             lon_new.append(lon1)
                             lat_new.append(lat1)
                         lon_new.append(lon2)
                         lat_new.append(lat2)
-                    for c in range(0,len(lon_new)):
+                    for c in range(0, len(lon_new)):
                         fronts_lon_array.append(lon_new[c])
                         fronts_lat_array.append(lat_new[c])
                         fronts_number.append(frontno)
@@ -163,7 +164,7 @@ def read_xml_files_360(year, month, day):
                         front_dates.append(date)
 
         df = pd.DataFrame(list(zip(front_dates, fronts_number, front_types, fronts_lat_array, fronts_lon_array)),
-            columns=['Date', 'Front Number', 'Front Type', 'Latitude', 'Longitude'])
+                          columns=['Date', 'Front Number', 'Front Type', 'Latitude', 'Longitude'])
         df['Latitude'] = df.Latitude.astype(float)
         df['Longitude'] = df.Longitude.astype(float)
         df['Front Number'] = df['Front Number'].astype(int)
@@ -197,9 +198,10 @@ def read_xml_files_360(year, month, day):
     dns = dns.rename({'concat_dim': 'Date'})
     return dns
 
+
 def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     """
-    Extract surface and pressure level data for the specified coordinate domain, year, month, day, and hour.
+    Extract variable data for the specified coordinate domain, year, month, day, and hour.
 
     Parameters
     ----------
@@ -208,51 +210,48 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     lat: float (x2)
         Two values that specify the latitude domain in degrees: lat_MIN lat_MAX
     year: int
-        Year for the data.
     month: int
-        Month for the data.
     day: int
-        Day for the data.
-    hour: int
-        Hour for the data.
     netcdf_ERA5_indir: str
         Directory where the ERA5 netCDF files are contained.
 
     Returns
     -------
     xr_pickle: Dataset
-        Xarray dataset containing the surface data for the specified domain.
-    filename: str
-        Filename for the pickle file containing the surface data for the specified domain.
+        Xarray dataset containing variable data for the specified domain.
     """
     ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_wind, da_theta_w, da_mixing_ratio, da_RH, da_Tv, da_Tw \
-         = Plot_ERA5.create_datasets(year, month, day, netcdf_ERA5_indir)
+        = Plot_ERA5.create_datasets(year, month, day, netcdf_ERA5_indir)
 
-    ds_2mT = ds_2mT.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
-    ds_2mTd = ds_2mTd.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
-    ds_sp = ds_sp.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
-    ds_U10m = ds_U10m.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
-    ds_V10m = ds_V10m.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
-    ds_theta_w = (da_theta_w.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))).to_dataset(name=
-                                                                                                            'theta_w')
-    ds_mixing_ratio = (da_mixing_ratio.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
+    ds_2mT = ds_2mT.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
+    ds_2mTd = ds_2mTd.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
+    ds_sp = ds_sp.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
+    ds_U10m = ds_U10m.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
+    ds_V10m = ds_V10m.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
+    ds_theta_w = (da_theta_w.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(name='theta_w')
+    ds_mixing_ratio = (da_mixing_ratio.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
                        ).to_dataset(name='mix_ratio')
-    ds_RH = (da_RH.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))).to_dataset(name='rel_humid')
-    ds_Tv = (da_Tv.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))).to_dataset(name='virt_temp')
-    ds_Tw = (da_Tw.sel(longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))).to_dataset(name='wet_bulb')
+    ds_RH = (da_RH.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(name='rel_humid')
+    ds_Tv = (da_Tv.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(name='virt_temp')
+    ds_Tw = (da_Tw.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(name='wet_bulb')
     ds_theta_e = variables.theta_e(ds_2mT.t2m, ds_2mTd.d2m, ds_sp.sp).to_dataset(name='theta_e')
 
     timestring = "%d-%02d-%02d" % (year, month, day)
 
-    PL_data = xr.open_mfdataset(paths=('/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_Q.nc' % year,
-                                       '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_T.nc' % year,
-                                       '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_U.nc' % year,
-                                       '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_V.nc' % year,
-                                       '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_Z.nc' % year))
-    PL_850 = PL_data.sel(level=850, time=('%s' % timestring), longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
-    PL_900 = PL_data.sel(level=900, time=('%s' % timestring), longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
-    PL_950 = PL_data.sel(level=950, time=('%s' % timestring), longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
-    PL_1000 = PL_data.sel(level=1000, time=('%s' % timestring), longitude=slice(lon[0],lon[1]), latitude=slice(lat[1],lat[0]))
+    PL_data = xr.open_mfdataset(
+        paths=('/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_Q.nc' % year,
+               '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_T.nc' % year,
+               '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_U.nc' % year,
+               '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_V.nc' % year,
+               '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_Z.nc' % year))
+    PL_850 = PL_data.sel(level=850, time=('%s' % timestring), longitude=slice(lon[0], lon[1]),
+                         latitude=slice(lat[1], lat[0]))
+    PL_900 = PL_data.sel(level=900, time=('%s' % timestring), longitude=slice(lon[0], lon[1]),
+                         latitude=slice(lat[1], lat[0]))
+    PL_950 = PL_data.sel(level=950, time=('%s' % timestring), longitude=slice(lon[0], lon[1]),
+                         latitude=slice(lat[1], lat[0]))
+    PL_1000 = PL_data.sel(level=1000, time=('%s' % timestring), longitude=slice(lon[0], lon[1]),
+                          latitude=slice(lat[1], lat[0]))
 
     lons = PL_850.longitude.values
     lats = PL_850.latitude.values
@@ -279,21 +278,33 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     z_950 = PL_950.z.values
     z_1000 = PL_1000.z.values
 
-    new_850 = xr.Dataset(data_vars=dict(q_850=(['time','latitude','longitude'], q_850), t_850=(['time','latitude','longitude'], t_850),
-                                        u_850=(['time','latitude','longitude'], u_850), v_850=(['time','latitude','longitude'], v_850),
-                                        z_850=(['time','latitude','longitude'], z_850)), coords=dict(latitude=lats, longitude=lons, time=time))
-    new_900 = xr.Dataset(data_vars=dict(q_900=(['time','latitude','longitude'], q_900), t_900=(['time','latitude','longitude'], t_900),
-                                        u_900=(['time','latitude','longitude'], u_900), v_900=(['time','latitude','longitude'], v_900),
-                                        z_900=(['time','latitude','longitude'], z_900)), coords=dict(latitude=lats, longitude=lons, time=time))
-    new_950 = xr.Dataset(data_vars=dict(q_950=(['time','latitude','longitude'], q_950), t_950=(['time','latitude','longitude'], t_950),
-                                        u_950=(['time','latitude','longitude'], u_950), v_950=(['time','latitude','longitude'], v_950),
-                                        z_950=(['time','latitude','longitude'], z_950)), coords=dict(latitude=lats, longitude=lons, time=time))
-    new_1000 = xr.Dataset(data_vars=dict(q_1000=(['time','latitude','longitude'], q_1000), t_1000=(['time','latitude','longitude'], t_1000),
-                                         u_1000=(['time','latitude','longitude'], u_1000), v_1000=(['time','latitude','longitude'], v_1000),
-                                         z_1000=(['time','latitude','longitude'], z_1000)), coords=dict(latitude=lats, longitude=lons, time=time))
+    new_850 = xr.Dataset(data_vars=dict(q_850=(['time', 'latitude', 'longitude'], q_850),
+                                        t_850=(['time', 'latitude', 'longitude'], t_850),
+                                        u_850=(['time', 'latitude', 'longitude'], u_850),
+                                        v_850=(['time', 'latitude', 'longitude'], v_850),
+                                        z_850=(['time', 'latitude', 'longitude'], z_850)),
+                         coords=dict(latitude=lats, longitude=lons, time=time))
+    new_900 = xr.Dataset(data_vars=dict(q_900=(['time', 'latitude', 'longitude'], q_900),
+                                        t_900=(['time', 'latitude', 'longitude'], t_900),
+                                        u_900=(['time', 'latitude', 'longitude'], u_900),
+                                        v_900=(['time', 'latitude', 'longitude'], v_900),
+                                        z_900=(['time', 'latitude', 'longitude'], z_900)),
+                         coords=dict(latitude=lats, longitude=lons, time=time))
+    new_950 = xr.Dataset(data_vars=dict(q_950=(['time', 'latitude', 'longitude'], q_950),
+                                        t_950=(['time', 'latitude', 'longitude'], t_950),
+                                        u_950=(['time', 'latitude', 'longitude'], u_950),
+                                        v_950=(['time', 'latitude', 'longitude'], v_950),
+                                        z_950=(['time', 'latitude', 'longitude'], z_950)),
+                         coords=dict(latitude=lats, longitude=lons, time=time))
+    new_1000 = xr.Dataset(data_vars=dict(q_1000=(['time', 'latitude', 'longitude'], q_1000),
+                                         t_1000=(['time', 'latitude', 'longitude'], t_1000),
+                                         u_1000=(['time', 'latitude', 'longitude'], u_1000),
+                                         v_1000=(['time', 'latitude', 'longitude'], v_1000),
+                                         z_1000=(['time', 'latitude', 'longitude'], z_1000)),
+                          coords=dict(latitude=lats, longitude=lons, time=time))
 
-    print(new_850)
-    ds_pickle = [ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_theta_w, ds_mixing_ratio, ds_RH, ds_Tv, ds_Tw, ds_theta_e, new_850, new_900, new_950, new_1000]
+    ds_pickle = [ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_theta_w, ds_mixing_ratio, ds_RH, ds_Tv, ds_Tw, ds_theta_e,
+                 new_850, new_900, new_950, new_1000]
 
     xr_pickle = xr.merge(ds_pickle, combine_attrs='override')
     xr_pickle.t2m.values = xr_pickle.t2m.values
@@ -308,24 +319,25 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.virt_temp.values = xr_pickle.virt_temp.values
     xr_pickle.wet_bulb.values = xr_pickle.wet_bulb.values
 
-    print(xr_pickle)
-
     return xr_pickle
 
-def save_data_conus_to_pickle(year, month, day, hour, xr_pickle, pickle_outdir):
+
+def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdir):
     """
-    Saves surface and pressure level domain data to the pickle file.
+    Saves variable data to the pickle file.
 
     Parameters
     ----------
+    year: int
+    month: int
+    day: int
+    hour: int
+        Hour in UTC.
     xr_pickle: Dataset
-        Xarray dataset containing the surface and pressure level data for the specified domain.
-    filename: str
-        Filename for the pickle file containing the surface and pressure level data for the specified domain.
+        Xarray dataset containing variable data for the specified domain.
     pickle_outdir: str
-        Directory where the created pickle files containing the domain data will be stored.
+        Directory where the created pickle files containing the variable data will be stored.
     """
-
     xr_pickle_data = xr_pickle.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
     filename = "Data_31var_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
@@ -337,11 +349,26 @@ def save_data_conus_to_pickle(year, month, day, hour, xr_pickle, pickle_outdir):
     pickle.dump(xr_pickle_data, outfile)
     outfile.close()
 
-def save_fronts_WF_CF_conus_to_pickle(ds, year, month, day, hour, pickle_outdir):
 
+def save_fronts_WF_CF_to_pickle(ds, year, month, day, hour, pickle_outdir):
+    """
+    Saves warm front and cold front data to a pickle file.
+
+    Parameters
+    ----------
+    ds: Dataset
+        Xarray dataset containing warm front and cold front data.
+    year: int
+    month: int
+    day: int
+    hour: int
+        Hour in UTC.
+    pickle_outdir: str
+        Directory where the created pickle files containing warm front and cold front data will be stored.
+    """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
-    fronttype = np.empty([len(xr_pickle.latitude),len(xr_pickle.longitude)])
+    fronttype = np.empty([len(xr_pickle.latitude), len(xr_pickle.longitude)])
 
     time = xr_pickle.time
     frequency = xr_pickle.Frequency.values
@@ -352,17 +379,17 @@ def save_fronts_WF_CF_conus_to_pickle(ds, year, month, day, hour, pickle_outdir)
     for i in range(len(lats)):
         for j in range(len(lons)):
             for k in range(len(types)):
-                if types[k]=='COLD_FRONT':
-                    if (frequency[k][i][j]>0):
+                if types[k] == 'COLD_FRONT':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 1
                     else:
                         fronttype[i][j] = 0
-                elif types[k]=='WARM_FRONT':
-                    if (frequency[k][i][j]>0):
+                elif types[k] == 'WARM_FRONT':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 2
 
-    xr_pickle_front = xr.Dataset({"identifier": (('latitude','longitude'), fronttype)},
-                           coords={"latitude": lats, "longitude": lons, "time": time})
+    xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
+                                 coords={"latitude": lats, "longitude": lons, "time": time})
 
     filename = "FrontObjects_WF_CF_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
 
@@ -373,11 +400,26 @@ def save_fronts_WF_CF_conus_to_pickle(ds, year, month, day, hour, pickle_outdir)
     pickle.dump(xr_pickle_front, outfile)
     outfile.close()
 
-def save_fronts_SF_OF_conus_to_pickle(ds, year, month, day, hour, pickle_outdir):
 
+def save_fronts_SF_OF_to_pickle(ds, year, month, day, hour, pickle_outdir):
+    """
+    Saves stationary front and occluded front data to a pickle file.
+
+    Parameters
+    ----------
+    ds: Dataset
+        Xarray dataset containing stationary front and occluded front data.
+    year: int
+    month: int
+    day: int
+    hour: int
+        Hour in UTC.
+    pickle_outdir: str
+        Directory where the created pickle files containing stationary front and occluded front data will be stored.
+    """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
-    fronttype = np.empty([len(xr_pickle.latitude),len(xr_pickle.longitude)])
+    fronttype = np.empty([len(xr_pickle.latitude), len(xr_pickle.longitude)])
 
     time = xr_pickle.time
     frequency = xr_pickle.Frequency.values
@@ -388,17 +430,17 @@ def save_fronts_SF_OF_conus_to_pickle(ds, year, month, day, hour, pickle_outdir)
     for i in range(len(lats)):
         for j in range(len(lons)):
             for k in range(len(types)):
-                if types[k]=='STATIONARY_FRONT':
-                    if (frequency[k][i][j]>0):
+                if types[k] == 'STATIONARY_FRONT':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 3
                     else:
                         fronttype[i][j] = 0
-                elif types[k]=='OCCLUDED_FRONT':
-                    if (frequency[k][i][j]>0):
+                elif types[k] == 'OCCLUDED_FRONT':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 4
 
-    xr_pickle_front = xr.Dataset({"identifier": (('latitude','longitude'), fronttype)},
-                           coords={"latitude": lats, "longitude": lons, "time": time})
+    xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
+                                 coords={"latitude": lats, "longitude": lons, "time": time})
 
     filename = "FrontObjects_SF_OF_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
 
@@ -409,11 +451,26 @@ def save_fronts_SF_OF_conus_to_pickle(ds, year, month, day, hour, pickle_outdir)
     pickle.dump(xr_pickle_front, outfile)
     outfile.close()
 
-def save_fronts_DL_conus_to_pickle(ds, year, month, day, hour, pickle_outdir):
 
+def save_fronts_DL_to_pickle(ds, year, month, day, hour, pickle_outdir):
+    """
+    Saves dryline data to a pickle file.
+
+    Parameters
+    ----------
+    ds: Dataset
+        Xarray dataset containing dryline data.
+    year: int
+    month: int
+    day: int
+    hour: int
+        Hour in UTC.
+    pickle_outdir: str
+        Directory where the created pickle files containing dryline data will be stored.
+    """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
-    fronttype = np.empty([len(xr_pickle.latitude),len(xr_pickle.longitude)])
+    fronttype = np.empty([len(xr_pickle.latitude), len(xr_pickle.longitude)])
 
     time = xr_pickle.time
     frequency = xr_pickle.Frequency.values
@@ -424,14 +481,14 @@ def save_fronts_DL_conus_to_pickle(ds, year, month, day, hour, pickle_outdir):
     for i in range(len(lats)):
         for j in range(len(lons)):
             for k in range(len(types)):
-                if types[k]=='DRY_LINE':
-                    if (frequency[k][i][j]>0):
+                if types[k] == 'DRY_LINE':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 5
                     else:
                         fronttype[i][j] = 0
 
-    xr_pickle_front = xr.Dataset({"identifier": (('latitude','longitude'), fronttype)},
-                           coords={"latitude": lats, "longitude": lons, "time": time})
+    xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
+                                 coords={"latitude": lats, "longitude": lons, "time": time})
 
     filename = "FrontObjects_DL_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
 
@@ -442,11 +499,26 @@ def save_fronts_DL_conus_to_pickle(ds, year, month, day, hour, pickle_outdir):
     pickle.dump(xr_pickle_front, outfile)
     outfile.close()
 
-def save_fronts_ALL_conus_to_pickle(ds, year, month, day, hour, pickle_outdir):
 
+def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir):
+    """
+    Saves all front data (cold, warm, stationary, occluded, dryline) to a pickle file.
+
+    Parameters
+    ----------
+    ds: Dataset
+        Xarray dataset containing all front data.
+    year: int
+    month: int
+    day: int
+    hour: int
+        Hour in UTC.
+    pickle_outdir: str
+        Directory where the created pickle files containing all front data will be stored.
+    """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
-    fronttype = np.empty([len(xr_pickle.latitude),len(xr_pickle.longitude)])
+    fronttype = np.empty([len(xr_pickle.latitude), len(xr_pickle.longitude)])
 
     time = xr_pickle.time
     frequency = xr_pickle.Frequency.values
@@ -457,32 +529,32 @@ def save_fronts_ALL_conus_to_pickle(ds, year, month, day, hour, pickle_outdir):
     for i in range(len(lats)):
         for j in range(len(lons)):
             for k in range(len(types)):
-                if types[k]=='COLD_FRONT':
-                    if (frequency[k][i][j]>0):
+                if types[k] == 'COLD_FRONT':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 1
                     else:
                         fronttype[i][j] = 0
-                elif types[k]=='WARM_FRONT':
-                    if (frequency[k][i][j]>0):
+                elif types[k] == 'WARM_FRONT':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 2
                     else:
                         fronttype[i][j] = 0
-                elif types[k]=='STATIONARY_FRONT':
-                    if (frequency[k][i][j]>0):
+                elif types[k] == 'STATIONARY_FRONT':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 3
                     else:
                         fronttype[i][j] = 0
-                elif types[k]=='OCCLUDED_FRONT':
-                    if (frequency[k][i][j]>0):
+                elif types[k] == 'OCCLUDED_FRONT':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 4
                     else:
                         fronttype[i][j] = 0
-                elif types[k]=='DRY_LINE':
-                    if (frequency[k][i][j]>0):
+                elif types[k] == 'DRY_LINE':
+                    if frequency[k][i][j] > 0:
                         fronttype[i][j] = 5
 
-    xr_pickle_front = xr.Dataset({"identifier": (('latitude','longitude'), fronttype)},
-                           coords={"latitude": lats, "longitude": lons, "time": time})
+    xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
+                                 coords={"latitude": lats, "longitude": lons, "time": time})
 
     filename = "FrontObjects_ALL_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
 
@@ -492,7 +564,6 @@ def save_fronts_ALL_conus_to_pickle(ds, year, month, day, hour, pickle_outdir):
     outfile = open("%s/%d/%02d/%02d/%s" % (pickle_outdir, year, month, day, filename), 'wb')
     pickle.dump(xr_pickle_front, outfile)
     outfile.close()
-
 
 
 if __name__ == "__main__":
@@ -506,18 +577,18 @@ if __name__ == "__main__":
     parser.add_argument('--day', type=int, required=False, help="day for the data to be read in")
     args = parser.parse_args()
 
-    xr_pickle = extract_input_variables(args.longitude, args.latitude, args.year, args.month, args.day, args.netcdf_ERA5_indir)
+    xr_pickle = extract_input_variables(args.longitude, args.latitude, args.year, args.month, args.day,
+                                        args.netcdf_ERA5_indir)
     ds = read_xml_files_360(args.year, args.month, args.day)
 
-    for hour in range(0,24,3):
-
-        ds_hour = ds.sel(Longitude=slice(args.longitude[0],args.longitude[1]), Latitude=slice(args.latitude[1],
-                                                                                         args.latitude[0]))
+    for hour in range(0, 24, 3):
+        ds_hour = ds.sel(Longitude=slice(args.longitude[0], args.longitude[1]), Latitude=slice(args.latitude[1],
+                                                                                               args.latitude[0]))
         ds_hour = ds_hour.rename(Latitude='latitude', Longitude='longitude', Type='type', Date='time')
 
-        save_data_conus_to_pickle(args.year, args.month, args.day, hour, xr_pickle, args.pickle_outdir)
+        # save_variable_data_to_pickle(args.year, args.month, args.day, hour, xr_pickle, args.pickle_outdir)
 
-        #save_fronts_WF_CF_conus_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        save_fronts_SF_OF_conus_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        save_fronts_DL_conus_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        save_fronts_ALL_conus_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        # save_fronts_WF_CF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        save_fronts_SF_OF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        save_fronts_DL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        save_fronts_ALL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
