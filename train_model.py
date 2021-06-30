@@ -330,8 +330,8 @@ if __name__ == "__main__":
             print("WARNING: You have imported model %d for training." % args.import_model_number)
             front_files, variable_files = fm.load_31var_file_lists()
             train_imported_unet(front_files, variable_files, args.learning_rate, args.train_epochs, args.train_steps,
-                                args.train_batch_size, args.train_fronts, args.valid_steps, args.valid_batch_size,
-                                args.valid_freq, args.valid_fronts, args.loss, args.workers, args.import_model_number,
+                                args.train_batch_size, train_fronts, args.valid_steps, args.valid_batch_size,
+                                args.valid_freq, valid_fronts, args.loss, args.workers, args.import_model_number,
                                 args.model_dir)
     else:
         if args.job_number is None:
