@@ -2,7 +2,7 @@
 Function that extracts variable and front data from a given domain and saves it into a pickle file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 6/30/2021 10:30 AM CDT
+Last updated: 7/2/2021 4:10 PM CDT
 """
 
 import argparse
@@ -228,7 +228,8 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     ds_sp = ds_sp.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
     ds_U10m = ds_U10m.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
     ds_V10m = ds_V10m.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
-    ds_theta_w = (da_theta_w.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(name='theta_w')
+    ds_theta_w = (da_theta_w.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(
+        name='theta_w')
     ds_mixing_ratio = (da_mixing_ratio.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))
                        ).to_dataset(name='mix_ratio')
     ds_RH = (da_RH.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(name='rel_humid')
@@ -340,7 +341,7 @@ def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdi
     """
     xr_pickle_data = xr_pickle.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
-    filename = "Data_31var_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
+    filename = "Data_31var_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
 
     print(filename)
 
@@ -350,7 +351,7 @@ def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdi
     outfile.close()
 
 
-def save_fronts_WF_CF_to_pickle(ds, year, month, day, hour, pickle_outdir):
+def save_fronts_CFWF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     """
     Saves warm front and cold front data to a pickle file.
 
@@ -391,7 +392,7 @@ def save_fronts_WF_CF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
 
-    filename = "FrontObjects_WF_CF_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
+    filename = "FrontObjects_CFWF_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
 
     print(filename)
 
@@ -401,7 +402,7 @@ def save_fronts_WF_CF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     outfile.close()
 
 
-def save_fronts_SF_OF_to_pickle(ds, year, month, day, hour, pickle_outdir):
+def save_fronts_SFOF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     """
     Saves stationary front and occluded front data to a pickle file.
 
@@ -442,7 +443,7 @@ def save_fronts_SF_OF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
 
-    filename = "FrontObjects_SF_OF_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
+    filename = "FrontObjects_SFOF_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
 
     print(filename)
 
@@ -490,7 +491,7 @@ def save_fronts_DL_to_pickle(ds, year, month, day, hour, pickle_outdir):
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
 
-    filename = "FrontObjects_DL_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
+    filename = "FrontObjects_DL_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
 
     print(filename)
 
@@ -550,7 +551,7 @@ def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir):
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
 
-    filename = "FrontObjects_ALL_%04d%02d%02d%02d_conus_128.pkl" % (year, month, day, hour)
+    filename = "FrontObjects_ALL_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
 
     print(filename)
 
@@ -582,7 +583,7 @@ if __name__ == "__main__":
 
         # save_variable_data_to_pickle(args.year, args.month, args.day, hour, xr_pickle, args.pickle_outdir)
 
-        # save_fronts_WF_CF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        save_fronts_SF_OF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        # save_fronts_CFWF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        save_fronts_SFOF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
         save_fronts_DL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
         save_fronts_ALL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)

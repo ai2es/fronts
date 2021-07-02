@@ -2,17 +2,15 @@
 Functions in this code prepare and organize data files before they are used in model training and validation.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 6/30/2021 12:59 PM CDT
+Last updated: 7/2/2021 4:09 PM CDT
 """
 
 from glob import glob
-import numpy as np
-import os
 import pickle
 import argparse
 
 
-def load_10var_files(pickle_indir):
+def load_files(pickle_indir, num_variables, front_types, domain, map_dimensions):
     """
     Function that loads and returns lists of data files.
 
@@ -20,6 +18,14 @@ def load_10var_files(pickle_indir):
     ----------
     pickle_indir: str
         Directory where the created pickle files containing the domain data will be stored.
+    num_variables: int
+        Number of variables in the variable datasets.
+    front_types: str
+        Fronts in the frontobject datasets.
+    domain: str
+        Domain which the front and variable files cover.
+    map_dimensions: int (x2)
+        Dimensions of the domain/files.
 
     Returns
     -------
@@ -30,164 +36,52 @@ def load_10var_files(pickle_indir):
     """
     print("\n=== LOADING FILES ===")
     print("Collecting front object files....", end='')
-    front_files = sorted(glob("%s/*/*/*/FrontObjects_*_conus.pkl" % pickle_indir))
+    front_files = sorted(glob("%s/*/*/*/FrontObjects_%s_*_%s_%dx%d.pkl" % (pickle_indir, front_types, domain, map_dimensions[0],
+                                                                           map_dimensions[1])))
     print("done, %d files found" % len(front_files))
     print("Collecting variable data files....", end='')
-    variable_files = sorted(glob("%s/*/*/*/SurfaceData_*_conus.pkl" % pickle_indir))
+    variable_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s_%dx%d.pkl" % (pickle_indir, num_variables, domain, map_dimensions[0],
+                                                                         map_dimensions[1])))
     print("done, %d files found" % len(variable_files))
 
     return front_files, variable_files
 
 
-def load_31var_files(pickle_indir):
-    """
-    Function that loads and returns lists of data files.
-
-    Parameters
-    ----------
-    pickle_indir: str
-        Directory where the created pickle files containing the domain data will be stored.
-
-    Returns
-    -------
-    front_files: list
-        List of all files containing fronts. Includes files with no fronts present in their respective domains.
-    variable_files: list
-        List of all files containing variable data.
-    """
-    print("\n=== LOADING FILES ===")
-    print("Collecting front object files....", end='')
-    front_files = sorted(glob("%s/*/*/*/FrontObjects_*_conus_128.pkl" % pickle_indir))
-    print("done, %d files found" % len(front_files))
-    print("Collecting 31var data files....", end='')
-    variable_files = sorted(glob("%s/*/*/*/Data_31var_*_conus_128.pkl" % pickle_indir))
-    print("done, %d files found" % len(variable_files))
-
-    return front_files, variable_files
-
-
-def load_file_lists():
+def load_file_lists(num_variables, front_types, domain, map_dimensions):
     """
     Opens files containing lists of filenames for fronts and variable data.
 
-    Returns
-    -------
-    front_files_list: list
-        List of filenames that contain front data.
-    variable_files_list: list
-        List of filenames that contain variable data.
-    """
-    with open('all_front_files_list.pkl', 'rb') as f:
-        front_files_list = pickle.load(f)
-    with open('all_variable_files_list.pkl', 'rb') as f:
-        variable_files_list = pickle.load(f)
-
-    return front_files_list, variable_files_list
-
-
-def load_31var_file_lists():
-    """
-    Opens files containing lists of filenames for front and variable data.
-
-    Returns
-    -------
-    front_files_list: list
-        List of filenames that contain front data.
-    variable_files_list: list
-        List of filenames that contain variable data.
-    """
-    with open('all_31var_front_files_list.pkl', 'rb') as f:
-        front_files_list = pickle.load(f)
-    with open('all_31var_variable_files_list.pkl', 'rb') as f:
-        variable_files_list = pickle.load(f)
-
-    return front_files_list, variable_files_list
-
-
-def file_removal(front_files, variable_files, pickle_indir):
-    """
-    Function that moves pickle files which cannot be used to new folders. Pickle files that cannot be used are defined
-    as front files without a respective variable file or vice versa. In other words, if there are variable
-    files for a specific day but there are no corresponding front files for the same day, the variable files
-    will be moved to a new folder.
-
     Parameters
     ----------
-    front_files: list
-        List of all files containing fronts. Includes files with no fronts present in their respective domains.
-    variable_files: list
-        List of all files containing variable data.
-    pickle_indir: str
-        Directory where the created pickle files containing the domain data will be stored.
+    num_variables: int
+        Number of variables in the variable datasets.
+    front_types: str
+        Fronts in the frontobject datasets.
+    domain: str
+        Domain which the front and variable files cover.
+    map_dimensions: int (x2)
+        Dimensions of the domain/files.
+
+    Returns
+    -------
+    front_files_list: list
+        List of filenames that contain front data.
+    variable_files_list: list
+        List of filenames that contain variable data.
     """
-    print("\n=== FILE REMOVAL ===")
+    with open('%dvar_%s_%s_%dx%d_front_files_list.pkl' % (num_variables, front_types, domain, map_dimensions[0],
+                                                          map_dimensions[1]), 'rb') as f:
+        front_files_list = pickle.load(f)
+    with open('%dvar_%s_%s_%dx%d_variable_files_list.pkl' % (num_variables, front_types, domain, map_dimensions[0],
+                                                             map_dimensions[1]), 'rb') as f:
+        variable_files_list = pickle.load(f)
 
-    extra_files = len(variable_files) - len(front_files)
-    total_variable_files = len(variable_files)
-
-    front_files_no_prefix = []
-    variable_files_no_prefix = []
-
-    for i in range(0, len(front_files)):
-        front_files_no_prefix.append(front_files[i].replace('FrontObjects_', ''))
-    # for j in range(0, len(variable_files)):
-    #     variable_files_no_prefix.append(variable_files[j].replace('SurfaceData_', ''))
-    for j in range(0, len(variable_files)):
-        variable_files_no_prefix.append(variable_files[j].replace('Data_31var_', ''))
-
-    front_files_no_prefix = np.array(front_files_no_prefix)
-    variable_files_no_prefix = np.array(variable_files_no_prefix)
-
-    k = 0  # Counter for total number of files
-    x = 0  # Counter for number of extra files
-    print("Removing %d extra files....0/%d" % (extra_files, extra_files), end='\r')
-    for filename in variable_files_no_prefix:
-        k = k + 1
-        if filename not in front_files_no_prefix:
-            os.rename(variable_files[k - 1],
-                      variable_files[k - 1].replace("%s" % pickle_indir,
-                                                    "%s/unusable_pickle_files" % pickle_indir))
-            x += 1
-        print(
-            "Removing %d extra files....%d%s (%d/%d)" % (extra_files, 100 * (k / total_variable_files), '%', x, extra_files),
-            end='\r')
-    print("Removing %d extra files....done               " % extra_files)
+    return front_files_list, variable_files_list
 
 
-def generate_file_lists(front_files, variable_files):
+def generate_file_lists(front_files, variable_files, num_variables, front_types, domain, map_dimensions):
     """
     Generates lists of files containing front and variable data. Creating separate lists and loading them saves time as
-    opposed to just loading all of the files individually each time the code is ran. This function should ONLY be used
-    AFTER file_removal has been ran so that the lists are the same length (i.e. each front data file has a corresponding
-    variable data file).
-
-    Parameters
-    ----------
-    front_files: list
-        List of files containing front data.
-    variable_files: list
-        List of files containing variable data.
-    """
-    print("\n=== GENERATING FILE LISTS ===")
-    all_front_files_list = []
-    all_variable_files_list = []
-    file_count = len(front_files)
-    for i in range(0, file_count):
-        print("Processing files....%d/%d" % (i, file_count), end='\r')
-        all_front_files_list.append(front_files[i])
-        all_variable_files_list.append(variable_files[i])
-    print("Processing files....done          ")
-    print("Saving lists....", end='')
-    with open('all_front_files_list.pkl', 'wb') as f:
-        pickle.dump(all_front_files_list, f)
-    with open('all_variable_files_list.pkl', 'wb') as f:
-        pickle.dump(all_variable_files_list, f)
-    print("done")
-
-
-def generate_31var_file_lists(front_files, variable_files):
-    """
-    Generates lists of files containing variable data. Creating separate lists and loading them saves time as
     opposed to just loading all of the files individually each time the code is ran.
 
     Parameters
@@ -196,41 +90,93 @@ def generate_31var_file_lists(front_files, variable_files):
         List of files containing front data.
     variable_files: list
         List of files containing variable data.
+    num_variables: int
+        Number of variables in the variable datasets.
+    front_types: str
+        Fronts in the frontobject datasets.
+    domain: str
+        Domain which the front and variable files cover.
+    map_dimensions: int (x2)
+        Dimensions of the domain/files.
     """
-    print("\n=== GENERATING 31var FILE LISTS ===")
-    all_31var_front_files_list = []
-    all_31var_variable_files_list = []
-    file_count = len(variable_files)
-    for i in range(0, file_count):
-        print("Processing files....%d/%d" % (i, file_count), end='\r')
-        all_31var_front_files_list.append(front_files[i])
-        all_31var_variable_files_list.append(variable_files[i])
-    print("Processing files....done          ")
+    print("\n=== GENERATING FILE LISTS ===")
+
+    front_files_no_prefix = []
+    variable_files_no_prefix = []
+    front_files_list = []
+    variable_files_list = []
+
+    for i in range(len(front_files)):
+        front_files_no_prefix.append(front_files[i].replace('FrontObjects_%s_' % front_types, ''))
+    for j in range(len(variable_files)):
+        variable_files_no_prefix.append(variable_files[j].replace('Data_%dvar_' % num_variables, ''))
+
+    if len(variable_files) > len(front_files):
+        total_variable_files = len(variable_files)
+        total_front_files = len(front_files)
+        for k in range(total_variable_files):
+            if variable_files_no_prefix[k] in front_files_no_prefix:
+                variable_files_list.append(variable_files[k])
+        for l in range(total_front_files):
+            if front_files_no_prefix[l] in variable_files_no_prefix:
+                front_files_list.append(front_files[l])
+    else:
+        total_front_files = len(front_files)
+        total_variable_files = len(variable_files)
+        for k in range(total_front_files):
+            if front_files_no_prefix[k] in variable_files_no_prefix:
+                front_files_list.append(front_files[k])
+        for l in range(total_variable_files):
+            if variable_files_no_prefix[l] in front_files_no_prefix:
+                variable_files_list.append(variable_files[l])
+
+    print("Front file list length: %d" % len(front_files_list))
+    print("Variable file list length: %d\n" % len(variable_files_list))
+
+    matches = 0
+    mismatches = 0
+    for i in range(len(front_files_list)):
+        if front_files_list[0][-22-len(str(map_dimensions[0]))-len(str(map_dimensions[1])):] == variable_files_list[0][-22-len(str(map_dimensions[0]))-len(str(map_dimensions[1])):]:
+            matches += 1
+        else:
+            mismatches += 1
+
+    print("Matched files: %d/%d" % (matches, len(front_files_list)))
+    print("Mismatched files: %d/%d" % (mismatches, len(front_files_list)))
+
+    if mismatches == 0:
+        print("No errors found!\n")
+    else:
+        print("ERROR: File lists do not have matching dates, check your data and remake the lists.\n")
+
     print("Saving lists....", end='')
-    with open('all_31var_front_files_list.pkl', 'wb') as f:
-        pickle.dump(all_31var_front_files_list, f)
-    with open('all_31var_variable_files_list.pkl', 'wb') as f:
-        pickle.dump(all_31var_variable_files_list, f)
+    with open('%dvar_%s_%s_%dx%d_front_files_list.pkl' % (num_variables, front_types, domain, map_dimensions[0],
+                                                          map_dimensions[1]), 'wb') as f:
+        pickle.dump(front_files_list, f)
+    with open('%dvar_%s_%s_%dx%d_variable_files_list.pkl' % (num_variables, front_types, domain, map_dimensions[0],
+                                                             map_dimensions[1]), 'wb') as f:
+        pickle.dump(variable_files_list, f)
+    print("done")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--pickle_indir', type=str, required=True, help='Path of pickle files containing front object'
                                                                         ' and variable data.')
+    parser.add_argument('--num_variables', type=int, required=True, help='Number of variables in the variable datasets.')
+    parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain warm'
+                                                                       ' and cold fronts, pass this argument as CFWF.'
+                                                                       ' If your files contain only drylines, pass this argument'
+                                                                       ' as DL. If your files contain all fronts, pass this argument'
+                                                                       ' as ALL.')
+    parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
+    parser.add_argument('--map_dimensions', type=int, nargs=2, required=True, help='Dimensions of the map size. Two integers'
+                                                                                   ' need to be passed.')
     parser.add_argument('--generate_lists', type=str, required=False, help='Generate lists of new files? (True/False)')
     args = parser.parse_args()
 
-    # front_files, variable_files = load_10var_files(args.pickle_indir)
-    front_files, variable_files = load_31var_files(args.pickle_indir)
-    if len(front_files) != len(variable_files):
-        file_removal(front_files, variable_files, args.pickle_indir)
-        print("====> NOTE: Extra files have been removed, so a new list of files will now be loaded. <====")
-        front_files, variable_files = load_31var_files(args.pickle_indir)
+    front_files, variable_files = load_files(args.pickle_indir, args.num_variables, args.front_types, args.domain, args.map_dimensions)
+    if len(front_files) == len(variable_files) and (args.generate_lists != 'True'):
+        print("WARNING: File lists have equal length. If you would still like to create new lists, pass the '--generate_lists' argument as 'True'.")
     else:
-        print("No files need to be removed.")
-    if args.generate_lists == 'True':
-        generate_file_lists(front_files, variable_files)
-    #    generate_31var_file_lists(front_files, variable_files)
-    else:
-        print("WARNING: Generation of file lists was not enabled. To generate file lists, pass '--generate_lists' as"
-              " 'True'.")
+        generate_file_lists(front_files, variable_files, args.num_variables, args.front_types, args.domain, args.map_dimensions)

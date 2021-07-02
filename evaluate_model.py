@@ -2,8 +2,9 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 6/30/2021 12:40 PM CDT
+Last updated: 7/2/2021 4:09 PM CDT
 """
+
 import random
 import pandas as pd
 import argparse
@@ -205,9 +206,18 @@ if __name__ == '__main__':
     parser.add_argument('--predict', type=str, required=False, help='Generate prediction plots? (True/False)')
     parser.add_argument('--predictions', type=int, required=False, help='Number of predictions to make. Default is 25.')
     parser.add_argument('--learning_curve', type=str, required=False, help='Plot learning curves? (True/False)')
+    parser.add_argument('--num_variables', type=int, required=True, help='Number of variables in the variable datasets.')
+    parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain warm'
+                                                                       ' and cold fronts, pass this argument as CFWF.'
+                                                                       ' If your files contain only drylines, pass this argument'
+                                                                       ' as DL. If your files contain all fronts, pass this argument'
+                                                                       ' as ALL.')
+    parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
+    parser.add_argument('--map_dimensions', type=int, nargs=2, required=True, help='Dimensions of the map size. Two integers'
+                                                                                   ' need to be passed.')
     args = parser.parse_args()
 
-    fronts_files_list, variables_files_list = fm.load_31var_file_lists()
+    fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.map_dimensions)
 
     if args.predict == 'True':
         if args.predictions is None:

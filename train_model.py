@@ -2,7 +2,7 @@
 Function that creates, trains, and validates a Unet model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 6/30/2021 2:54 PM CDT
+Last updated: 7/2/2021 4:09 PM CDT
 """
 
 import random
@@ -18,6 +18,7 @@ import file_manager as fm
 import os
 from tensorflow.keras.callbacks import EarlyStopping
 import errors
+from expand_fronts import one_pixel_expansion as ope
 
 
 class DataGenerator(keras.utils.Sequence):
@@ -43,27 +44,34 @@ class DataGenerator(keras.utils.Sequence):
     def __data_generation(self):
         front_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, 3))
         sfcdata_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, 31))
+        maxs = [326.3396301, 305.8016968, 107078.2344, 44.84565735, 135.2455444, 327, 70, 1, 333, 310, 415, 0.024951244,
+                309.2406, 89.81117, 90.9507, 17612.004, 0.034231212, 309.2406, 89.853115, 91.11507, 13249.213,
+                0.046489507,
+                309.2406, 62.46032, 91.073425, 9000.762, 0.048163727, 309.2406, 62.22315, 76.649796, 17522.139]
+        mins = [192.2073669, 189.1588898, 47399.61719, -196.7885437, -96.90724182, 188, 0.0005, 0, 192, 193, 188,
+                0.00000000466, 205.75833, -165.10022, -64.62073, -6912.213, 0.00000000466, 205.75833, -165.20557,
+                -64.64681,
+                903.0327, 0.00000000466, 205.75833, -148.51501, -66.1152, -3231.293, 0.00000000466, 205.75833,
+                -165.27695,
+                -58.405083, -6920.75]
         means = [278.8510794, 274.2647937, 96650.46322, -0.06747816, 0.1984011, 278.39639128, 4.291633, 0.7226335,
-                 279.5752426, 276.296217417, 293.69090226,
-                 0.00462498, 274.6106082, 1.385064762, 0.148459298, 13762.46737, 0.005586943, 276.6008764, 0.839714324,
-                 0.201385933,
-                 9211.468268, 0.00656686, 278.2460963, 0.375778613, 0.207254872, 4877.725497, 0.007057154, 280.1310979,
-                 -0.050884628,
-                 0.197406197, 736.070931]
+                 279.5752426, 276.296217417, 293.69090226, 0.00462498, 274.6106082, 1.385064762, 0.148459298,
+                 13762.46737, 0.005586943, 276.6008764, 0.839714324, 0.201385933, 9211.468268, 0.00656686, 278.2460963,
+                 0.375778613, 0.207254872, 4877.725497, 0.007057154, 280.1310979, -0.050884628, 0.197406197, 736.070931]
         std_devs = [21.161467, 20.603729, 9590.54, 5.587448, 4.795126, 24.325, 12.2499125, 0.175, 24.675, 20.475,
                     39.725,
                     0.004141041, 15.55585542, 8.250520488, 6.286386854, 1481.972616, 0.00473022, 15.8944975,
-                    8.122294976,
-                    6.424827792, 1313.379508, 0.005520186, 16.7592906, 7.689928269, 6.445098408, 1178.610181,
-                    0.005908417,
-                    18.16819064, 6.193227753, 5.342330733, 1083.730224]
+                    8.122294976, 6.424827792, 1313.379508, 0.005520186, 16.7592906, 7.689928269, 6.445098408,
+                    1178.610181,
+                    0.005908417, 18.16819064, 6.193227753, 5.342330733, 1083.730224]
         for i in range(self.batch_size):
             # Open random files with random coordinate domains until a sample contains at least one front.
             identifiers = 0
             while identifiers < self.front_threshold:
                 index = random.choices(range(len(self.front_files) - 1), k=1)[0]
                 with open(self.front_files[index], 'rb') as front_file:
-                    front_ds = pickle.load(front_file)
+                    # front_ds = pickle.load(front_file)
+                    front_ds = ope(pickle.load(front_file))
                 lon_index = random.choices(range(289 - self.map_dim_x))[0]
                 lat_index = random.choices(range(129 - self.map_dim_y))[0]
                 lons = front_ds.longitude.values[lon_index:lon_index + self.map_dim_x]
@@ -76,7 +84,9 @@ class DataGenerator(keras.utils.Sequence):
             # print(variable_list)
             for j in range(31):
                 var = variable_list[j]
-                sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - means[j]) / std_devs[j])
+                # sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - means[j]) / std_devs[j])
+                sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - mins[j]) / (maxs[j] - mins[j]))
+                # sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - means[j]) / (maxs[j] - mins[j]))
             fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values
             binarized_fronts = to_categorical(fronts, num_classes=3)
             sfcdata = sfcdata_ds.sel(longitude=lons, latitude=lats).to_array().T.values
@@ -281,8 +291,6 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
                         callbacks=[early_stopping, checkpoint], verbose=2, workers=workers,
                         use_multiprocessing=True, max_queue_size=100000)
 
-    os.rename('TrainModel_%d_stdout.txt' % model_number,
-              '%s/model_%d/model_%d.txt' % (model_dir, model_number, model_number))
     with open('%s/model_%d/model_%d_history.pkl' % (model_dir, model_number, model_number), 'wb') as f:
         pickle.dump(history.history, f)
     model.save('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
@@ -306,8 +314,23 @@ if __name__ == "__main__":
     parser.add_argument('--map_dim_x', type=int, required=False, help='X dimension of the Unet map')
     parser.add_argument('--map_dim_y', type=int, required=False, help='Y dimension of the Unet map')
     parser.add_argument('--job_number', type=int, required=False, help='Slurm job number')
-    parser.add_argument('--import_model_number', type=int, required=False, help='Number of the model that you would like to import.')
-    parser.add_argument('--model_dir', type=str, required=True, help='Directory where the models are or will be saved to.')
+    parser.add_argument('--import_model_number', type=int, required=False,
+                        help='Number of the model that you would like to import.')
+    parser.add_argument('--model_dir', type=str, required=True,
+                        help='Directory where the models are or will be saved to.')
+    parser.add_argument('--num_variables', type=int, required=True,
+                        help='Number of variables in the variable datasets.')
+    parser.add_argument('--front_types', type=str, required=True,
+                        help='Front format of the file. If your files contain warm'
+                             ' and cold fronts, pass this argument as CFWF.'
+                             ' If your files contain only drylines, pass this argument'
+                             ' as DL. If your files contain all fronts, pass this argument'
+                             ' as ALL.')
+    parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
+    parser.add_argument('--map_dimensions', type=int, nargs=2, required=True,
+                        help='Dimensions of the map size. Two integers'
+                             ' need to be passed.')
+    parser.add_argument('--generate_lists', type=str, required=False, help='Generate lists of new files? (True/False)')
     args = parser.parse_args()
 
     print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
@@ -328,7 +351,8 @@ if __name__ == "__main__":
             raise ValueError("Arguments '--map_dim_x' and '--map_dim_y' cannot be passed if you are importing a model.")
         else:
             print("WARNING: You have imported model %d for training." % args.import_model_number)
-            front_files, variable_files = fm.load_31var_file_lists()
+            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
+                                                             args.map_dimensions)
             train_imported_unet(front_files, variable_files, args.learning_rate, args.train_epochs, args.train_steps,
                                 args.train_batch_size, train_fronts, args.valid_steps, args.valid_batch_size,
                                 args.valid_freq, valid_fronts, args.loss, args.workers, args.import_model_number,
@@ -337,9 +361,11 @@ if __name__ == "__main__":
         if args.job_number is None:
             raise errors.MissingArgumentError("Argument '--job_number' must be passed if you are creating a new model.")
         if args.map_dim_x is None or args.map_dim_y is None:
-            raise ValueError("Arguments '--map_dim_x' and '--map_dim_y' must be passed if you are creating a new model.")
+            raise ValueError(
+                "Arguments '--map_dim_x' and '--map_dim_y' must be passed if you are creating a new model.")
         else:
-            front_files, variable_files = fm.load_31var_file_lists()
+            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
+                                                             args.map_dimensions)
             train_new_unet(front_files, variable_files, args.map_dim_x, args.map_dim_y, args.learning_rate,
                            args.train_epochs, args.train_steps, args.train_batch_size, train_fronts,
                            args.valid_steps, args.valid_batch_size, args.valid_freq, valid_fronts, args.loss,
