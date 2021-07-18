@@ -1,8 +1,7 @@
 """
 Function that creates, trains, and validates a Unet model.
-
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/2/2021 4:09 PM CDT
+Last updated: 7/17/2021 11:06 PM CDT
 """
 
 import random
@@ -16,23 +15,25 @@ import numpy as np
 from tensorflow.keras.utils import to_categorical
 import file_manager as fm
 import os
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 import errors
+import custom_losses
 from expand_fronts import one_pixel_expansion as ope
-
 
 class DataGenerator(keras.utils.Sequence):
     """
     Data generator for the U-Net model.
     """
 
-    def __init__(self, front_files, variable_files, map_dim_x, map_dim_y, batch_size, front_threshold):
+    def __init__(self, front_files, variable_files, map_dim_x, map_dim_y, batch_size, front_threshold, front_types, normalization_method):
         self.front_files = front_files
         self.variable_files = variable_files
         self.map_dim_x = map_dim_x
         self.map_dim_y = map_dim_y
         self.batch_size = batch_size
         self.front_threshold = front_threshold
+        self.front_types = front_types
+        self.normalization_method = normalization_method
 
     def __len__(self):
         return int(np.floor(len(self.front_files) / self.batch_size))
@@ -84,10 +85,19 @@ class DataGenerator(keras.utils.Sequence):
             # print(variable_list)
             for j in range(31):
                 var = variable_list[j]
-                # sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - means[j]) / std_devs[j])
-                sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - mins[j]) / (maxs[j] - mins[j]))
-                # sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - means[j]) / (maxs[j] - mins[j]))
+                if self.normalization_method == 1:
+                    # Z-score normalization
+                    sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - means[j]) / std_devs[j])
+                elif self.normalization_method == 2:
+                    # Min-max normalization
+                    sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - mins[j]) / (maxs[j] - mins[j]))
+                elif self.normalization_method == 3:
+                    # Mean normalization
+                    sfcdata_ds[var].values = np.nan_to_num((sfcdata_ds[var].values - means[j]) / (maxs[j] - mins[j]))
             fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values
+            if self.front_types == 'SFOF':
+                # Prevents generator from making 5 classes
+                fronts = np.where(np.where(fronts == 3, 1, fronts) == 4, 2, np.where(fronts == 3, 1, fronts))
             binarized_fronts = to_categorical(fronts, num_classes=3)
             sfcdata = sfcdata_ds.sel(longitude=lons, latitude=lats).to_array().T.values
             front_dss[i] = binarized_fronts
@@ -98,10 +108,9 @@ class DataGenerator(keras.utils.Sequence):
 # UNet model
 def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
                    train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
-                   workers, job_number, model_dir):
+                   workers, job_number, model_dir, front_types, normalization_method):
     """
     Function that trains the unet model and saves the model along with its weights.
-
     Parameters
     ----------
     front_files: list
@@ -143,13 +152,22 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         Slurm job number. This is set automatically and should not be changed by the user.
     model_dir: str
         Directory that the models are saved to.
+    front_types: str
+        Fronts in the data.
+    normalization_method: int
+        Normalization method for the data (described near the end of the script).
     """
     print("\n=== MODEL TRAINING ===")
     print("Creating unet....", end='')
 
     model = models.unet_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=3,
-                           stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax',
-                           batch_norm=True, pool=True, unpool=True, name='unet')
+                          stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax',
+                          batch_norm=True, pool=True, unpool=True, name='unet')
+
+    # model = models.unet_3plus_2d((map_dim_x, map_dim_y, 31), filter_num_down=[32, 64, 128, 256, 512, 1024],
+    #    filter_num_skip='auto', filter_num_aggregate=32, n_labels=3, stack_num_down=5, stack_num_up=5,
+    #    activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
+    #    deep_supervision=True)
 
     print('done')
     print('Compiling unet....', end='')
@@ -160,10 +178,12 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         loss_function = losses.tversky
     elif loss == 'cce':
         loss_function = 'categorical_crossentropy'
+    elif loss == 'fss':
+        loss_function = custom_losses.make_FSS_loss(4)
 
-    adam = Adam(learning_rate=learning_rate)
-    model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
-    print('done')
+        adam = Adam(learning_rate=learning_rate)
+        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+        print('done')
 
     print("Loss function = %s" % loss)
 
@@ -171,26 +191,29 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 
     train_dataset = tf.data.Dataset.from_generator(DataGenerator,
                                                    args=[front_files, variable_files, map_dim_x, map_dim_y,
-                                                         train_batch_size, train_fronts],
+                                                         train_batch_size, train_fronts, front_types, normalization_method],
                                                    output_types=(tf.float32, tf.float32))
 
     validation_dataset = tf.data.Dataset.from_generator(DataGenerator,
                                                         args=[front_files, variable_files, map_dim_x,
-                                                              map_dim_y, valid_batch_size, valid_fronts],
+                                                              map_dim_y, valid_batch_size, valid_fronts, front_types,
+                                                              normalization_method],
                                                         output_types=(tf.float32, tf.float32))
 
     os.mkdir('%s/model_%d' % (model_dir, job_number))
     os.mkdir('%s/model_%d/predictions' % (model_dir, job_number))
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, job_number, job_number)
+    history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, job_number, job_number)
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='loss', verbose=1, save_best_only=True,
                                                     save_weights_only=False, save_freq='epoch')
     early_stopping = EarlyStopping('loss', patience=500, verbose=1)
+    history_logger = CSVLogger(history_filepath, separator=",", append=True)
 
     history = model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
                         epochs=train_epochs,
                         steps_per_epoch=train_steps, validation_steps=valid_steps,
-                        callbacks=[early_stopping, checkpoint], verbose=2, workers=workers,
+                        callbacks=[early_stopping, checkpoint, history_logger], verbose=2, workers=workers,
                         use_multiprocessing=True, max_queue_size=100000)
 
     os.rename('TrainModel_%d_stdout.txt' % job_number,
@@ -203,10 +226,9 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 # UNet model
 def train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps,
                         train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
-                        workers, model_number, model_dir):
+                        workers, model_number, model_dir, front_types, normalization_method):
     """
     Function that trains the unet model and saves the model along with its weights.
-
     Parameters
     ----------
     front_files: list
@@ -244,21 +266,28 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         Number of the imported model.
     model_dir: str
         Directory that the models are saved to.
+    front_types: str
+        Fronts in the data.
+    normalization_method: int
+        Normalization method for the data (described near the end of the script).
     """
     print("\n=== MODEL TRAINING ===")
     print("Importing unet....", end='')
-
-    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
-    print('done')
-    print('Compiling unet....', end='')
-
     if loss == 'dice':
         loss_function = losses.dice
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={'dice': loss_function})
     elif loss == 'tversky':
         loss_function = losses.tversky
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={'tversky': loss_function})
     elif loss == 'cce':
         loss_function = 'categorical_crossentropy'
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+    elif loss == 'fss':
+        loss_function = custom_losses.make_FSS_loss(4)
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={'FSS_loss': loss_function})
+    print('done')
 
+    print('Compiling unet....', end='')
     adam = Adam(learning_rate=learning_rate)
     model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
     print('done')
@@ -272,23 +301,28 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
 
     train_dataset = tf.data.Dataset.from_generator(DataGenerator,
                                                    args=[front_files, variable_files, map_dim_x, map_dim_y,
-                                                         train_batch_size, train_fronts],
+                                                         train_batch_size, train_fronts, front_types,
+                                                         normalization_method],
                                                    output_types=(tf.float32, tf.float32))
 
     validation_dataset = tf.data.Dataset.from_generator(DataGenerator,
                                                         args=[front_files, variable_files, map_dim_x,
-                                                              map_dim_y, valid_batch_size, valid_fronts],
+                                                              map_dim_y, valid_batch_size, valid_fronts,
+                                                              front_types, normalization_method],
                                                         output_types=(tf.float32, tf.float32))
 
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number)
+    history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, model_number, model_number)
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='loss', verbose=1, save_best_only=True,
                                                     save_weights_only=False, save_freq='epoch')
     early_stopping = EarlyStopping('loss', patience=500, verbose=1)
+    history_logger = CSVLogger(history_filepath, separator=",", append=True)
 
     history = model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
-                        epochs=train_epochs, steps_per_epoch=train_steps, validation_steps=valid_steps,
-                        callbacks=[early_stopping, checkpoint], verbose=2, workers=workers,
+                        epochs=train_epochs,
+                        steps_per_epoch=train_steps, validation_steps=valid_steps,
+                        callbacks=[early_stopping, checkpoint, history_logger], verbose=2, workers=workers,
                         use_multiprocessing=True, max_queue_size=100000)
 
     with open('%s/model_%d/model_%d_history.pkl' % (model_dir, model_number, model_number), 'wb') as f:
@@ -330,7 +364,8 @@ if __name__ == "__main__":
     parser.add_argument('--map_dimensions', type=int, nargs=2, required=True,
                         help='Dimensions of the map size. Two integers'
                              ' need to be passed.')
-    parser.add_argument('--generate_lists', type=str, required=False, help='Generate lists of new files? (True/False)')
+    # Normalization methods: 0 - No normalization, 1 - Z-score, 2 - Min-max normalization, 3 - Mean normalization
+    parser.add_argument('--normalize_method', type=int, required=True, help='Normalization method for the data.')
     args = parser.parse_args()
 
     print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
@@ -356,7 +391,7 @@ if __name__ == "__main__":
             train_imported_unet(front_files, variable_files, args.learning_rate, args.train_epochs, args.train_steps,
                                 args.train_batch_size, train_fronts, args.valid_steps, args.valid_batch_size,
                                 args.valid_freq, valid_fronts, args.loss, args.workers, args.import_model_number,
-                                args.model_dir)
+                                args.model_dir, args.front_types, args.normalization_method)
     else:
         if args.job_number is None:
             raise errors.MissingArgumentError("Argument '--job_number' must be passed if you are creating a new model.")
@@ -369,4 +404,4 @@ if __name__ == "__main__":
             train_new_unet(front_files, variable_files, args.map_dim_x, args.map_dim_y, args.learning_rate,
                            args.train_epochs, args.train_steps, args.train_batch_size, train_fronts,
                            args.valid_steps, args.valid_batch_size, args.valid_freq, valid_fronts, args.loss,
-                           args.workers, args.job_number, args.model_dir)
+                           args.workers, args.job_number, args.model_dir, args.front_types, args.normalization_method)
