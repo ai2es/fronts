@@ -2,7 +2,7 @@
 Function that extracts variable and front data from a given domain and saves it into a pickle file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/2/2021 4:10 PM CDT
+Last updated: 7/19/2021 3:16 PM CDT
 """
 
 import argparse
@@ -236,6 +236,7 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     ds_Tv = (da_Tv.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(name='virt_temp')
     ds_Tw = (da_Tw.sel(longitude=slice(lon[0], lon[1]), latitude=slice(lat[1], lat[0]))).to_dataset(name='wet_bulb')
     ds_theta_e = variables.theta_e(ds_2mT.t2m, ds_2mTd.d2m, ds_sp.sp).to_dataset(name='theta_e')
+    ds_q = variables.specific_humidity(ds_2mTd.d2m, ds_sp.sp).to_dataset(name='q')
 
     timestring = "%d-%02d-%02d" % (year, month, day)
 
@@ -279,35 +280,93 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     z_950 = PL_950.z.values
     z_1000 = PL_1000.z.values
 
+    d_850 = variables.dew_point_from_specific_humidity(85000, PL_850.t.values, PL_850.q.values)
+    d_900 = variables.dew_point_from_specific_humidity(90000, PL_900.t.values, PL_900.q.values)
+    d_950 = variables.dew_point_from_specific_humidity(95000, PL_950.t.values, PL_950.q.values)
+    d_1000 = variables.dew_point_from_specific_humidity(100000, PL_1000.t.values, PL_1000.q.values)
+    mix_ratio_850 = variables.mixing_ratio(d_850, 85000)
+    mix_ratio_900 = variables.mixing_ratio(d_900, 90000)
+    mix_ratio_950 = variables.mixing_ratio(d_950, 95000)
+    mix_ratio_1000 = variables.mixing_ratio(d_1000, 100000)
+    rel_humid_850 = variables.relative_humidity(PL_850.t.values, d_850)
+    rel_humid_900 = variables.relative_humidity(PL_900.t.values, d_900)
+    rel_humid_950 = variables.relative_humidity(PL_950.t.values, d_950)
+    rel_humid_1000 = variables.relative_humidity(PL_1000.t.values, d_1000)
+    theta_e_850 = variables.theta_e(PL_850.t.values, d_850, 85000)
+    theta_e_900 = variables.theta_e(PL_900.t.values, d_900, 90000)
+    theta_e_950 = variables.theta_e(PL_950.t.values, d_950, 95000)
+    theta_e_1000 = variables.theta_e(PL_1000.t.values, d_1000, 100000)
+    theta_w_850 = variables.theta_w(PL_850.t.values, d_850, 85000)
+    theta_w_900 = variables.theta_w(PL_900.t.values, d_900, 90000)
+    theta_w_950 = variables.theta_w(PL_950.t.values, d_950, 95000)
+    theta_w_1000 = variables.theta_w(PL_1000.t.values, d_1000, 100000)
+    virt_temp_850 = variables.virtual_temperature(PL_850.t.values, d_850, 85000)
+    virt_temp_900 = variables.virtual_temperature(PL_900.t.values, d_900, 90000)
+    virt_temp_950 = variables.virtual_temperature(PL_950.t.values, d_950, 95000)
+    virt_temp_1000 = variables.virtual_temperature(PL_1000.t.values, d_1000, 100000)
+    wet_bulb_850 = variables.wet_bulb_temperature(PL_850.t.values, d_850)
+    wet_bulb_900 = variables.wet_bulb_temperature(PL_900.t.values, d_900)
+    wet_bulb_950 = variables.wet_bulb_temperature(PL_950.t.values, d_950)
+    wet_bulb_1000 = variables.wet_bulb_temperature(PL_1000.t.values, d_1000)
+
     new_850 = xr.Dataset(data_vars=dict(q_850=(['time', 'latitude', 'longitude'], q_850),
                                         t_850=(['time', 'latitude', 'longitude'], t_850),
                                         u_850=(['time', 'latitude', 'longitude'], u_850),
                                         v_850=(['time', 'latitude', 'longitude'], v_850),
-                                        z_850=(['time', 'latitude', 'longitude'], z_850)),
+                                        z_850=(['time', 'latitude', 'longitude'], z_850),
+                                        d_850=(['time', 'latitude', 'longitude'], d_850),
+                                        mix_ratio_850=(['time', 'latitude', 'longitude'], mix_ratio_850),
+                                        rel_humid_850=(['time', 'latitude', 'longitude'], rel_humid_850),
+                                        theta_e_850=(['time', 'latitude', 'longitude'], theta_e_850),
+                                        theta_w_850=(['time', 'latitude', 'longitude'], theta_w_850),
+                                        virt_temp_850=(['time', 'latitude', 'longitude'], virt_temp_850),
+                                        wet_bulb_850=(['time', 'latitude', 'longitude'], wet_bulb_850)),
                          coords=dict(latitude=lats, longitude=lons, time=time))
     new_900 = xr.Dataset(data_vars=dict(q_900=(['time', 'latitude', 'longitude'], q_900),
                                         t_900=(['time', 'latitude', 'longitude'], t_900),
                                         u_900=(['time', 'latitude', 'longitude'], u_900),
                                         v_900=(['time', 'latitude', 'longitude'], v_900),
-                                        z_900=(['time', 'latitude', 'longitude'], z_900)),
+                                        z_900=(['time', 'latitude', 'longitude'], z_900),
+                                        d_900=(['time', 'latitude', 'longitude'], d_900),
+                                        mix_ratio_900=(['time', 'latitude', 'longitude'], mix_ratio_900),
+                                        rel_humid_900=(['time', 'latitude', 'longitude'], rel_humid_900),
+                                        theta_e_900=(['time', 'latitude', 'longitude'], theta_e_900),
+                                        theta_w_900=(['time', 'latitude', 'longitude'], theta_w_900),
+                                        virt_temp_900=(['time', 'latitude', 'longitude'], virt_temp_900),
+                                        wet_bulb_900=(['time', 'latitude', 'longitude'], wet_bulb_900)),
                          coords=dict(latitude=lats, longitude=lons, time=time))
     new_950 = xr.Dataset(data_vars=dict(q_950=(['time', 'latitude', 'longitude'], q_950),
                                         t_950=(['time', 'latitude', 'longitude'], t_950),
                                         u_950=(['time', 'latitude', 'longitude'], u_950),
                                         v_950=(['time', 'latitude', 'longitude'], v_950),
-                                        z_950=(['time', 'latitude', 'longitude'], z_950)),
+                                        z_950=(['time', 'latitude', 'longitude'], z_950),
+                                        d_950=(['time', 'latitude', 'longitude'], d_950),
+                                        mix_ratio_950=(['time', 'latitude', 'longitude'], mix_ratio_950),
+                                        rel_humid_950=(['time', 'latitude', 'longitude'], rel_humid_950),
+                                        theta_e_950=(['time', 'latitude', 'longitude'], theta_e_950),
+                                        theta_w_950=(['time', 'latitude', 'longitude'], theta_w_950),
+                                        virt_temp_950=(['time', 'latitude', 'longitude'], virt_temp_950),
+                                        wet_bulb_950=(['time', 'latitude', 'longitude'], wet_bulb_950)),
                          coords=dict(latitude=lats, longitude=lons, time=time))
     new_1000 = xr.Dataset(data_vars=dict(q_1000=(['time', 'latitude', 'longitude'], q_1000),
-                                         t_1000=(['time', 'latitude', 'longitude'], t_1000),
-                                         u_1000=(['time', 'latitude', 'longitude'], u_1000),
-                                         v_1000=(['time', 'latitude', 'longitude'], v_1000),
-                                         z_1000=(['time', 'latitude', 'longitude'], z_1000)),
-                          coords=dict(latitude=lats, longitude=lons, time=time))
+                                        t_1000=(['time', 'latitude', 'longitude'], t_1000),
+                                        u_1000=(['time', 'latitude', 'longitude'], u_1000),
+                                        v_1000=(['time', 'latitude', 'longitude'], v_1000),
+                                        z_1000=(['time', 'latitude', 'longitude'], z_1000),
+                                        d_1000=(['time', 'latitude', 'longitude'], d_1000),
+                                        mix_ratio_1000=(['time', 'latitude', 'longitude'], mix_ratio_1000),
+                                        rel_humid_1000=(['time', 'latitude', 'longitude'], rel_humid_1000),
+                                        theta_e_1000=(['time', 'latitude', 'longitude'], theta_e_1000),
+                                        theta_w_1000=(['time', 'latitude', 'longitude'], theta_w_1000),
+                                        virt_temp_1000=(['time', 'latitude', 'longitude'], virt_temp_1000),
+                                        wet_bulb_1000=(['time', 'latitude', 'longitude'], wet_bulb_1000)),
+                         coords=dict(latitude=lats, longitude=lons, time=time))
 
     ds_pickle = [ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_theta_w, ds_mixing_ratio, ds_RH, ds_Tv, ds_Tw, ds_theta_e,
-                 new_850, new_900, new_950, new_1000]
+                 ds_q, new_850, new_900, new_950, new_1000]
 
     xr_pickle = xr.merge(ds_pickle, combine_attrs='override')
+    xr_pickle.q.values = xr_pickle.q.values
     xr_pickle.t2m.values = xr_pickle.t2m.values
     xr_pickle.d2m.values = xr_pickle.d2m.values
     xr_pickle.sp.values = xr_pickle.sp.values
@@ -319,6 +378,128 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.rel_humid.values = xr_pickle.rel_humid.values
     xr_pickle.virt_temp.values = xr_pickle.virt_temp.values
     xr_pickle.wet_bulb.values = xr_pickle.wet_bulb.values
+
+    xr_pickle.t2m.attrs['units'] = 'K'
+    xr_pickle.t2m.attrs['long_name'] = '2m AGL Temperature'
+    xr_pickle.d2m.attrs['units'] = 'K'
+    xr_pickle.d2m.attrs['long_name'] = '2m AGL Dewpoint temperature'
+    xr_pickle.sp.attrs['units'] = 'Pa'
+    xr_pickle.sp.attrs['long_name'] = 'Surface pressure'
+    xr_pickle.u10.attrs['units'] = 'm/s'
+    xr_pickle.u10.attrs['long_name'] = '10m AGL Zonal wind velocity'
+    xr_pickle.v10.attrs['units'] = 'm/s'
+    xr_pickle.v10.attrs['long_name'] = '10m AGL Meridional wind velocity'
+    xr_pickle.theta_w.attrs['units'] = 'K'
+    xr_pickle.theta_w.attrs['long_name'] = '2m AGL Wet-bulb potential temperature'
+    xr_pickle.mix_ratio.attrs['units'] = 'g(H2O)/g(air)'
+    xr_pickle.mix_ratio.attrs['long_name'] = '2m AGL Mixing ratio'
+    xr_pickle.rel_humid.attrs['long_name'] = '2m AGL Relative humidity'
+    xr_pickle.virt_temp.attrs['units'] = 'K'
+    xr_pickle.virt_temp.attrs['long_name'] = '2m AGL Virtual temperature'
+    xr_pickle.wet_bulb.attrs['units'] = 'K'
+    xr_pickle.wet_bulb.attrs['long_name'] = '2m AGL Wet-bulb temperature'
+    xr_pickle.theta_e.attrs['units'] = 'K'
+    xr_pickle.theta_e.attrs['long_name'] = '2m AGL Equivalent potential temperature'
+    xr_pickle.q.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.q.attrs['long_name'] = '2m AGL Specific humidity'
+
+    xr_pickle.q_850.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.q_850.attrs['long_name'] = '850mb Specific humidity'
+    xr_pickle.t_850.attrs['units'] = 'K'
+    xr_pickle.t_850.attrs['long_name'] = '850mb Temperature'
+    xr_pickle.u_850.attrs['units'] = 'm/s'
+    xr_pickle.u_850.attrs['long_name'] = '850mb Zonal wind velocity'
+    xr_pickle.v_850.attrs['units'] = 'm/s'
+    xr_pickle.v_850.attrs['long_name'] = '850mb Meridional wind velocity'
+    xr_pickle.z_850.attrs['units'] = 'm'
+    xr_pickle.z_850.attrs['long_name'] = '850mb Altitude'
+    xr_pickle.d_850.attrs['units'] = 'K'
+    xr_pickle.d_850.attrs['long_name'] = '850mb Dewpoint temperature'
+    xr_pickle.mix_ratio_850.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.mix_ratio_850.attrs['long_name'] = '850mb Mixing ratio'
+    xr_pickle.rel_humid_850.attrs['long_name'] = '850mb Relative humidity'
+    xr_pickle.theta_e_850.attrs['units'] = 'K'
+    xr_pickle.theta_e_850.attrs['long_name'] = '850mb Equivalent potential temperature'
+    xr_pickle.theta_w_850.attrs['units'] = 'K'
+    xr_pickle.theta_w_850.attrs['long_name'] = '850mb Wet-bulb potential temperature'
+    xr_pickle.virt_temp_850.attrs['units'] = 'K'
+    xr_pickle.virt_temp_850.attrs['long_name'] = '850mb Virtual potential temperature'
+    xr_pickle.wet_bulb_850.attrs['units'] = 'K'
+    xr_pickle.wet_bulb_850.attrs['long_name'] = '850mb Wet-bulb temperature'
+
+    xr_pickle.q_900.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.q_900.attrs['long_name'] = '900mb Specific humidity'
+    xr_pickle.t_900.attrs['units'] = 'K'
+    xr_pickle.t_900.attrs['long_name'] = '900mb Temperature'
+    xr_pickle.u_900.attrs['units'] = 'm/s'
+    xr_pickle.u_900.attrs['long_name'] = '900mb Zonal wind velocity'
+    xr_pickle.v_900.attrs['units'] = 'm/s'
+    xr_pickle.v_900.attrs['long_name'] = '900mb Meridional wind velocity'
+    xr_pickle.z_900.attrs['units'] = 'm'
+    xr_pickle.z_900.attrs['long_name'] = '900mb Altitude'
+    xr_pickle.d_900.attrs['units'] = 'K'
+    xr_pickle.d_900.attrs['long_name'] = '900mb Dewpoint temperature'
+    xr_pickle.mix_ratio_900.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.mix_ratio_900.attrs['long_name'] = '900mb Mixing ratio'
+    xr_pickle.rel_humid_900.attrs['long_name'] = '900mb Relative humidity'
+    xr_pickle.theta_e_900.attrs['units'] = 'K'
+    xr_pickle.theta_e_900.attrs['long_name'] = '900mb Equivalent potential temperature'
+    xr_pickle.theta_w_900.attrs['units'] = 'K'
+    xr_pickle.theta_w_900.attrs['long_name'] = '900mb Wet-bulb potential temperature'
+    xr_pickle.virt_temp_900.attrs['units'] = 'K'
+    xr_pickle.virt_temp_900.attrs['long_name'] = '900mb Virtual potential temperature'
+    xr_pickle.wet_bulb_900.attrs['units'] = 'K'
+    xr_pickle.wet_bulb_900.attrs['long_name'] = '900mb Wet-bulb temperature'
+
+    xr_pickle.q_950.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.q_950.attrs['long_name'] = '950mb Specific humidity'
+    xr_pickle.t_950.attrs['units'] = 'K'
+    xr_pickle.t_950.attrs['long_name'] = '950mb Temperature'
+    xr_pickle.u_950.attrs['units'] = 'm/s'
+    xr_pickle.u_950.attrs['long_name'] = '950mb Zonal wind velocity'
+    xr_pickle.v_950.attrs['units'] = 'm/s'
+    xr_pickle.v_950.attrs['long_name'] = '950mb Meridional wind velocity'
+    xr_pickle.z_950.attrs['units'] = 'm'
+    xr_pickle.z_950.attrs['long_name'] = '950mb Altitude'
+    xr_pickle.d_950.attrs['units'] = 'K'
+    xr_pickle.d_950.attrs['long_name'] = '950mb Dewpoint temperature'
+    xr_pickle.mix_ratio_950.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.mix_ratio_950.attrs['long_name'] = '950mb Mixing ratio'
+    xr_pickle.rel_humid_950.attrs['long_name'] = '950mb Relative humidity'
+    xr_pickle.theta_e_950.attrs['units'] = 'K'
+    xr_pickle.theta_e_950.attrs['long_name'] = '950mb Equivalent potential temperature'
+    xr_pickle.theta_w_950.attrs['units'] = 'K'
+    xr_pickle.theta_w_950.attrs['long_name'] = '950mb Wet-bulb potential temperature'
+    xr_pickle.virt_temp_950.attrs['units'] = 'K'
+    xr_pickle.virt_temp_950.attrs['long_name'] = '950mb Virtual potential temperature'
+    xr_pickle.wet_bulb_950.attrs['units'] = 'K'
+    xr_pickle.wet_bulb_950.attrs['long_name'] = '950mb Wet-bulb temperature'
+
+    xr_pickle.q_1000.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.q_1000.attrs['long_name'] = '1000mb Specific humidity'
+    xr_pickle.t_1000.attrs['units'] = 'K'
+    xr_pickle.t_1000.attrs['long_name'] = '1000mb Temperature'
+    xr_pickle.u_1000.attrs['units'] = 'm/s'
+    xr_pickle.u_1000.attrs['long_name'] = '1000mb Zonal wind velocity'
+    xr_pickle.v_1000.attrs['units'] = 'm/s'
+    xr_pickle.v_1000.attrs['long_name'] = '1000mb Meridional wind velocity'
+    xr_pickle.z_1000.attrs['units'] = 'm'
+    xr_pickle.z_1000.attrs['long_name'] = '1000mb Altitude'
+    xr_pickle.d_1000.attrs['units'] = 'K'
+    xr_pickle.d_1000.attrs['long_name'] = '1000mb Dewpoint temperature'
+    xr_pickle.mix_ratio_1000.attrs['units'] = 'g(H20)/g(air)'
+    xr_pickle.mix_ratio_1000.attrs['long_name'] = '1000mb Mixing ratio'
+    xr_pickle.rel_humid_1000.attrs['long_name'] = '1000mb Relative humidity'
+    xr_pickle.theta_e_1000.attrs['units'] = 'K'
+    xr_pickle.theta_e_1000.attrs['long_name'] = '1000mb Equivalent potential temperature'
+    xr_pickle.theta_w_1000.attrs['units'] = 'K'
+    xr_pickle.theta_w_1000.attrs['long_name'] = '1000mb Wet-bulb potential temperature'
+    xr_pickle.virt_temp_1000.attrs['units'] = 'K'
+    xr_pickle.virt_temp_1000.attrs['long_name'] = '1000mb Virtual potential temperature'
+    xr_pickle.wet_bulb_1000.attrs['units'] = 'K'
+    xr_pickle.wet_bulb_1000.attrs['long_name'] = '1000mb Wet-bulb temperature'
+
+    print(xr_pickle)
 
     return xr_pickle
 
@@ -341,7 +522,7 @@ def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdi
     """
     xr_pickle_data = xr_pickle.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
-    filename = "Data_31var_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
+    filename = "Data_60var_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
 
     print(filename)
 
@@ -574,16 +755,16 @@ if __name__ == "__main__":
 
     xr_pickle = extract_input_variables(args.longitude, args.latitude, args.year, args.month, args.day,
                                         args.netcdf_ERA5_indir)
-    ds = read_xml_files_360(args.year, args.month, args.day)
+    # ds = read_xml_files_360(args.year, args.month, args.day)
 
     for hour in range(0, 24, 3):
-        ds_hour = ds.sel(Longitude=slice(args.longitude[0], args.longitude[1]), Latitude=slice(args.latitude[1],
-                                                                                               args.latitude[0]))
-        ds_hour = ds_hour.rename(Latitude='latitude', Longitude='longitude', Type='type', Date='time')
+        # ds_hour = ds.sel(Longitude=slice(args.longitude[0], args.longitude[1]), Latitude=slice(args.latitude[1],
+        #                                                                                       args.latitude[0]))
+        # ds_hour = ds_hour.rename(Latitude='latitude', Longitude='longitude', Type='type', Date='time')
 
-        # save_variable_data_to_pickle(args.year, args.month, args.day, hour, xr_pickle, args.pickle_outdir)
+        save_variable_data_to_pickle(args.year, args.month, args.day, hour, xr_pickle, args.pickle_outdir)
 
         # save_fronts_CFWF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        save_fronts_SFOF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        save_fronts_DL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        save_fronts_ALL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        # save_fronts_SFOF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        # save_fronts_DL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        # save_fronts_ALL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)

@@ -2,7 +2,7 @@
 Functions in this code prepare and organize data files before they are used in model training and validation.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/2/2021 4:09 PM CDT
+Last updated: 7/19/2021 8:26 PM CDT
 """
 
 from glob import glob
@@ -135,8 +135,11 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
 
     matches = 0
     mismatches = 0
+
+    # Check the end of the filenames to match up files together
     for i in range(len(front_files_list)):
-        if front_files_list[0][-22-len(str(map_dimensions[0]))-len(str(map_dimensions[1])):] == variable_files_list[0][-22-len(str(map_dimensions[0]))-len(str(map_dimensions[1])):]:
+        if front_files_list[0][-22-len(str(map_dimensions[0]))-len(str(map_dimensions[1])):] == \
+            variable_files_list[0][-22-len(str(map_dimensions[0]))-len(str(map_dimensions[1])):]:
             matches += 1
         else:
             mismatches += 1
@@ -162,21 +165,22 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--pickle_indir', type=str, required=True, help='Path of pickle files containing front object'
-                                                                        ' and variable data.')
+        ' and variable data.')
     parser.add_argument('--num_variables', type=int, required=True, help='Number of variables in the variable datasets.')
-    parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain warm'
-                                                                       ' and cold fronts, pass this argument as CFWF.'
-                                                                       ' If your files contain only drylines, pass this argument'
-                                                                       ' as DL. If your files contain all fronts, pass this argument'
-                                                                       ' as ALL.')
+    parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain '
+        'warm and cold fronts, pass this argument as CFWF. If your files contain only drylines, pass this argument as '
+        'DL. If your files contain all fronts, pass this argument as ALL.')
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
-    parser.add_argument('--map_dimensions', type=int, nargs=2, required=True, help='Dimensions of the map size. Two integers'
-                                                                                   ' need to be passed.')
+    parser.add_argument('--map_dimensions', type=int, nargs=2, required=True, help='Dimensions of the map size. Two '
+        'integers need to be passed.')
     parser.add_argument('--generate_lists', type=str, required=False, help='Generate lists of new files? (True/False)')
     args = parser.parse_args()
 
-    front_files, variable_files = load_files(args.pickle_indir, args.num_variables, args.front_types, args.domain, args.map_dimensions)
+    front_files, variable_files = load_files(args.pickle_indir, args.num_variables, args.front_types, args.domain,
+                                             args.map_dimensions)
     if len(front_files) == len(variable_files) and (args.generate_lists != 'True'):
-        print("WARNING: File lists have equal length. If you would still like to create new lists, pass the '--generate_lists' argument as 'True'.")
+        print("WARNING: File lists have equal length. If you would still like to create new lists, pass the "
+              "'--generate_lists' argument as 'True'.")
     else:
-        generate_file_lists(front_files, variable_files, args.num_variables, args.front_types, args.domain, args.map_dimensions)
+        generate_file_lists(front_files, variable_files, args.num_variables, args.front_types, args.domain,
+                            args.map_dimensions)
