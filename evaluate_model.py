@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/20/2021 2:21 PM CDT
+Last updated: 8/2/2021 12:39 PM CDT
 """
 
 import random
@@ -84,10 +84,6 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         279.5752426, 276.296217417, 293.69090226, 0.00462498, 274.6106082, 1.385064762, 0.148459298, 13762.46737, 
         0.005586943, 276.6008764, 0.839714324, 0.201385933, 9211.468268, 0.00656686, 278.2460963, 0.375778613, 
         0.207254872, 4877.725497, 0.007057154, 280.1310979, -0.050884628, 0.197406197, 736.070931]
-    std_devs = [21.161467, 20.603729, 9590.54, 5.587448, 4.795126, 24.325, 12.2499125, 0.175, 24.675, 20.475, 39.725,
-        0.004141041, 15.55585542, 8.250520488, 6.286386854, 1481.972616, 0.00473022, 15.8944975, 8.122294976, 
-        6.424827792, 1313.379508, 0.005520186, 16.7592906, 7.689928269, 6.445098408, 1178.610181, 0.005908417, 
-        18.16819064, 6.193227753, 5.342330733, 1083.730224]
 
     for x in range(predictions):
         index = random.choices(range(len(fronts_files_list) - 1), k=1)[0]
@@ -106,12 +102,9 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         for j in range(31):
             var = variable_list[j]
             if normalization_method == 1:
-                # Z-score normalization
-                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - means[j]) / std_devs[j])
-            elif normalization_method == 2:
                 # Min-max normalization
                 variable_ds[var].values = np.nan_to_num((variable_ds[var].values - mins[j]) / (maxs[j] - mins[j]))
-            elif normalization_method == 3:
+            elif normalization_method == 2:
                 # Mean normalization
                 variable_ds[var].values = np.nan_to_num((variable_ds[var].values - means[j]) / (maxs[j] - mins[j]))
         variable = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x, 
@@ -132,9 +125,9 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         if front_types == 'CFWF':
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[0][j][i][0]
-                    cold_probs[i][j] = prediction[0][j][i][1]
-                    warm_probs[i][j] = prediction[0][j][i][2]
+                    no_probs[i][j] = prediction[5][0][j][i][0]
+                    cold_probs[i][j] = prediction[5][0][j][i][1]
+                    warm_probs[i][j] = prediction[5][0][j][i][2]
             probs_ds = xr.Dataset(
                 {"no_probs": (("latitude", "longitude"), no_probs), "cold_probs": (("latitude", "longitude"), cold_probs),
                  "warm_probs": (("latitude", "longitude"), warm_probs)}, coords={"latitude": lats, "longitude": lons})
@@ -280,21 +273,44 @@ def learning_curve(model_number, model_dir):
     with open("%s/model_%d/model_%d_history.csv" % (model_dir, model_number, model_number), 'rb') as f:
         history = pd.read_csv(f)
 
-    plt.subplots(1, 2, figsize=(10, 5), dpi=500)
+    plt.subplots(1, 2, figsize=(14, 7), dpi=500)
     plt.subplot(1, 2, 1)
     plt.title("Loss")
     plt.grid()
-    plt.plot(history['loss'], 'b')
+
+    # If the model is a regular U-Net, uncomment the line below.
+    # plt.plot(history['loss'], color='black')
+
+    # If the model is a U-Net 3+, uncomment the lines below.
+    plt.plot(history['unet_output_sup0_activation_loss'], label='sup0')
+    plt.plot(history['unet_output_sup1_activation_loss'], label='sup1')
+    plt.plot(history['unet_output_sup2_activation_loss'], label='sup2')
+    plt.plot(history['unet_output_sup3_activation_loss'], label='sup3')
+    plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
+    plt.plot(history['unet_output_final_activation_loss'], label='final')
+
+    plt.legend()
     plt.xlim(xmin=0)
-    plt.ylim(ymin=0)
+    plt.ylim(ymin=1e-6, ymax=1e-5)
+    plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     plt.subplot(1, 2, 2)
     plt.title("AUC")
     plt.grid()
-    plt.plot(history['auc'], 'r')
-    plt.axhline(y=0.9871, color='black', linestyle='-')
+    # If the model is a regular U-Net, uncomment the line below.
+    # plt.plot(history['auc'], 'r')
+
+    # If the model is a U-Net 3+, uncomment the lines below.
+    plt.plot(history['unet_output_sup0_activation_auc'], label='sup0')
+    plt.plot(history['unet_output_sup1_activation_auc'], label='sup1')
+    plt.plot(history['unet_output_sup2_activation_auc'], label='sup2')
+    plt.plot(history['unet_output_sup3_activation_auc'], label='sup3')
+    plt.plot(history['unet_output_sup4_activation_auc'], label='sup4')
+    plt.plot(history['unet_output_final_activation_auc'], label='final')
+
+    plt.legend()
     plt.xlim(xmin=0)
-    plt.ylim(ymin=0.98, ymax=1)
+    plt.ylim(ymin=0.99, ymax=1)
     plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number),
                 bbox_inches='tight')
 
@@ -362,36 +378,34 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
              279.5752426, 276.296217417, 293.69090226, 0.00462498, 274.6106082, 1.385064762, 0.148459298,
              13762.46737, 0.005586943, 276.6008764, 0.839714324, 0.201385933, 9211.468268, 0.00656686, 278.2460963,
              0.375778613, 0.207254872, 4877.725497, 0.007057154, 280.1310979, -0.050884628, 0.197406197, 736.070931]
-    std_devs = [21.161467, 20.603729, 9590.54, 5.587448, 4.795126, 24.325, 12.2499125, 0.175, 24.675, 20.475,
-                39.725, 0.004141041, 15.55585542, 8.250520488, 6.286386854, 1481.972616, 0.00473022, 15.8944975,
-                8.122294976, 6.424827792, 1313.379508, 0.005520186, 16.7592906, 7.689928269, 6.445098408,
-                1178.610181, 0.005908417, 18.16819064, 6.193227753, 5.342330733, 1083.730224]
 
-    max_cold_probs = []
-    max_warm_probs = []
-    max_stationary_probs = []
-    max_occluded_probs = []
-    max_dryline_probs = []
-    dates = []
+    max_cold_probs = []  # List of maximum cold front probabilities achieved in each file.
+    max_warm_probs = []  # List of maximum warm front probabilities achieved in each file.
+    max_stationary_probs = []  # List of maximum stationary front probabilities achieved in each file.
+    max_occluded_probs = []  # List of maximum occluded front probabilities achieved in each file.
+    max_dryline_probs = []  # List of maximum dryline front probabilities achieved in each file.
+    dates = []  # List of dates for the files.
     num_files = len(variables_files_list)
+
     print("Calculating maximum probability statistics for model %d" % model_number)
     for x in range(num_files):
-        variable_ds = pd.read_pickle(variables_files_list[x])
+
+        variable_ds = pd.read_pickle(variables_files_list[x])  # Load list of variable files.
         time = variable_ds.time.values
+
+        # Select a domain over which to make a prediction.
         lon_index = random.choices(range(file_dimensions[0] - map_dim_x))[0]
         lat_index = random.choices(range(file_dimensions[1] - map_dim_y))[0]
         lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]
         lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
+
         variable_list = list(variable_ds.keys())
         for j in range(31):
             var = variable_list[j]
             if normalization_method == 1:
-                # Z-score normalization
-                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - means[j]) / std_devs[j])
-            elif normalization_method == 2:
                 # Min-max normalization
                 variable_ds[var].values = np.nan_to_num((variable_ds[var].values - mins[j]) / (maxs[j] - mins[j]))
-            elif normalization_method == 3:
+            elif normalization_method == 2:
                 # Mean normalization
                 variable_ds[var].values = np.nan_to_num((variable_ds[var].values - means[j]) / (maxs[j] - mins[j]))
         variable = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
@@ -619,8 +633,10 @@ if __name__ == '__main__':
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
     parser.add_argument('--file_dimensions', type=int, nargs=2, required=True, help='Dimensions of the file size. Two integers'
         ' need to be passed.')
-    # Normalization methods: 0 - No normalization, 1 - Z-score, 2 - Min-max normalization, 3 - Mean normalization
+
+    # Normalization methods: 0 - No normalization, 1 - Min-max normalization, 2 - Mean normalization
     parser.add_argument('--normalization_method', type=int, required=True, help='Normalization method for the data.')
+
     parser.add_argument('--probability_statistics', type=str, required=False, help='Calculate maximum probability statistics?'
         ' (True/False)')
     parser.add_argument('--probability_plot', type=str, required=False, help='Create probability distribution plot? (True/False)')
