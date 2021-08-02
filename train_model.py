@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/26/2021 12:26 PM CDT
+Last updated: 8/2/2021 2:09 PM CDT
 """
 
 import random
@@ -93,10 +93,10 @@ class DataGenerator(keras.utils.Sequence):
                     # Mean normalization
                     variable_ds[var].values = np.nan_to_num((variable_ds[var].values - means[j]) / (maxs[j] - mins[j]))
             fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values
-            if self.front_types == 'SFOF':
+            if self.front_types == b'SFOF':
                 # Prevents generator from making 5 classes
                 fronts = np.where(np.where(fronts == 3, 1, fronts) == 4, 2, np.where(fronts == 3, 1, fronts))
-            elif self.front_types == 'DL':
+            elif self.front_types == b'DL':
                 # Prevents generator from making 6 classes
                 fronts = np.where(np.where(fronts == 5, 1, fronts))
             binarized_fronts = to_categorical(fronts, num_classes=self.num_classes)
@@ -173,6 +173,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     else:
         num_classes = 6
 
+    print(num_classes)
     #### Multi-GPU support (NOT WORKING) ###
     # strategy = tf.distribute.MirroredStrategy()
     
