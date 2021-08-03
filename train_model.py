@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/2/2021 9:01 PM CDT
+Last updated: 8/3/2021 5:38 PM CDT
 """
 
 import random
@@ -179,9 +179,9 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         num_classes = 6
 
     """
-    Splitting a model across multiple GPUs using tf.distribute.MirroredStrategy()
+    Splitting a new model across multiple GPUs using tf.distribute.MultiWorkerMirroredStrategy()
     
-    strategy = tf.distribute.MirroredStrategy()
+    strategy = tf.distribute.MultiWorkerMirroredStrategy()
     
     with strategy.scope():
     
@@ -207,26 +207,49 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     model.fit(...)
     """
 
-    # Visit the keras_unet_collection user guide for help with making models: https://pypi.org/project/keras-unet-collection/
-    model = models.unet_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
-        stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
-        unpool=True, name='unet')
+    strategy = tf.distribute.MultiWorkerMirroredStrategy()
+    
+    with strategy.scope():
+        """
+        U-Net examples
+        Visit the keras_unet_collection user guide for help with making models: https://pypi.org/project/keras-unet-collection/
+        
+        === U-Net ===
+        model = models.unet_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
+            stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
+            unpool=True, name='unet')
+        
+        === U-Net++ ===
+        model = models.unet_plus_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
+            stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
+            unpool=True, name='unet', deep_supervision=True)
+        
+        === U-Net 3+ ===
+        model = models.unet_3plus_2d((map_dim_x, map_dim_y, 31), filter_num_down=[32, 64, 128, 256, 512, 1024],
+            filter_num_skip='auto', filter_num_aggregate=64, n_labels=num_classes, stack_num_down=5, stack_num_up=5,
+            activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
+            deep_supervision=True)
+        """
+        model = models.unet_3plus_2d((map_dim_x, map_dim_y, 31), filter_num_down=[32, 64, 128, 256, 512, 1024],
+            filter_num_skip='auto', filter_num_aggregate='auto', n_labels=num_classes, stack_num_down=5, stack_num_up=5,
+            activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
+            deep_supervision=True)
 
-    print('done')
+        print('done')
 
-    if loss == 'dice':
-        loss_function = losses.dice
-    elif loss == 'tversky':
-        loss_function = losses.tversky
-    elif loss == 'cce':
-        loss_function = 'categorical_crossentropy'
-    elif loss == 'fss':
-        loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+        if loss == 'dice':
+            loss_function = losses.dice
+        elif loss == 'tversky':
+            loss_function = losses.tversky
+        elif loss == 'cce':
+            loss_function = 'categorical_crossentropy'
+        elif loss == 'fss':
+            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
 
-    print('Compiling unet....', end='')
-    adam = Adam(learning_rate=learning_rate)
-    model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
-    print('done')
+        print('Compiling unet....', end='')
+        adam = Adam(learning_rate=learning_rate)
+        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+        print('done')
 
     model.summary()
 
@@ -253,15 +276,6 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
         epochs=train_epochs, steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=[early_stopping,
         checkpoint, history_logger], verbose=2, workers=workers, use_multiprocessing=True, max_queue_size=100000)
-
-    # model = models.unet_plus_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
-    #     stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
-    #     unpool=True, name='unet', deep_supervision=True)
- 
-    # model = models.unet_3plus_2d((map_dim_x, map_dim_y, 31), filter_num_down=[32, 64, 128, 256, 512, 1024],
-    #     filter_num_skip='auto', filter_num_aggregate=64, n_labels=num_classes, stack_num_down=5, stack_num_up=5,
-    #     activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
-    #     deep_supervision=True)
 
 
 # Retraining a U-Net model
@@ -319,28 +333,75 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     """
     print("\n=== MODEL TRAINING ===")
 
-    print("Importing unet....", end='')
-    if loss == 'dice':
-        loss_function = losses.dice
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'dice': loss_function})
-    elif loss == 'tversky':
-        loss_function = losses.tversky
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'tversky': loss_function})
-    elif loss == 'cce':
-        loss_function = 'categorical_crossentropy'
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
-    elif loss == 'fss':
-        loss_function = custom_losses.make_FSS_loss(fss_mask_size)
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'FSS_loss': loss_function})
-    print("done")
+    if front_types == 'CFWF' or front_types == 'SFOF':
+        num_classes = 3
+    elif front_types == 'DL':
+        num_classes = 2
+    else:
+        num_classes = 6
 
-    print('Compiling unet....', end='')
-    adam = Adam(learning_rate=learning_rate)
-    model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
-    print('done')
+    """
+    Splitting an imported model across multiple GPUs using tf.distribute.MultiWorkerMirroredStrategy()
+    
+    strategy = tf.distribute.MultiWorkerMirroredStrategy()
+    
+    with strategy.scope():
+
+        print("Importing unet....", end='')
+        if loss == 'dice':
+            loss_function = losses.dice
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={'dice': loss_function})
+        elif loss == 'tversky':
+            loss_function = losses.tversky
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={'tversky': loss_function})
+        elif loss == 'cce':
+            loss_function = 'categorical_crossentropy'
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+        elif loss == 'fss':
+            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={'FSS_loss': loss_function})
+        print("done")
+    
+        print('Compiling unet....', end='')
+        adam = Adam(learning_rate=learning_rate)
+        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+        print('done')
+    
+    model.summary()
+    ....
+    ....
+    model.fit(...)
+    """
+
+    strategy = tf.distribute.MultiWorkerMirroredStrategy()
+
+    with strategy.scope():
+
+        print("Importing unet....", end='')
+        if loss == 'dice':
+            loss_function = losses.dice
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={'dice': loss_function})
+        elif loss == 'tversky':
+            loss_function = losses.tversky
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={'tversky': loss_function})
+        elif loss == 'cce':
+            loss_function = 'categorical_crossentropy'
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+        elif loss == 'fss':
+            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={'FSS_loss': loss_function})
+        print("done")
+
+        print('Compiling unet....', end='')
+        adam = Adam(learning_rate=learning_rate)
+        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+        print('done')
 
     model.summary()
 
@@ -348,11 +409,11 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     map_dim_y = model.layers[0].input_shape[0][2]
 
     train_dataset = tf.data.Dataset.from_generator(DataGenerator, args=[front_files, variable_files, map_dim_x,
-        map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, pixel_expansion],
+        map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion],
         output_types=(tf.float16, tf.float16))
 
     validation_dataset = tf.data.Dataset.from_generator(DataGenerator, args=[front_files, variable_files, map_dim_x,
-        map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, pixel_expansion],
+        map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion],
         output_types=(tf.float16, tf.float16))
 
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number)
@@ -387,8 +448,8 @@ if __name__ == "__main__":
     parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
         ' (if applicable).')
     parser.add_argument('--workers', type=int, required=True, help='Number of workers for the Unet')
-    parser.add_argument('--map_dim_x', type=int, required=True, help='X dimension of the Unet map')
-    parser.add_argument('--map_dim_y', type=int, required=True, help='Y dimension of the Unet map')
+    parser.add_argument('--map_dim_x', type=int, required=False, help='X dimension of the Unet map')
+    parser.add_argument('--map_dim_y', type=int, required=False, help='Y dimension of the Unet map')
     parser.add_argument('--job_number', type=int, required=True, help='Slurm job number')
     parser.add_argument('--import_model_number', type=int, required=False, help='Number of the model that you would '
         'like to import.')
@@ -445,8 +506,9 @@ if __name__ == "__main__":
         else:
             print("loss: %s" % loss)
 
-    print('map_dim_x: %d' % args.map_dim_x)
-    print('map_dim_y: %d' % args.map_dim_y)
+    if args.map_dim_x != None and args.map_dim_y != None:
+        print('map_dim_x: %d' % args.map_dim_x)
+        print('map_dim_y: %d' % args.map_dim_y)
 
     if args.normalization_method is None:
         normalization_method = 0
