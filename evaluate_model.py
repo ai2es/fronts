@@ -742,3 +742,4 @@ if __name__ == '__main__':
 
     if args.probability_plot == 'True':
         probability_distribution_plot(args.model_number, args.model_dir, args.front_types)
+        
