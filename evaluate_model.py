@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/2/2021 9:01 PM CDT
+Last updated: 8/3/2021 9:04 AM CDT
 """
 
 import random
@@ -516,11 +516,11 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
 
     print(max_probs_ds)
 
-    with open('model_%d_maximum_probabilities.pkl' % model_number, 'wb') as f:
+    with open('%s/model_%d/model_%d_maximum_probabilities.pkl' % (model_dir, model_number, model_number), 'wb') as f:
         pickle.dump(max_probs_ds, f)
 
 
-def probability_distribution_plot(model_number, front_types):
+def probability_distribution_plot(model_number, model_dir, front_types):
     """
     Function that takes an Xarray dataset containing maximum front probabilities for a provided model and creates a
     probability distribution plot.
@@ -529,10 +529,12 @@ def probability_distribution_plot(model_number, front_types):
     ----------
     model_number: int
         Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        Main directory for the models.
     front_types: str
         Front format of the file.
     """
-    with open('model_%d_maximum_probabilities.pkl' % model_number, 'rb') as f:
+    with open('%s/model_%d/model_%d_maximum_probabilities.pkl' % (model_dir, model_number, model_number), 'rb') as f:
         max_probs_ds = pd.read_pickle(f)
 
     labels = []  # Sets of probability labels for the plot
@@ -573,7 +575,7 @@ def probability_distribution_plot(model_number, front_types):
         plt.ylabel("Occurrence in dataset (%)")
         plt.ylim(0,100)
         plt.legend()
-        plt.savefig("model_%d_percentages.png" % model_number,bbox_inches='tight')
+        plt.savefig("%s/model_%d/model_%d_percentages.png" % (model_dir, model_number, model_number), bbox_inches='tight')
         plt.close()
 
     elif front_types == 'SFOF':
@@ -596,7 +598,7 @@ def probability_distribution_plot(model_number, front_types):
         plt.ylabel("Occurrence in dataset (%)")
         plt.ylim(0,100)
         plt.legend()
-        plt.savefig("model_%d_percentages.png" % model_number,bbox_inches='tight')
+        plt.savefig("%s/model_%d/model_%d_percentages.png" % (model_dir, model_number, model_number), bbox_inches='tight')
         plt.close()
 
     elif front_types == 'DL':
@@ -615,7 +617,7 @@ def probability_distribution_plot(model_number, front_types):
         plt.ylabel("Occurrence in dataset (%)")
         plt.ylim(0,100)
         plt.legend()
-        plt.savefig("model_%d_percentages.png" % model_number,bbox_inches='tight')
+        plt.savefig("%s/model_%d/model_%d_percentages.png" % (model_dir, model_number, model_number), bbox_inches='tight')
         plt.close()
 
     elif front_types == 'ALL':
@@ -647,7 +649,7 @@ def probability_distribution_plot(model_number, front_types):
         plt.ylabel("Occurrence in dataset (%)")
         plt.ylim(0,100)
         plt.legend()
-        plt.savefig("model_%d_percentages.png" % model_number, bbox_inches='tight')
+        plt.savefig("%s/model_%d/model_%d_percentages.png" % (model_dir, model_number, model_number), bbox_inches='tight')
         plt.close()
 
 
@@ -739,4 +741,4 @@ if __name__ == '__main__':
             args.file_dimensions, args.front_types, args.fss_mask_size)
 
     if args.probability_plot == 'True':
-        probability_distribution_plot(args.model_number, args.front_types)
+        probability_distribution_plot(args.model_number, args.model_dir, args.front_types)
