@@ -248,7 +248,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
             fplot.plot_background(ax, extent)
         fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[0].title.set_text("%s Truth" % time)
-        probs_ds.dryline_probs.plot(ax=axlist[1], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.dryline_probs.plot(ax=axlist[1], cmap='Oranges', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s DL probability" % time)
         plt.savefig('%s/model_%d/predictions/model_%d_%s_plot.png' % (model_dir, model_number, model_number, time),
                     bbox_inches='tight', dpi=300)
