@@ -2,7 +2,7 @@
 Function used to create frequency map subplots.
 
 Code written by: John Allen (allen4jt@cmich.edu)
-Last updated: 6/30/2021 1:03 PM CDT by Andrew Justin (andrewjustin@ou.edu)
+Last updated: 8/2/2021 9:02 PM CDT by Andrew Justin (andrewjustin@ou.edu)
 """
 
 import matplotlib.pyplot as plt
@@ -13,7 +13,6 @@ import argparse
 import os
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-
 plt.switch_backend('agg')
 
 
@@ -34,9 +33,9 @@ def plot_background(ax, extent):
         New plot background.
     """
     # ax.gridlines()
-    ax.add_feature(cfeature.COASTLINE.with_scale('50m'), linewidth=0.5)
-    ax.add_feature(cfeature.BORDERS, linewidth=0.5)
-    ax.add_feature(cfeature.STATES, linewidth=0.5)
+    ax.add_feature(cfeature.COASTLINE.with_scale('50m'), linewidth=0.25)
+    ax.add_feature(cfeature.BORDERS, linewidth=0.25)
+    ax.add_feature(cfeature.STATES, linewidth=0.25)
     ax.set_extent(extent, crs=ccrs.PlateCarree())
     return ax
 

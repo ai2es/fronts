@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/2/2021 2:09 PM CDT
+Last updated: 8/2/2021 9:01 PM CDT
 """
 
 import random
@@ -34,7 +34,7 @@ class DataGenerator(keras.utils.Sequence):
         self.map_dim_y = map_dim_y
         self.batch_size = batch_size
         self.front_threshold = front_threshold
-        self.front_types = front_types
+        self.front_types = front_types  # NOTE: This is passed into the generator as a bytes object, NOT a string
         self.normalization_method = normalization_method
         self.num_classes = num_classes
         self.pixel_expansion = pixel_expansion
@@ -74,7 +74,7 @@ class DataGenerator(keras.utils.Sequence):
                     elif self.pixel_expansion == 2:
                         front_ds = ope(ope(pickle.load(front_file)))  # 2-pixel expansion
 
-                # Select a domain over which to make a prediction.
+                # Select a random portion of the map
                 lon_index = random.choices(range(289 - self.map_dim_x))[0]
                 lat_index = random.choices(range(129 - self.map_dim_y))[0]
                 lons = front_ds.longitude.values[lon_index:lon_index + self.map_dim_x]
@@ -99,14 +99,19 @@ class DataGenerator(keras.utils.Sequence):
             elif self.front_types == b'DL':
                 # Prevents generator from making 6 classes
                 fronts = np.where(np.where(fronts == 5, 1, fronts))
+            """
+            tensorflow.keras.utils.to_categorical: binarizes identifier (front label) values
+            Example: [0, 2, 3, 4] ---> [[1, 0, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 1]] 
+            """
             binarized_fronts = to_categorical(fronts, num_classes=self.num_classes)
+
             variable = variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values
             front_dss[i] = binarized_fronts
             variable_dss[i] = variable
         return variable_dss, front_dss
 
 
-# UNet model
+# Creating and training a new U-Net model
 def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
                    train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
                    workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, pixel_expansion):
@@ -173,32 +178,36 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     else:
         num_classes = 6
 
-    print(num_classes)
-    #### Multi-GPU support (NOT WORKING) ###
-    # strategy = tf.distribute.MirroredStrategy()
+    """
+    Splitting a model across multiple GPUs using tf.distribute.MirroredStrategy()
     
-    # with strategy.scope():
-    #
-    #     model = models.unet_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
-    #         stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
-    #         unpool=True, name='unet')
-    #
-    #     print('done')
-    #
-    #     if loss == 'dice':
-    #         loss_function = losses.dice
-    #     elif loss == 'tversky':
-    #         loss_function = losses.tversky
-    #     elif loss == 'cce':
-    #         loss_function = 'categorical_crossentropy'
-    #     elif loss == 'fss':
-    #         loss_function = custom_losses.make_FSS_loss(fss_mask_size)
-    #
-    #     print('Compiling unet....', end='')
-    #     adam = Adam(learning_rate=learning_rate)
-    #     model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
-    #     print('done')
+    strategy = tf.distribute.MirroredStrategy()
+    
+    with strategy.scope():
+    
+        model = models.unet_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
+            stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
+            unpool=True, name='unet')
+            
+        if loss == 'dice':
+            loss_function = losses.dice
+        elif loss == 'tversky':
+            loss_function = losses.tversky
+        elif loss == 'cce':
+            loss_function = 'categorical_crossentropy'
+        elif loss == 'fss':
+            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+        
+        adam = Adam(learning_rate=learning_rate)
+        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+    
+    model.summary()
+    ....
+    ....
+    model.fit(...)
+    """
 
+    # Visit the keras_unet_collection user guide for help with making models: https://pypi.org/project/keras-unet-collection/
     model = models.unet_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
         stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
         unpool=True, name='unet')
@@ -229,15 +238,17 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion],
         output_types=(tf.float16, tf.float16))
 
-    os.mkdir('%s/model_%d' % (model_dir, job_number))
-    os.mkdir('%s/model_%d/predictions' % (model_dir, job_number))
+    os.mkdir('%s/model_%d' % (model_dir, job_number))  # Make folder for model
+    os.mkdir('%s/model_%d/predictions' % (model_dir, job_number))  # Make folder for model predictions
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, job_number, job_number)
     history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, job_number, job_number)
 
+    # ModelCheckpoint: saves model at a specified interval
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')
+    # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     early_stopping = EarlyStopping('loss', patience=500, verbose=1)
-    history_logger = CSVLogger(history_filepath, separator=",", append=True)
+    history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
         epochs=train_epochs, steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=[early_stopping,
@@ -253,7 +264,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     #     deep_supervision=True)
 
 
-# U-Net model
+# Retraining a U-Net model
 def train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
     train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, workers, model_number, model_dir,
     front_types, normalization_method, fss_mask_size, pixel_expansion):
@@ -347,10 +358,12 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number)
     history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, model_number, model_number)
 
+    # ModelCheckpoint: saves model at a specified interval
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')
+    # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     early_stopping = EarlyStopping('loss', patience=500, verbose=1)
-    history_logger = CSVLogger(history_filepath, separator=",", append=True)
+    history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
         epochs=train_epochs, steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=[early_stopping,

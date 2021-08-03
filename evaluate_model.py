@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/2/2021 12:39 PM CDT
+Last updated: 8/2/2021 9:01 PM CDT
 """
 
 import random
@@ -18,6 +18,7 @@ import xarray as xr
 import errors
 import custom_losses
 import pickle
+import matplotlib as mpl
 
 
 def predict(model_number, model_dir, fronts_files_list, variables_files_list, predictions, normalization_method, loss,
@@ -86,18 +87,20 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         0.207254872, 4877.725497, 0.007057154, 280.1310979, -0.050884628, 0.197406197, 736.070931]
 
     for x in range(predictions):
+        # Open random pair of files
         index = random.choices(range(len(fronts_files_list) - 1), k=1)[0]
         fronts_filename = fronts_files_list[index]
         variables_filename = variables_files_list[index]
         fronts_ds = pd.read_pickle(fronts_filename)
         variable_ds = pd.read_pickle(variables_filename)
 
+        # Select a random portion of the map
         lon_index = random.choices(range(289 - map_dim_x))[0]
         lat_index = random.choices(range(129 - map_dim_y))[0]
         lons = fronts_ds.longitude.values[lon_index:lon_index + map_dim_x]
         lats = fronts_ds.latitude.values[lat_index:lat_index + map_dim_y]
-
         fronts = fronts_ds.sel(longitude=lons, latitude=lats)
+
         variable_list = list(variable_ds.keys())
         for j in range(31):
             var = variable_list[j]
@@ -115,6 +118,7 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
         print(time)
 
+        # Arrays of probabilities for all front types
         no_probs = np.zeros([map_dim_x, map_dim_y])
         cold_probs = np.zeros([map_dim_x, map_dim_y])
         warm_probs = np.zeros([map_dim_x, map_dim_y])
@@ -122,12 +126,21 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         occluded_probs = np.zeros([map_dim_x, map_dim_y])
         dryline_probs = np.zeros([map_dim_x, map_dim_y])
 
+        """
+        Reformatting predictions: change the lines inside the loops according to your U-Net type.
+        
+        ### U-Net ###
+        <front>_probs[i][j] = prediction[0][j][i][0]  <front> is the front type
+        
+        ### U-Net 3+ ###
+        <front>_probs[i][j] = prediction[n][0][j][i][0]  <front> is the front type, n is the number of down layers in the model
+        """
         if front_types == 'CFWF':
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[5][0][j][i][0]
-                    cold_probs[i][j] = prediction[5][0][j][i][1]
-                    warm_probs[i][j] = prediction[5][0][j][i][2]
+                    no_probs[i][j] = prediction[0][j][i][0]
+                    cold_probs[i][j] = prediction[0][j][i][1]
+                    warm_probs[i][j] = prediction[0][j][i][2]
             probs_ds = xr.Dataset(
                 {"no_probs": (("latitude", "longitude"), no_probs), "cold_probs": (("latitude", "longitude"), cold_probs),
                  "warm_probs": (("latitude", "longitude"), warm_probs)}, coords={"latitude": lats, "longitude": lons})
@@ -168,7 +181,7 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
 
         print("Generating plots....", end='')
         prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types)
-        print("done\n\n\n")
+        print("done")
 
 
 def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types):
@@ -194,16 +207,20 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     extent = [220, 300, 29, 53]
     crs = ccrs.LambertConformal(central_longitude=250)
 
+    # Create custom colorbar for the different front types of the 'truth' plot
+    cmap = mpl.colors.ListedColormap(['0.9',"blue","red",'green','purple','orange'], name='from_list', N=None)
+    norm = mpl.colors.Normalize(vmin=0,vmax=6)
+
     if front_types == 'CFWF':
         fig, axarr = plt.subplots(3, 1, figsize=(12, 14), subplot_kw={'projection': crs})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
-        fronts.identifier.plot(ax=axlist[0], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[0].title.set_text("%s Truth" % time)
-        probs_ds.cold_probs.plot(ax=axlist[1], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.cold_probs.plot(ax=axlist[1], cmap='Blues', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s CF probability" % time)
-        probs_ds.warm_probs.plot(ax=axlist[2], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.warm_probs.plot(ax=axlist[2], cmap='Reds', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[2].title.set_text("%s WF probability" % time)
         plt.savefig('%s/model_%d/predictions/model_%d_%s_plot.png' % (model_dir, model_number, model_number, time),
                     bbox_inches='tight', dpi=300)
@@ -214,11 +231,11 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
-        fronts.identifier.plot(ax=axlist[0], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[0].title.set_text("%s Truth" % time)
-        probs_ds.stationary_probs.plot(ax=axlist[1], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.stationary_probs.plot(ax=axlist[1], cmap='Greens', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s SF probability" % time)
-        probs_ds.occluded_probs.plot(ax=axlist[2], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.occluded_probs.plot(ax=axlist[2], cmap='Purples', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[2].title.set_text("%s OF probability" % time)
         plt.savefig('%s/model_%d/predictions/model_%d_%s_plot.png' % (model_dir, model_number, model_number, time),
                     bbox_inches='tight', dpi=300)
@@ -229,7 +246,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
-        fronts.identifier.plot(ax=axlist[0], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[0].title.set_text("%s Truth" % time)
         probs_ds.dryline_probs.plot(ax=axlist[1], x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s DL probability" % time)
@@ -242,17 +259,17 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
-        fronts.identifier.plot(ax=axlist[0], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[0].title.set_text("%s Truth" % time)
-        probs_ds.cold_probs.plot(ax=axlist[1], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.cold_probs.plot(ax=axlist[1], cmap='Blues', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s CF probability" % time)
-        probs_ds.warm_probs.plot(ax=axlist[2], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.warm_probs.plot(ax=axlist[2], cmap='Reds', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[2].title.set_text("%s WF probability" % time)
-        probs_ds.stationary_probs.plot(ax=axlist[3], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.stationary_probs.plot(ax=axlist[3], cmap='Greens', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[3].title.set_text("%s SF probability" % time)
-        probs_ds.occluded_probs.plot(ax=axlist[4], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.occluded_probs.plot(ax=axlist[4], cmap='Purples', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[4].title.set_text("%s OF probability" % time)
-        probs_ds.dryline_probs.plot(ax=axlist[5], x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.dryline_probs.plot(ax=axlist[5], cmap='Oranges', x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[5].title.set_text("%s DL probability" % time)
         plt.savefig('%s/model_%d/predictions/model_%d_%s_plot.png' % (model_dir, model_number, model_number, time),
                     bbox_inches='tight', dpi=300)
@@ -274,45 +291,56 @@ def learning_curve(model_number, model_dir):
         history = pd.read_csv(f)
 
     plt.subplots(1, 2, figsize=(14, 7), dpi=500)
+
     plt.subplot(1, 2, 1)
     plt.title("Loss")
     plt.grid()
 
-    # If the model is a regular U-Net, uncomment the line below.
-    # plt.plot(history['loss'], color='black')
-
-    # If the model is a U-Net 3+, uncomment the lines below.
+    """
+    Loss curves: replace the line(s) below this block according to your U-Net type.
+    
+    ### U-Net ###
+    plt.plot(history['loss'], color='black')
+    
+    ### U-Net 3+ ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
     plt.plot(history['unet_output_sup0_activation_loss'], label='sup0')
     plt.plot(history['unet_output_sup1_activation_loss'], label='sup1')
     plt.plot(history['unet_output_sup2_activation_loss'], label='sup2')
     plt.plot(history['unet_output_sup3_activation_loss'], label='sup3')
     plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
-    plt.plot(history['unet_output_final_activation_loss'], label='final')
+    plt.plot(history['unet_output_final_activation_loss'], label='final', color='black')
+    """
+    plt.plot(history['loss'], color='black')
 
     plt.legend()
     plt.xlim(xmin=0)
-    plt.ylim(ymin=1e-6, ymax=1e-5)
+    plt.ylim(ymin=1e-6, ymax=1e-5)  # Limits of the loss function graph, adjust these as needed
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     plt.subplot(1, 2, 2)
     plt.title("AUC")
     plt.grid()
-    # If the model is a regular U-Net, uncomment the line below.
-    # plt.plot(history['auc'], 'r')
 
-    # If the model is a U-Net 3+, uncomment the lines below.
+    """
+    AUC curves: replace the line(s) below this block according to your U-Net type.
+    
+    ### U-Net ###
+    plt.plot(history['auc'], 'r')
+    
+    ### U-Net 3+ ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
     plt.plot(history['unet_output_sup0_activation_auc'], label='sup0')
     plt.plot(history['unet_output_sup1_activation_auc'], label='sup1')
     plt.plot(history['unet_output_sup2_activation_auc'], label='sup2')
     plt.plot(history['unet_output_sup3_activation_auc'], label='sup3')
     plt.plot(history['unet_output_sup4_activation_auc'], label='sup4')
     plt.plot(history['unet_output_final_activation_auc'], label='final')
+    """
+    plt.plot(history['auc'], 'r')
 
     plt.legend()
     plt.xlim(xmin=0)
-    plt.ylim(ymin=0.99, ymax=1)
-    plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number),
-                bbox_inches='tight')
+    plt.ylim(ymin=0.99, ymax=1)  # Limits of the AUC graph, adjust these as needed
+    plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
 
 
 def average_max_probabilities(model_number, model_dir, variables_files_list, loss, normalization_method,
@@ -390,7 +418,7 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
     print("Calculating maximum probability statistics for model %d" % model_number)
     for x in range(num_files):
 
-        variable_ds = pd.read_pickle(variables_files_list[x])  # Load list of variable files.
+        variable_ds = pd.read_pickle(variables_files_list[x])
         time = variable_ds.time.values
 
         # Select a domain over which to make a prediction.
@@ -413,10 +441,24 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
 
         prediction = model.predict(variable)
 
+        # Arrays of probabilities for all front types
+        no_probs = np.zeros([map_dim_x, map_dim_y])
+        cold_probs = np.zeros([map_dim_x, map_dim_y])
+        warm_probs = np.zeros([map_dim_x, map_dim_y])
+        stationary_probs = np.zeros([map_dim_x, map_dim_y])
+        occluded_probs = np.zeros([map_dim_x, map_dim_y])
+        dryline_probs = np.zeros([map_dim_x, map_dim_y])
+
+        """
+        Reformatting predictions: change the lines inside the loops according to your U-Net type.
+        
+        ### U-Net ###
+        <front>_probs[i][j] = prediction[0][j][i][0]  <front> is the front type
+        
+        ### U-Net 3+ ###
+        <front>_probs[i][j] = prediction[n][0][j][i][0]  <front> is the front type, n is the number of down layers in the model
+        """
         if front_types == 'CFWF':
-            no_probs = np.zeros([map_dim_x, map_dim_y])
-            cold_probs = np.zeros([map_dim_x, map_dim_y])
-            warm_probs = np.zeros([map_dim_x, map_dim_y])
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
                     no_probs[i][j] = prediction[0][j][i][0]
@@ -430,9 +472,6 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                 '%', np.max(max_warm_probs),  '%', np.std(max_cold_probs),  '%', np.std(max_warm_probs),  '%',), end='')
 
         elif front_types == 'SFOF':
-            no_probs = np.zeros([map_dim_x, map_dim_y])
-            stationary_probs = np.zeros([map_dim_x, map_dim_y])
-            occluded_probs = np.zeros([map_dim_x, map_dim_y])
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
                     no_probs[i][j] = prediction[0][j][i][0]
@@ -446,8 +485,6 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                 '%', np.max(max_occluded_probs),  '%', np.std(max_stationary_probs),  '%', np.std(max_occluded_probs),  '%',), end='')
 
         elif front_types == 'DL':
-            no_probs = np.zeros([map_dim_x, map_dim_y])
-            dryline_probs = np.zeros([map_dim_x, map_dim_y])
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
                     no_probs[i][j] = prediction[0][j][i][0]
@@ -456,12 +493,6 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                 np.sum(max_dryline_probs)/x, '%', np.max(max_dryline_probs), '%', np.std(max_dryline_probs), '%'), end='')
 
         elif front_types == 'ALL':
-            no_probs = np.zeros([map_dim_x, map_dim_y])
-            cold_probs = np.zeros([map_dim_x, map_dim_y])
-            warm_probs = np.zeros([map_dim_x, map_dim_y])
-            stationary_probs = np.zeros([map_dim_x, map_dim_y])
-            occluded_probs = np.zeros([map_dim_x, map_dim_y])
-            dryline_probs = np.zeros([map_dim_x, map_dim_y])
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
                     no_probs[i][j] = prediction[0][j][i][0]
@@ -504,7 +535,12 @@ def probability_distribution_plot(model_number, front_types):
     with open('model_%d_maximum_probabilities.pkl' % model_number, 'rb') as f:
         max_probs_ds = pd.read_pickle(f)
 
-    labels = []
+    labels = []  # Sets of probability labels for the plot
+
+    """
+    <front>_occurrences: Number of occurrences in each file, sorted in lists
+    total_<front>_occurrences: Total number of occurrences over all files
+    """
     cold_occurrences = []
     total_cold_occurrences = 0
     warm_occurrences = []
@@ -617,8 +653,7 @@ def probability_distribution_plot(model_number, front_types):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_number', type=int, required=True, help='Path of pickle files containing front object'
-        ' and surface data.')
+    parser.add_argument('--model_number', type=int, required=True, help='Model number')
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--predict', type=str, required=False, help='Generate prediction plots? (True/False)')
     parser.add_argument('--predictions', type=int, required=False, help='Number of predictions to make. Default is 25.')
@@ -650,12 +685,46 @@ if __name__ == '__main__':
     if args.loss != 'fss' and args.fss_mask_size is not None:
         raise errors.ExtraArgumentError("Argument '--fss_mask_size' can only be passed if you are using the FSS loss function.")
 
-    if args.predict == 'True':
-        if args.predictions is None:
-            print("WARNING: '--predictions' argument not provided, defaulting to 25 predictions.")
-            predictions = 25
+    if args.domain is None:
+        domain = 'conus'
+        print("domain: %s (default)" % domain)
+    else:
+        domain = args.domain
+        print("domain: %s" % domain)
+
+    print("file_dimensions: %d %d" % (args.file_dimensions[0],args.file_dimensions[1]))
+    print("front_types: %s" % args.front_types)
+
+    if args.loss is None:
+        loss = 'cce'
+        print("loss: %s (default)" % loss)
+    else:
+        loss = args.loss
+        if loss == 'fss':
+            print("loss: FSS(%d)" % args.fss_mask_size)
         else:
-            predictions = args.predictions
+            print("loss: %s" % loss)
+
+    if args.normalization_method is None:
+        normalization_method = 0
+        print('normalization_method: 0 - No normalization (default)')
+    else:
+        normalization_method = args.normalization_method
+        if normalization_method == 1:
+            print('normalization_method: 1 - Min-max normalization')
+        elif normalization_method == 2:
+            print('normalization_method: 2 - Mean normalization')
+
+    if args.predictions is None:
+        predictions = 25
+        print('predictions: 25 (default)')
+    else:
+        predictions = args.predictions
+        print('predictions: %d' % args.predictions)
+
+    print("num_variables: %d" % args.num_variables)
+
+    if args.predict == 'True':
         predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, predictions,
                 args.normalization_method, args.loss, args.fss_mask_size, args.front_types)
     else:
