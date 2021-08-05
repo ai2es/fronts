@@ -98,8 +98,8 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         variable_ds = pd.read_pickle(variables_filename)
 
         # Select a random portion of the map
-        lon_index = random.choices(range(file_dimensions - map_dim_x))[0]
-        lat_index = random.choices(range(file_dimensions - map_dim_y))[0]
+        lon_index = random.choices(range(file_dimensions[0] - map_dim_x))[0]
+        lat_index = random.choices(range(file_dimensions[1] - map_dim_y))[0]
         print(lon_index)
         lons = fronts_ds.longitude.values[lon_index:lon_index + map_dim_x]
         lats = fronts_ds.latitude.values[lat_index:lat_index + map_dim_y]
