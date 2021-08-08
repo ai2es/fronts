@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/3/2021 9:04 AM CDT
+Last updated: 8/8/2021 10:16 AM CDT
 """
 
 import random
@@ -22,7 +22,7 @@ import matplotlib as mpl
 
 
 def predict(model_number, model_dir, fronts_files_list, variables_files_list, predictions, normalization_method, loss,
-    fss_mask_size, front_types):
+    fss_mask_size, front_types, file_dimensions):
     """
     Function that makes random predictions using the provided model.
 
@@ -46,8 +46,9 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         Size of the mask for the FSS loss function.
     front_types: str
         Fronts in the data.
+    file_dimensions: int (x2)
+        Dimensions of the data files.
     """
-    print("\n=== MODEL EVALUATION ===")
 
     print("Loading model....", end='')
     if loss == 'cce':
@@ -55,38 +56,41 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         print("done")
         print("Loss function: cce")
     elif loss == 'dice':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), 
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
             custom_objects={'dice': custom_losses.dice})
         print("done")
         print("Loss function: dice")
     elif loss == 'tversky':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), 
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
             custom_objects={'tversky': custom_losses.tversky})
         print("done")
         print("Loss function: tversky")
     elif loss == 'fss':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), 
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
             custom_objects={'FSS_loss': custom_losses.make_FSS_loss(fss_mask_size)})
         print("done")
         print("Loss function: FSS(%d)" % fss_mask_size)
 
-    map_dim_x = model.layers[0].input_shape[0][1]
-    map_dim_y = model.layers[0].input_shape[0][2]
-    channels = model.layers[0].input_shape[0][3]
+    map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
+    map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
+    channels = model.layers[0].input_shape[0][3]  # Number of variables used
 
-    maxs = [326.3396301, 305.8016968, 107078.2344, 44.84565735, 135.2455444, 327, 70, 1, 333, 310, 415, 0.024951244,
-        309.2406, 89.81117, 90.9507, 17612.004, 0.034231212, 309.2406, 89.853115, 91.11507, 13249.213, 0.046489507,
-        309.2406, 62.46032, 91.073425, 9000.762, 0.048163727, 309.2406, 62.22315, 76.649796, 17522.139]
-    mins = [192.2073669, 189.1588898, 47399.61719, -196.7885437, -96.90724182, 188, 0.0005, 0, 192, 193, 188,
-        0.00000000466, 205.75833, -165.10022, -64.62073, -6912.213, 0.00000000466, 205.75833, -165.20557, -64.64681,
-        903.0327, 0.00000000466, 205.75833, -148.51501, -66.1152, -3231.293, 0.00000000466, 205.75833, -165.27695,
-        -58.405083, -6920.75]
-    means = [278.8510794, 274.2647937, 96650.46322, -0.06747816, 0.1984011, 278.39639128, 4.291633, 0.7226335,
-        279.5752426, 276.296217417, 293.69090226, 0.00462498, 274.6106082, 1.385064762, 0.148459298, 13762.46737, 
-        0.005586943, 276.6008764, 0.839714324, 0.201385933, 9211.468268, 0.00656686, 278.2460963, 0.375778613, 
-        0.207254872, 4877.725497, 0.007057154, 280.1310979, -0.050884628, 0.197406197, 736.070931]
+    """
+    IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
+    
+    If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
+        norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
+    
+    For all models created AFTER August 5, 2021, import the parameters as follows:
+        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
+        
+    If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
+    the wrong normalization parameters.
+    """
+    norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
     for x in range(predictions):
+
         # Open random pair of files
         index = random.choices(range(len(fronts_files_list) - 1), k=1)[0]
         fronts_filename = fronts_files_list[index]
@@ -95,25 +99,27 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         variable_ds = pd.read_pickle(variables_filename)
 
         # Select a random portion of the map
-        lon_index = random.choices(range(289 - map_dim_x))[0]
-        lat_index = random.choices(range(129 - map_dim_y))[0]
+        lon_index = random.choices(range(file_dimensions[0] - map_dim_x))[0]
+        lat_index = random.choices(range(file_dimensions[1] - map_dim_y))[0]
         lons = fronts_ds.longitude.values[lon_index:lon_index + map_dim_x]
         lats = fronts_ds.latitude.values[lat_index:lat_index + map_dim_y]
         fronts = fronts_ds.sel(longitude=lons, latitude=lats)
 
         variable_list = list(variable_ds.keys())
-        for j in range(31):
+        for j in range(channels):
             var = variable_list[j]
             if normalization_method == 1:
                 # Min-max normalization
-                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - mins[j]) / (maxs[j] - mins[j]))
+                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
+                                                        (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
             elif normalization_method == 2:
                 # Mean normalization
-                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - means[j]) / (maxs[j] - mins[j]))
-        variable = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x, 
+                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
+                                                        (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+        variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
             map_dim_y, channels))
 
-        prediction = model.predict(variable)
+        prediction = model.predict(variable_ds_new)
 
         time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
         print(time)
@@ -138,9 +144,9 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         if front_types == 'CFWF':
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[0][j][i][0]
-                    cold_probs[i][j] = prediction[0][j][i][1]
-                    warm_probs[i][j] = prediction[0][j][i][2]
+                    no_probs[i][j] = prediction[5][0][j][i][0]
+                    cold_probs[i][j] = prediction[5][0][j][i][1]
+                    warm_probs[i][j] = prediction[5][0][j][i][2]
             probs_ds = xr.Dataset(
                 {"no_probs": (("latitude", "longitude"), no_probs), "cold_probs": (("latitude", "longitude"), cold_probs),
                  "warm_probs": (("latitude", "longitude"), warm_probs)}, coords={"latitude": lats, "longitude": lons})
@@ -310,11 +316,16 @@ def learning_curve(model_number, model_dir):
     plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
     plt.plot(history['unet_output_final_activation_loss'], label='final', color='black')
     """
-    plt.plot(history['loss'], color='black')
+    plt.plot(history['unet_output_sup0_activation_loss'], label='sup0')
+    plt.plot(history['unet_output_sup1_activation_loss'], label='sup1')
+    plt.plot(history['unet_output_sup2_activation_loss'], label='sup2')
+    plt.plot(history['unet_output_sup3_activation_loss'], label='sup3')
+    plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
+    plt.plot(history['unet_output_final_activation_loss'], label='final', color='black')
 
     plt.legend()
     plt.xlim(xmin=0)
-    plt.ylim(ymin=1e-6, ymax=1e-5)  # Limits of the loss function graph, adjust these as needed
+    plt.ylim(ymin=1e-6, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     plt.subplot(1, 2, 2)
@@ -333,9 +344,14 @@ def learning_curve(model_number, model_dir):
     plt.plot(history['unet_output_sup2_activation_auc'], label='sup2')
     plt.plot(history['unet_output_sup3_activation_auc'], label='sup3')
     plt.plot(history['unet_output_sup4_activation_auc'], label='sup4')
-    plt.plot(history['unet_output_final_activation_auc'], label='final')
+    plt.plot(history['unet_output_final_activation_auc'], label='final', color='black')
     """
-    plt.plot(history['auc'], 'r')
+    plt.plot(history['unet_output_sup0_activation_auc'], label='sup0')
+    plt.plot(history['unet_output_sup1_activation_auc'], label='sup1')
+    plt.plot(history['unet_output_sup2_activation_auc'], label='sup2')
+    plt.plot(history['unet_output_sup3_activation_auc'], label='sup3')
+    plt.plot(history['unet_output_sup4_activation_auc'], label='sup4')
+    plt.plot(history['unet_output_final_activation_auc'], label='final', color='black')
 
     plt.legend()
     plt.xlim(xmin=0)
@@ -343,8 +359,8 @@ def learning_curve(model_number, model_dir):
     plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
 
 
-def average_max_probabilities(model_number, model_dir, variables_files_list, loss, normalization_method,
-    file_dimensions, front_types, fss_mask_size):
+def average_max_probabilities(model_number, model_dir, variables_files_list, loss, normalization_method, front_types,
+    fss_mask_size):
     """
     Function that makes calculates maximum front probabilities for the provided model and saves the probabilities to
     a pickle file.
@@ -361,14 +377,12 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         Loss function for the Unet.
     normalization_method: int
         Normalization method for the data (described near the end of the script).
-    file_dimensions: int (x2)
-        Dimensions of the datasets.
     front_types: str
         Front format of the file.
     fss_mask_size: int
         Size of the mask for the FSS loss function.
     """
-    print("\n=== MODEL EVALUATION ===")
+    print("\n=== AVERAGE MAX PROBABILITIES ===")
     print("Loading model....", end='')
 
     if loss == 'cce':
@@ -390,22 +404,23 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                                            custom_objects={loss: loss_function})
 
-    map_dim_x = model.layers[0].input_shape[0][1]
-    map_dim_y = model.layers[0].input_shape[0][2]
-    channels = model.layers[0].input_shape[0][3]
+    map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
+    map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
+    channels = model.layers[0].input_shape[0][3]  # Number of variables used
 
-    maxs = [326.3396301, 305.8016968, 107078.2344, 44.84565735, 135.2455444, 327, 70, 1, 333, 310, 415, 0.024951244,
-            309.2406, 89.81117, 90.9507, 17612.004, 0.034231212, 309.2406, 89.853115, 91.11507, 13249.213,
-            0.046489507, 309.2406, 62.46032, 91.073425, 9000.762, 0.048163727, 309.2406, 62.22315, 76.649796,
-            17522.139]
-    mins = [192.2073669, 189.1588898, 47399.61719, -196.7885437, -96.90724182, 188, 0.0005, 0, 192, 193, 188,
-            0.00000000466, 205.75833, -165.10022, -64.62073, -6912.213, 0.00000000466, 205.75833, -165.20557,
-            -64.64681, 903.0327, 0.00000000466, 205.75833, -148.51501, -66.1152, -3231.293, 0.00000000466,
-            205.75833, -165.27695, -58.405083, -6920.75]
-    means = [278.8510794, 274.2647937, 96650.46322, -0.06747816, 0.1984011, 278.39639128, 4.291633, 0.7226335,
-             279.5752426, 276.296217417, 293.69090226, 0.00462498, 274.6106082, 1.385064762, 0.148459298,
-             13762.46737, 0.005586943, 276.6008764, 0.839714324, 0.201385933, 9211.468268, 0.00656686, 278.2460963,
-             0.375778613, 0.207254872, 4877.725497, 0.007057154, 280.1310979, -0.050884628, 0.197406197, 736.070931]
+    """
+    IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
+    
+    If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
+        norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
+    
+    For all models created AFTER August 5, 2021, import the parameters as follows:
+        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
+        
+    If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
+    the wrong normalization parameters.
+    """
+    norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
     max_cold_probs = []  # List of maximum cold front probabilities achieved in each file.
     max_warm_probs = []  # List of maximum warm front probabilities achieved in each file.
@@ -419,23 +434,25 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
     for x in range(num_files):
 
         variable_ds = pd.read_pickle(variables_files_list[x])
-        time = variable_ds.time.values
+        dates.append(variable_ds.time.values)
 
-        # Select a domain over which to make a prediction.
-        lon_index = random.choices(range(file_dimensions[0] - map_dim_x))[0]
-        lat_index = random.choices(range(file_dimensions[1] - map_dim_y))[0]
+        # Hold indices constant for a better evaluation
+        lon_index = 97
+        lat_index = 0
         lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]
         lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
 
         variable_list = list(variable_ds.keys())
-        for j in range(31):
+        for j in range(channels):
             var = variable_list[j]
             if normalization_method == 1:
                 # Min-max normalization
-                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - mins[j]) / (maxs[j] - mins[j]))
+                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
+                                                        (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
             elif normalization_method == 2:
                 # Mean normalization
-                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - means[j]) / (maxs[j] - mins[j]))
+                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
+                                                        (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
         variable = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
             map_dim_y, channels))
 
@@ -461,12 +478,11 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         if front_types == 'CFWF':
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[0][j][i][0]
-                    cold_probs[i][j] = prediction[0][j][i][1]
-                    warm_probs[i][j] = prediction[0][j][i][2]
+                    no_probs[i][j] = prediction[5][0][j][i][0]
+                    cold_probs[i][j] = prediction[5][0][j][i][1]
+                    warm_probs[i][j] = prediction[5][0][j][i][2]
             max_cold_probs.append(np.max(cold_probs*100))
             max_warm_probs.append(np.max(warm_probs*100))
-            dates.append(time)
             print("\r(%d/%d)  Avg CF/WF: %.1f%s / %.1f%s,  Max CF/WF: %.1f%s / %.1f%s, Stddev CF/WF: %.1f%s / %.1f%s "
                 % (x+1, num_files, np.sum(max_cold_probs)/x, '%', np.sum(max_warm_probs)/x,  '%', np.max(max_cold_probs),
                 '%', np.max(max_warm_probs),  '%', np.std(max_cold_probs),  '%', np.std(max_warm_probs),  '%',), end='')
@@ -479,7 +495,6 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                     occluded_probs[i][j] = prediction[0][j][i][2]
             max_stationary_probs.append(np.max(stationary_probs*100))
             max_occluded_probs.append(np.max(occluded_probs*100))
-            dates.append(time)
             print("\r(%d/%d)  Avg SF/OF: %.1f%s / %.1f%s,  Max SF/OF: %.1f%s / %.1f%s, Stddev SF/OF: %.1f%s / %.1f%s "
                 % (x+1, num_files, np.sum(max_stationary_probs)/x, '%', np.sum(max_occluded_probs)/x,  '%', np.max(max_stationary_probs),
                 '%', np.max(max_occluded_probs),  '%', np.std(max_stationary_probs),  '%', np.std(max_occluded_probs),  '%',), end='')
@@ -489,6 +504,7 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                 for j in range(0, map_dim_x):
                     no_probs[i][j] = prediction[0][j][i][0]
                     dryline_probs[i][j] = prediction[0][j][i][1]
+            max_dryline_probs.append(np.max(dryline_probs*100))
             print("\r(%d/%d)  Avg DL: %.1f%s,  Max DL: %.1f%s, Stddev DL: %.1f%s" % (x+1, num_files,
                 np.sum(max_dryline_probs)/x, '%', np.max(max_dryline_probs), '%', np.std(max_dryline_probs), '%'), end='')
 
@@ -501,6 +517,11 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                     stationary_probs[i][j] = prediction[0][j][i][3]
                     occluded_probs[i][j] = prediction[0][j][i][4]
                     dryline_probs[i][j] = prediction[0][j][i][5]
+            max_cold_probs.append(np.max(cold_probs*100))
+            max_warm_probs.append(np.max(warm_probs*100))
+            max_stationary_probs.append(np.max(stationary_probs*100))
+            max_occluded_probs.append(np.max(occluded_probs*100))
+            max_dryline_probs.append(np.max(dryline_probs*100))
             print("\r(%d/%d)  Avg CF/WF/SF/OF/DL: %.1f%s / %.1f%s / %.1f%s / %.1f%s / %.1f%s, "
                   " Max CF/WF/SF/OF/DL: %.1f%s / %.1f%s / %.1f%s / %.1f%s / %.1f%s, "
                   " Stddev CF/WF/SF/OF/DL: %.1f%s / %.1f%s / %.1f%s / %.1f%s / %.1f%s "
@@ -511,8 +532,21 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                    np.std(max_stationary_probs),  '%', np.std(max_occluded_probs),  '%', np.std(max_dryline_probs),  '%'),
                   end='')
 
-    max_probs_ds = xr.Dataset({"max_cold_probs": ("time", max_cold_probs), "max_warm_probs":
-        ("time", max_warm_probs)}, coords={"time": dates})
+    if front_types == 'CFWF':
+        max_probs_ds = xr.Dataset({"max_cold_probs": ("time", max_cold_probs), "max_warm_probs":
+            ("time", max_warm_probs)}, coords={"time": dates})
+
+    elif front_types == 'SFOF':
+        max_probs_ds = xr.Dataset({"max_stationary_probs": ("time", max_stationary_probs), "max_occluded_probs":
+            ("time", max_occluded_probs)}, coords={"time": dates})
+
+    elif front_types == 'DL':
+        max_probs_ds = xr.Dataset({"max_dryline_probs": ("time", max_dryline_probs)}, coords={"time": dates})
+
+    elif front_types == 'ALL':
+        max_probs_ds = xr.Dataset({"max_cold_probs": ("time", max_cold_probs), "max_warm_probs":
+            ("time", max_warm_probs), "max_stationary_probs": ("time", max_stationary_probs), "max_occluded_probs":
+            ("time", max_occluded_probs), "max_dryline_probs": ("time", max_dryline_probs)}, coords={"time": dates})
 
     print(max_probs_ds)
 
@@ -635,12 +669,12 @@ def probability_distribution_plot(model_number, model_dir, front_types):
             total_occluded_occurrences += occluded_occurrence
             occluded_occurrences.append(occluded_occurrence)
             labels.append("%d-%d" % (int(5*i), int(5*(i+1))))
-        plt.figure(figsize=(10,5),dpi=300)
+        plt.figure(figsize=(10,5), dpi=300)
         plt.grid(axis='y', alpha=0.2)
         plt.xticks(ticks=np.linspace(0,19,20), labels=labels)
         plt.title("Model %d Probability Distribution" % model_number)
-        plt.plot(np.array(cold_occurrences)*100/total_days, 'b',label='cold front')
-        plt.plot(np.array(warm_occurrences)*100/total_days, 'r',label='warm front')
+        plt.plot(np.array(cold_occurrences)*100/total_days, 'b', label='cold front')
+        plt.plot(np.array(warm_occurrences)*100/total_days, 'r', label='warm front')
         plt.plot(np.array(stationary_occurrences)*100/total_days, 'g', label='stationary front')
         plt.plot(np.array(occluded_occurrences)*100/total_days, color='purple', label='occluded front')
         plt.plot(np.array(dryline_occurrences)*100/total_days, color='orange', label='dryline front')
@@ -655,14 +689,13 @@ def probability_distribution_plot(model_number, model_dir, front_types):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+
+    """
+    Required arguments
+    """
     parser.add_argument('--model_number', type=int, required=True, help='Model number')
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
-    parser.add_argument('--predict', type=str, required=False, help='Generate prediction plots? (True/False)')
-    parser.add_argument('--predictions', type=int, required=False, help='Number of predictions to make. Default is 25.')
-    parser.add_argument('--learning_curve', type=str, required=False, help='Plot learning curves? (True/False)')
     parser.add_argument('--loss', type=str, required=True, help='Loss function used for training the Unet.')
-    parser.add_argument('--fss_mask_size', type=int, required=True, help='Mask size for the FSS loss function'
-        ' (if applicable).')
     parser.add_argument('--num_variables', type=int, required=True, help='Number of variables in the variable datasets.')
     parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain warm'
         ' and cold fronts, pass this argument as CFWF. If your files contain only drylines, pass this argument as DL. '
@@ -670,16 +703,28 @@ if __name__ == '__main__':
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
     parser.add_argument('--file_dimensions', type=int, nargs=2, required=True, help='Dimensions of the file size. Two integers'
         ' need to be passed.')
-
     # Normalization methods: 0 - No normalization, 1 - Min-max normalization, 2 - Mean normalization
     parser.add_argument('--normalization_method', type=int, required=True, help='Normalization method for the data.')
 
+    """
+    Optional arguments
+    """
+    parser.add_argument('--predict', type=str, required=False, help='Generate prediction plots? (True/False)')
+    parser.add_argument('--predictions', type=int, required=False, help='Number of predictions to make. Default is 25.')
+    parser.add_argument('--learning_curve', type=str, required=False, help='Plot learning curves? (True/False)')
     parser.add_argument('--probability_statistics', type=str, required=False, help='Calculate maximum probability statistics?'
         ' (True/False)')
     parser.add_argument('--probability_plot', type=str, required=False, help='Create probability distribution plot? (True/False)')
+
+    """
+    Conditional arguments
+    """
+    parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
+        ' (if applicable).')  # Must be passed if using the fractions skill score (FSS) loss function
+
     args = parser.parse_args()
 
-    fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain, 
+    fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
                                                                  args.file_dimensions)
 
     if args.loss == 'fss' and args.fss_mask_size is None:
@@ -728,7 +773,7 @@ if __name__ == '__main__':
 
     if args.predict == 'True':
         predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, predictions,
-                args.normalization_method, args.loss, args.fss_mask_size, args.front_types)
+                args.normalization_method, args.loss, args.fss_mask_size, args.front_types, args.file_dimensions)
     else:
         if args.predictions is not None:
             raise errors.ExtraArgumentError("Argument '--predictions' cannot be passed if '--predict' is False or was not provided.")
@@ -738,8 +783,7 @@ if __name__ == '__main__':
 
     if args.probability_statistics == 'True':
         average_max_probabilities(args.model_number, args.model_dir, variables_files_list, args.loss, args.normalization_method,
-            args.file_dimensions, args.front_types, args.fss_mask_size)
+            args.front_types, args.fss_mask_size)
 
     if args.probability_plot == 'True':
         probability_distribution_plot(args.model_number, args.model_dir, args.front_types)
-        

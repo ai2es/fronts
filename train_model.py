@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/3/2021 5:38 PM CDT
+Last updated: 8/7/2021 5:15 PM CDT
 """
 
 import random
@@ -20,6 +20,7 @@ from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 import errors
 import custom_losses
 from expand_fronts import one_pixel_expansion as ope
+import pandas as pd
 
 
 class DataGenerator(keras.utils.Sequence):
@@ -27,7 +28,7 @@ class DataGenerator(keras.utils.Sequence):
     Data generator for the U-Net model.
     """
     def __init__(self, front_files, variable_files, map_dim_x, map_dim_y, batch_size, front_threshold, front_types,
-                 normalization_method, num_classes, pixel_expansion):
+                 normalization_method, num_classes, pixel_expansion, num_variables, file_dimensions):
         self.front_files = front_files
         self.variable_files = variable_files
         self.map_dim_x = map_dim_x
@@ -38,6 +39,8 @@ class DataGenerator(keras.utils.Sequence):
         self.normalization_method = normalization_method
         self.num_classes = num_classes
         self.pixel_expansion = pixel_expansion
+        self.num_variables = num_variables
+        self.file_dimensions = file_dimensions
 
     def __len__(self):
         return int(np.floor(len(self.front_files) / self.batch_size))
@@ -48,18 +51,21 @@ class DataGenerator(keras.utils.Sequence):
 
     def __data_generation(self):
         front_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, self.num_classes))
-        variable_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, 31))
-        maxs = [326.3396301, 305.8016968, 107078.2344, 44.84565735, 135.2455444, 327, 70, 1, 333, 310, 415, 0.024951244,
-            309.2406, 89.81117, 90.9507, 17612.004, 0.034231212, 309.2406, 89.853115, 91.11507, 13249.213, 0.046489507,
-            309.2406, 62.46032, 91.073425, 9000.762, 0.048163727, 309.2406, 62.22315, 76.649796, 17522.139]
-        mins = [192.2073669, 189.1588898, 47399.61719, -196.7885437, -96.90724182, 188, 0.0005, 0, 192, 193, 188,
-            0.00000000466, 205.75833, -165.10022, -64.62073, -6912.213, 0.00000000466, 205.75833, -165.20557, -64.64681,
-            903.0327, 0.00000000466, 205.75833, -148.51501, -66.1152, -3231.293, 0.00000000466, 205.75833, -165.27695,
-            -58.405083, -6920.75]
-        means = [278.8510794, 274.2647937, 96650.46322, -0.06747816, 0.1984011, 278.39639128, 4.291633, 0.7226335,
-            279.5752426, 276.296217417, 293.69090226, 0.00462498, 274.6106082, 1.385064762, 0.148459298, 13762.46737,
-            0.005586943, 276.6008764, 0.839714324, 0.201385933, 9211.468268, 0.00656686, 278.2460963, 0.375778613,
-            0.207254872, 4877.725497, 0.007057154, 280.1310979, -0.050884628, 0.197406197, 736.070931]
+        variable_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, self.num_variables))
+
+        """
+        IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
+        
+        If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
+            norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
+        
+        For all models created AFTER August 5, 2021, import the parameters as follows:
+            norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
+            
+        If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
+        the wrong normalization parameters.
+        """
+        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
         for i in range(self.batch_size):
             # Open random files with random coordinate domains until a sample contains at least one front.
@@ -75,8 +81,8 @@ class DataGenerator(keras.utils.Sequence):
                         front_ds = ope(ope(pickle.load(front_file)))  # 2-pixel expansion
 
                 # Select a random portion of the map
-                lon_index = random.choices(range(289 - self.map_dim_x))[0]
-                lat_index = random.choices(range(129 - self.map_dim_y))[0]
+                lon_index = random.choices(range(self.file_dimensions[0] - self.map_dim_x))[0]
+                lat_index = random.choices(range(self.file_dimensions[1] - self.map_dim_y))[0]
                 lons = front_ds.longitude.values[lon_index:lon_index + self.map_dim_x]
                 lats = front_ds.latitude.values[lat_index:lat_index + self.map_dim_y]
 
@@ -84,14 +90,16 @@ class DataGenerator(keras.utils.Sequence):
             with open(self.variable_files[index], 'rb') as variable_file:
                 variable_ds = pickle.load(variable_file)
             variable_list = list(variable_ds.keys())
-            for j in range(31):
+            for j in range(self.num_variables):
                 var = variable_list[j]
                 if self.normalization_method == 1:
                     # Min-max normalization
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - mins[j]) / (maxs[j] - mins[j]))
+                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
+                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
                 elif self.normalization_method == 2:
                     # Mean normalization
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - means[j]) / (maxs[j] - mins[j]))
+                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
+                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
             fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values
             if self.front_types == b'SFOF':
                 # Prevents generator from making 5 classes
@@ -114,7 +122,8 @@ class DataGenerator(keras.utils.Sequence):
 # Creating and training a new U-Net model
 def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
                    train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
-                   workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, pixel_expansion):
+                   workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, pixel_expansion,
+                   num_variables, file_dimensions):
     """
     Function that trains the unet model and saves the model along with its weights.
 
@@ -167,6 +176,10 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         Size of the mask for the FSS loss function.
     pixel_expansion: int
         Number of pixels to expand the fronts by in all directions.
+    num_variables: int
+        Number of variables in the datasets.
+    file_dimensions: int (x2)
+        Dimensions of the data files.
     """
 
     print("Creating unet....", end='')
@@ -185,7 +198,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     
     with strategy.scope():
     
-        model = models.unet_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
+        model = models.unet_2d((map_dim_x, map_dim_y, num_variables), filter_num=[64, 128, 256, 512, 1024, 2048], n_labels=num_classes,
             stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
             unpool=True, name='unet')
             
@@ -208,33 +221,32 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     """
 
     strategy = tf.distribute.MultiWorkerMirroredStrategy()
-    
+
     with strategy.scope():
         """
         U-Net examples
         Visit the keras_unet_collection user guide for help with making models: https://pypi.org/project/keras-unet-collection/
         
         === U-Net ===
-        model = models.unet_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
+        model = models.unet_2d((map_dim_x, map_dim_y, num_variables), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
             stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
             unpool=True, name='unet')
         
         === U-Net++ ===
-        model = models.unet_plus_2d((map_dim_x, map_dim_y, 31), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
+        model = models.unet_plus_2d((map_dim_x, map_dim_y, num_variables), filter_num=[32, 64, 128, 256, 512, 1024], n_labels=num_classes,
             stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
             unpool=True, name='unet', deep_supervision=True)
         
         === U-Net 3+ ===
-        model = models.unet_3plus_2d((map_dim_x, map_dim_y, 31), filter_num_down=[32, 64, 128, 256, 512, 1024],
-            filter_num_skip='auto', filter_num_aggregate=64, n_labels=num_classes, stack_num_down=5, stack_num_up=5,
-            activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
-            deep_supervision=True)
-        """
-        model = models.unet_3plus_2d((map_dim_x, map_dim_y, 31), filter_num_down=[32, 64, 128, 256, 512, 1024],
+        model = models.unet_3plus_2d((map_dim_x, map_dim_y, num_variables), filter_num_down=[32, 64, 128, 256, 512, 1024],
             filter_num_skip='auto', filter_num_aggregate='auto', n_labels=num_classes, stack_num_down=5, stack_num_up=5,
             activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
             deep_supervision=True)
-
+        """
+        model = models.unet_3plus_2d((map_dim_x, map_dim_y, num_variables), filter_num_down=[64, 128, 256, 512, 1024, 2048],
+            filter_num_skip='auto', filter_num_aggregate='auto', n_labels=num_classes, stack_num_down=5, stack_num_up=5,
+            activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
+            deep_supervision=True)
         print('done')
 
         if loss == 'dice':
@@ -254,11 +266,13 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     model.summary()
 
     train_dataset = tf.data.Dataset.from_generator(DataGenerator, args=[front_files, variable_files, map_dim_x,
-        map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion],
+        map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+        num_variables, file_dimensions],
         output_types=(tf.float16, tf.float16))
 
     validation_dataset = tf.data.Dataset.from_generator(DataGenerator, args=[front_files, variable_files, map_dim_x,
-        map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion],
+        map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+        num_variables, file_dimensions],
         output_types=(tf.float16, tf.float16))
 
     os.mkdir('%s/model_%d' % (model_dir, job_number))  # Make folder for model
@@ -281,7 +295,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 # Retraining a U-Net model
 def train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
     train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, workers, model_number, model_dir,
-    front_types, normalization_method, fss_mask_size, pixel_expansion):
+    front_types, normalization_method, fss_mask_size, pixel_expansion, num_variables, file_dimensions):
     """
     Function that trains the U-Net model and saves the model along with its weights.
 
@@ -330,8 +344,11 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         Size of the mask for the FSS loss function.
     pixel_expansion: int
         Number of pixels to expand the fronts by in all directions.
+    num_variables: int
+        Number of variables in the datasets.
+    file_dimensions: int (x2)
+        Dimensions of the data files.
     """
-    print("\n=== MODEL TRAINING ===")
 
     if front_types == 'CFWF' or front_types == 'SFOF':
         num_classes = 3
@@ -405,15 +422,17 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
 
     model.summary()
 
-    map_dim_x = model.layers[0].input_shape[0][1]
-    map_dim_y = model.layers[0].input_shape[0][2]
+    map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net
+    map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net
 
     train_dataset = tf.data.Dataset.from_generator(DataGenerator, args=[front_files, variable_files, map_dim_x,
-        map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion],
+        map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+        num_variables, file_dimensions],
         output_types=(tf.float16, tf.float16))
 
     validation_dataset = tf.data.Dataset.from_generator(DataGenerator, args=[front_files, variable_files, map_dim_x,
-        map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion],
+        map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+        num_variables, file_dimensions],
         output_types=(tf.float16, tf.float16))
 
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number)
@@ -433,38 +452,59 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--learning_rate', type=float, required=False, help='Learning rate for Unet optimizer')
-    parser.add_argument('--train_epochs', type=int, required=False, help='Number of epochs for the Unet training')
-    parser.add_argument('--train_steps', type=int, required=False, help='Number of steps for each epoch in training')
-    parser.add_argument('--train_batch_size', type=int, required=False, help='Batch size for the Unet training')
-    parser.add_argument('--train_fronts', type=int, required=False, help='How many fronts must be in a dataset for it'
-        'to be passed through the generator')
-    parser.add_argument('--valid_steps', type=int, required=False, help='Number of steps for each epoch in validation')
-    parser.add_argument('--valid_batch_size', type=int, required=False, help='Batch size for the Unet validation')
-    parser.add_argument('--valid_freq', type=int, required=False, help='How many epochs to pass before each validation')
-    parser.add_argument('--valid_fronts', type=int, required=False, help='How many fronts must be in a dataset for it'
-        'to be passed through the generator')
-    parser.add_argument('--loss', type=str, required=False, help='Loss function for the Unet')
-    parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
-        ' (if applicable).')
-    parser.add_argument('--workers', type=int, required=True, help='Number of workers for the Unet')
-    parser.add_argument('--map_dim_x', type=int, required=False, help='X dimension of the Unet map')
-    parser.add_argument('--map_dim_y', type=int, required=False, help='Y dimension of the Unet map')
+
+    """
+    Required arguments
+    """
     parser.add_argument('--job_number', type=int, required=True, help='Slurm job number')
-    parser.add_argument('--import_model_number', type=int, required=False, help='Number of the model that you would '
-        'like to import.')
+    parser.add_argument('--loss', type=str, required=True, help='Loss function for the U-Net')
     parser.add_argument('--model_dir', type=str, required=True, help='Directory where the models are or will be saved to.')
+    parser.add_argument('--workers', type=int, required=True, help='Number of workers for training the U-Net')
     parser.add_argument('--num_variables', type=int, required=True, help='Number of variables in the variable datasets.')
     parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain '
         'warm and cold fronts, pass this argument as CFWF. If your files contain only drylines, pass this argument as '
         'DL. If your files contain all fronts, pass this argument as ALL.')
-    parser.add_argument('--domain', type=str, required=False, help='Domain of the data. Possible values are: conus')
+    parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
     parser.add_argument('--file_dimensions', type=int, nargs=2, required=True, help='Dimensions of the file size. Two '
         'integers need to be passed.')
-    parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by')
-
+    parser.add_argument('--pixel_expansion', type=int, required=True, help='Number of pixels to expand the fronts by')
     # Normalization methods: 0 - No normalization, 1 - Min-max normalization, 2 - Mean normalization
-    parser.add_argument('--normalization_method', type=int, required=False, help='Normalization method for the data.')
+    parser.add_argument('--normalization_method', type=int, required=True, help='Normalization method for the data.')
+
+    """
+    Optional arguments
+    """
+    parser.add_argument('--learning_rate', type=float, required=False, help='Learning rate for U-Net optimizer '
+        '(Default: 1e-4)')
+    parser.add_argument('--train_epochs', type=int, required=False, help='Number of epochs for the U-Net training '
+        '(Default: 10000)')
+    parser.add_argument('--train_steps', type=int, required=False, help='Number of steps for each epoch in training '
+        '(Default: 20)')
+    parser.add_argument('--train_batch_size', type=int, required=False, help='Batch size for the U-Net training '
+        '(Default: 64)')
+    parser.add_argument('--train_fronts', type=int, required=False, help='How many pixels with fronts an image must have for it'
+        'to be passed through the generator. (Default: 5)')
+    parser.add_argument('--valid_steps', type=int, required=False, help='Number of steps for each epoch in validation'
+        '(Default: 20)')
+    parser.add_argument('--valid_batch_size', type=int, required=False, help='Batch size for the Unet validation'
+        '(Default: 64)')
+    parser.add_argument('--valid_freq', type=int, required=False, help='How many epochs to pass before each validation '
+        '(Default: 3)')
+    parser.add_argument('--valid_fronts', type=int, required=False, help='How many pixels with fronts an image must have for it'
+        'to be passed through the generator. (Default: 5)')
+
+    """
+    Conditional arguments
+    """
+    ### Must be passed if you are using the fractions skill score (FSS) loss function ###
+    parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
+        ' (if applicable).')
+    ### Can only be passed when training a NEW U-Net ###
+    parser.add_argument('--map_dim_x', type=int, required=False, help='X dimension of the Unet map')
+    parser.add_argument('--map_dim_y', type=int, required=False, help='Y dimension of the Unet map')
+    ### Can only be passed when IMPORTING a U-Net ###
+    parser.add_argument('--import_model_number', type=int, required=False, help='Number of the model that you would '
+        'like to import.')
 
     args = parser.parse_args()
 
@@ -506,7 +546,7 @@ if __name__ == "__main__":
         else:
             print("loss: %s" % loss)
 
-    if args.map_dim_x != None and args.map_dim_y != None:
+    if args.map_dim_x is not None and args.map_dim_y is not None:
         print('map_dim_x: %d' % args.map_dim_x)
         print('map_dim_y: %d' % args.map_dim_y)
 
@@ -594,10 +634,10 @@ if __name__ == "__main__":
             print("WARNING: You have imported model %d for training." % args.import_model_number)
             front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
                 args.file_dimensions)
-            train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps,
-                train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq,
-                valid_fronts, loss, args.workers, args.import_model_number, args.model_dir, args.front_types,
-                normalization_method, args.fss_mask_size, pixel_expansion)
+            train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
+                train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, args.workers,
+                args.import_model_number, args.model_dir, args.front_types, normalization_method, args.fss_mask_size,
+                pixel_expansion, args.num_variables, args.file_dimensions)
     else:
         if args.job_number is None:
             raise errors.MissingArgumentError("Argument '--job_number' must be passed if you are creating a new model.")
@@ -607,7 +647,7 @@ if __name__ == "__main__":
         else:
             front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
                 args.file_dimensions)
-            train_new_unet(front_files, variable_files, args.map_dim_x, args.map_dim_y, learning_rate,
-                train_epochs, train_steps, train_batch_size, train_fronts, valid_steps,
-                valid_batch_size, valid_freq, valid_fronts, loss, args.workers, args.job_number,
-                args.model_dir, args.front_types, normalization_method, args.fss_mask_size, pixel_expansion)
+            train_new_unet(front_files, variable_files, args.map_dim_x, args.map_dim_y, learning_rate, train_epochs,
+                train_steps, train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts,
+                loss, args.workers, args.job_number, args.model_dir, args.front_types, normalization_method,
+                args.fss_mask_size, pixel_expansion, args.num_variables, args.file_dimensions)
