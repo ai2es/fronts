@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/7/2021 5:15 PM CDT
+Last updated: 8/8/2021 2:05 PM CDT
 """
 
 import random
@@ -472,26 +472,20 @@ if __name__ == "__main__":
     parser.add_argument('--normalization_method', type=int, required=True, help='Normalization method for the data.')
 
     """
-    Optional arguments
+    Optional arguments: these will default to a specified value if not explicitly passed.
     """
     parser.add_argument('--learning_rate', type=float, required=False, help='Learning rate for U-Net optimizer '
         '(Default: 1e-4)')
-    parser.add_argument('--train_epochs', type=int, required=False, help='Number of epochs for the U-Net training '
+    parser.add_argument('--epochs', type=int, required=False, help='Number of epochs for the U-Net training '
         '(Default: 10000)')
-    parser.add_argument('--train_steps', type=int, required=False, help='Number of steps for each epoch in training '
-        '(Default: 20)')
-    parser.add_argument('--train_batch_size', type=int, required=False, help='Batch size for the U-Net training '
-        '(Default: 64)')
-    parser.add_argument('--train_fronts', type=int, required=False, help='How many pixels with fronts an image must have for it'
-        'to be passed through the generator. (Default: 5)')
-    parser.add_argument('--valid_steps', type=int, required=False, help='Number of steps for each epoch in validation'
-        '(Default: 20)')
-    parser.add_argument('--valid_batch_size', type=int, required=False, help='Batch size for the Unet validation'
-        '(Default: 64)')
-    parser.add_argument('--valid_freq', type=int, required=False, help='How many epochs to pass before each validation '
-        '(Default: 3)')
-    parser.add_argument('--valid_fronts', type=int, required=False, help='How many pixels with fronts an image must have for it'
-        'to be passed through the generator. (Default: 5)')
+    parser.add_argument('--train_valid_steps', type=int, required=False, nargs=2, help='Number of steps for each epoch. '
+        '(Default: 20 20)')
+    parser.add_argument('--train_valid_batch_size', type=int, required=False, nargs=2, help='Batch sizes for the U-Net.'
+        '(Default: 64 64)')
+    parser.add_argument('--train_valid_fronts', type=int, required=False, nargs=2, help='How many pixels with fronts an image must have for it'
+        'to be passed through the generator. (Default: 5 5)')
+    parser.add_argument('--valid_freq', type=int, required=False, help='How many epochs to pass before each validation (Default: 3)')
+
 
     """
     Conditional arguments
@@ -500,8 +494,7 @@ if __name__ == "__main__":
     parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
         ' (if applicable).')
     ### Can only be passed when training a NEW U-Net ###
-    parser.add_argument('--map_dim_x', type=int, required=False, help='X dimension of the Unet map')
-    parser.add_argument('--map_dim_y', type=int, required=False, help='Y dimension of the Unet map')
+    parser.add_argument('--map_dim_x_y', type=int, required=False, nargs=2, help='Dimensions of the Unet map')
     ### Can only be passed when IMPORTING a U-Net ###
     parser.add_argument('--import_model_number', type=int, required=False, help='Number of the model that you would '
         'like to import.')
@@ -517,137 +510,115 @@ if __name__ == "__main__":
     if args.loss != 'fss' and args.fss_mask_size is not None:
         raise errors.MissingArgumentError("Argument '--fss_mask_size' can only be passed if you are using the FSS loss function.")
 
-    print("model_dir: %s" % args.model_dir)
+    print("Model directory: %s" % args.model_dir)
 
     if args.domain is None:
         domain = 'conus'
-        print("domain: %s (default)" % domain)
+        print("Domain: %s (default)" % domain)
     else:
         domain = args.domain
-        print("domain: %s" % domain)
+        print("Domain: %s" % domain)
 
-    print("file_dimensions: %d %d" % (args.file_dimensions[0],args.file_dimensions[1]))
-    print("front_types: %s" % args.front_types)
+    print("File dimensions: %d x %d" % (args.file_dimensions[0], args.file_dimensions[1]))
+    print("Front types: %s" % args.front_types)
 
     if args.learning_rate is None:
         learning_rate = 0.0001
-        print("learning_rate: %f (default)" % learning_rate)
+        print("Learning rate: %f (default)" % learning_rate)
     else:
         learning_rate = args.learning_rate
-        print("learning_rate: %f" % learning_rate)
+        print("Learning rate: %f" % learning_rate)
 
     if args.loss is None:
         loss = 'cce'
-        print("loss: %s (default)" % loss)
+        print("Loss function: %s (default)" % loss)
     else:
         loss = args.loss
         if loss == 'fss':
-            print("loss: FSS(%d)" % args.fss_mask_size)
+            print("Loss function: FSS(%d)" % args.fss_mask_size)
         else:
-            print("loss: %s" % loss)
+            print("Loss function: %s" % loss)
 
-    if args.map_dim_x is not None and args.map_dim_y is not None:
-        print('map_dim_x: %d' % args.map_dim_x)
-        print('map_dim_y: %d' % args.map_dim_y)
+    if args.map_dim_x_y is not None:
+        print('Map dimensions (U-Net): %d x %d' % (args.map_dim_x_y[0], args.map_dim_x_y[1]))
 
     if args.normalization_method is None:
         normalization_method = 0
-        print('normalization_method: 0 - No normalization (default)')
+        print('Normalization method: 0 - No normalization (default)')
     else:
         normalization_method = args.normalization_method
         if normalization_method == 1:
-            print('normalization_method: 1 - Min-max normalization')
+            print('Normalization method: 1 - Min-max normalization')
         elif normalization_method == 2:
-            print('normalization_method: 2 - Mean normalization')
+            print('Normalization method: 2 - Mean normalization')
 
-    print("num_variables: %d" % args.num_variables)
+    print("Number of variables: %d" % args.num_variables)
 
     if args.pixel_expansion is None:
         pixel_expansion = 0
-        print("pixel_expansion: %d (default)" % pixel_expansion)
+        print("Pixel expansion: %d (default)" % pixel_expansion)
     else:
         pixel_expansion = args.pixel_expansion
-        print("pixel_expansion: %d" % pixel_expansion)
+        print("Pixel expansion: %d" % pixel_expansion)
 
-    if args.train_batch_size is None:
-        train_batch_size = 64
-        print("train_batch_size: %d (default)" % train_batch_size)
+    if args.epochs is None:
+        epochs = 10000
+        print("Epochs: %d (default)" % epochs)
     else:
-        train_batch_size = args.train_batch_size
-        print("train_batch_size: %d" % train_batch_size)
+        epochs = args.epochs
+        print("Epochs: %d" % epochs)
 
-    if args.train_epochs is None:
-        train_epochs = 10000
-        print("train_epochs: %d (default)" % train_epochs)
+    if args.train_valid_batch_size is None:
+        train_valid_batch_size = (64, 64)
+        print("Training/validation batch size: %d/%d (default)" % (train_valid_batch_size[0], train_valid_batch_size[1]))
     else:
-        train_epochs = args.train_epochs
-        print("train_epochs: %d" % train_epochs)
+        train_valid_batch_size = args.train_valid_batch_size
+        print("Training/validation batch size: %d/%d" % (train_valid_batch_size[0], train_valid_batch_size[1]))
 
-    if args.train_fronts is None:
-        train_fronts = 5
-        print("train_fronts: %d (default)" % train_fronts)
+    if args.train_valid_fronts is None:
+        train_valid_fronts = (5, 5)
+        print("Training/validation front threshold: %d/%d (default)" % (train_valid_fronts[0], train_valid_fronts[1]))
     else:
-        train_fronts = args.train_fronts
-        print("train_fronts: %d" % train_fronts)
+        train_valid_fronts = args.train_valid_fronts
+        print("Training/validation front threshold: %d/%d" % (train_valid_fronts[0], train_valid_fronts[1]))
 
-    if args.train_steps is None:
-        train_steps = 20
-        print("train_steps: %d (default)" % train_steps)
+    if args.train_valid_steps is None:
+        train_valid_steps = (20, 20)
+        print("Training/validation steps per epoch: %d/%d (default)" % (train_valid_steps[0], train_valid_steps[1]))
     else:
-        train_steps = args.train_steps
-        print("train_steps: %d" % train_steps)
-
-    if args.valid_batch_size is None:
-        valid_batch_size = 64
-        print("valid_batch_size: %d (default)" % valid_batch_size)
-    else:
-        valid_batch_size = args.valid_batch_size
-        print("valid_batch_size: %d" % valid_batch_size)
+        train_valid_steps = args.train_valid_steps
+        print("Training/validation steps per epoch: %d/%d" % (train_valid_steps[0], train_valid_steps[1]))
 
     if args.valid_freq is None:
         valid_freq = 3
-        print("valid_freq: %d (default)" % valid_freq)
+        print("Validation frequency: %d epochs (default)" % valid_freq)
     else:
         valid_freq = args.valid_freq
-        print("valid_freq: %d" % valid_freq)
-
-    if args.valid_fronts is None:
-        valid_fronts = 5
-        print("valid_fronts: %d (default)" % valid_fronts)
-    else:
-        valid_fronts = args.valid_fronts
-        print("valid_fronts: %d" % valid_fronts)
-
-    if args.valid_steps is None:
-        valid_steps = 20
-        print("valid_steps: %d (default)" % valid_steps)
-    else:
-        valid_steps = args.valid_steps
-        print("valid_steps: %d" % valid_steps)
+        print("Validation frequency: %d epochs" % valid_freq)
 
     print("\n")
 
     if args.import_model_number is not None:
-        if args.map_dim_x is not None or args.map_dim_y is not None:
-            raise ValueError("Arguments '--map_dim_x' and '--map_dim_y' cannot be passed if you are importing a model.")
+        if args.map_dim_x_y is not None:
+            raise ValueError("Argument '--map_dim_x_y' cannot be passed if you are importing a model.")
         else:
             print("WARNING: You have imported model %d for training." % args.import_model_number)
             front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
                 args.file_dimensions)
-            train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
-                train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, args.workers,
-                args.import_model_number, args.model_dir, args.front_types, normalization_method, args.fss_mask_size,
+            train_imported_unet(front_files, variable_files, learning_rate, epochs, train_valid_steps[0], train_valid_batch_size[0],
+                train_valid_fronts[0], train_valid_steps[1], train_valid_batch_size[1], valid_freq, train_valid_fronts[1],
+                loss, args.workers, args.import_model_number, args.model_dir, args.front_types, normalization_method, args.fss_mask_size,
                 pixel_expansion, args.num_variables, args.file_dimensions)
     else:
         if args.job_number is None:
             raise errors.MissingArgumentError("Argument '--job_number' must be passed if you are creating a new model.")
-        if args.map_dim_x is None or args.map_dim_y is None:
+        if args.map_dim_x_y is None:
             raise ValueError(
-                "Arguments '--map_dim_x' and '--map_dim_y' must be passed if you are creating a new model.")
+                "Argument '--map_dim_x_y' must be passed if you are creating a new model.")
         else:
             front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
                 args.file_dimensions)
-            train_new_unet(front_files, variable_files, args.map_dim_x, args.map_dim_y, learning_rate, train_epochs,
-                train_steps, train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts,
-                loss, args.workers, args.job_number, args.model_dir, args.front_types, normalization_method,
-                args.fss_mask_size, pixel_expansion, args.num_variables, args.file_dimensions)
+            train_new_unet(front_files, variable_files, args.map_dim_x_y[0], args.map_dim_x_y[1], learning_rate, epochs,
+                train_valid_steps[0], train_valid_batch_size[0], train_valid_fronts[0], train_valid_steps[1], train_valid_batch_size[1],
+                valid_freq, train_valid_fronts[1], loss, args.workers, args.job_number, args.model_dir, args.front_types,
+                normalization_method, args.fss_mask_size, pixel_expansion, args.num_variables, args.file_dimensions)
