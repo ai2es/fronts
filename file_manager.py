@@ -2,7 +2,7 @@
 Functions in this code prepare and organize data files before they are used in model training and validation.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/9/2021 9:18 AM CDT
+Last updated: 8/10/2021 5:12 PM CDT
 """
 
 from glob import glob
@@ -160,6 +160,46 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
         pickle.dump(variable_files_list, f)
     print("done")
 
+
+def split_file_lists(front_files, variable_files, validation_year):
+    """
+    Splits front and variable data files into training and validation sets.
+
+    Parameters
+    ----------
+    front_files: list
+        List of files containing front data.
+    variable_files: list
+        List of files containing variable data.
+    validation_year: int
+        Year for the validation set.
+
+    Returns
+    -------
+    front_files_training: list
+        List of files containing front data for the training dataset.
+    front_files_validation: list
+        List of files containing front data for the validation dataset.
+    variable_files_training: list
+        List of files containing variable data for the training dataset.
+    variable_files_validation: list
+        List of files containing variable data for the validation dataset.
+    """
+
+    print("Validation year: %d" % validation_year)
+    validation_year_string = "/" + str(validation_year) + "/"
+
+    print("Splitting files....", end='')
+    front_files_validation = list(filter(lambda year: validation_year_string in year, front_files))
+    variable_files_validation = list(filter(lambda year: validation_year_string in year, variable_files))
+    front_files_training = list(filter(lambda year: validation_year_string not in year, front_files))
+    variable_files_training = list(filter(lambda year: validation_year_string not in year, variable_files))
+    print("done")
+
+    print("Training set: %d front files, %d variable files" % (len(front_files_training), len(variable_files_training)))
+    print("Validation set (%d): %d front files, %d variable files" % (validation_year, len(front_files_validation), len(variable_files_validation)))
+
+    return front_files_training, front_files_validation, variable_files_training, variable_files_validation
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
