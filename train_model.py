@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/10/2021 5:09 PM CDT
+Last updated: 8/11/2021 3:34 PM CDT
 """
 
 import random
@@ -129,7 +129,7 @@ class DataGenerator(keras.utils.Sequence):
 def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
                    train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
                    workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, pixel_expansion,
-                   num_variables, file_dimensions, validation_year):
+                   num_variables, file_dimensions, validation_year, test_year):
     """
     Function that train a new U-Net model and saves the model along with its weights.
 
@@ -188,6 +188,8 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         Dimensions of the data files.
     validation_year: int
         Year for the validation dataset.
+    test_year: int
+        Year for the test dataset.
     """
 
     print("Creating unet....", end='')
@@ -272,10 +274,10 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 
     model.summary()
 
-    ### If validation year is provided, split data into training and validation sets ###
-    if validation_year is not None:
+    ### If validation year and test year are provided, split data into training and validation sets ###
+    if validation_year != None and test_year != None:
         front_files_training, front_files_validation, variable_files_training, variable_files_validation = \
-            fm.split_file_lists(front_files, variable_files, validation_year)
+            fm.split_file_lists(front_files, variable_files, validation_year, test_year)
 
         train_dataset = tf.data.Dataset.from_generator(DataGenerator, args=[front_files_training, variable_files_training,
             map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
@@ -315,7 +317,8 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 # Retraining a U-Net model
 def train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
     train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, workers, model_number, model_dir,
-    front_types, normalization_method, fss_mask_size, pixel_expansion, num_variables, file_dimensions, validation_year):
+    front_types, normalization_method, fss_mask_size, pixel_expansion, num_variables, file_dimensions, validation_year,
+    test_year):
     """
     Function that trains the U-Net model and saves the model along with its weights.
     Parameters
@@ -369,6 +372,8 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         Dimensions of the data files.
     validation_year: int
         Year for the validation dataset.
+    test_year: int
+        Year for the test dataset.
     """
 
     if front_types == 'CFWF' or front_types == 'SFOF':
@@ -445,10 +450,10 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net
 
-    ### If validation year is provided, split data into training and validation sets ###
-    if validation_year is not None:
+    ### If validation year and test year are provided, split data into training and validation sets ###
+    if validation_year != None and test_year != None:
         front_files_training, front_files_validation, variable_files_training, variable_files_validation = \
-            fm.split_file_lists(front_files, variable_files, validation_year)
+            fm.split_file_lists(front_files, variable_files, validation_year, test_year)
 
         train_dataset = tf.data.Dataset.from_generator(DataGenerator, args=[front_files_training, variable_files_training,
             map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
@@ -502,6 +507,8 @@ if __name__ == "__main__":
     parser.add_argument('--pixel_expansion', type=int, required=True, help='Number of pixels to expand the fronts by')
     # Normalization methods: 0 - No normalization, 1 - Min-max normalization, 2 - Mean normalization
     parser.add_argument('--normalization_method', type=int, required=True, help='Normalization method for the data.')
+    parser.add_argument('--validation_year', type=int, required=True, help='Year for the validation set')
+    parser.add_argument('--test_year', type=int, required=True, help='Year for the test set')
 
     """
     Optional arguments: these will default to a specified value if not explicitly passed.
@@ -517,7 +524,6 @@ if __name__ == "__main__":
     parser.add_argument('--train_valid_fronts', type=int, required=False, nargs=2, help='How many pixels with fronts an image must have for it'
         'to be passed through the generator. (Default: 5 5)')
     parser.add_argument('--valid_freq', type=int, required=False, help='How many epochs to pass before each validation (Default: 3)')
-    parser.add_argument('--validation_year', type=int, required=False, help='Year for the validation set')
 
     """
     Conditional arguments
@@ -646,7 +652,7 @@ if __name__ == "__main__":
             train_imported_unet(front_files, variable_files, learning_rate, epochs, train_valid_steps[0], train_valid_batch_size[0],
                 train_valid_fronts[0], train_valid_steps[1], train_valid_batch_size[1], valid_freq, train_valid_fronts[1],
                 loss, args.workers, args.import_model_number, args.model_dir, args.front_types, normalization_method, args.fss_mask_size,
-                pixel_expansion, args.num_variables, args.file_dimensions, args.validation_year)
+                pixel_expansion, args.num_variables, args.file_dimensions, args.validation_year, args.test_year)
     else:
         if args.job_number is None:
             raise errors.MissingArgumentError("Argument '--job_number' must be passed if you are creating a new model.")
@@ -660,4 +666,4 @@ if __name__ == "__main__":
                 train_valid_steps[0], train_valid_batch_size[0], train_valid_fronts[0], train_valid_steps[1], train_valid_batch_size[1],
                 valid_freq, train_valid_fronts[1], loss, args.workers, args.job_number, args.model_dir, args.front_types,
                 normalization_method, args.fss_mask_size, pixel_expansion, args.num_variables, args.file_dimensions,
-                args.validation_year)
+                args.validation_year, args.test_year)

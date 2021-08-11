@@ -2,7 +2,7 @@
 Functions in this code prepare and organize data files before they are used in model training and validation.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/10/2021 5:12 PM CDT
+Last updated: 8/11/2021 3:35 PM CDT
 """
 
 from glob import glob
@@ -161,7 +161,7 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
     print("done")
 
 
-def split_file_lists(front_files, variable_files, validation_year):
+def split_file_lists(front_files, variable_files, validation_year, test_year):
     """
     Splits front and variable data files into training and validation sets.
 
@@ -173,6 +173,8 @@ def split_file_lists(front_files, variable_files, validation_year):
         List of files containing variable data.
     validation_year: int
         Year for the validation set.
+    test_year: int
+        Year for the test set (will not be used in training or validation).
 
     Returns
     -------
@@ -187,19 +189,28 @@ def split_file_lists(front_files, variable_files, validation_year):
     """
 
     print("Validation year: %d" % validation_year)
+    print("Test year: %d" % test_year)
     validation_year_string = "/" + str(validation_year) + "/"
+    test_year_string = "/" + str(test_year) + "/"
 
     print("Splitting files....", end='')
     front_files_validation = list(filter(lambda year: validation_year_string in year, front_files))
     variable_files_validation = list(filter(lambda year: validation_year_string in year, variable_files))
-    front_files_training = list(filter(lambda year: validation_year_string not in year, front_files))
-    variable_files_training = list(filter(lambda year: validation_year_string not in year, variable_files))
+    front_files_test = list(filter(lambda year: test_year_string in year, front_files))
+    variable_files_test = list(filter(lambda year: test_year_string in year, variable_files))
+
+    front_files_training_temp = list(filter(lambda year: validation_year_string not in year, front_files))
+    variable_files_training_temp = list(filter(lambda year: validation_year_string not in year, variable_files))
+    front_files_training = list(filter(lambda year: test_year_string not in year, front_files_training_temp))
+    variable_files_training = list(filter(lambda year: test_year_string not in year, variable_files_training_temp))
     print("done")
 
+    print("All files BEFORE splitting into sets: %d front files, %d variable files" % (len(front_files), len(variable_files)))
     print("Training set: %d front files, %d variable files" % (len(front_files_training), len(variable_files_training)))
     print("Validation set (%d): %d front files, %d variable files" % (validation_year, len(front_files_validation), len(variable_files_validation)))
-
+    print("***Testing set (%d): %d front files, %d variable files   ***THESE WILL NOT BE USED IN TRAINING OR VALIDATION" % (test_year, len(front_files_test), len(variable_files_test)))
     return front_files_training, front_files_validation, variable_files_training, variable_files_validation
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
