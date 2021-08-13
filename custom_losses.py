@@ -1,8 +1,8 @@
 """
-Custom loss functions for UNet models.
+Custom loss functions for U-Net models.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/3/2021 5:38 PM CDT
+Last updated: 8/13/2021 6:20 PM CDT
 """
 
 import tensorflow as tf
@@ -84,3 +84,11 @@ def make_FSS_loss(mask_size):  # choose any mask size for calculating densities
 
 def tversky():
     return losses.tversky
+
+def brier_skill_score(y_true, y_pred):
+    """
+    Computes brier skill score
+    """
+    losses = tf.subtract(y_true, y_pred)**2
+    brier_score = tf.math.reduce_sum(losses)/tf.cast(tf.size(losses), tf.float32)
+    return brier_score

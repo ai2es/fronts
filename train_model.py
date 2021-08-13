@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/11/2021 3:34 PM CDT
+Last updated: 8/13/2021 5:57 PM CDT
 """
 
 import random
@@ -221,7 +221,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
             loss_function = custom_losses.make_FSS_loss(fss_mask_size)
         
         adam = Adam(learning_rate=learning_rate)
-        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+        model.compile(loss=loss_function, optimizer=adam, metrics=custom_losses.brier_skill_score)
     
     model.summary()
     ....
@@ -269,7 +269,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
-        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+        model.compile(loss=loss_function, optimizer=adam, metrics=custom_losses.brier_skill_score)
         print('done')
 
     model.summary()
@@ -409,7 +409,7 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
-        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+        model.compile(loss=loss_function, optimizer=adam, metrics=bss)
         print('done')
     
     model.summary()

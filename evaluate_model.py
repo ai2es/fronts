@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/13/2021 2:49 PM CDT
+Last updated: 8/13/2021 6:12 PM CDT
 """
 
 import random
@@ -225,7 +225,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     if pixel_expansion == 1:
         fronts = ope(fronts)  # 1-pixel expansion
     elif pixel_expansion == 2:
-        fronts = ope(fronts)  # 2-pixel expansion
+        fronts = ope(ope(fronts))  # 2-pixel expansion
 
     if front_types == 'CFWF':
         fig, axarr = plt.subplots(3, 1, figsize=(12, 14), subplot_kw={'projection': crs})
@@ -339,11 +339,12 @@ def learning_curve(model_number, model_dir):
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     plt.subplot(1, 2, 2)
-    plt.title("AUC")
+    plt.title("AUC")  # Name this with respect to the metric which you are using
     plt.grid()
 
     """
-    AUC curves: replace the line(s) below this block according to your U-Net type.
+    Other metric curves: replace the line(s) below this block according to your U-Net type and replace history labels
+    according to what metric you are using.
     
     ### U-Net ###
     plt.plot(history['auc'], 'r')
@@ -725,13 +726,15 @@ if __name__ == '__main__':
     parser.add_argument('--probability_statistics', type=str, required=False, help='Calculate maximum probability statistics?'
         ' (True/False)')
     parser.add_argument('--probability_plot', type=str, required=False, help='Create probability distribution plot? (True/False)')
-    parser.add_argument('--pixel_expansion', type=int, required=True, help='Number of pixels to expand the fronts by')
 
     """
     Conditional arguments
     """
+    ### Must be passed if using the fractions skill score (FSS) loss function ###
     parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
-        ' (if applicable).')  # Must be passed if using the fractions skill score (FSS) loss function
+        ' (if applicable).')
+    ### Must be passed if you are making predictions with plots ###
+    parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by')
 
     args = parser.parse_args()
 
@@ -783,9 +786,12 @@ if __name__ == '__main__':
     print("num_variables: %d" % args.num_variables)
 
     if args.predict == 'True':
-        predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, predictions,
-                args.normalization_method, args.loss, args.fss_mask_size, args.front_types, args.file_dimensions,
-                args.pixel_expansion)
+        if args.pixel_expansion is None:
+            raise errors.MissingArgumentError("Argument '--pixel_expansion' must be passed if you are making prediction plots.")
+        else:
+            predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, predictions,
+                    args.normalization_method, args.loss, args.fss_mask_size, args.front_types, args.file_dimensions,
+                    args.pixel_expansion)
     else:
         if args.predictions is not None:
             raise errors.ExtraArgumentError("Argument '--predictions' cannot be passed if '--predict' is False or was not provided.")
