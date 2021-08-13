@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/8/2021 10:16 AM CDT
+Last updated: 8/13/2021 2:49 PM CDT
 """
 
 import random
@@ -19,10 +19,11 @@ import errors
 import custom_losses
 import pickle
 import matplotlib as mpl
+from expand_fronts import one_pixel_expansion as ope
 
 
 def predict(model_number, model_dir, fronts_files_list, variables_files_list, predictions, normalization_method, loss,
-    fss_mask_size, front_types, file_dimensions):
+    fss_mask_size, front_types, file_dimensions, pixel_expansion):
     """
     Function that makes random predictions using the provided model.
 
@@ -48,6 +49,8 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         Fronts in the data.
     file_dimensions: int (x2)
         Dimensions of the data files.
+    pixel_expansion: int
+        Number of pixels to expand the fronts by in all directions.
     """
 
     print("Loading model....", end='')
@@ -186,11 +189,11 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
                 coords={"latitude": lats, "longitude": lons})
 
         print("Generating plots....", end='')
-        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types)
+        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion)
         print("done")
 
 
-def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types):
+def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
     subplots.
@@ -209,6 +212,8 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         Main directory for the models.
     front_types: str
         Fronts in the data.
+    pixel_expansion: int
+        Number of pixels to expand the fronts by in all directions.
     """
     extent = [220, 300, 29, 53]
     crs = ccrs.LambertConformal(central_longitude=250)
@@ -216,6 +221,11 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     # Create custom colorbar for the different front types of the 'truth' plot
     cmap = mpl.colors.ListedColormap(['0.9',"blue","red",'green','purple','orange'], name='from_list', N=None)
     norm = mpl.colors.Normalize(vmin=0,vmax=6)
+
+    if pixel_expansion == 1:
+        fronts = ope(fronts)  # 1-pixel expansion
+    elif pixel_expansion == 2:
+        fronts = ope(fronts)  # 2-pixel expansion
 
     if front_types == 'CFWF':
         fig, axarr = plt.subplots(3, 1, figsize=(12, 14), subplot_kw={'projection': crs})
@@ -325,7 +335,7 @@ def learning_curve(model_number, model_dir):
 
     plt.legend()
     plt.xlim(xmin=0)
-    plt.ylim(ymin=1e-6, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
+    plt.ylim(ymin=1e-5, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     plt.subplot(1, 2, 2)
@@ -715,6 +725,7 @@ if __name__ == '__main__':
     parser.add_argument('--probability_statistics', type=str, required=False, help='Calculate maximum probability statistics?'
         ' (True/False)')
     parser.add_argument('--probability_plot', type=str, required=False, help='Create probability distribution plot? (True/False)')
+    parser.add_argument('--pixel_expansion', type=int, required=True, help='Number of pixels to expand the fronts by')
 
     """
     Conditional arguments
@@ -773,7 +784,8 @@ if __name__ == '__main__':
 
     if args.predict == 'True':
         predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, predictions,
-                args.normalization_method, args.loss, args.fss_mask_size, args.front_types, args.file_dimensions)
+                args.normalization_method, args.loss, args.fss_mask_size, args.front_types, args.file_dimensions,
+                args.pixel_expansion)
     else:
         if args.predictions is not None:
             raise errors.ExtraArgumentError("Argument '--predictions' cannot be passed if '--predict' is False or was not provided.")
