@@ -2,7 +2,7 @@
 Functions in this code prepare and organize data files before they are used in model training and validation.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/11/2021 3:35 PM CDT
+Last updated: 8/16/2021 6:38 PM CDT
 """
 
 from glob import glob

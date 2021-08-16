@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/13/2021 5:57 PM CDT
+Last updated: 8/16/2021 6:38 PM CDT
 """
 
 import random
@@ -542,8 +542,6 @@ if __name__ == "__main__":
 
     print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
-    print("=== ARGUMENTS/HYPERPARAMETERS ===")
-
     if args.loss == 'fss' and args.fss_mask_size is None:
         raise errors.MissingArgumentError("Argument '--fss_mask_size' must be passed if you are using the FSS loss function.")
     if args.loss != 'fss' and args.fss_mask_size is not None:
@@ -555,6 +553,11 @@ if __name__ == "__main__":
         print("Validation year: None (default)")
     else:
         print("Validation year: %d" % args.validation_year)
+
+    if args.test_year is None:
+        print("Test year: None (default)")
+    else:
+        print("Test year: %d" % args.test_year)
 
     if args.domain is None:
         domain = 'conus'
