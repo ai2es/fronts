@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/16/2021 7:57 PM CDT
+Last updated: 8/17/2021 2:36 PM CDT
 """
 
 import random
@@ -23,7 +23,7 @@ from expand_fronts import one_pixel_expansion as ope
 
 
 def predict(model_number, model_dir, fronts_files_list, variables_files_list, predictions, normalization_method, loss,
-    fss_mask_size, front_types, file_dimensions, pixel_expansion):
+    fss_mask_size, front_types, file_dimensions, pixel_expansion, metric):
     """
     Function that makes random predictions using the provided model.
 
@@ -51,33 +51,56 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         Dimensions of the data files.
     pixel_expansion: int
         Number of pixels to expand the fronts by in all directions.
+    metric: str
+        Metric used for evaluating the U-Net during training.
     """
-
-    print("Loading model....", end='')
-    if loss == 'cce':
+    if loss == 'cce' and metric == 'auc':
         model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+    else:
+        if loss == 'fss':
+            loss_string = 'FSS_loss'
+            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+        elif loss == 'cce':
+            loss_string = None
+            loss_function = None
+        elif loss == 'dice':
+            loss_string = 'dice'
+            loss_function = custom_losses.dice
+        elif loss == 'tversky':
+            loss_string = 'tversky'
+            loss_function = custom_losses.tversky
+        elif loss == 'bss':
+            loss_string = 'brier_skill_score'
+            loss_function = custom_losses.brier_skill_score
+
+        if metric == 'fss':
+            metric_string = 'FSS_loss'
+            metric_function = custom_losses.make_FSS_loss(fss_mask_size)
+        elif metric == 'auc':
+            metric_string = None
+            metric_function = None
+        elif metric == 'dice':
+            metric_string = 'dice'
+            metric_function = custom_losses.dice
+        elif metric == 'tversky':
+            metric_string = 'tversky'
+            metric_function = custom_losses.tversky
+        elif metric == 'bss':
+            metric_string = 'brier_skill_score'
+            metric_function = custom_losses.brier_skill_score
+
+        print("Loading model....", end='')
+        if loss_string is not None:
+            if metric_string is not None:
+                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                    custom_objects={loss_string: loss_function, metric_string: metric_function})
+            else:
+                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                    custom_objects={loss_string: loss_function})
+        else:
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={metric_string: metric_function})
         print("done")
-        print("Loss function: cce")
-    elif loss == 'dice':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'dice': custom_losses.dice})
-        print("done")
-        print("Loss function: dice")
-    elif loss == 'tversky':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'tversky': custom_losses.tversky})
-        print("done")
-        print("Loss function: tversky")
-    elif loss == 'fss':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'FSS_loss': custom_losses.make_FSS_loss(fss_mask_size)})
-        print("done")
-        print("Loss function: FSS(%d)" % fss_mask_size)
-    elif loss == 'bss':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'brier_skill_score': custom_losses.brier_skill_score})
-        print("done")
-        print("Loss function: Brier Skill Score (BSS)")
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
@@ -297,7 +320,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
 
-def learning_curve(model_number, model_dir):
+def learning_curve(model_number, model_dir, loss, fss_mask_size, metric):
     """
     Function that plots learning curves for the specified model.
     
@@ -307,14 +330,47 @@ def learning_curve(model_number, model_dir):
         Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
         Main directory for the models.
+    loss: str
+        Loss function for the U-Net.
+    fss_mask_size: int
+        Size of the mask for the FSS loss function.
+    metric: str
+        Metric used for evaluating the U-Net during training.
     """
     with open("%s/model_%d/model_%d_history.csv" % (model_dir, model_number, model_number), 'rb') as f:
         history = pd.read_csv(f)
 
+    if loss == 'fss':
+        loss_title = 'Fractions Skill Score (Mask size: %d)' % fss_mask_size
+    elif loss == 'bss':
+        loss_title = 'Brier Skill Score'
+    elif loss == 'cce':
+        loss_title = 'Categorical Cross-Entropy'
+    elif loss == 'dice':
+        loss_title = 'Dice coefficient'
+    elif loss == 'tversky':
+        loss_title = 'Tversky coefficient'
+
+    if metric == 'fss':
+        metric_title = 'Fractions Skill Score (Mask size: %d)' % fss_mask_size
+        metric_string = 'FSS_loss'
+    elif metric == 'bss':
+        metric_title = 'Brier Skill Score'
+        metric_string = 'brier_skill_score'
+    elif metric == 'auc':
+        metric_title = 'Area Under the Curve'
+        metric_string = 'auc'
+    elif metric == 'dice':
+        metric_title = 'Dice coefficient'
+        metric_string = 'dice'
+    elif metric == 'tversky':
+        metric_title = 'Tversky coefficient'
+        metric_string = 'tversky'
+
     plt.subplots(1, 2, figsize=(14, 7), dpi=500)
 
     plt.subplot(1, 2, 1)
-    plt.title("Loss")
+    plt.title("Loss: %s" % loss_title)
     plt.grid()
 
     """
@@ -340,43 +396,44 @@ def learning_curve(model_number, model_dir):
 
     plt.legend()
     plt.xlim(xmin=0)
+    plt.xlabel('Epochs')
     plt.ylim(ymin=1e-5, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     plt.subplot(1, 2, 2)
-    plt.title("AUC")  # Name this with respect to the metric which you are using
+    plt.title("Metric: %s" % metric_title)
     plt.grid()
 
     """
-    Other metric curves: replace the line(s) below this block according to your U-Net type and replace history labels
-    according to what metric you are using.
+    Other metric curves: replace the line(s) below this block according to your U-Net type.
     
     ### U-Net ###
-    plt.plot(history['auc'], 'r')
+    plt.plot(history[metric_string], 'r')
     
     ### U-Net 3+ ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-    plt.plot(history['unet_output_sup0_activation_auc'], label='sup0')
-    plt.plot(history['unet_output_sup1_activation_auc'], label='sup1')
-    plt.plot(history['unet_output_sup2_activation_auc'], label='sup2')
-    plt.plot(history['unet_output_sup3_activation_auc'], label='sup3')
-    plt.plot(history['unet_output_sup4_activation_auc'], label='sup4')
-    plt.plot(history['unet_output_final_activation_auc'], label='final', color='black')
+    plt.plot(history['unet_output_sup0_activation_%s' % metric_string], label='sup0')
+    plt.plot(history['unet_output_sup1_activation_%s' % metric_string], label='sup1')
+    plt.plot(history['unet_output_sup2_activation_%s' % metric_string], label='sup2')
+    plt.plot(history['unet_output_sup3_activation_%s' % metric_string], label='sup3')
+    plt.plot(history['unet_output_sup4_activation_%s' % metric_string], label='sup4')
+    plt.plot(history['unet_output_final_activation_%s' % metric_string], label='final', color='black')
     """
-    plt.plot(history['unet_output_sup0_activation_auc'], label='sup0')
-    plt.plot(history['unet_output_sup1_activation_auc'], label='sup1')
-    plt.plot(history['unet_output_sup2_activation_auc'], label='sup2')
-    plt.plot(history['unet_output_sup3_activation_auc'], label='sup3')
-    plt.plot(history['unet_output_sup4_activation_auc'], label='sup4')
-    plt.plot(history['unet_output_final_activation_auc'], label='final', color='black')
+    plt.plot(history['unet_output_sup0_activation_%s' % metric_string], label='sup0')
+    plt.plot(history['unet_output_sup1_activation_%s' % metric_string], label='sup1')
+    plt.plot(history['unet_output_sup2_activation_%s' % metric_string], label='sup2')
+    plt.plot(history['unet_output_sup3_activation_%s' % metric_string], label='sup3')
+    plt.plot(history['unet_output_sup4_activation_%s' % metric_string], label='sup4')
+    plt.plot(history['unet_output_final_activation_%s' % metric_string], label='final', color='black')
 
     plt.legend()
     plt.xlim(xmin=0)
+    plt.xlabel('Epochs')
     plt.ylim(ymin=0.99, ymax=1)  # Limits of the AUC graph, adjust these as needed
     plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
 
 
 def average_max_probabilities(model_number, model_dir, variables_files_list, loss, normalization_method, front_types,
-    fss_mask_size):
+    fss_mask_size, metric):
     """
     Function that makes calculates maximum front probabilities for the provided model and saves the probabilities to
     a pickle file.
@@ -397,32 +454,56 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         Front format of the file.
     fss_mask_size: int
         Size of the mask for the FSS loss function.
+    metric: str
+        Metric used for evaluating the U-Net during training.
     """
-    print("Loading model....", end='')
-    if loss == 'cce':
+    if loss == 'cce' and metric == 'auc':
         model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+    else:
+        if loss == 'fss':
+            loss_string = 'FSS_loss'
+            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+        elif loss == 'cce':
+            loss_string = None
+            loss_function = None
+        elif loss == 'dice':
+            loss_string = 'dice'
+            loss_function = custom_losses.dice
+        elif loss == 'tversky':
+            loss_string = 'tversky'
+            loss_function = custom_losses.tversky
+        elif loss == 'bss':
+            loss_string = 'brier_skill_score'
+            loss_function = custom_losses.brier_skill_score
+
+        if metric == 'fss':
+            metric_string = 'FSS_loss'
+            metric_function = custom_losses.make_FSS_loss(fss_mask_size)
+        elif metric == 'auc':
+            metric_string = None
+            metric_function = None
+        elif metric == 'dice':
+            metric_string = 'dice'
+            metric_function = custom_losses.dice
+        elif metric == 'tversky':
+            metric_string = 'tversky'
+            metric_function = custom_losses.tversky
+        elif metric == 'bss':
+            metric_string = 'brier_skill_score'
+            metric_function = custom_losses.brier_skill_score
+
+        print("Loading model....", end='')
+        if loss_string is not None:
+            if metric_string is not None:
+                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                    custom_objects={loss_string: loss_function, metric_string: metric_function})
+            else:
+                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                    custom_objects={loss_string: loss_function})
+        else:
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={metric_string: metric_function})
         print("done")
-        print("Loss function: cce")
-    elif loss == 'dice':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'dice': custom_losses.dice})
-        print("done")
-        print("Loss function: dice")
-    elif loss == 'tversky':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'tversky': custom_losses.tversky})
-        print("done")
-        print("Loss function: tversky")
-    elif loss == 'fss':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'FSS_loss': custom_losses.make_FSS_loss(fss_mask_size)})
-        print("done")
-        print("Loss function: FSS(%d)" % fss_mask_size)
-    elif loss == 'bss':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-            custom_objects={'brier_skill_score': custom_losses.brier_skill_score})
-        print("done")
-        print("Loss function: Brier Skill Score (BSS)")
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
@@ -715,7 +796,8 @@ if __name__ == '__main__':
     """
     parser.add_argument('--model_number', type=int, required=True, help='Model number')
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
-    parser.add_argument('--loss', type=str, required=True, help='Loss function used for training the Unet.')
+    parser.add_argument('--loss', type=str, required=True, help='Loss function used for training the U-Net.')
+    parser.add_argument('--metric', type=str, required=True, help='Metric used for evaluating the U-Net during training.')
     parser.add_argument('--num_variables', type=int, required=True, help='Number of variables in the variable datasets.')
     parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain warm'
         ' and cold fronts, pass this argument as CFWF. If your files contain only drylines, pass this argument as DL. '
@@ -743,7 +825,7 @@ if __name__ == '__main__':
     parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
         ' (if applicable).')
     ### Must be passed if you are making predictions with plots ###
-    parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by')
+    parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by. Default is 0.')
 
     args = parser.parse_args()
 
@@ -765,15 +847,19 @@ if __name__ == '__main__':
     print("file_dimensions: %d %d" % (args.file_dimensions[0],args.file_dimensions[1]))
     print("front_types: %s" % args.front_types)
 
-    if args.loss is None:
-        loss = 'cce'
-        print("loss: %s (default)" % loss)
+    if args.loss == 'fss':
+        loss = 'fss'
+        print("loss: FSS(%d)" % args.fss_mask_size)
     else:
         loss = args.loss
-        if loss == 'fss':
-            print("loss: FSS(%d)" % args.fss_mask_size)
-        else:
-            print("loss: %s" % loss)
+        print("loss: %s" % loss)
+
+    if args.metric == 'fss':
+        metric = 'fss'
+        print("metric: FSS(%d)" % args.fss_mask_size)
+    else:
+        metric = args.metric
+        print("metric: %s" % metric)
 
     if args.normalization_method is None:
         normalization_method = 0
@@ -784,6 +870,13 @@ if __name__ == '__main__':
             print('normalization_method: 1 - Min-max normalization')
         elif normalization_method == 2:
             print('normalization_method: 2 - Mean normalization')
+
+    if args.pixel_expansion is None:
+        pixel_expansion = 0
+        print('pixel_expansion: %d (default)' % pixel_expansion)
+    else:
+        pixel_expansion = args.pixel_expansion
+        print('pixel_expansion: %d' % pixel_expansion)
 
     if args.predictions is None:
         predictions = 25
@@ -799,18 +892,18 @@ if __name__ == '__main__':
             raise errors.MissingArgumentError("Argument '--pixel_expansion' must be passed if you are making prediction plots.")
         else:
             predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, predictions,
-                    args.normalization_method, args.loss, args.fss_mask_size, args.front_types, args.file_dimensions,
-                    args.pixel_expansion)
+                    normalization_method, loss, args.fss_mask_size, args.front_types, args.file_dimensions,
+                    pixel_expansion, metric)
     else:
         if args.predictions is not None:
             raise errors.ExtraArgumentError("Argument '--predictions' cannot be passed if '--predict' is False or was not provided.")
 
     if args.learning_curve == 'True':
-        learning_curve(args.model_number, args.model_dir)
+        learning_curve(args.model_number, args.model_dir, loss, args.fss_mask_size, metric)
 
     if args.probability_statistics == 'True':
         average_max_probabilities(args.model_number, args.model_dir, variables_files_list, args.loss, args.normalization_method,
-            args.front_types, args.fss_mask_size)
+            args.front_types, args.fss_mask_size, metric)
 
     if args.probability_plot == 'True':
         probability_distribution_plot(args.model_number, args.model_dir, args.front_types)
