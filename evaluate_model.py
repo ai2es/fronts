@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/13/2021 6:12 PM CDT
+Last updated: 8/16/2021 7:57 PM CDT
 """
 
 import random
@@ -495,7 +495,7 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
             max_cold_probs.append(np.max(cold_probs*100))
             max_warm_probs.append(np.max(warm_probs*100))
             print("\r(%d/%d)  Avg CF/WF: %.1f%s / %.1f%s,  Max CF/WF: %.1f%s / %.1f%s, Stddev CF/WF: %.1f%s / %.1f%s "
-                % (x+1, num_files, np.sum(max_cold_probs)/x, '%', np.sum(max_warm_probs)/x,  '%', np.max(max_cold_probs),
+                % (x+1, num_files, np.sum(max_cold_probs)/(x+1), '%', np.sum(max_warm_probs)/(x+1),  '%', np.max(max_cold_probs),
                 '%', np.max(max_warm_probs),  '%', np.std(max_cold_probs),  '%', np.std(max_warm_probs),  '%',), end='')
 
         elif front_types == 'SFOF':
@@ -507,7 +507,7 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
             max_stationary_probs.append(np.max(stationary_probs*100))
             max_occluded_probs.append(np.max(occluded_probs*100))
             print("\r(%d/%d)  Avg SF/OF: %.1f%s / %.1f%s,  Max SF/OF: %.1f%s / %.1f%s, Stddev SF/OF: %.1f%s / %.1f%s "
-                % (x+1, num_files, np.sum(max_stationary_probs)/x, '%', np.sum(max_occluded_probs)/x,  '%', np.max(max_stationary_probs),
+                % (x+1, num_files, np.sum(max_stationary_probs)/(x+1), '%', np.sum(max_occluded_probs)/(x+1),  '%', np.max(max_stationary_probs),
                 '%', np.max(max_occluded_probs),  '%', np.std(max_stationary_probs),  '%', np.std(max_occluded_probs),  '%',), end='')
 
         elif front_types == 'DL':
@@ -517,7 +517,7 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                     dryline_probs[i][j] = prediction[0][j][i][1]
             max_dryline_probs.append(np.max(dryline_probs*100))
             print("\r(%d/%d)  Avg DL: %.1f%s,  Max DL: %.1f%s, Stddev DL: %.1f%s" % (x+1, num_files,
-                np.sum(max_dryline_probs)/x, '%', np.max(max_dryline_probs), '%', np.std(max_dryline_probs), '%'), end='')
+                np.sum(max_dryline_probs)/(x+1), '%', np.max(max_dryline_probs), '%', np.std(max_dryline_probs), '%'), end='')
 
         elif front_types == 'ALL':
             for i in range(0, map_dim_y):
@@ -536,8 +536,8 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
             print("\r(%d/%d)  Avg CF/WF/SF/OF/DL: %.1f%s / %.1f%s / %.1f%s / %.1f%s / %.1f%s, "
                   " Max CF/WF/SF/OF/DL: %.1f%s / %.1f%s / %.1f%s / %.1f%s / %.1f%s, "
                   " Stddev CF/WF/SF/OF/DL: %.1f%s / %.1f%s / %.1f%s / %.1f%s / %.1f%s "
-                % (x+1, num_files, np.sum(max_cold_probs)/x, '%', np.sum(max_warm_probs)/x,  '%', np.sum(max_stationary_probs)/x, '%',
-                   np.sum(max_occluded_probs)/x,  '%', np.sum(max_dryline_probs)/x,  '%', np.max(max_cold_probs), '%',
+                % (x+1, num_files, np.sum(max_cold_probs)/(x+1), '%', np.sum(max_warm_probs)/(x+1),  '%', np.sum(max_stationary_probs)/(x+1), '%',
+                   np.sum(max_occluded_probs)/(x+1),  '%', np.sum(max_dryline_probs)/(x+1),  '%', np.max(max_cold_probs), '%',
                    np.max(max_warm_probs),  '%', np.max(max_stationary_probs),  '%', np.max(max_occluded_probs),  '%',
                    np.max(max_dryline_probs),  '%', np.std(max_cold_probs),  '%', np.std(max_warm_probs),  '%',
                    np.std(max_stationary_probs),  '%', np.std(max_occluded_probs),  '%', np.std(max_dryline_probs),  '%'),
