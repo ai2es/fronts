@@ -73,6 +73,11 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
             custom_objects={'FSS_loss': custom_losses.make_FSS_loss(fss_mask_size)})
         print("done")
         print("Loss function: FSS(%d)" % fss_mask_size)
+    elif loss == 'bss':
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+            custom_objects={'brier_skill_score': custom_losses.brier_skill_score})
+        print("done")
+        print("Loss function: Brier Skill Score (BSS)")
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
@@ -393,27 +398,31 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
     fss_mask_size: int
         Size of the mask for the FSS loss function.
     """
-    print("\n=== AVERAGE MAX PROBABILITIES ===")
     print("Loading model....", end='')
-
     if loss == 'cce':
         model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
-    else:
-        if loss == 'dice':
-            loss_function = custom_losses.dice
-            print("done")
-            print("Loss: dice")
-        elif loss == 'tversky':
-            loss_function = custom_losses.tversky
-            print("done")
-            print("Loss: tversky")
-        elif loss == 'fss':
-            loss = 'FSS_loss'  # Override the loss argument so keras can recognize the loss function in the model.
-            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
-            print("done")
-            print("Loss: FSS(%d)" % fss_mask_size)
+        print("done")
+        print("Loss function: cce")
+    elif loss == 'dice':
         model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                                           custom_objects={loss: loss_function})
+            custom_objects={'dice': custom_losses.dice})
+        print("done")
+        print("Loss function: dice")
+    elif loss == 'tversky':
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+            custom_objects={'tversky': custom_losses.tversky})
+        print("done")
+        print("Loss function: tversky")
+    elif loss == 'fss':
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+            custom_objects={'FSS_loss': custom_losses.make_FSS_loss(fss_mask_size)})
+        print("done")
+        print("Loss function: FSS(%d)" % fss_mask_size)
+    elif loss == 'bss':
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+            custom_objects={'brier_skill_score': custom_losses.brier_skill_score})
+        print("done")
+        print("Loss function: Brier Skill Score (BSS)")
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
