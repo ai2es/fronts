@@ -2,7 +2,7 @@
 Functions in this code prepare and organize data files before they are used in model training and validation.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/16/2021 6:38 PM CDT
+Last updated: 8/29/2021 10:56 AM CDT
 """
 
 from glob import glob
@@ -159,6 +159,43 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
                                                              file_dimensions[1]), 'wb') as f:
         pickle.dump(variable_files_list, f)
     print("done")
+
+
+def load_test_files(num_variables, front_types, domain, file_dimensions, test_year):
+    """
+    Splits front and variable data files into training and validation sets.
+
+    Parameters
+    ----------
+    num_variables: int
+        Number of variables in the variable datasets.
+    front_types: str
+        Fronts in the frontobject datasets.
+    domain: str
+        Domain which the front and variable files cover.
+    file_dimensions: int (x2)
+        Dimensions of the domain/files.
+    test_year: int
+        Year for the test set (will not be used in training or validation).
+
+    Returns
+    -------
+    front_files_test: list
+        List of files containing front data for the test dataset.
+    variable_files_test: list
+        List of files containing variable data for the test dataset.
+    """
+    front_files, variable_files = load_file_lists(num_variables, front_types, domain, file_dimensions)
+
+    print("Test year: %d" % test_year)
+    test_year_string = "/" + str(test_year) + "/"
+
+    print("Splitting files....", end='')
+    front_files_test = list(filter(lambda year: test_year_string in year, front_files))
+    variable_files_test = list(filter(lambda year: test_year_string in year, variable_files))
+    print("done")
+
+    return front_files_test, variable_files_test
 
 
 def split_file_lists(front_files, variable_files, validation_year, test_year):

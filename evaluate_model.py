@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/17/2021 2:36 PM CDT
+Last updated: 8/29/2021 10:56 AM CDT
 """
 
 import random
@@ -22,8 +22,697 @@ import matplotlib as mpl
 from expand_fronts import one_pixel_expansion as ope
 
 
+def cross_validate(model_number, model_dir, num_variables, num_dimensions, front_types, domain, file_dimensions, test_year,
+                   normalization_method, loss, fss_mask_size, fss_c, pixel_expansion, metric):
+    """
+    Function that calculates, CSI, FB, POD, and POFD for thresholds from 1 to 100 percent for each front type.
+
+    Parameters
+    ----------
+    model_number: int
+        Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        Main directory for the models.
+    normalization_method: int
+        Normalization method for the data (described near the end of the script).
+    loss: str
+        Loss function for the Unet.
+    fss_mask_size: int
+        Size of the mask for the FSS loss function.
+    fss_c: float
+        C hyperparameter for the FSS loss' sigmoid function.
+    front_types: str
+        Fronts in the data.
+    domain: str
+        Domain which the front and variable files cover.
+    file_dimensions: int (x2)
+        Dimensions of the data files.
+    test_year: int
+        Year for the test set used for calculating performance stats for cross-validation purposes.
+    pixel_expansion: int
+        Number of pixels to expand the fronts by in all directions.
+    metric: str
+        Metric used for evaluating the U-Net during training.
+    num_dimensions: int
+        Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
+    num_variables: int
+        Number of variables in the datasets.
+    """
+
+    front_files_test, variable_files_test = fm.load_test_files(num_variables, front_types, domain, file_dimensions, test_year)
+    print("Front file count:", len(front_files_test))
+    print("Variable file count:", len(variable_files_test))
+
+    if loss == 'cce' and metric == 'auc':
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+    else:
+        if loss == 'fss':
+            if num_dimensions == 2:
+                loss_string = 'FSS_loss_2D'
+                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            if num_dimensions == 3:
+                loss_string = 'FSS_loss_3D'
+                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
+        elif loss == 'cce':
+            loss_string = None
+            loss_function = None
+        elif loss == 'dice':
+            loss_string = 'dice'
+            loss_function = custom_losses.dice
+        elif loss == 'tversky':
+            loss_string = 'tversky'
+            loss_function = custom_losses.tversky
+        elif loss == 'bss':
+            loss_string = 'brier_skill_score'
+            loss_function = custom_losses.brier_skill_score
+
+        if metric == 'fss':
+            metric_string = 'FSS_loss'
+            metric_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+        elif metric == 'auc':
+            metric_string = None
+            metric_function = None
+        elif metric == 'dice':
+            metric_string = 'dice'
+            metric_function = custom_losses.dice
+        elif metric == 'tversky':
+            metric_string = 'tversky'
+            metric_function = custom_losses.tversky
+        elif metric == 'bss':
+            metric_string = 'brier_skill_score'
+            metric_function = custom_losses.brier_skill_score
+
+        print("Loading model....", end='')
+        if loss_string is not None:
+            if metric_string is not None:
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                        custom_objects={loss_string: loss_function, metric_string: metric_function})
+                except:
+                    print("failed")
+                    if loss_string == 'FSS_loss_2D':
+                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
+                        loss_string = 'FSS_loss'
+                        print("Loading model....",end='')
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                            model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+            else:
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                        custom_objects={loss_string: loss_function})
+                except:
+                    print("failed")
+                    if loss_string == 'FSS_loss_2D':
+                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
+                        loss_string = 'FSS_loss'
+                        print("Loading model....",end='')
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                            model_number), custom_objects={loss_string: loss_function})
+        else:
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={metric_string: metric_function})
+        print("done")
+
+    map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
+    map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
+    if num_dimensions == 2:
+        channels = model.layers[0].input_shape[0][3]  # Number of variables used
+    if num_dimensions == 3:
+        levels = model.layers[0].input_shape[0][3]
+        channels = model.layers[0].input_shape[0][4]
+
+    """
+    IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
+    
+    If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
+        norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
+    
+    For all models created AFTER August 5, 2021, import the parameters as follows:
+        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
+        
+    If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
+    the wrong normalization parameters.
+    """
+    norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
+
+    CSI_cold = np.zeros(shape=[100])
+    FB_cold = np.zeros(shape=[100])
+    POFD_cold = np.zeros(shape=[100])
+    POD_cold = np.zeros(shape=[100])
+    SR_cold = np.zeros(shape=[100])
+
+    CSI_warm = np.zeros(shape=[100])
+    FB_warm = np.zeros(shape=[100])
+    POFD_warm = np.zeros(shape=[100])
+    POD_warm = np.zeros(shape=[100])
+    SR_warm = np.zeros(shape=[100])
+    SR_warm_errors = 0
+
+    CSI_stationary = np.zeros(shape=[100])
+    FB_stationary = np.zeros(shape=[100])
+    POFD_stationary = np.zeros(shape=[100])
+    POD_stationary = np.zeros(shape=[100])
+    SR_stationary = np.zeros(shape=[100])
+
+    CSI_occluded = np.zeros(shape=[100])
+    FB_occluded = np.zeros(shape=[100])
+    POFD_occluded = np.zeros(shape=[100])
+    POD_occluded = np.zeros(shape=[100])
+    SR_occluded = np.zeros(shape=[100])
+
+    CSI_dryline = np.zeros(shape=[100])
+    FB_dryline = np.zeros(shape=[100])
+    POFD_dryline = np.zeros(shape=[100])
+    POD_dryline = np.zeros(shape=[100])
+    SR_dryline = np.zeros(shape=[100])
+
+    for x in range(len(front_files_test)):
+
+        print("Prediction %d/%d....0/3" % (x+1, len(front_files_test)), end='\r')
+
+        # Open random pair of files
+        index = x
+        fronts_filename = front_files_test[index]
+        variables_filename = variable_files_test[index]
+        if pixel_expansion == 1:
+            fronts_ds = ope(pd.read_pickle(fronts_filename))
+        else:
+            fronts_ds = pd.read_pickle(fronts_filename)
+
+        lon_indices = [21,80,139]
+        image_no_probs = np.empty([238,128])
+        image_cold_probs = np.empty([238,128])
+        image_warm_probs = np.empty([238,128])
+        image_stationary_probs = np.empty([238,128])
+        image_occluded_probs = np.empty([238,128])
+        image_dryline_probs = np.empty([238,128])
+        fronts = fronts_ds.sel(longitude=fronts_ds.longitude.values[25:263], latitude=fronts_ds.latitude.values[0:128])
+        image_lats = fronts_ds.latitude.values[0:128]
+        image_lons = fronts_ds.longitude.values[25:263]
+
+        for image in range(3):
+            print("Prediction %d/%d....%d/3" % (x+1, len(front_files_test), image+1), end='\r')
+            lon_index = lon_indices[image]
+            lat_index = 0
+            variable_ds = pd.read_pickle(variables_filename)
+            lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]
+            lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
+
+            variable_list = list(variable_ds.keys())
+            for j in range(len(variable_list)):
+                var = variable_list[j]
+                if normalization_method == 1:
+                    # Min-max normalization
+                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
+                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+                elif normalization_method == 2:
+                    # Mean normalization
+                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
+                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+
+            if num_dimensions == 2:
+                variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
+                    map_dim_y, channels))
+            elif num_dimensions == 3:
+                variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
+                                             'q']].sel(longitude=lons, latitude=lats).to_array().T.values
+                variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
+                                              'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
+                variables_950 = variable_ds[['t_950','d_950','z_950','u_950','v_950','theta_w_950','mix_ratio_950','rel_humid_950','virt_temp_950',
+                                             'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
+                variables_900 = variable_ds[['t_900','d_900','z_900','u_900','v_900','theta_w_900','mix_ratio_900','rel_humid_900','virt_temp_900',
+                                             'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
+                variables_850 = variable_ds[['t_850','d_850','z_850','u_850','v_850','theta_w_850','mix_ratio_850','rel_humid_850','virt_temp_850',
+                                             'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
+                variable_ds_new = np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).reshape(1,map_dim_x,map_dim_y,levels,channels)
+
+            prediction = model.predict(variable_ds_new)
+
+            time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
+            #print(time)
+
+            # Arrays of probabilities for all front types
+            no_probs = np.zeros([map_dim_x, map_dim_y])
+            cold_probs = np.zeros([map_dim_x, map_dim_y])
+            warm_probs = np.zeros([map_dim_x, map_dim_y])
+            stationary_probs = np.zeros([map_dim_x, map_dim_y])
+            occluded_probs = np.zeros([map_dim_x, map_dim_y])
+            dryline_probs = np.zeros([map_dim_x, map_dim_y])
+
+            thresholds = np.linspace(0.01,1,100)
+
+            """
+            Reformatting predictions: change the lines inside the loops according to your U-Net type.
+            
+            - <front> is the front type
+            - i and j are loop indices, do NOT change these
+            - n is the number of down layers in the model
+            - l is the level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+            - x is the index of the front type in the softmax output. Refer to your data and the model structure to set this
+              to the correct value for each front type.
+            
+            ### U-Net ###
+            <front>_probs[i][j] = prediction[0][j][i][x]
+            
+            ### U-Net 3+ (2D) ###
+            <front>_probs[i][j] = prediction[n][0][j][i][x]
+            
+            ### U-Net 3+ (3D) ###
+            <front>_probs[i][j] = prediction[n][0][j][i][l][x]
+            """
+            if front_types == 'CFWF':
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[5][0][i][j][0]
+                        cold_probs[i][j] = prediction[5][0][i][j][1]
+                        warm_probs[i][j] = prediction[5][0][i][j][2]
+                if image == 0:
+                    image_no_probs[4:128][:] = no_probs[4:128][:]
+                    image_cold_probs[4:128][:] = cold_probs[4:128][:]
+                    image_warm_probs[4:128][:] = warm_probs[4:128][:]
+                elif image == 1:
+                    image_no_probs[66:122][:] = np.maximum(image_no_probs[66:122][:], no_probs[7:63][:])
+                    image_cold_probs[66:122][:] = np.maximum(image_cold_probs[66:122][:], cold_probs[7:63][:])
+                    image_warm_probs[66:122][:] = np.maximum(image_warm_probs[66:122][:], warm_probs[7:63][:])
+
+                    image_no_probs[122:181][:] = no_probs[63:122][:]
+                    image_cold_probs[122:181][:] = cold_probs[63:122][:]
+                    image_warm_probs[122:181][:] = warm_probs[63:122][:]
+                elif image == 2:
+                    image_no_probs[128:193][:] = np.maximum(image_no_probs[128:193][:], no_probs[10:75][:])
+                    image_cold_probs[128:193][:] = np.maximum(image_cold_probs[128:193][:], cold_probs[10:75][:])
+                    image_warm_probs[128:193][:] = np.maximum(image_warm_probs[128:193][:], warm_probs[10:75][:])
+
+                    image_no_probs[193:][:] = no_probs[79:124][:]
+                    image_cold_probs[193:][:] = cold_probs[79:124][:]
+                    image_warm_probs[193:][:] = warm_probs[79:124][:]
+                    probs_ds = xr.Dataset(
+                        {"no_probs": (("longitude", "latitude"), image_no_probs), "cold_probs": (("longitude", "latitude"), image_cold_probs),
+                         "warm_probs": (("longitude", "latitude"), image_warm_probs)}, coords={"latitude": image_lats, "longitude": image_lons}).transpose()
+
+                    new_fronts = fronts
+                    t_cold_ds = xr.where(new_fronts == 1, 1, 0)
+                    t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
+                    new_fronts = fronts
+                    f_cold_ds = xr.where(new_fronts == 1, 0, 1)
+                    f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
+                    new_fronts = fronts
+
+                    t_warm_ds = xr.where(new_fronts == 2, 1, 0)
+                    t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
+                    new_fronts = fronts
+                    f_warm_ds = xr.where(new_fronts == 2, 0, 1)
+                    f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
+                    new_fronts = fronts
+
+                    for i in range(100):
+                        tp_cold = len(np.where(t_cold_probs > thresholds[i])[0])
+                        tn_cold = len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
+                        fp_cold = len(np.where(f_cold_probs > thresholds[i])[0])
+                        fn_cold = len(np.where((t_cold_probs < thresholds[i]) & (t_cold_probs != 0))[0])
+                        tp_warm = len(np.where(t_warm_probs > thresholds[i])[0])
+                        tn_warm = len(np.where((f_warm_probs < thresholds[i]) & (f_warm_probs != 0))[0])
+                        fp_warm = len(np.where(f_warm_probs > thresholds[i])[0])
+                        fn_warm = len(np.where((t_warm_probs < thresholds[i]) & (t_warm_probs != 0))[0])
+
+                        try:
+                            CSI_cold[i] += tp_cold/(tp_cold + fp_cold + fn_cold)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            FB_cold[i] += (tp_cold + fp_cold)/(tp_cold + fn_cold)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POFD_cold[i] += fp_cold/(fp_cold + fn_cold)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POD_cold[i] += tp_cold/(tp_cold + fn_cold)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+
+                        try:
+                            CSI_warm[i] += tp_warm/(tp_warm + fp_warm + fn_warm)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            FB_warm[i] += (tp_warm + fp_warm)/(tp_warm + fn_warm)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POFD_warm[i] += fp_warm/(fp_warm + fn_warm)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POD_warm[i] += tp_warm/(tp_warm + fn_warm)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+
+                    print("Prediction %d/%d....done" % (x+1, len(front_files_test)))
+
+
+            elif front_types == 'SFOF':
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[5][0][i][j][0]
+                        stationary_probs[i][j] = prediction[5][0][i][j][1]
+                        occluded_probs[i][j] = prediction[5][0][i][j][2]
+                if image == 0:
+                    image_no_probs[4:128][:] = no_probs[4:128][:]
+                    image_stationary_probs[4:128][:] = stationary_probs[4:128][:]
+                    image_occluded_probs[4:128][:] = occluded_probs[4:128][:]
+                elif image == 1:
+                    image_no_probs[66:122][:] = np.maximum(image_no_probs[66:122][:], no_probs[7:63][:])
+                    image_stationary_probs[66:122][:] = np.maximum(image_stationary_probs[66:122][:], stationary_probs[7:63][:])
+                    image_occluded_probs[66:122][:] = np.maximum(image_occluded_probs[66:122][:], occluded_probs[7:63][:])
+
+                    image_no_probs[122:181][:] = no_probs[63:122][:]
+                    image_stationary_probs[122:181][:] = stationary_probs[63:122][:]
+                    image_occluded_probs[122:181][:] = occluded_probs[63:122][:]
+                elif image == 2:
+                    image_no_probs[128:193][:] = np.maximum(image_no_probs[128:193][:], no_probs[10:75][:])
+                    image_stationary_probs[128:193][:] = np.maximum(image_stationary_probs[128:193][:], stationary_probs[10:75][:])
+                    image_occluded_probs[128:193][:] = np.maximum(image_occluded_probs[128:193][:], occluded_probs[10:75][:])
+
+                    image_no_probs[193:][:] = no_probs[79:124][:]
+                    image_stationary_probs[193:][:] = stationary_probs[79:124][:]
+                    image_occluded_probs[193:][:] = occluded_probs[79:124][:]
+                    probs_ds = xr.Dataset(
+                        {"no_probs": (("longitude", "latitude"), image_no_probs), "stationary_probs": (("longitude", "latitude"), image_stationary_probs),
+                         "occluded_probs": (("longitude", "latitude"), image_occluded_probs)}, coords={"latitude": image_lats, "longitude": image_lons})
+
+                    t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
+                    t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
+                    new_fronts = fronts
+                    f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
+                    f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
+                    new_fronts = fronts
+
+                    t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
+                    t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
+                    new_fronts = fronts
+                    f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
+                    f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
+
+                    for i in range(100):
+                        tp_stationary = len(np.where(t_stationary_probs > thresholds[i])[0])
+                        tn_stationary = len(np.where((f_stationary_probs < thresholds[i]) & (f_stationary_probs != 0))[0])
+                        fp_stationary = len(np.where(f_stationary_probs > thresholds[i])[0])
+                        fn_stationary = len(np.where((t_stationary_probs < thresholds[i]) & (t_stationary_probs != 0))[0])
+                        tp_occluded = len(np.where(t_occluded_probs > thresholds[i])[0])
+                        tn_occluded = len(np.where((f_occluded_probs < thresholds[i]) & (f_occluded_probs != 0))[0])
+                        fp_occluded = len(np.where(f_occluded_probs > thresholds[i])[0])
+                        fn_occluded = len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
+
+                        try:
+                            CSI_stationary[i] += tp_stationary/(tp_stationary + fp_stationary + fn_stationary)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            FB_stationary[i] += (tp_stationary + fp_stationary)/(tp_stationary + fn_stationary)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POFD_stationary[i] += fp_stationary/(fp_stationary + fn_stationary)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POD_stationary[i] += tp_stationary/(tp_stationary + fn_stationary)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+
+                        try:
+                            CSI_occluded[i] += tp_occluded/(tp_occluded + fp_occluded + fn_occluded)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            FB_occluded[i] += (tp_occluded + fp_occluded)/(tp_occluded + fn_occluded)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POFD_occluded[i] += fp_occluded/(fp_occluded + fn_occluded)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POD_occluded[i] += tp_occluded/(tp_occluded + fn_occluded)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+
+                    print("Prediction %d/%d....done" % (x+1, len(front_files_test)))
+
+
+            elif front_types == 'DL':
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[5][0][i][j][0]
+                        dryline_probs[i][j] = prediction[5][0][i][j][1]
+                if image == 0:
+                    image_no_probs[4:128][:] = no_probs[4:128][:]
+                    image_dryline_probs[4:128][:] = dryline_probs[4:128][:]
+                elif image == 1:
+                    image_no_probs[66:122][:] = np.maximum(image_no_probs[66:122][:], no_probs[7:63][:])
+                    image_dryline_probs[66:122][:] = np.maximum(image_dryline_probs[66:122][:], dryline_probs[7:63][:])
+
+                    image_no_probs[122:181][:] = no_probs[63:122][:]
+                    image_dryline_probs[122:181][:] = dryline_probs[63:122][:]
+                elif image == 2:
+                    image_no_probs[128:193][:] = np.maximum(image_no_probs[128:193][:], no_probs[10:75][:])
+                    image_dryline_probs[128:193][:] = np.maximum(image_dryline_probs[128:193][:], dryline_probs[10:75][:])
+
+                    image_no_probs[193:][:] = no_probs[79:124][:]
+                    image_dryline_probs[193:][:] = dryline_probs[79:124][:]
+                    probs_ds = xr.Dataset(
+                        {"no_probs": (("longitude", "latitude"), image_no_probs), "dryline_probs": (("longitude", "latitude"), image_dryline_probs)},
+                        coords={"latitude": image_lats, "longitude": image_lons})
+
+                    t_dryline_ds = xr.where(new_fronts == 5, 1, 0)
+                    t_dryline_probs = t_dryline_ds.identifier * probs_ds.dryline_probs
+                    new_fronts = fronts
+                    f_dryline_ds = xr.where(new_fronts == 5, 0, 1)
+                    f_dryline_probs = f_dryline_ds.identifier * probs_ds.dryline_probs
+
+                    for i in range(100):
+                        tp_dryline = len(np.where(t_dryline_probs > thresholds[i])[0])
+                        tn_dryline = len(np.where((f_dryline_probs < thresholds[i]) & (f_dryline_probs != 0))[0])
+                        fp_dryline = len(np.where(f_dryline_probs > thresholds[i])[0])
+                        fn_dryline = len(np.where((t_dryline_probs < thresholds[i]) & (t_dryline_probs != 0))[0])
+
+                        CSI_dryline[i] += tp_dryline/(tp_dryline + fp_dryline + fn_dryline)/len(front_files_test)
+                        FB_dryline[i] += (tp_dryline + fp_dryline)/(tp_dryline + fn_dryline)/len(front_files_test)
+                        POFD_dryline[i] += fp_dryline/(fp_dryline + fn_dryline)/len(front_files_test)
+                        POD_dryline[i] += tp_dryline/(tp_dryline + fn_dryline)/len(front_files_test)
+
+                    print("Prediction %d/%d....done" % (x+1, len(front_files_test)))
+
+
+            elif front_types == 'ALL':
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[5][0][i][j][0]
+                        cold_probs[i][j] = prediction[5][0][i][j][1]
+                        warm_probs[i][j] = prediction[5][0][i][j][2]
+                        stationary_probs[i][j] = prediction[5][0][i][j][3]
+                        occluded_probs[i][j] = prediction[5][0][i][j][4]
+                        dryline_probs[i][j] = prediction[5][0][i][j][5]
+                if image == 0:
+                    image_no_probs[4:128][:] = no_probs[4:128][:]
+                    image_cold_probs[4:128][:] = cold_probs[4:128][:]
+                    image_warm_probs[4:128][:] = warm_probs[4:128][:]
+                    image_stationary_probs[4:128][:] = stationary_probs[4:128][:]
+                    image_occluded_probs[4:128][:] = occluded_probs[4:128][:]
+                    image_dryline_probs[4:128][:] = dryline_probs[4:128][:]
+                elif image == 1:
+                    image_no_probs[66:122][:] = np.maximum(image_no_probs[66:122][:], no_probs[7:63][:])
+                    image_cold_probs[66:122][:] = np.maximum(image_cold_probs[66:122][:], cold_probs[7:63][:])
+                    image_warm_probs[66:122][:] = np.maximum(image_warm_probs[66:122][:], warm_probs[7:63][:])
+                    image_stationary_probs[66:122][:] = np.maximum(image_stationary_probs[66:122][:], stationary_probs[7:63][:])
+                    image_occluded_probs[66:122][:] = np.maximum(image_occluded_probs[66:122][:], occluded_probs[7:63][:])
+                    image_dryline_probs[66:122][:] = np.maximum(image_dryline_probs[66:122][:], dryline_probs[7:63][:])
+
+                    image_no_probs[122:181][:] = no_probs[63:122][:]
+                    image_cold_probs[122:181][:] = cold_probs[63:122][:]
+                    image_warm_probs[122:181][:] = warm_probs[63:122][:]
+                    image_stationary_probs[122:181][:] = stationary_probs[63:122][:]
+                    image_occluded_probs[122:181][:] = occluded_probs[63:122][:]
+                    image_dryline_probs[122:181][:] = dryline_probs[63:122][:]
+                elif image == 2:
+                    image_no_probs[128:193][:] = np.maximum(image_no_probs[128:193][:], no_probs[10:75][:])
+                    image_cold_probs[128:193][:] = np.maximum(image_cold_probs[128:193][:], cold_probs[10:75][:])
+                    image_warm_probs[128:193][:] = np.maximum(image_warm_probs[128:193][:], warm_probs[10:75][:])
+                    image_stationary_probs[128:193][:] = np.maximum(image_stationary_probs[128:193][:], stationary_probs[10:75][:])
+                    image_occluded_probs[128:193][:] = np.maximum(image_occluded_probs[128:193][:], occluded_probs[10:75][:])
+                    image_dryline_probs[128:193][:] = np.maximum(image_dryline_probs[128:193][:], dryline_probs[10:75][:])
+
+                    image_no_probs[193:][:] = no_probs[79:124][:]
+                    image_cold_probs[193:][:] = cold_probs[79:124][:]
+                    image_warm_probs[193:][:] = warm_probs[79:124][:]
+                    image_stationary_probs[193:][:] = stationary_probs[79:124][:]
+                    image_occluded_probs[193:][:] = occluded_probs[79:124][:]
+                    image_dryline_probs[193:][:] = dryline_probs[79:124][:]
+                    probs_ds = xr.Dataset(
+                        {"no_probs": (("longitude", "latitude"), no_probs), "cold_probs": (("longitude", "latitude"), cold_probs),
+                         "warm_probs": (("longitude", "latitude"), warm_probs), "stationary_probs": (("longitude", "latitude"), stationary_probs),
+                         "occluded_probs": (("longitude", "latitude"), occluded_probs), "dryline_probs": (("longitude", "latitude"), dryline_probs)},
+                        coords={"latitude": lats, "longitude": lons})
+
+                    new_fronts = fronts
+                    t_cold_ds = xr.where(new_fronts == 1, 1, 0)
+                    t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
+                    new_fronts = fronts
+                    f_cold_ds = xr.where(new_fronts == 1, 0, 1)
+                    f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
+                    new_fronts = fronts
+
+                    t_warm_ds = xr.where(new_fronts == 2, 1, 0)
+                    t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
+                    new_fronts = fronts
+                    f_warm_ds = xr.where(new_fronts == 2, 0, 1)
+                    f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
+                    new_fronts = fronts
+
+                    t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
+                    t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
+                    new_fronts = fronts
+                    f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
+                    f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
+                    new_fronts = fronts
+
+                    t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
+                    t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
+                    new_fronts = fronts
+                    f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
+                    f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
+
+                    t_dryline_ds = xr.where(new_fronts == 5, 1, 0)
+                    t_dryline_probs = t_dryline_ds.identifier * probs_ds.dryline_probs
+                    new_fronts = fronts
+                    f_dryline_ds = xr.where(new_fronts == 5, 0, 1)
+                    f_dryline_probs = f_dryline_ds.identifier * probs_ds.dryline_probs
+
+
+                    for i in range(100):
+                        tp_cold = len(np.where(t_cold_probs > thresholds[i])[0])
+                        tn_cold = len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
+                        fp_cold = len(np.where(f_cold_probs > thresholds[i])[0])
+                        fn_cold = len(np.where((t_cold_probs < thresholds[i]) & (t_cold_probs != 0))[0])
+                        tp_warm = len(np.where(t_warm_probs > thresholds[i])[0])
+                        tn_warm = len(np.where((f_warm_probs < thresholds[i]) & (f_warm_probs != 0))[0])
+                        fp_warm = len(np.where(f_warm_probs > thresholds[i])[0])
+                        fn_warm = len(np.where((t_warm_probs < thresholds[i]) & (t_warm_probs != 0))[0])
+                        tp_stationary = len(np.where(t_stationary_probs > thresholds[i])[0])
+                        tn_stationary = len(np.where((f_stationary_probs < thresholds[i]) & (f_stationary_probs != 0))[0])
+                        fp_stationary = len(np.where(f_stationary_probs > thresholds[i])[0])
+                        fn_stationary = len(np.where((t_stationary_probs < thresholds[i]) & (t_stationary_probs != 0))[0])
+                        tp_occluded = len(np.where(t_occluded_probs > thresholds[i])[0])
+                        tn_occluded = len(np.where((f_occluded_probs < thresholds[i]) & (f_occluded_probs != 0))[0])
+                        fp_occluded = len(np.where(f_occluded_probs > thresholds[i])[0])
+                        fn_occluded = len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
+                        tp_dryline = len(np.where(t_dryline_probs > thresholds[i])[0])
+                        tn_dryline = len(np.where((f_dryline_probs < thresholds[i]) & (f_dryline_probs != 0))[0])
+                        fp_dryline = len(np.where(f_dryline_probs > thresholds[i])[0])
+                        fn_dryline = len(np.where((t_dryline_probs < thresholds[i]) & (t_dryline_probs != 0))[0])
+
+                        try:
+                            CSI_cold[i] += tp_cold/(tp_cold + fp_cold + fn_cold)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            FB_cold[i] += (tp_cold + fp_cold)/(tp_cold + fn_cold)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POFD_cold[i] += fp_cold/(fp_cold + fn_cold)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POD_cold[i] += tp_cold/(tp_cold + fn_cold)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+
+                        try:
+                            CSI_warm[i] += tp_warm/(tp_warm + fp_warm + fn_warm)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            FB_warm[i] += (tp_warm + fp_warm)/(tp_warm + fn_warm)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POFD_warm[i] += fp_warm/(fp_warm + fn_warm)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POD_warm[i] += tp_warm/(tp_warm + fn_warm)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+
+                        try:
+                            CSI_stationary[i] += tp_stationary/(tp_stationary + fp_stationary + fn_stationary)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            FB_stationary[i] += (tp_stationary + fp_stationary)/(tp_stationary + fn_stationary)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POFD_stationary[i] += fp_stationary/(fp_stationary + fn_stationary)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POD_stationary[i] += tp_stationary/(tp_stationary + fn_stationary)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+
+                        try:
+                            CSI_occluded[i] += tp_occluded/(tp_occluded + fp_occluded + fn_occluded)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            FB_occluded[i] += (tp_occluded + fp_occluded)/(tp_occluded + fn_occluded)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POFD_occluded[i] += fp_occluded/(fp_occluded + fn_occluded)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+                        try:
+                            POD_occluded[i] += tp_occluded/(tp_occluded + fn_occluded)/len(front_files_test)
+                        except ZeroDivisionError:
+                            pass
+
+                    print("Prediction %d/%d....done" % (x+1, len(front_files_test)))
+
+    if front_types == 'CFWF':
+        performance_ds = xr.Dataset({"CSI_cold": ("threshold", CSI_cold), "CSI_warm": ("threshold", CSI_warm),
+                                     "FB_cold": ("threshold", FB_cold), "FB_warm": ("threshold", FB_warm),
+                                     "POFD_cold": ("threshold", POFD_cold), "POFD_warm": ("threshold", POFD_warm),
+                                     "POD_cold": ("threshold", POD_cold), "POD_warm": ("threshold", POD_warm)}, coords={"threshold": thresholds})
+    elif front_types == 'SFOF':
+        performance_ds = xr.Dataset({"CSI_stationary": ("threshold", CSI_stationary), "CSI_occluded": ("threshold", CSI_occluded),
+                                     "FB_stationary": ("threshold", FB_stationary), "FB_occluded": ("threshold", FB_occluded),
+                                     "POFD_stationary": ("threshold", POFD_stationary), "POFD_occluded": ("threshold", POFD_occluded),
+                                     "POD_stationary": ("threshold", POD_stationary), "POD_occluded": ("threshold", POD_occluded)}, coords={"threshold": thresholds})
+    elif front_types == 'DL':
+        performance_ds = xr.Dataset({"CSI_dryline": ("threshold", CSI_dryline), "CSI_dryline": ("threshold", CSI_dryline),
+                                     "FB_dryline": ("threshold", FB_dryline), "POFD_dryline": ("threshold", POFD_dryline)}, coords={"threshold": thresholds})
+    elif front_types == 'ALL':
+        performance_ds = xr.Dataset({"CSI_cold": ("threshold", CSI_cold), "CSI_warm": ("threshold", CSI_warm),
+                                     "CSI_stationary": ("threshold", CSI_stationary), "CSI_occluded": ("threshold", CSI_occluded),
+                                     "FB_cold": ("threshold", FB_cold), "FB_warm": ("threshold", FB_warm),
+                                     "FB_stationary": ("threshold", FB_stationary), "FB_occluded": ("threshold", FB_occluded),
+                                     "POFD_cold": ("threshold", POFD_cold), "POFD_warm": ("threshold", POFD_warm),
+                                     "POFD_stationary": ("threshold", POFD_stationary), "POFD_occluded": ("threshold", POFD_occluded),
+                                     "POD_cold": ("threshold", POD_cold), "POD_warm": ("threshold", POD_warm),
+                                     "POD_stationary": ("threshold", POD_stationary), "POD_occluded": ("threshold", POD_occluded)}, coords={"threshold": thresholds})
+
+    print(performance_ds)
+    with open('%s/model_%d/model_%d_performance_stats.pkl' % (model_dir, model_number, model_number), 'wb') as f:
+        pickle.dump(performance_ds, f)
+
+
 def predict(model_number, model_dir, fronts_files_list, variables_files_list, predictions, normalization_method, loss,
-    fss_mask_size, front_types, file_dimensions, pixel_expansion, metric):
+    fss_mask_size, fss_c, front_types, file_dimensions, pixel_expansion, metric, num_dimensions):
     """
     Function that makes random predictions using the provided model.
 
@@ -45,6 +734,8 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         Loss function for the Unet.
     fss_mask_size: int
         Size of the mask for the FSS loss function.
+    fss_c: float
+        C hyperparameter for the FSS loss' sigmoid function.
     front_types: str
         Fronts in the data.
     file_dimensions: int (x2)
@@ -53,13 +744,19 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         Number of pixels to expand the fronts by in all directions.
     metric: str
         Metric used for evaluating the U-Net during training.
+    num_dimensions: int
+        Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     """
     if loss == 'cce' and metric == 'auc':
         model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
     else:
         if loss == 'fss':
-            loss_string = 'FSS_loss'
-            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+            if num_dimensions == 2:
+                loss_string = 'FSS_loss_2D'
+                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            elif num_dimensions == 3:
+                loss_string = 'FSS_loss_3D'
+                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
         elif loss == 'cce':
             loss_string = None
             loss_function = None
@@ -74,8 +771,12 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
             loss_function = custom_losses.brier_skill_score
 
         if metric == 'fss':
-            metric_string = 'FSS_loss'
-            metric_function = custom_losses.make_FSS_loss(fss_mask_size)
+            if num_dimensions == 2:
+                metric_string = 'FSS_loss_2D'
+                metric_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            elif num_dimensions == 3:
+                metric_string = 'FSS_loss_3D'
+                metric_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
         elif metric == 'auc':
             metric_string = None
             metric_function = None
@@ -92,11 +793,29 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         print("Loading model....", end='')
         if loss_string is not None:
             if metric_string is not None:
-                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                    custom_objects={loss_string: loss_function, metric_string: metric_function})
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                        custom_objects={loss_string: loss_function, metric_string: metric_function})
+                except:
+                    print("failed")
+                    if loss_string == 'FSS_loss_2D':
+                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
+                        loss_string = 'FSS_loss'
+                        print("Loading model....",end='')
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                            model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
             else:
-                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                    custom_objects={loss_string: loss_function})
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                        custom_objects={loss_string: loss_function})
+                except:
+                    print("failed")
+                    if loss_string == 'FSS_loss_2D':
+                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
+                        loss_string = 'FSS_loss'
+                        print("Loading model....",end='')
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                            model_number), custom_objects={loss_string: loss_function})
         else:
             model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                 custom_objects={metric_string: metric_function})
@@ -104,7 +823,11 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
-    channels = model.layers[0].input_shape[0][3]  # Number of variables used
+    if num_dimensions == 2:
+        channels = model.layers[0].input_shape[0][3]  # Number of variables used
+    if num_dimensions == 3:
+        levels = model.layers[0].input_shape[0][3]
+        channels = model.layers[0].input_shape[0][4]
 
     """
     IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
@@ -137,7 +860,7 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         fronts = fronts_ds.sel(longitude=lons, latitude=lats)
 
         variable_list = list(variable_ds.keys())
-        for j in range(channels):
+        for j in range(len(variable_list)):
             var = variable_list[j]
             if normalization_method == 1:
                 # Min-max normalization
@@ -147,8 +870,22 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
                 # Mean normalization
                 variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
                                                         (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
-        variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
-            map_dim_y, channels))
+
+        if num_dimensions == 2:
+            variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
+                map_dim_y, channels))
+        elif num_dimensions == 3:
+            variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
+                                         'q']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
+                                          'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variables_950 = variable_ds[['t_950','d_950','z_950','u_950','v_950','theta_w_950','mix_ratio_950','rel_humid_950','virt_temp_950',
+                                         'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variables_900 = variable_ds[['t_900','d_900','z_900','u_900','v_900','theta_w_900','mix_ratio_900','rel_humid_900','virt_temp_900',
+                                         'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variables_850 = variable_ds[['t_850','d_850','z_850','u_850','v_850','theta_w_850','mix_ratio_850','rel_humid_850','virt_temp_850',
+                                         'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variable_ds_new = np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).reshape(1,map_dim_x,map_dim_y,levels,channels)
 
         prediction = model.predict(variable_ds_new)
 
@@ -166,18 +903,29 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         """
         Reformatting predictions: change the lines inside the loops according to your U-Net type.
         
-        ### U-Net ###
-        <front>_probs[i][j] = prediction[0][j][i][0]  <front> is the front type
+        - <front> is the front type
+        - i and j are loop indices, do NOT change these
+        - n is the number of down layers in the model
+        - l is the level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+        - x is the index of the front type in the softmax output. Refer to your data and the model structure to set this
+          to the correct value for each front type.
         
-        ### U-Net 3+ ###
-        <front>_probs[i][j] = prediction[n][0][j][i][0]  <front> is the front type, n is the number of down layers in the model
+        ### U-Net ###
+        <front>_probs[i][j] = prediction[0][j][i][x]
+        
+        ### U-Net 3+ (2D) ###
+        <front>_probs[i][j] = prediction[n][0][j][i][x]
+        
+        ### U-Net 3+ (3D) ###
+        <front>_probs[i][j] = prediction[n][0][j][i][l][x]
         """
         if front_types == 'CFWF':
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[5][0][j][i][0]
-                    cold_probs[i][j] = prediction[5][0][j][i][1]
-                    warm_probs[i][j] = prediction[5][0][j][i][2]
+                    no_probs[i][j] = prediction[0][0][j][i][0][0]
+                    cold_probs[i][j] = prediction[0][0][j][i][0][1]
+                    warm_probs[i][j] = prediction[0][0][j][i][0][2]
+                    print(prediction[0][0][j][i][:][:])
             probs_ds = xr.Dataset(
                 {"no_probs": (("latitude", "longitude"), no_probs), "cold_probs": (("latitude", "longitude"), cold_probs),
                  "warm_probs": (("latitude", "longitude"), warm_probs)}, coords={"latitude": lats, "longitude": lons})
@@ -320,7 +1068,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
 
-def learning_curve(model_number, model_dir, loss, fss_mask_size, metric):
+def learning_curve(model_number, model_dir, loss, fss_mask_size, fss_c, metric):
     """
     Function that plots learning curves for the specified model.
     
@@ -334,6 +1082,8 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, metric):
         Loss function for the U-Net.
     fss_mask_size: int
         Size of the mask for the FSS loss function.
+    fss_c: float
+        C hyperparameter for the FSS loss' sigmoid function.
     metric: str
         Metric used for evaluating the U-Net during training.
     """
@@ -341,7 +1091,7 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, metric):
         history = pd.read_csv(f)
 
     if loss == 'fss':
-        loss_title = 'Fractions Skill Score (Mask size: %d)' % fss_mask_size
+        loss_title = 'Fractions Skill Score (mask=%d, c=%.1f)' % (fss_mask_size, fss_c)
     elif loss == 'bss':
         loss_title = 'Brier Skill Score'
     elif loss == 'cce':
@@ -352,7 +1102,7 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, metric):
         loss_title = 'Tversky coefficient'
 
     if metric == 'fss':
-        metric_title = 'Fractions Skill Score (Mask size: %d)' % fss_mask_size
+        metric_title = 'Fractions Skill Score (mask=%d, c=%.1f)' % (fss_mask_size, fss_c)
         metric_string = 'FSS_loss'
     elif metric == 'bss':
         metric_title = 'Brier Skill Score'
@@ -386,18 +1136,26 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, metric):
     plt.plot(history['unet_output_sup3_activation_loss'], label='sup3')
     plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
     plt.plot(history['unet_output_final_activation_loss'], label='final', color='black')
+
+    ### U-Net 3+ (3D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
+    plt.plot(history['softmax_loss'], label='Encoder 6')
+    plt.plot(history['softmax_1_loss'], label='Decoder 5')
+    plt.plot(history['softmax_2_loss'], label='Decoder 4')
+    plt.plot(history['softmax_3_loss'], label='Decoder 3')
+    plt.plot(history['softmax_4_loss'], label='Decoder 2')
+    plt.plot(history['softmax_5_loss'], label='Decoder 1 (final)', color='black')
     """
-    plt.plot(history['unet_output_sup0_activation_loss'], label='sup0')
-    plt.plot(history['unet_output_sup1_activation_loss'], label='sup1')
-    plt.plot(history['unet_output_sup2_activation_loss'], label='sup2')
-    plt.plot(history['unet_output_sup3_activation_loss'], label='sup3')
-    plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
-    plt.plot(history['unet_output_final_activation_loss'], label='final', color='black')
+    plt.plot(history['softmax_loss'], label='Encoder 6')
+    plt.plot(history['softmax_1_loss'], label='Decoder 5')
+    plt.plot(history['softmax_2_loss'], label='Decoder 4')
+    plt.plot(history['softmax_3_loss'], label='Decoder 3')
+    plt.plot(history['softmax_4_loss'], label='Decoder 2')
+    plt.plot(history['softmax_5_loss'], label='Decoder 1 (final)', color='black')
 
     plt.legend()
     plt.xlim(xmin=0)
     plt.xlabel('Epochs')
-    plt.ylim(ymin=1e-5, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
+    plt.ylim(ymin=1e-6, ymax=1e-5)  # Limits of the loss function graph, adjust these as needed
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     plt.subplot(1, 2, 2)
@@ -410,30 +1168,39 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, metric):
     ### U-Net ###
     plt.plot(history[metric_string], 'r')
     
-    ### U-Net 3+ ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
+    ### U-Net 3+ (2D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
     plt.plot(history['unet_output_sup0_activation_%s' % metric_string], label='sup0')
     plt.plot(history['unet_output_sup1_activation_%s' % metric_string], label='sup1')
     plt.plot(history['unet_output_sup2_activation_%s' % metric_string], label='sup2')
     plt.plot(history['unet_output_sup3_activation_%s' % metric_string], label='sup3')
     plt.plot(history['unet_output_sup4_activation_%s' % metric_string], label='sup4')
     plt.plot(history['unet_output_final_activation_%s' % metric_string], label='final', color='black')
+
+    ### U-Net 3+ (3D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
+    plt.plot(history['softmax_%s' % metric_string], label='Encoder 6')
+    plt.plot(history['softmax_1_%s' % metric_string], label='Decoder 5')
+    plt.plot(history['softmax_2_%s' % metric_string], label='Decoder 4')
+    plt.plot(history['softmax_3_%s' % metric_string], label='Decoder 3')
+    plt.plot(history['softmax_4_%s' % metric_string], label='Decoder 2')
+    plt.plot(history['softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
     """
-    plt.plot(history['unet_output_sup0_activation_%s' % metric_string], label='sup0')
-    plt.plot(history['unet_output_sup1_activation_%s' % metric_string], label='sup1')
-    plt.plot(history['unet_output_sup2_activation_%s' % metric_string], label='sup2')
-    plt.plot(history['unet_output_sup3_activation_%s' % metric_string], label='sup3')
-    plt.plot(history['unet_output_sup4_activation_%s' % metric_string], label='sup4')
-    plt.plot(history['unet_output_final_activation_%s' % metric_string], label='final', color='black')
+    plt.plot(history['softmax_%s' % metric_string], label='Encoder 6')
+    plt.plot(history['softmax_1_%s' % metric_string], label='Decoder 5')
+    plt.plot(history['softmax_2_%s' % metric_string], label='Decoder 4')
+    plt.plot(history['softmax_3_%s' % metric_string], label='Decoder 3')
+    plt.plot(history['softmax_4_%s' % metric_string], label='Decoder 2')
+    plt.plot(history['softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
 
     plt.legend()
     plt.xlim(xmin=0)
     plt.xlabel('Epochs')
-    plt.ylim(ymin=0.99, ymax=1)  # Limits of the AUC graph, adjust these as needed
+    plt.ylim(ymin=1e-3, ymax=1e-1)  # Limits of the metric graph, adjust as needed
+    plt.yscale('log')
     plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
 
 
 def average_max_probabilities(model_number, model_dir, variables_files_list, loss, normalization_method, front_types,
-    fss_mask_size, metric):
+    fss_mask_size, fss_c, metric, num_dimensions):
     """
     Function that makes calculates maximum front probabilities for the provided model and saves the probabilities to
     a pickle file.
@@ -454,15 +1221,23 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         Front format of the file.
     fss_mask_size: int
         Size of the mask for the FSS loss function.
+    fss_c: float
+        C hyperparameter for the FSS loss' sigmoid function.
     metric: str
         Metric used for evaluating the U-Net during training.
+    num_dimensions: int
+        Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     """
     if loss == 'cce' and metric == 'auc':
         model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
     else:
         if loss == 'fss':
-            loss_string = 'FSS_loss'
-            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+            if num_dimensions == 2:
+                loss_string = 'FSS_loss_2D'
+                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            if num_dimensions == 3:
+                loss_string = 'FSS_loss_3D'
+                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
         elif loss == 'cce':
             loss_string = None
             loss_function = None
@@ -477,8 +1252,12 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
             loss_function = custom_losses.brier_skill_score
 
         if metric == 'fss':
-            metric_string = 'FSS_loss'
-            metric_function = custom_losses.make_FSS_loss(fss_mask_size)
+            if num_dimensions == 2:
+                metric_string = 'FSS_loss_2D'
+                metric_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            if num_dimensions == 3:
+                metric_string = 'FSS_loss_3D'
+                metric_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
         elif metric == 'auc':
             metric_string = None
             metric_function = None
@@ -495,11 +1274,29 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         print("Loading model....", end='')
         if loss_string is not None:
             if metric_string is not None:
-                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                    custom_objects={loss_string: loss_function, metric_string: metric_function})
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                        custom_objects={loss_string: loss_function, metric_string: metric_function})
+                except:
+                    print("failed")
+                    if loss_string == 'FSS_loss_2D':
+                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
+                        loss_string = 'FSS_loss'
+                        print("Loading model....",end='')
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                            model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
             else:
-                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                    custom_objects={loss_string: loss_function})
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                        custom_objects={loss_string: loss_function})
+                except:
+                    print("failed")
+                    if loss_string == 'FSS_loss_2D':
+                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
+                        loss_string = 'FSS_loss'
+                        print("Loading model....",end='')
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                            model_number), custom_objects={loss_string: loss_function})
         else:
             model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                 custom_objects={metric_string: metric_function})
@@ -507,7 +1304,11 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
-    channels = model.layers[0].input_shape[0][3]  # Number of variables used
+    if num_dimensions == 2:
+        channels = model.layers[0].input_shape[0][3]  # Number of variables used
+    if num_dimensions == 3:
+        levels = model.layers[0].input_shape[0][3]
+        channels = model.layers[0].input_shape[0][4]
 
     """
     IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
@@ -544,7 +1345,7 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
 
         variable_list = list(variable_ds.keys())
-        for j in range(channels):
+        for j in range(len(variable_list)):
             var = variable_list[j]
             if normalization_method == 1:
                 # Min-max normalization
@@ -554,10 +1355,24 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
                 # Mean normalization
                 variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
                                                         (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
-        variable = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
-            map_dim_y, channels))
 
-        prediction = model.predict(variable)
+        if num_dimensions == 2:
+            variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
+                map_dim_y, channels))
+        elif num_dimensions == 3:
+            variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
+                                         'q']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
+                                          'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variables_950 = variable_ds[['t_950','d_950','z_950','u_950','v_950','theta_w_950','mix_ratio_950','rel_humid_950','virt_temp_950',
+                                         'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variables_900 = variable_ds[['t_900','d_900','z_900','u_900','v_900','theta_w_900','mix_ratio_900','rel_humid_900','virt_temp_900',
+                                         'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variables_850 = variable_ds[['t_850','d_850','z_850','u_850','v_850','theta_w_850','mix_ratio_850','rel_humid_850','virt_temp_850',
+                                         'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
+            variable_ds_new = np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).reshape(1,map_dim_x,map_dim_y,levels,channels)
+
+        prediction = model.predict(variable_ds_new)
 
         # Arrays of probabilities for all front types
         no_probs = np.zeros([map_dim_x, map_dim_y])
@@ -570,18 +1385,28 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         """
         Reformatting predictions: change the lines inside the loops according to your U-Net type.
         
-        ### U-Net ###
-        <front>_probs[i][j] = prediction[0][j][i][0]  <front> is the front type
+        - <front> is the front type
+        - i and j are loop indices, do not change these
+        - n is the number of down layers in the model
+        - l is the level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+        - x is the index of the front type in the softmax output. Refer to your data and the model structure to set this
+          to the correct value for each front type.
         
-        ### U-Net 3+ ###
-        <front>_probs[i][j] = prediction[n][0][j][i][0]  <front> is the front type, n is the number of down layers in the model
+        ### U-Net ###
+        <front>_probs[i][j] = prediction[0][j][i][x]
+        
+        ### U-Net 3+ (2D) ###
+        <front>_probs[i][j] = prediction[n][0][j][i][x]
+        
+        ### U-Net 3+ (3D) ###
+        <front>_probs[i][j] = prediction[n][0][j][i][l][x]
         """
         if front_types == 'CFWF':
             for i in range(0, map_dim_y):
                 for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[5][0][j][i][0]
-                    cold_probs[i][j] = prediction[5][0][j][i][1]
-                    warm_probs[i][j] = prediction[5][0][j][i][2]
+                    no_probs[i][j] = prediction[0][0][j][i][0][0]
+                    cold_probs[i][j] = prediction[0][0][j][i][0][1]
+                    warm_probs[i][j] = prediction[0][0][j][i][0][2]
             max_cold_probs.append(np.max(cold_probs*100))
             max_warm_probs.append(np.max(warm_probs*100))
             print("\r(%d/%d)  Avg CF/WF: %.1f%s / %.1f%s,  Max CF/WF: %.1f%s / %.1f%s, Stddev CF/WF: %.1f%s / %.1f%s "
@@ -807,6 +1632,8 @@ if __name__ == '__main__':
         ' need to be passed.')
     # Normalization methods: 0 - No normalization, 1 - Min-max normalization, 2 - Mean normalization
     parser.add_argument('--normalization_method', type=int, required=True, help='Normalization method for the data.')
+    parser.add_argument('--num_dimensions', type=int, required=True, help='Number of dimensions of the U-Net convolutions,'
+        ' maxpooling, and upsampling. (2 or 3)')
 
     """
     Optional arguments
@@ -822,10 +1649,21 @@ if __name__ == '__main__':
     Conditional arguments
     """
     ### Must be passed if using the fractions skill score (FSS) loss function ###
+    parser.add_argument('--fss_c', type=int, required=False, help="C hyperparameter for the FSS loss' sigmoid function"
+        ' (if applicable).')
     parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
         ' (if applicable).')
-    ### Must be passed if you are making predictions with plots ###
+
+    ### Must be passed if you are making predictions with plots or calculating performance stats ###
     parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by. Default is 0.')
+
+    ### Must be passed if you are calculate performance stats for a model ###
+    parser.add_argument('--performance_statistics', type=str, required=False, help='Calculate performance statistics for a model? (True/False)')
+
+    ### Must be passed if you are calculating performance stats for a model for cross-validation purposes ###
+    parser.add_argument('--cross_validate', type=str, required=False, help='Are you calculating performance stats for a model '
+                                                                             'for cross-validation purposes? (True/False)')
+    parser.add_argument('--test_year', type=int, required=False, help='Test year for cross-validating the current model.')
 
     args = parser.parse_args()
 
@@ -839,27 +1677,31 @@ if __name__ == '__main__':
 
     if args.domain is None:
         domain = 'conus'
-        print("domain: %s (default)" % domain)
+        print("Domain: %s (default)" % domain)
     else:
         domain = args.domain
-        print("domain: %s" % domain)
+        print("Domain: %s" % domain)
 
-    print("file_dimensions: %d %d" % (args.file_dimensions[0],args.file_dimensions[1]))
-    print("front_types: %s" % args.front_types)
+    print("File dimensions: %d x %d" % (args.file_dimensions[0], args.file_dimensions[1]))
+    print("Front types: %s" % args.front_types)
+    print("U-Net shape: %dD" % args.num_dimensions)
 
-    if args.loss == 'fss':
-        loss = 'fss'
-        print("loss: FSS(%d)" % args.fss_mask_size)
+    if args.loss is None:
+        loss = 'cce'
+        print("Loss function: %s (default)" % loss)
     else:
         loss = args.loss
-        print("loss: %s" % loss)
+        if loss == 'fss':
+            print("Loss function: FSS(mask=%d, c=%.1f)" % (args.fss_mask_size, args.fss_c))
+        else:
+            print("Loss function: %s" % loss)
 
     if args.metric == 'fss':
         metric = 'fss'
-        print("metric: FSS(%d)" % args.fss_mask_size)
+        print("Metric: FSS(%d)" % args.fss_mask_size)
     else:
         metric = args.metric
-        print("metric: %s" % metric)
+        print("Metric: %s" % metric)
 
     if args.normalization_method is None:
         normalization_method = 0
@@ -887,23 +1729,33 @@ if __name__ == '__main__':
 
     print("num_variables: %d" % args.num_variables)
 
+    if args.cross_validate == 'True':
+        if args.pixel_expansion is None:
+            raise errors.MissingArgumentError("Argument '--pixel_expansion' must be passed if you are making prediction plots.")
+        if args.test_year is None:
+            raise errors.MissingArgumentError("Argument '--test_year' must be passed if you are making prediction plots.")
+        else:
+            cross_validate(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
+                           args.domain, args.file_dimensions, args.test_year, args.normalization_method, args.loss, args.fss_mask_size,
+                           args.fss_c, args.pixel_expansion, args.metric)
+
     if args.predict == 'True':
         if args.pixel_expansion is None:
             raise errors.MissingArgumentError("Argument '--pixel_expansion' must be passed if you are making prediction plots.")
         else:
             predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, predictions,
-                    normalization_method, loss, args.fss_mask_size, args.front_types, args.file_dimensions,
-                    pixel_expansion, metric)
+                    normalization_method, loss, args.fss_mask_size, args.fss_c, args.front_types, args.file_dimensions,
+                    pixel_expansion, metric, args.num_dimensions)
     else:
         if args.predictions is not None:
             raise errors.ExtraArgumentError("Argument '--predictions' cannot be passed if '--predict' is False or was not provided.")
 
     if args.learning_curve == 'True':
-        learning_curve(args.model_number, args.model_dir, loss, args.fss_mask_size, metric)
+        learning_curve(args.model_number, args.model_dir, loss, args.fss_mask_size, args.fss_c, metric)
 
     if args.probability_statistics == 'True':
         average_max_probabilities(args.model_number, args.model_dir, variables_files_list, args.loss, args.normalization_method,
-            args.front_types, args.fss_mask_size, metric)
+            args.front_types, args.fss_mask_size, args.fss_c, metric, args.num_dimensions)
 
     if args.probability_plot == 'True':
         probability_distribution_plot(args.model_number, args.model_dir, args.front_types)
