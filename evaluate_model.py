@@ -2,13 +2,12 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/29/2021 10:56 AM CDT
+Last updated: 9/4/2021 4:28 PM CDT
 """
 
 import random
 import pandas as pd
 import argparse
-import tensorflow as tf
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,7 +15,6 @@ import file_manager as fm
 import Fronts_Aggregate_Plot as fplot
 import xarray as xr
 import errors
-import custom_losses
 import pickle
 import matplotlib as mpl
 from expand_fronts import one_pixel_expansion as ope
@@ -63,75 +61,7 @@ def cross_validate(model_number, model_dir, num_variables, num_dimensions, front
     print("Front file count:", len(front_files_test))
     print("Variable file count:", len(variable_files_test))
 
-    if loss == 'cce' and metric == 'auc':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
-    else:
-        if loss == 'fss':
-            if num_dimensions == 2:
-                loss_string = 'FSS_loss_2D'
-                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
-            if num_dimensions == 3:
-                loss_string = 'FSS_loss_3D'
-                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-        elif loss == 'cce':
-            loss_string = None
-            loss_function = None
-        elif loss == 'dice':
-            loss_string = 'dice'
-            loss_function = custom_losses.dice
-        elif loss == 'tversky':
-            loss_string = 'tversky'
-            loss_function = custom_losses.tversky
-        elif loss == 'bss':
-            loss_string = 'brier_skill_score'
-            loss_function = custom_losses.brier_skill_score
-
-        if metric == 'fss':
-            metric_string = 'FSS_loss'
-            metric_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
-        elif metric == 'auc':
-            metric_string = None
-            metric_function = None
-        elif metric == 'dice':
-            metric_string = 'dice'
-            metric_function = custom_losses.dice
-        elif metric == 'tversky':
-            metric_string = 'tversky'
-            metric_function = custom_losses.tversky
-        elif metric == 'bss':
-            metric_string = 'brier_skill_score'
-            metric_function = custom_losses.brier_skill_score
-
-        print("Loading model....", end='')
-        if loss_string is not None:
-            if metric_string is not None:
-                try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                        custom_objects={loss_string: loss_function, metric_string: metric_function})
-                except:
-                    print("failed")
-                    if loss_string == 'FSS_loss_2D':
-                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
-                        loss_string = 'FSS_loss'
-                        print("Loading model....",end='')
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
-                            model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
-            else:
-                try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                        custom_objects={loss_string: loss_function})
-                except:
-                    print("failed")
-                    if loss_string == 'FSS_loss_2D':
-                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
-                        loss_string = 'FSS_loss'
-                        print("Loading model....",end='')
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
-                            model_number), custom_objects={loss_string: loss_function})
-        else:
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={metric_string: metric_function})
-        print("done")
+    model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
@@ -194,10 +124,9 @@ def cross_validate(model_number, model_dir, num_variables, num_dimensions, front
         index = x
         fronts_filename = front_files_test[index]
         variables_filename = variable_files_test[index]
-        if pixel_expansion == 1:
-            fronts_ds = ope(pd.read_pickle(fronts_filename))
-        else:
-            fronts_ds = pd.read_pickle(fronts_filename)
+        fronts_ds = pd.read_pickle(fronts_filename)
+        for i in range(pixel_expansion):
+            fronts_ds = ope(fronts_ds)
 
         lon_indices = [21,80,139]
         image_no_probs = np.empty([238,128])
@@ -278,7 +207,7 @@ def cross_validate(model_number, model_dir, num_variables, num_dimensions, front
             <front>_probs[i][j] = prediction[n][0][j][i][x]
             
             ### U-Net 3+ (3D) ###
-            <front>_probs[i][j] = prediction[n][0][j][i][l][x]
+            <front>_probs[i][j] = prediction[0][0][j][i][l][x]
             """
             if front_types == 'CFWF':
                 for i in range(0, map_dim_x):
@@ -707,7 +636,7 @@ def cross_validate(model_number, model_dir, num_variables, num_dimensions, front
                                      "POD_stationary": ("threshold", POD_stationary), "POD_occluded": ("threshold", POD_occluded)}, coords={"threshold": thresholds})
 
     print(performance_ds)
-    with open('%s/model_%d/model_%d_performance_stats.pkl' % (model_dir, model_number, model_number), 'wb') as f:
+    with open('%s/model_%d/model_%d_performance_stats_25km.pkl' % (model_dir, model_number, model_number), 'wb') as f:
         pickle.dump(performance_ds, f)
 
 
@@ -747,79 +676,7 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
     num_dimensions: int
         Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     """
-    if loss == 'cce' and metric == 'auc':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
-    else:
-        if loss == 'fss':
-            if num_dimensions == 2:
-                loss_string = 'FSS_loss_2D'
-                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
-            elif num_dimensions == 3:
-                loss_string = 'FSS_loss_3D'
-                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-        elif loss == 'cce':
-            loss_string = None
-            loss_function = None
-        elif loss == 'dice':
-            loss_string = 'dice'
-            loss_function = custom_losses.dice
-        elif loss == 'tversky':
-            loss_string = 'tversky'
-            loss_function = custom_losses.tversky
-        elif loss == 'bss':
-            loss_string = 'brier_skill_score'
-            loss_function = custom_losses.brier_skill_score
-
-        if metric == 'fss':
-            if num_dimensions == 2:
-                metric_string = 'FSS_loss_2D'
-                metric_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
-            elif num_dimensions == 3:
-                metric_string = 'FSS_loss_3D'
-                metric_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-        elif metric == 'auc':
-            metric_string = None
-            metric_function = None
-        elif metric == 'dice':
-            metric_string = 'dice'
-            metric_function = custom_losses.dice
-        elif metric == 'tversky':
-            metric_string = 'tversky'
-            metric_function = custom_losses.tversky
-        elif metric == 'bss':
-            metric_string = 'brier_skill_score'
-            metric_function = custom_losses.brier_skill_score
-
-        print("Loading model....", end='')
-        if loss_string is not None:
-            if metric_string is not None:
-                try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                        custom_objects={loss_string: loss_function, metric_string: metric_function})
-                except:
-                    print("failed")
-                    if loss_string == 'FSS_loss_2D':
-                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
-                        loss_string = 'FSS_loss'
-                        print("Loading model....",end='')
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
-                            model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
-            else:
-                try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                        custom_objects={loss_string: loss_function})
-                except:
-                    print("failed")
-                    if loss_string == 'FSS_loss_2D':
-                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
-                        loss_string = 'FSS_loss'
-                        print("Loading model....",end='')
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
-                            model_number), custom_objects={loss_string: loss_function})
-        else:
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={metric_string: metric_function})
-        print("done")
+    model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
@@ -917,7 +774,7 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
         <front>_probs[i][j] = prediction[n][0][j][i][x]
         
         ### U-Net 3+ (3D) ###
-        <front>_probs[i][j] = prediction[n][0][j][i][l][x]
+        <front>_probs[i][j] = prediction[0][0][j][i][l][x]
         """
         if front_types == 'CFWF':
             for i in range(0, map_dim_y):
@@ -1228,79 +1085,8 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
     num_dimensions: int
         Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     """
-    if loss == 'cce' and metric == 'auc':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
-    else:
-        if loss == 'fss':
-            if num_dimensions == 2:
-                loss_string = 'FSS_loss_2D'
-                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
-            if num_dimensions == 3:
-                loss_string = 'FSS_loss_3D'
-                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-        elif loss == 'cce':
-            loss_string = None
-            loss_function = None
-        elif loss == 'dice':
-            loss_string = 'dice'
-            loss_function = custom_losses.dice
-        elif loss == 'tversky':
-            loss_string = 'tversky'
-            loss_function = custom_losses.tversky
-        elif loss == 'bss':
-            loss_string = 'brier_skill_score'
-            loss_function = custom_losses.brier_skill_score
 
-        if metric == 'fss':
-            if num_dimensions == 2:
-                metric_string = 'FSS_loss_2D'
-                metric_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
-            if num_dimensions == 3:
-                metric_string = 'FSS_loss_3D'
-                metric_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-        elif metric == 'auc':
-            metric_string = None
-            metric_function = None
-        elif metric == 'dice':
-            metric_string = 'dice'
-            metric_function = custom_losses.dice
-        elif metric == 'tversky':
-            metric_string = 'tversky'
-            metric_function = custom_losses.tversky
-        elif metric == 'bss':
-            metric_string = 'brier_skill_score'
-            metric_function = custom_losses.brier_skill_score
-
-        print("Loading model....", end='')
-        if loss_string is not None:
-            if metric_string is not None:
-                try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                        custom_objects={loss_string: loss_function, metric_string: metric_function})
-                except:
-                    print("failed")
-                    if loss_string == 'FSS_loss_2D':
-                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
-                        loss_string = 'FSS_loss'
-                        print("Loading model....",end='')
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
-                            model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
-            else:
-                try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                        custom_objects={loss_string: loss_function})
-                except:
-                    print("failed")
-                    if loss_string == 'FSS_loss_2D':
-                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
-                        loss_string = 'FSS_loss'
-                        print("Loading model....",end='')
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
-                            model_number), custom_objects={loss_string: loss_function})
-        else:
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={metric_string: metric_function})
-        print("done")
+    model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
 
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
@@ -1399,7 +1185,7 @@ def average_max_probabilities(model_number, model_dir, variables_files_list, los
         <front>_probs[i][j] = prediction[n][0][j][i][x]
         
         ### U-Net 3+ (3D) ###
-        <front>_probs[i][j] = prediction[n][0][j][i][l][x]
+        <front>_probs[i][j] = prediction[0][0][j][i][l][x]
         """
         if front_types == 'CFWF':
             for i in range(0, map_dim_y):
@@ -1616,146 +1402,102 @@ def probability_distribution_plot(model_number, model_dir, front_types):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    """
-    Required arguments
-    """
-    parser.add_argument('--model_number', type=int, required=True, help='Model number')
-    parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
-    parser.add_argument('--loss', type=str, required=True, help='Loss function used for training the U-Net.')
-    parser.add_argument('--metric', type=str, required=True, help='Metric used for evaluating the U-Net during training.')
-    parser.add_argument('--num_variables', type=int, required=True, help='Number of variables in the variable datasets.')
-    parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain warm'
-        ' and cold fronts, pass this argument as CFWF. If your files contain only drylines, pass this argument as DL. '
-        'If your files contain all fronts, pass this argument as ALL.')
-    parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
-    parser.add_argument('--file_dimensions', type=int, nargs=2, required=True, help='Dimensions of the file size. Two integers'
-        ' need to be passed.')
-    # Normalization methods: 0 - No normalization, 1 - Min-max normalization, 2 - Mean normalization
-    parser.add_argument('--normalization_method', type=int, required=True, help='Normalization method for the data.')
-    parser.add_argument('--num_dimensions', type=int, required=True, help='Number of dimensions of the U-Net convolutions,'
-        ' maxpooling, and upsampling. (2 or 3)')
-
-    """
-    Optional arguments
-    """
-    parser.add_argument('--predict', type=str, required=False, help='Generate prediction plots? (True/False)')
-    parser.add_argument('--predictions', type=int, required=False, help='Number of predictions to make. Default is 25.')
-    parser.add_argument('--learning_curve', type=str, required=False, help='Plot learning curves? (True/False)')
-    parser.add_argument('--probability_statistics', type=str, required=False, help='Calculate maximum probability statistics?'
-        ' (True/False)')
-    parser.add_argument('--probability_plot', type=str, required=False, help='Create probability distribution plot? (True/False)')
-
-    """
-    Conditional arguments
-    """
-    ### Must be passed if using the fractions skill score (FSS) loss function ###
-    parser.add_argument('--fss_c', type=int, required=False, help="C hyperparameter for the FSS loss' sigmoid function"
-        ' (if applicable).')
-    parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
-        ' (if applicable).')
-
-    ### Must be passed if you are making predictions with plots or calculating performance stats ###
-    parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by. Default is 0.')
-
-    ### Must be passed if you are calculate performance stats for a model ###
-    parser.add_argument('--performance_statistics', type=str, required=False, help='Calculate performance statistics for a model? (True/False)')
-
-    ### Must be passed if you are calculating performance stats for a model for cross-validation purposes ###
-    parser.add_argument('--cross_validate', type=str, required=False, help='Are you calculating performance stats for a model '
-                                                                             'for cross-validation purposes? (True/False)')
+    """ Main arguments """
+    parser.add_argument('--cross_validate', type=bool, required=False,
+                        help='Are you calculating performance stats for a model for cross-validation purposes?')
+    parser.add_argument('--domain', type=str, required=False, help='Domain of the data.')
+    parser.add_argument('--file_dimensions', type=int, nargs=2, required=False,
+                        help='Dimensions of the file size. Two integers need to be passed.')
+    parser.add_argument('--front_types', type=str, required=False,
+                        help='Front format of the file. If your files contain warm and cold fronts, pass this argument'
+                             'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
+                             'contain all fronts, pass this argument as ALL.')
+    parser.add_argument('--fss_c', type=float, required=False, help="C hyperparameter for the FSS loss' sigmoid function.")
+    parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function.')
+    parser.add_argument('--loss', type=str, required=False, help='Loss function used for training the U-Net.')
+    parser.add_argument('--metric', type=str, required=False, help='Metric used for evaluating the U-Net during training.')
+    parser.add_argument('--model_dir', type=str, required=False, help='Directory for the models.')
+    parser.add_argument('--model_number', type=int, required=False, help='Model number.')
+    parser.add_argument('--num_dimensions', type=int, required=False,
+                        help='Number of dimensions of the U-Net convolutions, maxpooling, and upsampling. (2 or 3)')
+    parser.add_argument('--num_variables', type=int, required=False, help='Number of variables in the variable datasets.')
+    parser.add_argument('--normalization_method', type=int, required=False,
+                        help='Normalization method for the data. 0 - No normalization, 1 - Min-max normalization, '
+                             '2 - Mean normalization')
+    parser.add_argument('--performance_statistics', type=bool, required=False,
+                        help='Calculate performance statistics for a model?')
+    parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by.')
+    parser.add_argument('--predict', type=bool, required=False, help='Generate prediction plots?')
+    parser.add_argument('--predictions', type=int, required=False, help='Number of predictions to make.')
+    parser.add_argument('--probability_plot', type=bool, required=False, help='Create probability distribution plot?')
+    parser.add_argument('--probability_statistics', type=bool, required=False,
+                        help='Calculate maximum probability statistics?')
     parser.add_argument('--test_year', type=int, required=False, help='Test year for cross-validating the current model.')
 
     args = parser.parse_args()
 
+    print(args)
+
     fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
                                                                  args.file_dimensions)
 
-    if args.loss == 'fss' and args.fss_mask_size is None:
-        raise errors.MissingArgumentError("Argument '--fss_mask_size' must be passed if you are using the FSS loss function.")
-    if args.loss != 'fss' and args.fss_mask_size is not None:
-        raise errors.ExtraArgumentError("Argument '--fss_mask_size' can only be passed if you are using the FSS loss function.")
-
-    if args.domain is None:
-        domain = 'conus'
-        print("Domain: %s (default)" % domain)
+    if args.loss == 'fss':
+        if args.fss_c is None or args.fss_mask_size is None:
+            raise errors.MissingArgumentError("If loss is fss, the following arguments must be passed: fss_c, fss_mask_size")
     else:
-        domain = args.domain
-        print("Domain: %s" % domain)
+        if args.fss_c is not None or args.fss_mask_size is not None:
+            raise errors.ExtraArgumentError("loss is not fss but one or more of the following arguments was provided: "
+                                            "fss_c, fss_mask_size")
 
-    print("File dimensions: %d x %d" % (args.file_dimensions[0], args.file_dimensions[1]))
-    print("Front types: %s" % args.front_types)
-    print("U-Net shape: %dD" % args.num_dimensions)
-
-    if args.loss is None:
-        loss = 'cce'
-        print("Loss function: %s (default)" % loss)
-    else:
-        loss = args.loss
-        if loss == 'fss':
-            print("Loss function: FSS(mask=%d, c=%.1f)" % (args.fss_mask_size, args.fss_c))
-        else:
-            print("Loss function: %s" % loss)
-
-    if args.metric == 'fss':
-        metric = 'fss'
-        print("Metric: FSS(%d)" % args.fss_mask_size)
-    else:
-        metric = args.metric
-        print("Metric: %s" % metric)
-
-    if args.normalization_method is None:
-        normalization_method = 0
-        print('normalization_method: 0 - No normalization (default)')
-    else:
-        normalization_method = args.normalization_method
-        if normalization_method == 1:
-            print('normalization_method: 1 - Min-max normalization')
-        elif normalization_method == 2:
-            print('normalization_method: 2 - Mean normalization')
-
-    if args.pixel_expansion is None:
-        pixel_expansion = 0
-        print('pixel_expansion: %d (default)' % pixel_expansion)
-    else:
-        pixel_expansion = args.pixel_expansion
-        print('pixel_expansion: %d' % pixel_expansion)
-
-    if args.predictions is None:
-        predictions = 25
-        print('predictions: 25 (default)')
-    else:
-        predictions = args.predictions
-        print('predictions: %d' % args.predictions)
-
-    print("num_variables: %d" % args.num_variables)
-
-    if args.cross_validate == 'True':
-        if args.pixel_expansion is None:
-            raise errors.MissingArgumentError("Argument '--pixel_expansion' must be passed if you are making prediction plots.")
-        if args.test_year is None:
-            raise errors.MissingArgumentError("Argument '--test_year' must be passed if you are making prediction plots.")
+    if args.cross_validate is True:
+        if args.model_number is None or args.model_dir is None or args.num_variables is None or args.num_dimensions is None or \
+            args.front_types is None or args.domain is None or args.file_dimensions is None or args.test_year is None or \
+            args.normalization_method is None or args.loss is None or args.pixel_expansion is None or args.metric:
+            raise errors.MissingArgumentError("If cross_validate is True, the following arguments must be passed: "
+                "domain, file_dimensions, front_types, loss, metric, model_dir, model_number, normalization_method, "
+                "num_dimensions, num_variables, pixel_expansion, test_year")
         else:
             cross_validate(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
-                           args.domain, args.file_dimensions, args.test_year, args.normalization_method, args.loss, args.fss_mask_size,
-                           args.fss_c, args.pixel_expansion, args.metric)
-
-    if args.predict == 'True':
-        if args.pixel_expansion is None:
-            raise errors.MissingArgumentError("Argument '--pixel_expansion' must be passed if you are making prediction plots.")
-        else:
-            predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, predictions,
-                    normalization_method, loss, args.fss_mask_size, args.fss_c, args.front_types, args.file_dimensions,
-                    pixel_expansion, metric, args.num_dimensions)
+                args.domain, args.file_dimensions, args.test_year, args.normalization_method, args.loss, args.fss_mask_size,
+                args.fss_c, args.pixel_expansion, args.metric)
     else:
         if args.predictions is not None:
-            raise errors.ExtraArgumentError("Argument '--predictions' cannot be passed if '--predict' is False or was not provided.")
+            raise errors.ExtraArgumentError("cross_validate is False but the following argument was provided: test_year")
 
-    if args.learning_curve == 'True':
-        learning_curve(args.model_number, args.model_dir, loss, args.fss_mask_size, args.fss_c, metric)
+    if args.learning_curve is True:
+        if args.model_number is None or args.model_dir is None or args.loss is None or args.metric is None:
+            raise errors.MissingArgumentError("If learning_curve is True, the following arguments must be passed: "
+                                              "loss, metric, model_dir, model_number")
+        else:
+            learning_curve(args.model_number, args.model_dir, args.loss, args.fss_mask_size, args.fss_c, args.metric)
 
-    if args.probability_statistics == 'True':
-        average_max_probabilities(args.model_number, args.model_dir, variables_files_list, args.loss, args.normalization_method,
-            args.front_types, args.fss_mask_size, args.fss_c, metric, args.num_dimensions)
+    if args.predict is True:
+        if args.model_number is None or args.model_dir is None or args.num_variables is None or args.num_dimensions is None or \
+            args.front_types is None or args.domain is None or args.file_dimensions is None or args.predictions is None or \
+            args.normalization_method is None or args.loss is None or args.pixel_expansion is None or args.metric:
+            raise errors.MissingArgumentError("If predict is True, the following arguments must be passed: "
+                "domain, file_dimensions, front_types, loss, metric, model_dir, model_number, normalization_method, "
+                "num_dimensions, num_variables, pixel_expansion, predictions")
+        else:
+            predict(args.model_number, args.model_dir, fronts_files_list, variables_files_list, args.predictions,
+                args.normalization_method, args.loss, args.fss_mask_size, args.fss_c, args.front_types, args.file_dimensions,
+                args.pixel_expansion, args.metric, args.num_dimensions)
+    else:
+        if args.predictions is not None:
+            raise errors.ExtraArgumentError("predict is False but the following argument was provided: predictions")
 
-    if args.probability_plot == 'True':
-        probability_distribution_plot(args.model_number, args.model_dir, args.front_types)
+    if args.probability_statistics is True:
+        if args.model_number is None or args.model_dir is None or args.num_dimensions is None or args.front_types is None or \
+            args.normalization_method is None or args.loss is None or args.metric is None:
+            raise errors.MissingArgumentError("If predict is True, the following arguments must be passed: "
+                "file_dimensions, front_types, loss, metric, model_dir, model_number, normalization_method, num_dimensions")
+        else:
+            average_max_probabilities(args.model_number, args.model_dir, variables_files_list, args.loss, args.normalization_method,
+                args.front_types, args.fss_mask_size, args.fss_c, args.metric, args.num_dimensions)
+
+    if args.probability_plot is True:
+        if args.model_number is None or args.model_dir is None or args.front_types is None:
+            raise errors.MissingArgumentError("If learning_curve is True, the following arguments must be passed: "
+                                              "front_types, model_dir, model_number")
+        else:
+            probability_distribution_plot(args.model_number, args.model_dir, args.front_types)
