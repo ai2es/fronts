@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/19/2021 3:57 PM CDT
+Last updated: 9/4/2021 5:33 PM CDT
 """
 
 import random
@@ -210,15 +210,15 @@ class DataGenerator_3D(keras.utils.Sequence):
                                                             (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
             # Split variable dataset into 5 different datasets for the different levels
             variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
-                                           'q']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'q']].sel(longitude=lons, latitude=lats).to_array().T.values
             variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
-                                            'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                          'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
             variables_950 = variable_ds[['t_950','d_950','z_950','u_950','v_950','theta_w_950','mix_ratio_950','rel_humid_950','virt_temp_950',
-                                            'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
             variables_900 = variable_ds[['t_900','d_900','z_900','u_900','v_900','theta_w_900','mix_ratio_900','rel_humid_900','virt_temp_900',
-                                            'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
             variables_850 = variable_ds[['t_850','d_850','z_850','u_850','v_850','theta_w_850','mix_ratio_850','rel_humid_850','virt_temp_850',
-                                            'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
             # Concatenate datasets
             variables_all_levels = np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).reshape(1,self.map_dim_x,self.map_dim_y,5,12)
 
@@ -244,8 +244,8 @@ class DataGenerator_3D(keras.utils.Sequence):
 # Creating and training a new U-Net model
 def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
                    train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
-                   workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, pixel_expansion,
-                   num_variables, file_dimensions, validation_year, test_year, num_dimensions):
+                   workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, fss_c,
+                   pixel_expansion, num_variables, file_dimensions, validation_year, test_year, num_dimensions):
     """
     Function that train a new U-Net model and saves the model along with its weights.
 
@@ -296,6 +296,8 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         Normalization method for the data (described near the end of the script).
     fss_mask_size: int
         Size of the mask for the FSS loss function.
+    fss_c: float
+        C hyperparameter for the FSS loss' sigmoid function.
     pixel_expansion: int
         Number of pixels to expand the fronts by in all directions.
     num_variables: int
@@ -379,7 +381,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
                 activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
                 deep_supervision=True)
         elif num_dimensions == 3:
-            model = custom_models.UNet_3plus_3d(map_dim_x, map_dim_y, num_classes)
+            model = custom_models.UNet_3plus_3d_no_En1_skip(map_dim_x, map_dim_y, num_classes)
         print('done')
 
         if loss == 'dice':
@@ -390,9 +392,9 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
             loss_function = 'categorical_crossentropy'
         elif loss == 'fss':
             if num_dimensions == 2:
-                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size)
+                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
             elif num_dimensions == 3:
-                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size)
+                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
 
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
@@ -401,8 +403,8 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 
     model.summary()
 
-    ### If validation year and test year are provided, split data into training and validation sets ###
-    if validation_year != None and test_year != None:
+    # If validation year and test year are provided, split data into training and validation sets
+    if validation_year is not None and test_year is not None:
         front_files_training, front_files_validation, variable_files_training, variable_files_validation = \
             fm.split_file_lists(front_files, variable_files, validation_year, test_year)
 
@@ -466,7 +468,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 # Retraining a U-Net model
 def train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
     train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, workers, model_number, model_dir,
-    front_types, normalization_method, fss_mask_size, pixel_expansion, num_variables, file_dimensions, validation_year,
+    front_types, normalization_method, fss_mask_size, fss_c, pixel_expansion, num_variables, file_dimensions, validation_year,
     test_year, num_dimensions):
     """
     Function that trains the U-Net model and saves the model along with its weights.
@@ -513,6 +515,8 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         Normalization method for the data (described near the end of the script).
     fss_mask_size: int
         Size of the mask for the FSS loss function.
+    fss_c: float
+        C hyperparameter for the FSS loss' sigmoid function.
     pixel_expansion: int
         Number of pixels to expand the fronts by in all directions.
     num_variables: int
@@ -587,9 +591,9 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
             model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
         elif loss == 'fss':
             if num_dimensions == 2:
-                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size)
+                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
             elif num_dimensions == 3:
-                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size)
+                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
             model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                 custom_objects={'FSS_loss': loss_function})
         print("done")
@@ -604,8 +608,8 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net
 
-    ### If validation year and test year are provided, split data into training and validation sets ###
-    if validation_year != None and test_year != None:
+    # If validation year and test year are provided, split data into training and validation sets
+    if validation_year is not None and test_year is not None:
         front_files_training, front_files_validation, variable_files_training, variable_files_validation = \
             fm.split_file_lists(front_files, variable_files, validation_year, test_year)
 
@@ -667,185 +671,89 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    """
-    Required arguments
-    """
-    parser.add_argument('--loss', type=str, required=True, help='Loss function for the U-Net')
-    parser.add_argument('--model_dir', type=str, required=True, help='Directory where the models are or will be saved to.')
-    parser.add_argument('--workers', type=int, required=True, help='Number of workers for training the U-Net')
-    parser.add_argument('--num_variables', type=int, required=True, help='Number of variables in the variable datasets.')
-    parser.add_argument('--front_types', type=str, required=True, help='Front format of the file. If your files contain '
-        'warm and cold fronts, pass this argument as CFWF. If your files contain only drylines, pass this argument as '
-        'DL. If your files contain all fronts, pass this argument as ALL.')
-    parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
-    parser.add_argument('--file_dimensions', type=int, nargs=2, required=True, help='Dimensions of the file size. Two '
-        'integers need to be passed.')
-    parser.add_argument('--pixel_expansion', type=int, required=True, help='Number of pixels to expand the fronts by')
-    # Normalization methods: 0 - No normalization, 1 - Min-max normalization, 2 - Mean normalization
-    parser.add_argument('--normalization_method', type=int, required=True, help='Normalization method for the data.')
-    parser.add_argument('--validation_year', type=int, required=True, help='Year for the validation set')
-    parser.add_argument('--test_year', type=int, required=True, help='Year for the test set')
-    parser.add_argument('--num_dimensions', type=int, required=True, help='Number of dimensions of the U-Net convolutions,'
-        'maxpooling, and upsampling. (2 or 3)')
-
-    """
-    Optional arguments: these will default to a specified value if not explicitly passed.
-    """
-    parser.add_argument('--learning_rate', type=float, required=False, help='Learning rate for U-Net optimizer '
-        '(Default: 1e-4)')
-    parser.add_argument('--epochs', type=int, required=False, help='Number of epochs for the U-Net training '
-        '(Default: 10000)')
-    parser.add_argument('--train_valid_steps', type=int, required=False, nargs=2, help='Number of steps for each epoch. '
-        '(Default: 20 20)')
-    parser.add_argument('--train_valid_batch_size', type=int, required=False, nargs=2, help='Batch sizes for the U-Net.'
-        '(Default: 64 64)')
-    parser.add_argument('--train_valid_fronts', type=int, required=False, nargs=2, help='How many pixels with fronts an image must have for it'
-        'to be passed through the generator. (Default: 5 5)')
-    parser.add_argument('--valid_freq', type=int, required=False, help='How many epochs to pass before each validation (Default: 3)')
-
-    """
-    Conditional arguments
-    """
-    ### Must be passed if you are using the fractions skill score (FSS) loss function ###
-    parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function'
-        ' (if applicable).')
-    ### Can only be passed when training a NEW U-Net ###
-    parser.add_argument('--map_dim_x_y', type=int, required=False, nargs=2, help='Dimensions of the Unet map')
-    parser.add_argument('--job_number', type=int, required=False, help='Slurm job number')
-    ### Can only be passed when IMPORTING a U-Net ###
-    parser.add_argument('--import_model_number', type=int, required=False, help='Number of the model that you would '
-        'like to import.')
+    parser.add_argument('--domain', type=str, required=False, help='Domain of the data.')
+    parser.add_argument('--epochs', type=int, required=False, help='Number of epochs for the U-Net training.')
+    parser.add_argument('--file_dimensions', type=int, nargs=2, required=False,
+                        help='Dimensions of the file size. Two integers need to be passed.')
+    parser.add_argument('--front_types', type=str, required=False, 
+                        help='Front format of the file. If your files contain warm and cold fronts, pass this argument '
+                             'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
+                             'contain all fronts, pass this argument as ALL.')
+    parser.add_argument('--fss_c', type=float, required=False, help='C hyperparameter for the FSS loss sigmoid function.')
+    parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function.')
+    parser.add_argument('--job_number', type=int, required=False, help='Slurm job number.')
+    parser.add_argument('--import_model_number', type=int, required=False,
+                        help='Number of the model that you would like to import.')
+    parser.add_argument('--learning_rate', type=float, required=False, help='Learning rate for U-Net optimizer.')
+    parser.add_argument('--loss', type=str, required=False, help='Loss function for the U-Net')
+    parser.add_argument('--map_dim_x_y', type=int, required=False, nargs=2, help='Dimensions of the U-Net map.')
+    parser.add_argument('--model_dir', type=str, required=False, help='Directory where the models are or will be saved to.')
+    parser.add_argument('--normalization_method', type=int, required=False,
+                        help='Normalization method for the data. 0 - No normalization, 1 - Min-max normalization, '
+                             '2 - Mean normalization')
+    parser.add_argument('--num_dimensions', type=int, required=False,
+                        help='Number of dimensions of the U-Net convolutions, maxpooling, and upsampling. (2 or 3)')
+    parser.add_argument('--num_variables', type=int, required=False, help='Number of variables in the variable datasets.')
+    parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by.')
+    parser.add_argument('--test_year', type=int, required=False, help='Year for the test set.')
+    parser.add_argument('--train_valid_batch_size', type=int, required=False, nargs=2, help='Batch sizes for the U-Net.')
+    parser.add_argument('--train_valid_fronts', type=int, required=False, nargs=2,
+                        help='How many pixels with fronts an image must have for it to be passed through the generator.')
+    parser.add_argument('--train_valid_steps', type=int, required=False, nargs=2, help='Number of steps for each epoch.')
+    parser.add_argument('--valid_freq', type=int, required=False, help='How many epochs to pass before each validation.')
+    parser.add_argument('--validation_year', type=int, required=False, help='Year for the validation set.')
+    parser.add_argument('--workers', type=int, required=False, help='Number of workers for training the U-Net.')
 
     args = parser.parse_args()
 
+    print(args)
+
     print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
-    if args.loss == 'fss' and args.fss_mask_size is None:
-        raise errors.MissingArgumentError("Argument '--fss_mask_size' must be passed if you are using the FSS loss function.")
-    if args.loss != 'fss' and args.fss_mask_size is not None:
-        raise errors.MissingArgumentError("Argument '--fss_mask_size' can only be passed if you are using the FSS loss function.")
+    if args.import_model_number is not None and args.job_number is not None:
+        raise errors.ArgumentConflictError("import_model_number and job_number cannot be passed at the same time.")
 
-    print("Model directory: %s" % args.model_dir)
-
-    if args.validation_year is None:
-        print("Validation year: None (default)")
+    if args.loss == 'fss':
+        if args.fss_c is None or args.fss_mask_size is None:
+            raise errors.MissingArgumentError("loss is fss but one or more of the following arguments was not provided: "
+                                              "fss_c, fss_mask_size")
     else:
-        print("Validation year: %d" % args.validation_year)
-
-    if args.test_year is None:
-        print("Test year: None (default)")
-    else:
-        print("Test year: %d" % args.test_year)
-
-    if args.domain is None:
-        domain = 'conus'
-        print("Domain: %s (default)" % domain)
-    else:
-        domain = args.domain
-        print("Domain: %s" % domain)
-
-    print("File dimensions: %d x %d" % (args.file_dimensions[0], args.file_dimensions[1]))
-    print("Front types: %s" % args.front_types)
-    print("U-Net shape: %dD" % args.num_dimensions)
-
-    if args.learning_rate is None:
-        learning_rate = 0.0001
-        print("Learning rate: %f (default)" % learning_rate)
-    else:
-        learning_rate = args.learning_rate
-        print("Learning rate: %f" % learning_rate)
-
-    if args.loss is None:
-        loss = 'cce'
-        print("Loss function: %s (default)" % loss)
-    else:
-        loss = args.loss
-        if loss == 'fss':
-            print("Loss function: FSS(%d)" % args.fss_mask_size)
-        else:
-            print("Loss function: %s" % loss)
-
-    if args.map_dim_x_y is not None:
-        print('Map dimensions (U-Net): %d x %d' % (args.map_dim_x_y[0], args.map_dim_x_y[1]))
-
-    if args.normalization_method is None:
-        normalization_method = 0
-        print('Normalization method: 0 - No normalization (default)')
-    else:
-        normalization_method = args.normalization_method
-        if normalization_method == 1:
-            print('Normalization method: 1 - Min-max normalization')
-        elif normalization_method == 2:
-            print('Normalization method: 2 - Mean normalization')
-
-    print("Number of variables: %d" % args.num_variables)
-
-    if args.pixel_expansion is None:
-        pixel_expansion = 0
-        print("Pixel expansion: %d (default)" % pixel_expansion)
-    else:
-        pixel_expansion = args.pixel_expansion
-        print("Pixel expansion: %d" % pixel_expansion)
-
-    if args.epochs is None:
-        epochs = 10000
-        print("Epochs: %d (default)" % epochs)
-    else:
-        epochs = args.epochs
-        print("Epochs: %d" % epochs)
-
-    if args.train_valid_batch_size is None:
-        train_valid_batch_size = (64, 64)
-        print("Training/validation batch size: %d/%d (default)" % (train_valid_batch_size[0], train_valid_batch_size[1]))
-    else:
-        train_valid_batch_size = args.train_valid_batch_size
-        print("Training/validation batch size: %d/%d" % (train_valid_batch_size[0], train_valid_batch_size[1]))
-
-    if args.train_valid_fronts is None:
-        train_valid_fronts = (5, 5)
-        print("Training/validation front threshold: %d/%d (default)" % (train_valid_fronts[0], train_valid_fronts[1]))
-    else:
-        train_valid_fronts = args.train_valid_fronts
-        print("Training/validation front threshold: %d/%d" % (train_valid_fronts[0], train_valid_fronts[1]))
-
-    if args.train_valid_steps is None:
-        train_valid_steps = (20, 20)
-        print("Training/validation steps per epoch: %d/%d (default)" % (train_valid_steps[0], train_valid_steps[1]))
-    else:
-        train_valid_steps = args.train_valid_steps
-        print("Training/validation steps per epoch: %d/%d" % (train_valid_steps[0], train_valid_steps[1]))
-
-    if args.valid_freq is None:
-        valid_freq = 3
-        print("Validation frequency: %d epochs (default)" % valid_freq)
-    else:
-        valid_freq = args.valid_freq
-        print("Validation frequency: %d epochs" % valid_freq)
-
-    print("\n")
+        if args.fss_c is not None or args.fss_mask_size is not None:
+            raise errors.ExtraArgumentError("loss is not fss but one or more of the following arguments was provided: "
+                                            "fss_c, fss_mask_size")
 
     if args.import_model_number is not None:
         if args.map_dim_x_y is not None:
-            raise ValueError("Argument '--map_dim_x_y' cannot be passed if you are importing a model.")
+            raise errors.ExtraArgumentError('import_model_number is not None but the following argument was passed: map_dim_x_y')
+        if args.learning_rate is None or args.epochs is None or args.train_valid_steps is None or args.train_valid_batch_size is None or \
+            args.train_valid_fronts is None or args.valid_freq is None or args.loss is None or args.workers is None or \
+            args.model_dir is None or args.front_types is None or args.normalization_method is None or args.pixel_expansion is None or \
+            args.num_variables is None or args.file_dimensions is None or args.num_dimensions is None or args.domain is None:
+            raise errors.MissingArgumentError("import_model_number is not None but one or more of the following arguments was not provided: "
+                "domain, epochs, file_dimensions, front_types, learning_rate, loss, model_dir, normalization_method, num_dimensions, "
+                "num_variables, pixel_expansion, train_valid_batch_size, train_valid_fronts, train_valid_steps, valid_freq, workers")
         else:
             print("WARNING: You have imported model %d for training." % args.import_model_number)
-            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
-                args.file_dimensions)
-            train_imported_unet(front_files, variable_files, learning_rate, epochs, train_valid_steps[0], train_valid_batch_size[0],
-                train_valid_fronts[0], train_valid_steps[1], train_valid_batch_size[1], valid_freq, train_valid_fronts[1],
-                loss, args.workers, args.import_model_number, args.model_dir, args.front_types, normalization_method, args.fss_mask_size,
-                pixel_expansion, args.num_variables, args.file_dimensions, args.validation_year, args.test_year, args.num_dimensions)
-    else:
-        if args.job_number is None:
-            raise errors.MissingArgumentError("Argument '--job_number' must be passed if you are creating a new model.")
-        if args.map_dim_x_y is None:
-            raise ValueError(
-                "Argument '--map_dim_x_y' must be passed if you are creating a new model.")
+            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.file_dimensions)
+            train_imported_unet(front_files, variable_files, args.learning_rate, args.epochs, args.train_valid_steps[0], args.train_valid_batch_size[0],
+                args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1], args.valid_freq, args.train_valid_fronts[1],
+                args.loss, args.workers, args.import_model_number, args.model_dir, args.front_types, args.normalization_method, args.fss_mask_size,
+                args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions, args.validation_year, args.test_year, args.num_dimensions)
+
+    if args.job_number is not None:
+        if args.learning_rate is None or args.epochs is None or args.train_valid_steps is None or args.train_valid_batch_size is None or \
+            args.train_valid_fronts is None or args.valid_freq is None or args.loss is None or args.workers is None or \
+            args.model_dir is None or args.front_types is None or args.normalization_method is None or args.pixel_expansion is None or \
+            args.num_variables is None or args.file_dimensions is None or args.num_dimensions is None or args.map_dim_x_y is None or \
+            args.domain is None:
+            raise errors.MissingArgumentError("job_number is not None but one or more of the following arguments was not provided: "
+                "domain, epochs, file_dimensions, front_types, learning_rate, loss, map_dim_x_y, model_dir, normalization_method, "
+                "num_dimensions, num_variables, pixel_expansion, train_valid_batch_size, train_valid_fronts, train_valid_steps, "
+                "valid_freq, workers")
         else:
-            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
-                args.file_dimensions)
-            train_new_unet(front_files, variable_files, args.map_dim_x_y[0], args.map_dim_x_y[1], learning_rate, epochs,
-                train_valid_steps[0], train_valid_batch_size[0], train_valid_fronts[0], train_valid_steps[1], train_valid_batch_size[1],
-                valid_freq, train_valid_fronts[1], loss, args.workers, args.job_number, args.model_dir, args.front_types,
-                normalization_method, args.fss_mask_size, pixel_expansion, args.num_variables, args.file_dimensions,
+            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.file_dimensions)
+            train_new_unet(front_files, variable_files, args.map_dim_x_y[0], args.map_dim_x_y[1], args.learning_rate, args.epochs,
+                args.train_valid_steps[0], args.train_valid_batch_size[0], args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1],
+                args.valid_freq, args.train_valid_fronts[1], args.loss, args.workers, args.job_number, args.model_dir, args.front_types,
+                args.normalization_method, args.fss_mask_size, args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions,
                 args.validation_year, args.test_year, args.num_dimensions)

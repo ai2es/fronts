@@ -2,8 +2,15 @@
 Script that contains custom errors.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/19/2021 8:51 PM CDT
+Last updated: 9/4/2021 4:54 PM CDT
 """
+
+
+class ArgumentConflictError(TypeError):
+    """
+    Error raised if two arguments conflict with each other.
+    """
+    pass
 
 
 class MissingArgumentError(TypeError):
