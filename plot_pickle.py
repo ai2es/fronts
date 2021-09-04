@@ -2,6 +2,7 @@
 Function used to plot all variables for a given time using pickle files. Each variable plot is saved in its own file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
+Last updated: 9/4/2021 3:46 PM CDT
 """
 
 import matplotlib.pyplot as plt
@@ -40,20 +41,22 @@ def plot_surface_background(extent):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create labeled data for the specified day")
+
     parser.add_argument('--year', type=int, required=True, help="year for the data to be read in")
     parser.add_argument('--month', type=int, required=True, help="month for the data to be read in")
     parser.add_argument('--day', type=int, required=True, help="day for the data to be read in")
     parser.add_argument('--hour', type=int, required=True, help="hour for the data to be read in")
-    parser.add_argument('--front_types', type=str, required=True,
-                        help='Front format of the file. If your files contain warm and cold fronts, pass this argument '
-                             'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
-                             'contain all fronts, pass this argument as ALL.')
+
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
     parser.add_argument('--extent', type=float, required=True, nargs=4,
                         help='Extent of the plot. Pass 4 integers in the following order: MIN LON, MAX LON, MIN LAT, '
                              'MAX_LAT')
-    parser.add_argument('--file_dimensions', type=int, nargs=2, required=True, help='Dimensions of the file size. Two integers'
-        ' need to be passed.')
+    parser.add_argument('--file_dimensions', type=int, nargs=2, required=True,
+                        help='Dimensions of the file size. Two integers need to be passed.')
+    parser.add_argument('--front_types', type=str, required=True,
+                        help='Front format of the file. If your files contain warm and cold fronts, pass this argument '
+                             'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
+                             'contain all fronts, pass this argument as ALL.')
     parser.add_argument('--image_outdir', type=str, required=False, help="output directory for image files")
     args = parser.parse_args()
 
