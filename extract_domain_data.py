@@ -2,7 +2,7 @@
 Function that extracts variable and front data from a given domain and saves it into a pickle file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2021 2:41 PM CDT
+Last updated: 9/4/2021 5:39 PM CDT
 """
 
 import argparse
@@ -524,7 +524,9 @@ def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdi
     """
     xr_pickle_data = xr_pickle.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
-    filename = "Data_60var_%04d%02d%02d%02d_%s_289x129.pkl" % (year, month, day, hour, domain)
+    num_variables = len(list(xr_pickle.keys()))
+
+    filename = "Data_%dvar_%04d%02d%02d%02d_%s_289x129.pkl" % (num_variables, year, month, day, hour, domain)
 
     print(filename)
 
