@@ -2,7 +2,7 @@
 Function that extracts variable and front data from a given domain and saves it into a pickle file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/19/2021 3:16 PM CDT
+Last updated: 9/4/2021 2:41 PM CDT
 """
 
 import argparse
@@ -411,8 +411,8 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.u_850.attrs['long_name'] = '850mb Zonal wind velocity'
     xr_pickle.v_850.attrs['units'] = 'm/s'
     xr_pickle.v_850.attrs['long_name'] = '850mb Meridional wind velocity'
-    xr_pickle.z_850.attrs['units'] = 'm'
-    xr_pickle.z_850.attrs['long_name'] = '850mb Altitude'
+    xr_pickle.z_850.attrs['units'] = '(m/s)^2'
+    xr_pickle.z_850.attrs['long_name'] = '850mb Geopotential'
     xr_pickle.d_850.attrs['units'] = 'K'
     xr_pickle.d_850.attrs['long_name'] = '850mb Dewpoint temperature'
     xr_pickle.mix_ratio_850.attrs['units'] = 'g(H20)/g(air)'
@@ -435,8 +435,8 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.u_900.attrs['long_name'] = '900mb Zonal wind velocity'
     xr_pickle.v_900.attrs['units'] = 'm/s'
     xr_pickle.v_900.attrs['long_name'] = '900mb Meridional wind velocity'
-    xr_pickle.z_900.attrs['units'] = 'm'
-    xr_pickle.z_900.attrs['long_name'] = '900mb Altitude'
+    xr_pickle.z_900.attrs['units'] = '(m/s)^2'
+    xr_pickle.z_900.attrs['long_name'] = '900mb Geopotential'
     xr_pickle.d_900.attrs['units'] = 'K'
     xr_pickle.d_900.attrs['long_name'] = '900mb Dewpoint temperature'
     xr_pickle.mix_ratio_900.attrs['units'] = 'g(H20)/g(air)'
@@ -459,8 +459,8 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.u_950.attrs['long_name'] = '950mb Zonal wind velocity'
     xr_pickle.v_950.attrs['units'] = 'm/s'
     xr_pickle.v_950.attrs['long_name'] = '950mb Meridional wind velocity'
-    xr_pickle.z_950.attrs['units'] = 'm'
-    xr_pickle.z_950.attrs['long_name'] = '950mb Altitude'
+    xr_pickle.z_950.attrs['units'] = '(m/s)^2'
+    xr_pickle.z_950.attrs['long_name'] = '950mb Geopotential'
     xr_pickle.d_950.attrs['units'] = 'K'
     xr_pickle.d_950.attrs['long_name'] = '950mb Dewpoint temperature'
     xr_pickle.mix_ratio_950.attrs['units'] = 'g(H20)/g(air)'
@@ -483,8 +483,8 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.u_1000.attrs['long_name'] = '1000mb Zonal wind velocity'
     xr_pickle.v_1000.attrs['units'] = 'm/s'
     xr_pickle.v_1000.attrs['long_name'] = '1000mb Meridional wind velocity'
-    xr_pickle.z_1000.attrs['units'] = 'm'
-    xr_pickle.z_1000.attrs['long_name'] = '1000mb Altitude'
+    xr_pickle.z_1000.attrs['units'] = '(m/s)^2'
+    xr_pickle.z_1000.attrs['long_name'] = '1000mb Geopotential'
     xr_pickle.d_1000.attrs['units'] = 'K'
     xr_pickle.d_1000.attrs['long_name'] = '1000mb Dewpoint temperature'
     xr_pickle.mix_ratio_1000.attrs['units'] = 'g(H20)/g(air)'
@@ -504,7 +504,7 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     return xr_pickle
 
 
-def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdir):
+def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdir, domain):
     """
     Saves variable data to the pickle file.
 
@@ -519,10 +519,12 @@ def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdi
         Xarray dataset containing variable data for the specified domain.
     pickle_outdir: str
         Directory where the created pickle files containing the variable data will be stored.
+    domain: str
+        Name of the domain for the data.
     """
     xr_pickle_data = xr_pickle.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
-    filename = "Data_60var_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
+    filename = "Data_60var_%04d%02d%02d%02d_%s_289x129.pkl" % (year, month, day, hour, domain)
 
     print(filename)
 
@@ -532,7 +534,7 @@ def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdi
     outfile.close()
 
 
-def save_fronts_CFWF_to_pickle(ds, year, month, day, hour, pickle_outdir):
+def save_fronts_CFWF_to_pickle(ds, year, month, day, hour, pickle_outdir, domain):
     """
     Saves warm front and cold front data to a pickle file.
 
@@ -547,6 +549,8 @@ def save_fronts_CFWF_to_pickle(ds, year, month, day, hour, pickle_outdir):
         Hour in UTC.
     pickle_outdir: str
         Directory where the created pickle files containing warm front and cold front data will be stored.
+    domain: str
+        Name of the domain for the data.
     """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
@@ -573,7 +577,7 @@ def save_fronts_CFWF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
 
-    filename = "FrontObjects_CFWF_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
+    filename = "FrontObjects_CFWF_%04d%02d%02d%02d_%s_289x129.pkl" % (year, month, day, hour, domain)
 
     print(filename)
 
@@ -583,7 +587,7 @@ def save_fronts_CFWF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     outfile.close()
 
 
-def save_fronts_SFOF_to_pickle(ds, year, month, day, hour, pickle_outdir):
+def save_fronts_SFOF_to_pickle(ds, year, month, day, hour, pickle_outdir, domain):
     """
     Saves stationary front and occluded front data to a pickle file.
 
@@ -598,6 +602,8 @@ def save_fronts_SFOF_to_pickle(ds, year, month, day, hour, pickle_outdir):
         Hour in UTC.
     pickle_outdir: str
         Directory where the created pickle files containing stationary front and occluded front data will be stored.
+    domain: str
+        Name of the domain for the data.
     """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
@@ -624,7 +630,7 @@ def save_fronts_SFOF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
 
-    filename = "FrontObjects_SFOF_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
+    filename = "FrontObjects_SFOF_%04d%02d%02d%02d_%s_289x129.pkl" % (year, month, day, hour, domain)
 
     print(filename)
 
@@ -634,7 +640,7 @@ def save_fronts_SFOF_to_pickle(ds, year, month, day, hour, pickle_outdir):
     outfile.close()
 
 
-def save_fronts_DL_to_pickle(ds, year, month, day, hour, pickle_outdir):
+def save_fronts_DL_to_pickle(ds, year, month, day, hour, pickle_outdir, domain):
     """
     Saves dryline data to a pickle file.
 
@@ -649,6 +655,8 @@ def save_fronts_DL_to_pickle(ds, year, month, day, hour, pickle_outdir):
         Hour in UTC.
     pickle_outdir: str
         Directory where the created pickle files containing dryline data will be stored.
+    domain: str
+        Name of the domain for the data.
     """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
@@ -672,7 +680,7 @@ def save_fronts_DL_to_pickle(ds, year, month, day, hour, pickle_outdir):
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
 
-    filename = "FrontObjects_DL_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
+    filename = "FrontObjects_DL_%04d%02d%02d%02d_%s_289x129.pkl" % (year, month, day, hour, domain)
 
     print(filename)
 
@@ -682,7 +690,7 @@ def save_fronts_DL_to_pickle(ds, year, month, day, hour, pickle_outdir):
     outfile.close()
 
 
-def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir):
+def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir, domain):
     """
     Saves all front data (cold, warm, stationary, occluded, dryline) to a pickle file.
 
@@ -697,6 +705,8 @@ def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir):
         Hour in UTC.
     pickle_outdir: str
         Directory where the created pickle files containing all front data will be stored.
+    domain: str
+        Name of the domain for the data.
     """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
@@ -732,7 +742,7 @@ def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir):
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
 
-    filename = "FrontObjects_ALL_%04d%02d%02d%02d_conus_289x129.pkl" % (year, month, day, hour)
+    filename = "FrontObjects_ALL_%04d%02d%02d%02d_%s_289x129.pkl" % (year, month, day, hour, domain)
 
     print(filename)
 
@@ -744,13 +754,14 @@ def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--netcdf_ERA5_indir', type=str, required=False, help="input directory for ERA5 netcdf files")
-    parser.add_argument('--pickle_outdir', type=str, required=False, help="output directory for pickle files")
+    parser.add_argument('--netcdf_ERA5_indir', type=str, required=True, help="input directory for ERA5 netcdf files")
+    parser.add_argument('--pickle_outdir', type=str, required=True, help="output directory for pickle files")
     parser.add_argument('--longitude', type=float, nargs=2, help="Longitude domain in degrees: lon_MIN lon_MAX")
     parser.add_argument('--latitude', type=float, nargs=2, help="Latitude domain in degrees: lat_MIN lat_MAX")
-    parser.add_argument('--year', type=int, required=False, help="year for the data to be read in")
-    parser.add_argument('--month', type=int, required=False, help="month for the data to be read in")
-    parser.add_argument('--day', type=int, required=False, help="day for the data to be read in")
+    parser.add_argument('--domain', type=str, required=True, help='Name of the domain for the data.')
+    parser.add_argument('--year', type=int, required=True, help="year for the data to be read in")
+    parser.add_argument('--month', type=int, required=True, help="month for the data to be read in")
+    parser.add_argument('--day', type=int, required=True, help="day for the data to be read in")
     args = parser.parse_args()
 
     xr_pickle = extract_input_variables(args.longitude, args.latitude, args.year, args.month, args.day,
@@ -762,9 +773,9 @@ if __name__ == "__main__":
         #                                                                                       args.latitude[0]))
         # ds_hour = ds_hour.rename(Latitude='latitude', Longitude='longitude', Type='type', Date='time')
 
-        save_variable_data_to_pickle(args.year, args.month, args.day, hour, xr_pickle, args.pickle_outdir)
+        save_variable_data_to_pickle(args.year, args.month, args.day, hour, xr_pickle, args.pickle_outdir, args.domain)
 
-        # save_fronts_CFWF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        # save_fronts_SFOF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        # save_fronts_DL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
-        # save_fronts_ALL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir)
+        # save_fronts_CFWF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir, args.domain)
+        # save_fronts_SFOF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir, args.domain)
+        # save_fronts_DL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir, args.domain)
+        # save_fronts_ALL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir, args.domain)
