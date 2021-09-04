@@ -2,7 +2,7 @@
 Functions in this code manage data files and directories.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2021 2:15 PM CDT
+Last updated: 9/4/2021 3:40 PM CDT
 """
 
 from glob import glob
@@ -11,6 +11,8 @@ import argparse
 import numpy as np
 import os
 import errors
+import tensorflow as tf
+import custom_losses
 
 
 def add_hourly_directories(main_dir_subdir, year, month, day):
@@ -252,6 +254,104 @@ def load_file_lists(num_variables, front_types, domain, file_dimensions):
     return front_files_list, variable_files_list
 
 
+def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions):
+    """
+    Load a saved model.
+
+    Parameters
+    ----------
+    model_number: int
+        Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        Main directory for the models.
+    loss: str
+        Loss function for the Unet.
+    fss_mask_size: int
+        Size of the mask for the FSS loss function.
+    fss_c: float
+        C hyperparameter for the FSS loss' sigmoid function.
+    metric: str
+        Metric used for evaluating the U-Net during training.
+    num_dimensions: int
+        Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
+    """
+    if loss == 'cce' and metric == 'auc':
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+    else:
+        if loss == 'fss':
+            if num_dimensions == 2:
+                loss_string = 'FSS_loss_2D'
+                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            if num_dimensions == 3:
+                loss_string = 'FSS_loss_3D'
+                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
+        elif loss == 'cce':
+            loss_string = None
+            loss_function = None
+        elif loss == 'dice':
+            loss_string = 'dice'
+            loss_function = custom_losses.dice
+        elif loss == 'tversky':
+            loss_string = 'tversky'
+            loss_function = custom_losses.tversky
+        elif loss == 'bss':
+            loss_string = 'brier_skill_score'
+            loss_function = custom_losses.brier_skill_score
+
+        if metric == 'fss':
+            if num_dimensions == 2:
+                metric_string = 'FSS_loss_2D'
+                metric_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            if num_dimensions == 3:
+                metric_string = 'FSS_loss_3D'
+                metric_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
+        elif metric == 'auc':
+            metric_string = None
+            metric_function = None
+        elif metric == 'dice':
+            metric_string = 'dice'
+            metric_function = custom_losses.dice
+        elif metric == 'tversky':
+            metric_string = 'tversky'
+            metric_function = custom_losses.tversky
+        elif metric == 'bss':
+            metric_string = 'brier_skill_score'
+            metric_function = custom_losses.brier_skill_score
+
+        print("Loading model....", end='')
+        if loss_string is not None:
+            if metric_string is not None:
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                        custom_objects={loss_string: loss_function, metric_string: metric_function})
+                except:
+                    print("failed")
+                    if loss_string == 'FSS_loss_2D':
+                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
+                        loss_string = 'FSS_loss'
+                        print("Loading model....",end='')
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                            model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+            else:
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                        custom_objects={loss_string: loss_function})
+                except:
+                    print("failed")
+                    if loss_string == 'FSS_loss_2D':
+                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
+                        loss_string = 'FSS_loss'
+                        print("Loading model....",end='')
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                            model_number), custom_objects={loss_string: loss_function})
+        else:
+            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                custom_objects={metric_string: metric_function})
+        print("done")
+
+    return model
+
+
 def load_test_files(num_variables, front_types, domain, file_dimensions, test_year):
     """
     Splits front and variable data files into training and validation sets.
@@ -343,25 +443,8 @@ def split_file_lists(front_files, variable_files, validation_year, test_year):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    """ Optional Arguments """
     parser.add_argument('--create_subdirectories', type=bool, required=False, help='Create new directories?')
     parser.add_argument('--delete_grouped_files', type=bool, required=False, help='Delete a set of files?')
-    parser.add_argument('--generate_lists', type=bool, required=False, help='Generate lists of new files?')
-
-    """ Conditional Arguments """
-    # Must be passed if create_subdirectories is True #
-    parser.add_argument('--hour_dirs', type=bool, required=False, help='Create hourly subdirectories?')
-    parser.add_argument('--main_dir_subdir', type=str, required=False,
-                        help='Main directory where the subdirectories will be made.')
-
-    # Must be passed if delete_grouped_files is True #
-    parser.add_argument('--main_dir_group', type=str, required=False,
-                        help='Directory or directories where the grouped files are located.')
-    parser.add_argument('--glob_file_string', type=str, required=False, help='String of the names of the files to delete.')
-    parser.add_argument('--num_subdir', type=int, required=False,
-                        help='Number of subdirectory layers in the main directory.')
-
-    # Must be passed if generate_lists is True #
     parser.add_argument('--domain', type=str, required=False, help='Domain of the data.')
     parser.add_argument('--file_dimensions', type=int, nargs=2, required=False,
                         help='Dimensions of the map size. Two integers need to be passed.')
@@ -369,6 +452,15 @@ if __name__ == '__main__':
                         help='Front format of the file. If your files contain warm and cold fronts, pass this argument '
                              'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
                              'contain all fronts, pass this argument as ALL.')
+    parser.add_argument('--generate_lists', type=bool, required=False, help='Generate lists of new files?')
+    parser.add_argument('--glob_file_string', type=str, required=False, help='String of the names of the files to delete.')
+    parser.add_argument('--hour_dirs', type=bool, required=False, help='Create hourly subdirectories?')
+    parser.add_argument('--main_dir_group', type=str, required=False,
+                        help='Directory or directories where the grouped files are located.')
+    parser.add_argument('--main_dir_subdir', type=str, required=False,
+                        help='Main directory where the subdirectories will be made.')
+    parser.add_argument('--num_subdir', type=int, required=False,
+                        help='Number of subdirectory layers in the main directory.')
     parser.add_argument('--num_variables', type=int, required=False, help='Number of variables in the variable datasets.')
     parser.add_argument('--pickle_indir', type=str, required=False,
                         help='Path of pickle files containing front object and variable data.')
