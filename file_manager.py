@@ -2,7 +2,7 @@
 Functions in this code manage data files and directories.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2021 3:40 PM CDT
+Last updated: 9/4/2021 2:15 PM CDT
 """
 
 from glob import glob
@@ -448,10 +448,6 @@ if __name__ == '__main__':
     parser.add_argument('--domain', type=str, required=False, help='Domain of the data.')
     parser.add_argument('--file_dimensions', type=int, nargs=2, required=False,
                         help='Dimensions of the map size. Two integers need to be passed.')
-    parser.add_argument('--front_types', type=str, required=False,
-                        help='Front format of the file. If your files contain warm and cold fronts, pass this argument '
-                             'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
-                             'contain all fronts, pass this argument as ALL.')
     parser.add_argument('--generate_lists', type=bool, required=False, help='Generate lists of new files?')
     parser.add_argument('--glob_file_string', type=str, required=False, help='String of the names of the files to delete.')
     parser.add_argument('--hour_dirs', type=bool, required=False, help='Create hourly subdirectories?')
@@ -466,6 +462,8 @@ if __name__ == '__main__':
                         help='Path of pickle files containing front object and variable data.')
 
     args = parser.parse_args()
+
+    print(args)
 
     if args.create_subdirectories is True:
         if args.hour_dirs is None or args.main_dir_subdir is None:

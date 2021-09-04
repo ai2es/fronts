@@ -58,7 +58,10 @@ if __name__ == "__main__":
                              'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
                              'contain all fronts, pass this argument as ALL.')
     parser.add_argument('--image_outdir', type=str, required=False, help="output directory for image files")
+    
     args = parser.parse_args()
+
+    print(args)
 
     extent = [args.extent[0], args.extent[1], args.extent[2], args.extent[3]]
 
