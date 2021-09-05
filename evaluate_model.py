@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/5/2021 3:30 PM CDT
+Last updated: 9/5/2021 3:47 PM CDT
 """
 
 import random
@@ -782,7 +782,6 @@ def predict(model_number, model_dir, fronts_files_list, variables_files_list, pr
                     no_probs[i][j] = prediction[0][0][j][i][0][0]
                     cold_probs[i][j] = prediction[0][0][j][i][0][1]
                     warm_probs[i][j] = prediction[0][0][j][i][0][2]
-                    print(prediction[0][0][j][i][:][:])
             probs_ds = xr.Dataset(
                 {"no_probs": (("latitude", "longitude"), no_probs), "cold_probs": (("latitude", "longitude"), cold_probs),
                  "warm_probs": (("latitude", "longitude"), warm_probs)}, coords={"latitude": lats, "longitude": lons})
@@ -1462,7 +1461,7 @@ if __name__ == '__main__':
                 args.domain, args.file_dimensions, args.test_year, args.normalization_method, args.loss, args.fss_mask_size,
                 args.fss_c, args.pixel_expansion, args.metric)
     else:
-        if args.predictions is not None:
+        if args.test_year is not None:
             raise errors.ExtraArgumentError("cross_validate is False but the following argument was provided: test_year")
 
     if args.learning_curve is True:
@@ -1475,7 +1474,7 @@ if __name__ == '__main__':
     if args.predict is True:
         if args.model_number is None or args.model_dir is None or args.num_variables is None or args.num_dimensions is None or \
             args.front_types is None or args.domain is None or args.file_dimensions is None or args.predictions is None or \
-            args.normalization_method is None or args.loss is None or args.pixel_expansion is None or args.metric:
+            args.normalization_method is None or args.loss is None or args.pixel_expansion is None or args.metric is None:
             raise errors.MissingArgumentError("If predict is True, the following arguments must be passed: "
                 "domain, file_dimensions, front_types, loss, metric, model_dir, model_number, normalization_method, "
                 "num_dimensions, num_variables, pixel_expansion, predictions")
