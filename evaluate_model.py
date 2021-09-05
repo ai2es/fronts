@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2021 4:28 PM CDT
+Last updated: 9/5/2021 3:30 PM CDT
 """
 
 import random
@@ -1414,6 +1414,7 @@ if __name__ == '__main__':
                              'contain all fronts, pass this argument as ALL.')
     parser.add_argument('--fss_c', type=float, required=False, help="C hyperparameter for the FSS loss' sigmoid function.")
     parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function.')
+    parser.add_argument('--learning_curve', type=bool, required=False, help='Plot learning curve?')
     parser.add_argument('--loss', type=str, required=False, help='Loss function used for training the U-Net.')
     parser.add_argument('--metric', type=str, required=False, help='Metric used for evaluating the U-Net during training.')
     parser.add_argument('--model_dir', type=str, required=False, help='Directory for the models.')
