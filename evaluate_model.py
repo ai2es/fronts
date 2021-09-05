@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/5/2021 3:47 PM CDT
+Last updated: 9/5/2021 3:53 PM CDT
 """
 
 import random
@@ -1438,9 +1438,6 @@ if __name__ == '__main__':
 
     print(args)
 
-    fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
-                                                                 args.file_dimensions)
-
     if args.loss == 'fss':
         if args.fss_c is None or args.fss_mask_size is None:
             raise errors.MissingArgumentError("If loss is fss, the following arguments must be passed: fss_c, fss_mask_size")
@@ -1472,6 +1469,8 @@ if __name__ == '__main__':
             learning_curve(args.model_number, args.model_dir, args.loss, args.fss_mask_size, args.fss_c, args.metric)
 
     if args.predict is True:
+        fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
+                                                                     args.file_dimensions)
         if args.model_number is None or args.model_dir is None or args.num_variables is None or args.num_dimensions is None or \
             args.front_types is None or args.domain is None or args.file_dimensions is None or args.predictions is None or \
             args.normalization_method is None or args.loss is None or args.pixel_expansion is None or args.metric is None:
@@ -1487,6 +1486,8 @@ if __name__ == '__main__':
             raise errors.ExtraArgumentError("predict is False but the following argument was provided: predictions")
 
     if args.probability_statistics is True:
+        fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
+                                                                     args.file_dimensions)
         if args.model_number is None or args.model_dir is None or args.num_dimensions is None or args.front_types is None or \
             args.normalization_method is None or args.loss is None or args.metric is None:
             raise errors.MissingArgumentError("If predict is True, the following arguments must be passed: "
