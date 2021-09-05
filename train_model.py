@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2021 5:33 PM CDT
+Last updated: 9/5/2021 3:24 PM CDT
 """
 
 import random
@@ -241,11 +241,10 @@ class DataGenerator_3D(keras.utils.Sequence):
         return variable_dss, front_dss
 
 
-# Creating and training a new U-Net model
 def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
                    train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
                    workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, fss_c,
-                   pixel_expansion, num_variables, file_dimensions, validation_year, test_year, num_dimensions):
+                   pixel_expansion, num_variables, file_dimensions, validation_year, test_year, num_dimensions, metric):
     """
     Function that train a new U-Net model and saves the model along with its weights.
 
@@ -310,9 +309,10 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         Year for the test dataset.
     num_dimensions: int
         Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
+    metric: str
+        Metric used for evaluating the U-Net during training.
     """
 
-    print("Creating unet....", end='')
     if front_types == 'CFWF' or front_types == 'SFOF':
         num_classes = 3
     elif front_types == 'DL':
@@ -330,7 +330,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         model = models.unet_2d((map_dim_x, map_dim_y, num_variables), filter_num=[64, 128, 256, 512, 1024, 2048], n_labels=num_classes,
             stack_num_down=5, stack_num_up=5, activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True,
             unpool=True, name='unet')
-            
+
         if loss == 'dice':
             loss_function = losses.dice
         elif loss == 'tversky':
@@ -338,10 +338,20 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         elif loss == 'cce':
             loss_function = 'categorical_crossentropy'
         elif loss == 'fss':
-            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
+            if num_dimensions == 2:
+                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            elif num_dimensions == 3:
+                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
         
+        if metric == 'bss':
+            metric_function = custom_losses.brier_skill_score
+        elif metric == 'auc':
+            metric_function = 'auc'
+    
+        print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
-        model.compile(loss=loss_function, optimizer=adam, metrics=custom_losses.brier_skill_score)
+        model.compile(loss=loss_function, optimizer=adam, metrics=metric_function)
+        print('done')
     
     model.summary()
     ....
@@ -376,11 +386,13 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         model = custom_models.UNet_3plus_3d(map_dim_x, map_dim_y, num_classes)
         """
         if num_dimensions == 2:
+            print("Creating 2D U-Net....",end='')
             model = models.unet_3plus_2d((map_dim_x, map_dim_y, num_variables), filter_num_down=[64, 128, 256, 512, 1024, 2048],
                 filter_num_skip='auto', filter_num_aggregate='auto', n_labels=num_classes, stack_num_down=5, stack_num_up=5,
                 activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
                 deep_supervision=True)
         elif num_dimensions == 3:
+            print("Creating 3D U-Net....",end='')
             model = custom_models.UNet_3plus_3d_no_En1_skip(map_dim_x, map_dim_y, num_classes)
         print('done')
 
@@ -396,9 +408,14 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
             elif num_dimensions == 3:
                 loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
 
+        if metric == 'bss':
+            metric_function = custom_losses.brier_skill_score
+        elif metric == 'auc':
+            metric_function = 'auc'
+
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
-        model.compile(loss=loss_function, optimizer=adam, metrics=custom_losses.brier_skill_score)
+        model.compile(loss=loss_function, optimizer=adam, metrics=metric_function)
         print('done')
 
     model.summary()
@@ -465,11 +482,10 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         checkpoint, history_logger], verbose=2, workers=workers, use_multiprocessing=True, max_queue_size=100000)
 
 
-# Retraining a U-Net model
 def train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
     train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, workers, model_number, model_dir,
     front_types, normalization_method, fss_mask_size, fss_c, pixel_expansion, num_variables, file_dimensions, validation_year,
-    test_year, num_dimensions):
+    test_year, num_dimensions, metric):
     """
     Function that trains the U-Net model and saves the model along with its weights.
     Parameters
@@ -529,6 +545,8 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         Year for the test dataset.
     num_dimensions: int
         Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
+    metric: str
+        Metric used for evaluating the U-Net during training.
     """
 
     if front_types == 'CFWF' or front_types == 'SFOF':
@@ -544,27 +562,31 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     strategy = tf.distribute.MultiWorkerMirroredStrategy()
     
     with strategy.scope():
-        print("Importing unet....", end='')
+    
+        print("Importing U-Net....",end='')
+        model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
+        print("done")
+
         if loss == 'dice':
             loss_function = losses.dice
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={'dice': loss_function})
         elif loss == 'tversky':
             loss_function = losses.tversky
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={'tversky': loss_function})
         elif loss == 'cce':
             loss_function = 'categorical_crossentropy'
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
         elif loss == 'fss':
-            loss_function = custom_losses.make_FSS_loss(fss_mask_size)
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={'FSS_loss': loss_function})
-        print("done")
+            if num_dimensions == 2:
+                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
+            elif num_dimensions == 3:
+                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
+        
+        if metric == 'bss':
+            metric_function = custom_losses.brier_skill_score
+        elif metric == 'auc':
+            metric_function = 'auc'
     
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
-        model.compile(loss=loss_function, optimizer=adam, metrics=bss)
+        model.compile(loss=loss_function, optimizer=adam, metrics=metric_function)
         print('done')
     
     model.summary()
@@ -577,30 +599,28 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
 
     with strategy.scope():
 
-        print("Importing unet....", end='')
+        model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
+
         if loss == 'dice':
             loss_function = losses.dice
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={'dice': loss_function})
         elif loss == 'tversky':
             loss_function = losses.tversky
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={'tversky': loss_function})
         elif loss == 'cce':
             loss_function = 'categorical_crossentropy'
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
         elif loss == 'fss':
             if num_dimensions == 2:
                 loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
             elif num_dimensions == 3:
                 loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={'FSS_loss': loss_function})
-        print("done")
+
+        if metric == 'bss':
+            metric_function = custom_losses.brier_skill_score
+        elif metric == 'auc':
+            metric_function = 'auc'
 
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
-        model.compile(loss=loss_function, optimizer=adam, metrics=tf.keras.metrics.AUC())
+        model.compile(loss=loss_function, optimizer=adam, metrics=metric_function)
         print('done')
 
     model.summary()
@@ -687,6 +707,7 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, required=False, help='Learning rate for U-Net optimizer.')
     parser.add_argument('--loss', type=str, required=False, help='Loss function for the U-Net')
     parser.add_argument('--map_dim_x_y', type=int, required=False, nargs=2, help='Dimensions of the U-Net map.')
+    parser.add_argument('--metric', type=str, required=False, help='Metric for evaluating the U-Net during training.')
     parser.add_argument('--model_dir', type=str, required=False, help='Directory where the models are or will be saved to.')
     parser.add_argument('--normalization_method', type=int, required=False,
                         help='Normalization method for the data. 0 - No normalization, 1 - Min-max normalization, '
@@ -712,6 +733,8 @@ if __name__ == "__main__":
 
     if args.import_model_number is not None and args.job_number is not None:
         raise errors.ArgumentConflictError("import_model_number and job_number cannot be passed at the same time.")
+    if args.import_model_number is None and args.job_number is None:
+        raise errors.MissingArgumentError("one of the following arguments must be provided: import_model_number, job_number")
 
     if args.loss == 'fss':
         if args.fss_c is None or args.fss_mask_size is None:
@@ -728,9 +751,10 @@ if __name__ == "__main__":
         if args.learning_rate is None or args.epochs is None or args.train_valid_steps is None or args.train_valid_batch_size is None or \
             args.train_valid_fronts is None or args.valid_freq is None or args.loss is None or args.workers is None or \
             args.model_dir is None or args.front_types is None or args.normalization_method is None or args.pixel_expansion is None or \
-            args.num_variables is None or args.file_dimensions is None or args.num_dimensions is None or args.domain is None:
+            args.num_variables is None or args.file_dimensions is None or args.num_dimensions is None or args.domain is None or \
+            args.metric is None:
             raise errors.MissingArgumentError("import_model_number is not None but one or more of the following arguments was not provided: "
-                "domain, epochs, file_dimensions, front_types, learning_rate, loss, model_dir, normalization_method, num_dimensions, "
+                "domain, epochs, file_dimensions, front_types, learning_rate, loss, metric, model_dir, normalization_method, num_dimensions, "
                 "num_variables, pixel_expansion, train_valid_batch_size, train_valid_fronts, train_valid_steps, valid_freq, workers")
         else:
             print("WARNING: You have imported model %d for training." % args.import_model_number)
@@ -738,22 +762,26 @@ if __name__ == "__main__":
             train_imported_unet(front_files, variable_files, args.learning_rate, args.epochs, args.train_valid_steps[0], args.train_valid_batch_size[0],
                 args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1], args.valid_freq, args.train_valid_fronts[1],
                 args.loss, args.workers, args.import_model_number, args.model_dir, args.front_types, args.normalization_method, args.fss_mask_size,
-                args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions, args.validation_year, args.test_year, args.num_dimensions)
+                args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions, args.validation_year, args.test_year, args.num_dimensions,
+                args.metric)
+
+    print('import')
 
     if args.job_number is not None:
         if args.learning_rate is None or args.epochs is None or args.train_valid_steps is None or args.train_valid_batch_size is None or \
             args.train_valid_fronts is None or args.valid_freq is None or args.loss is None or args.workers is None or \
             args.model_dir is None or args.front_types is None or args.normalization_method is None or args.pixel_expansion is None or \
             args.num_variables is None or args.file_dimensions is None or args.num_dimensions is None or args.map_dim_x_y is None or \
-            args.domain is None:
+            args.domain is None or args.metric is None:
             raise errors.MissingArgumentError("job_number is not None but one or more of the following arguments was not provided: "
-                "domain, epochs, file_dimensions, front_types, learning_rate, loss, map_dim_x_y, model_dir, normalization_method, "
+                "domain, epochs, file_dimensions, front_types, learning_rate, loss, map_dim_x_y, metric, model_dir, normalization_method, "
                 "num_dimensions, num_variables, pixel_expansion, train_valid_batch_size, train_valid_fronts, train_valid_steps, "
                 "valid_freq, workers")
         else:
+            print('files')
             front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.file_dimensions)
             train_new_unet(front_files, variable_files, args.map_dim_x_y[0], args.map_dim_x_y[1], args.learning_rate, args.epochs,
                 args.train_valid_steps[0], args.train_valid_batch_size[0], args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1],
                 args.valid_freq, args.train_valid_fronts[1], args.loss, args.workers, args.job_number, args.model_dir, args.front_types,
                 args.normalization_method, args.fss_mask_size, args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions,
-                args.validation_year, args.test_year, args.num_dimensions)
+                args.validation_year, args.test_year, args.num_dimensions, args.metric)
