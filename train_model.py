@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/5/2021 3:24 PM CDT
+Last updated: 9/5/2021 7:21 PM CDT
 """
 
 import random
@@ -346,7 +346,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         if metric == 'bss':
             metric_function = custom_losses.brier_skill_score
         elif metric == 'auc':
-            metric_function = 'auc'
+            metric_function = tf.keras.metrics.AUC()
     
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
@@ -411,7 +411,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         if metric == 'bss':
             metric_function = custom_losses.brier_skill_score
         elif metric == 'auc':
-            metric_function = 'auc'
+            metric_function = tf.keras.metrics.AUC()
 
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
@@ -582,7 +582,7 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         if metric == 'bss':
             metric_function = custom_losses.brier_skill_score
         elif metric == 'auc':
-            metric_function = 'auc'
+            metric_function = tf.keras.metrics.AUC()
     
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
@@ -616,7 +616,7 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         if metric == 'bss':
             metric_function = custom_losses.brier_skill_score
         elif metric == 'auc':
-            metric_function = 'auc'
+            metric_function = tf.keras.metrics.AUC()
 
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
