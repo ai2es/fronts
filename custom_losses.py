@@ -2,7 +2,7 @@
 Custom loss functions for U-Net models.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/13/2021 6:20 PM CDT
+Last updated: 8/28/2021 12:56 PM CDT
 """
 
 import tensorflow as tf
@@ -17,7 +17,7 @@ def dice():
 # Fraction Skill Score original paper: N.M. Roberts and H.W. Lean, "Scale-Selective Verification of Rainfall
 #     Accumulation from High-Resolution Forecasts of Convective Events", Monthly Weather Review, 2008.
 
-def make_FSS_loss_2D(mask_size):  # choose any mask size for calculating densities
+def make_FSS_loss_2D(mask_size, c_param):
 
     @tf.function()
     def FSS_loss_2D(y_true, y_pred):
@@ -31,7 +31,7 @@ def make_FSS_loss_2D(mask_size):  # choose any mask size for calculating densiti
             y_pred_binary = tf.where(y_pred > cutoff, 1.0, 0.0)
 
         else:
-            c = 1
+            c = c_param
             y_true_binary = tf.math.sigmoid(c * (y_true - cutoff))
             y_pred_binary = tf.math.sigmoid(c * (y_pred - cutoff))
 
@@ -81,7 +81,7 @@ def make_FSS_loss_2D(mask_size):  # choose any mask size for calculating densiti
 
     return FSS_loss_2D
 
-def make_FSS_loss_3D(mask_size):  # choose any mask size for calculating densities
+def make_FSS_loss_3D(mask_size, c_param):
 
     @tf.function()
     def FSS_loss_3D(y_true, y_pred):
@@ -95,7 +95,7 @@ def make_FSS_loss_3D(mask_size):  # choose any mask size for calculating densiti
             y_pred_binary = tf.where(y_pred > cutoff, 1.0, 0.0)
 
         else:
-            c = 1
+            c = c_param
             y_true_binary = tf.math.sigmoid(c * (y_true - cutoff))
             y_pred_binary = tf.math.sigmoid(c * (y_pred - cutoff))
 
