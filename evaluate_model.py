@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/13/2021 4:59 PM CDT
+Last updated: 9/13/2021 5:12 PM CDT
 """
 
 import random
@@ -1439,7 +1439,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
     elif front_types == 'SFOF':
-        fig, axarr = plt.subplots(2, 1, figsize=(12, 14), subplot_kw={'projection': crs})
+        ig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
@@ -1454,7 +1454,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
     elif front_types == 'DL':
-        fig, axarr = plt.subplots(2, 1, figsize=(12, 14), subplot_kw={'projection': crs})
+        ig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
@@ -1467,7 +1467,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
     elif front_types == 'ALL':
-        fig, axarr = plt.subplots(2, 1, figsize=(12, 14), subplot_kw={'projection': crs})
+        ig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
