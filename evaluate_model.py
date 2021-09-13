@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/13/2021 4:54 PM CDT
+Last updated: 9/13/2021 4:59 PM CDT
 """
 
 import random
@@ -1413,6 +1413,9 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
 
     cold_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
     warm_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
+    stationary_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
+    occluded_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
+    dryline_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
 
     if pixel_expansion == 1:
         fronts = ope(fronts)  # 1-pixel expansion
@@ -1442,9 +1445,9 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
             fplot.plot_background(ax, extent)
         fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[0].title.set_text("%s Truth" % time)
-        probs_ds.stationary_probs.plot(ax=axlist[1], cmap='Greens', x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.stationary_probs.plot(ax=axlist[1], cmap='Greens', norm=stationary_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s SF probability" % time)
-        probs_ds.occluded_probs.plot(ax=axlist[1], cmap='Purples', x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.occluded_probs.plot(ax=axlist[1], cmap='Purples', norm=occluded_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s Front probabilities (images=%d, trim=%d)" % (time, num_images, image_trim))
         plt.savefig('%s/model_%d/predictions/model_%d_%s_plot_%dimages_%dtrim.png' % (model_dir, model_number, model_number,
             time, num_images, image_trim), bbox_inches='tight', dpi=300)
@@ -1457,7 +1460,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
             fplot.plot_background(ax, extent)
         fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[0].title.set_text("%s Truth" % time)
-        probs_ds.dryline_probs.plot(ax=axlist[1], cmap='Oranges', x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.dryline_probs.plot(ax=axlist[1], cmap='Oranges', norm=dryline_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s Front probabilities (images=%d, trim=%d)" % (time, num_images, image_trim))
         plt.savefig('%s/model_%d/predictions/model_%d_%s_plot_%dimages_%dtrim.png' % (model_dir, model_number, model_number,
             time, num_images, image_trim), bbox_inches='tight', dpi=300)
@@ -1470,11 +1473,11 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
             fplot.plot_background(ax, extent)
         fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[0].title.set_text("%s Truth" % time)
-        probs_ds.cold_probs.plot(ax=axlist[1], cmap='Blues', x='longitude', y='latitude', transform=ccrs.PlateCarree())
-        probs_ds.warm_probs.plot(ax=axlist[1], cmap='Reds', x='longitude', y='latitude', transform=ccrs.PlateCarree())
-        probs_ds.stationary_probs.plot(ax=axlist[1], cmap='Greens', x='longitude', y='latitude', transform=ccrs.PlateCarree())
-        probs_ds.occluded_probs.plot(ax=axlist[1], cmap='Purples', x='longitude', y='latitude', transform=ccrs.PlateCarree())
-        probs_ds.dryline_probs.plot(ax=axlist[1], cmap='Oranges', x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.cold_probs.plot(ax=axlist[1], cmap='Blues', norm=cold_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.warm_probs.plot(ax=axlist[1], cmap='Reds', norm=warm_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.stationary_probs.plot(ax=axlist[1], cmap='Greens', norm=stationary_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.occluded_probs.plot(ax=axlist[1], cmap='Purples', norm=occluded_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        probs_ds.dryline_probs.plot(ax=axlist[1], cmap='Oranges', norm=dryline_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text("%s Front probabilities (images=%d, trim=%d)" % (time, num_images, image_trim))
         plt.savefig('%s/model_%d/predictions/model_%d_%s_plot_%dimages_%dtrim.png' % (model_dir, model_number, model_number,
             time, num_images, image_trim), bbox_inches='tight', dpi=300)
