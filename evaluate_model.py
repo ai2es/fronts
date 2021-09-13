@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/13/2021 2:33 PM CDT
+Last updated: 9/13/2021 4:54 PM CDT
 """
 
 import random
@@ -752,11 +752,11 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                 prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
         elif front_types == 'SFOF':
-            for i in range(0, map_dim_y):
-                for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[0][j][i][0]
-                    stationary_probs[i][j] = prediction[0][j][i][1]
-                    occluded_probs[i][j] = prediction[0][j][i][2]
+            for i in range(0, map_dim_x):
+                for j in range(0, map_dim_y):
+                    no_probs[i][j] = prediction[5][0][i][j][0]
+                    stationary_probs[i][j] = prediction[5][0][i][j][1]
+                    occluded_probs[i][j] = prediction[5][0][i][j][2]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -783,10 +783,10 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                 prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
         elif front_types == 'DL':
-            for i in range(0, map_dim_y):
-                for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[0][j][i][0]
-                    dryline_probs[i][j] = prediction[0][j][i][1]
+            for i in range(0, map_dim_x):
+                for j in range(0, map_dim_y):
+                    no_probs[i][j] = prediction[5][0][i][j][0]
+                    dryline_probs[i][j] = prediction[5][0][i][j][1]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -808,14 +808,14 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                 prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
         elif front_types == 'ALL':
-            for i in range(0, map_dim_y):
-                for j in range(0, map_dim_x):
-                    no_probs[i][j] = prediction[0][j][i][0]
-                    cold_probs[i][j] = prediction[0][j][i][1]
-                    warm_probs[i][j] = prediction[0][j][i][2]
-                    stationary_probs[i][j] = prediction[0][j][i][3]
-                    occluded_probs[i][j] = prediction[0][j][i][4]
-                    dryline_probs[i][j] = prediction[0][j][i][5]
+            for i in range(0, map_dim_x):
+                for j in range(0, map_dim_y):
+                    no_probs[i][j] = prediction[5][0][i][j][0]
+                    cold_probs[i][j] = prediction[5][0][i][j][1]
+                    warm_probs[i][j] = prediction[5][0][i][j][2]
+                    stationary_probs[i][j] = prediction[5][0][i][j][3]
+                    occluded_probs[i][j] = prediction[5][0][i][j][4]
+                    dryline_probs[i][j] = prediction[5][0][i][j][5]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -1066,11 +1066,11 @@ def make_random_predictions(model_number, model_dir, fronts_files_list, variable
                     prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
             elif front_types == 'SFOF':
-                for i in range(0, map_dim_y):
-                    for j in range(0, map_dim_x):
-                        no_probs[i][j] = prediction[0][j][i][0]
-                        stationary_probs[i][j] = prediction[0][j][i][1]
-                        occluded_probs[i][j] = prediction[0][j][i][2]
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[5][0][i][j][0]
+                        stationary_probs[i][j] = prediction[5][0][i][j][1]
+                        occluded_probs[i][j] = prediction[5][0][i][j][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -1097,10 +1097,10 @@ def make_random_predictions(model_number, model_dir, fronts_files_list, variable
                     prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
             elif front_types == 'DL':
-                for i in range(0, map_dim_y):
-                    for j in range(0, map_dim_x):
-                        no_probs[i][j] = prediction[0][j][i][0]
-                        dryline_probs[i][j] = prediction[0][j][i][1]
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[5][0][i][j][0]
+                        dryline_probs[i][j] = prediction[5][0][i][j][1]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -1122,14 +1122,14 @@ def make_random_predictions(model_number, model_dir, fronts_files_list, variable
                     prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
             elif front_types == 'ALL':
-                for i in range(0, map_dim_y):
-                    for j in range(0, map_dim_x):
-                        no_probs[i][j] = prediction[0][j][i][0]
-                        cold_probs[i][j] = prediction[0][j][i][1]
-                        warm_probs[i][j] = prediction[0][j][i][2]
-                        stationary_probs[i][j] = prediction[0][j][i][3]
-                        occluded_probs[i][j] = prediction[0][j][i][4]
-                        dryline_probs[i][j] = prediction[0][j][i][5]
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[5][0][i][j][0]
+                        cold_probs[i][j] = prediction[5][0][i][j][1]
+                        warm_probs[i][j] = prediction[5][0][i][j][2]
+                        stationary_probs[i][j] = prediction[5][0][i][j][3]
+                        occluded_probs[i][j] = prediction[5][0][i][j][4]
+                        dryline_probs[i][j] = prediction[5][0][i][j][5]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -1678,8 +1678,8 @@ if __name__ == '__main__':
             args.loss is None or args.pixel_expansion is None or args.metric is None or args.num_images is None or \
             args.longitude_domain_length is None or args.image_trim is None:
             raise errors.MissingArgumentError("If calculate_performance_stats is True, the following arguments must be passed: "
-                "domain, file_dimensions, front_types, image_trim, loss, metric, model_dir, model_number, normalization_method, "
-                "num_dimensions, num_images, num_variables, pixel_expansion")
+                "domain, file_dimensions, front_types, image_trim, longitude_domain_length, loss, metric, model_dir, "
+                "model_number, normalization_method, num_dimensions, num_images, num_variables, pixel_expansion")
         else:
             calculate_performance_stats(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
                 args.domain, args.file_dimensions, args.test_year, args.normalization_method, args.loss, args.fss_mask_size,
