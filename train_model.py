@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/5/2021 7:21 PM CDT
+Last updated: 9/18/2021 4:57 PM CDT
 """
 
 import random
@@ -24,7 +24,7 @@ from expand_fronts import one_pixel_expansion as ope
 import pandas as pd
 
 
-class DataGenerator_2D(keras.utils.Sequence):
+class DataGenerator_2D(tf.keras.utils.Sequence):
     """
     Data generator for 2D U-Net models that grabs random files for training and validation.
     """
@@ -126,7 +126,7 @@ class DataGenerator_2D(keras.utils.Sequence):
         return variable_dss, front_dss
 
 
-class DataGenerator_3D(keras.utils.Sequence):
+class DataGenerator_3D(tf.keras.utils.Sequence):
     """
     Data generator for 3D U-Net models that grabs random files for training and validation.
     """
@@ -244,7 +244,7 @@ class DataGenerator_3D(keras.utils.Sequence):
 def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
                    train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
                    workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, fss_c,
-                   pixel_expansion, num_variables, file_dimensions, validation_year, test_year, num_dimensions, metric):
+                   pixel_expansion, num_variables, file_dimensions, validation_years, test_years, num_dimensions, metric):
     """
     Function that train a new U-Net model and saves the model along with its weights.
 
@@ -303,10 +303,10 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         Number of variables in the datasets.
     file_dimensions: int (x2)
         Dimensions of the data files.
-    validation_year: int
-        Year for the validation dataset.
-    test_year: int
-        Year for the test dataset.
+    validation_years: list of ints
+        Years for the validation dataset.
+    test_years: list of ints
+        Years for the test dataset.
     num_dimensions: int
         Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     metric: str
@@ -346,7 +346,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         if metric == 'bss':
             metric_function = custom_losses.brier_skill_score
         elif metric == 'auc':
-            metric_function = tf.keras.metrics.AUC()
+            metric_function = 'auc'
     
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
@@ -393,7 +393,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
                 deep_supervision=True)
         elif num_dimensions == 3:
             print("Creating 3D U-Net....",end='')
-            model = custom_models.UNet_3plus_3d_no_En1_skip(map_dim_x, map_dim_y, num_classes)
+            model = custom_models.UNet_3plus_3D(map_dim_x, map_dim_y, num_classes)
         print('done')
 
         if loss == 'dice':
@@ -411,7 +411,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         if metric == 'bss':
             metric_function = custom_losses.brier_skill_score
         elif metric == 'auc':
-            metric_function = tf.keras.metrics.AUC()
+            metric_function = 'auc'
 
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
@@ -421,9 +421,9 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     model.summary()
 
     # If validation year and test year are provided, split data into training and validation sets
-    if validation_year is not None and test_year is not None:
+    if validation_years is not None and test_years is not None:
         front_files_training, front_files_validation, variable_files_training, variable_files_validation = \
-            fm.split_file_lists(front_files, variable_files, validation_year, test_year)
+            fm.split_file_lists(front_files, variable_files, validation_years, test_years)
 
         if num_dimensions == 2:
             train_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_training, variable_files_training,
@@ -471,21 +471,21 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, job_number, job_number)
 
     # ModelCheckpoint: saves model at a specified interval
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='loss', verbose=1, save_best_only=True,
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')
     # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
-    early_stopping = EarlyStopping('loss', patience=500, verbose=1)
+    early_stopping = EarlyStopping('val_loss', patience=150, verbose=1)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
         epochs=train_epochs, steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=[early_stopping,
-        checkpoint, history_logger], verbose=2, workers=workers, use_multiprocessing=True, max_queue_size=100000)
+        checkpoint, history_logger], verbose=2, workers=workers, use_multiprocessing=True, max_queue_size=10000)
 
 
 def train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
     train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, workers, model_number, model_dir,
-    front_types, normalization_method, fss_mask_size, fss_c, pixel_expansion, num_variables, file_dimensions, validation_year,
-    test_year, num_dimensions, metric):
+    front_types, normalization_method, fss_mask_size, fss_c, pixel_expansion, num_variables, file_dimensions, validation_years,
+    test_years, num_dimensions, metric):
     """
     Function that trains the U-Net model and saves the model along with its weights.
     Parameters
@@ -539,10 +539,10 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         Number of variables in the datasets.
     file_dimensions: int (x2)
         Dimensions of the data files.
-    validation_year: int
-        Year for the validation dataset.
-    test_year: int
-        Year for the test dataset.
+    validation_years: int
+        Years for the validation dataset.
+    test_years: int
+        Years for the test dataset.
     num_dimensions: int
         Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     metric: str
@@ -582,7 +582,7 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         if metric == 'bss':
             metric_function = custom_losses.brier_skill_score
         elif metric == 'auc':
-            metric_function = tf.keras.metrics.AUC()
+            metric_function = 'auc'
     
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
@@ -616,7 +616,7 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
         if metric == 'bss':
             metric_function = custom_losses.brier_skill_score
         elif metric == 'auc':
-            metric_function = tf.keras.metrics.AUC()
+            metric_function = 'auc'
 
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
@@ -628,10 +628,10 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net
 
-    # If validation year and test year are provided, split data into training and validation sets
-    if validation_year is not None and test_year is not None:
+    # If validation years and test years are provided, split data into training and validation sets
+    if validation_years is not None and test_years is not None:
         front_files_training, front_files_validation, variable_files_training, variable_files_validation = \
-            fm.split_file_lists(front_files, variable_files, validation_year, test_year)
+            fm.split_file_lists(front_files, variable_files, validation_years, test_years)
 
         if num_dimensions == 2:
             train_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_training, variable_files_training,
@@ -677,15 +677,15 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, model_number, model_number)
 
     # ModelCheckpoint: saves model at a specified interval
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='loss', verbose=1, save_best_only=True,
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')
     # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
-    early_stopping = EarlyStopping('loss', patience=500, verbose=1)
+    early_stopping = EarlyStopping('val_loss', patience=150, verbose=1)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
         epochs=train_epochs, steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=[early_stopping,
-        checkpoint, history_logger], verbose=2, workers=workers, use_multiprocessing=True, max_queue_size=100000)
+        checkpoint, history_logger], verbose=2, workers=workers, use_multiprocessing=True, max_queue_size=10000)
 
 
 if __name__ == "__main__":
@@ -716,13 +716,13 @@ if __name__ == "__main__":
                         help='Number of dimensions of the U-Net convolutions, maxpooling, and upsampling. (2 or 3)')
     parser.add_argument('--num_variables', type=int, required=False, help='Number of variables in the variable datasets.')
     parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by.')
-    parser.add_argument('--test_year', type=int, required=False, help='Year for the test set.')
+    parser.add_argument('--test_years', type=int, nargs="+", required=False, help='Years for the test set.')
     parser.add_argument('--train_valid_batch_size', type=int, required=False, nargs=2, help='Batch sizes for the U-Net.')
     parser.add_argument('--train_valid_fronts', type=int, required=False, nargs=2,
                         help='How many pixels with fronts an image must have for it to be passed through the generator.')
     parser.add_argument('--train_valid_steps', type=int, required=False, nargs=2, help='Number of steps for each epoch.')
     parser.add_argument('--valid_freq', type=int, required=False, help='How many epochs to pass before each validation.')
-    parser.add_argument('--validation_year', type=int, required=False, help='Year for the validation set.')
+    parser.add_argument('--validation_years', type=int, nargs="+", required=False, help='Years for the validation set.')
     parser.add_argument('--workers', type=int, required=False, help='Number of workers for training the U-Net.')
 
     args = parser.parse_args()
@@ -762,10 +762,8 @@ if __name__ == "__main__":
             train_imported_unet(front_files, variable_files, args.learning_rate, args.epochs, args.train_valid_steps[0], args.train_valid_batch_size[0],
                 args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1], args.valid_freq, args.train_valid_fronts[1],
                 args.loss, args.workers, args.import_model_number, args.model_dir, args.front_types, args.normalization_method, args.fss_mask_size,
-                args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions, args.validation_year, args.test_year, args.num_dimensions,
+                args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions, args.validation_years, args.test_years, args.num_dimensions,
                 args.metric)
-
-    print('import')
 
     if args.job_number is not None:
         if args.learning_rate is None or args.epochs is None or args.train_valid_steps is None or args.train_valid_batch_size is None or \
@@ -778,10 +776,9 @@ if __name__ == "__main__":
                 "num_dimensions, num_variables, pixel_expansion, train_valid_batch_size, train_valid_fronts, train_valid_steps, "
                 "valid_freq, workers")
         else:
-            print('files')
             front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.file_dimensions)
             train_new_unet(front_files, variable_files, args.map_dim_x_y[0], args.map_dim_x_y[1], args.learning_rate, args.epochs,
                 args.train_valid_steps[0], args.train_valid_batch_size[0], args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1],
                 args.valid_freq, args.train_valid_fronts[1], args.loss, args.workers, args.job_number, args.model_dir, args.front_types,
                 args.normalization_method, args.fss_mask_size, args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions,
-                args.validation_year, args.test_year, args.num_dimensions, args.metric)
+                args.validation_years, args.test_years, args.num_dimensions, args.metric)

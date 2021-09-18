@@ -2,7 +2,7 @@
 Functions in this code manage data files and directories.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/5/2021 12:52 PM CDT
+Last updated: 9/18/2021 4:58 PM CDT
 """
 
 from glob import glob
@@ -13,6 +13,7 @@ import os
 import errors
 import tensorflow as tf
 import custom_losses
+import itertools
 
 
 def add_hourly_directories(main_dir_subdir, year, month, day):
@@ -352,7 +353,7 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
     return model
 
 
-def load_test_files(num_variables, front_types, domain, file_dimensions, test_year):
+def load_test_files(num_variables, front_types, domain, file_dimensions, test_years):
     """
     Splits front and variable data files into training and validation sets.
 
@@ -366,8 +367,8 @@ def load_test_files(num_variables, front_types, domain, file_dimensions, test_ye
         Domain which the front and variable files cover.
     file_dimensions: int (x2)
         Dimensions of the domain/files.
-    test_year: int
-        Year for the test set (will not be used in training or validation).
+    test_years: list of ints
+        Years for the test set (will not be used in training or validation).
 
     Returns
     -------
@@ -378,18 +379,24 @@ def load_test_files(num_variables, front_types, domain, file_dimensions, test_ye
     """
     front_files, variable_files = load_file_lists(num_variables, front_types, domain, file_dimensions)
 
-    print("Test year: %d" % test_year)
-    test_year_string = "/" + str(test_year) + "/"
+    print("Test years:", test_years)
 
-    print("Splitting files....", end='')
-    front_files_test = list(filter(lambda year: test_year_string in year, front_files))
-    variable_files_test = list(filter(lambda year: test_year_string in year, variable_files))
-    print("done")
+    front_files_test = []
+    variable_files_test = []
+
+    for test_year in test_years:
+        test_year_string = "/" + str(test_year) + "/"
+        front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
+        variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files)))
+    front_files_test = list(sorted(itertools.chain(*front_files_test)))
+    variable_files_test = list(sorted(itertools.chain(*variable_files_test)))
+
+    print("Test file pairs:", len(variable_files_test), "(%.1f%s)" % (100*len(variable_files_test)/len(variable_files),"%"))
 
     return front_files_test, variable_files_test
 
 
-def split_file_lists(front_files, variable_files, validation_year, test_year):
+def split_file_lists(front_files, variable_files, validation_years, test_years):
     """
     Splits front and variable data files into training and validation sets.
 
@@ -399,10 +406,10 @@ def split_file_lists(front_files, variable_files, validation_year, test_year):
         List of files containing front data.
     variable_files: list
         List of files containing variable data.
-    validation_year: int
+    validation_years: list of ints
         Year for the validation set.
-    test_year: int
-        Year for the test set (will not be used in training or validation).
+    test_years: list of ints
+        Years for the test set (will not be used in training or validation).
 
     Returns
     -------
@@ -416,27 +423,42 @@ def split_file_lists(front_files, variable_files, validation_year, test_year):
         List of files containing variable data for the validation dataset.
     """
 
-    print("Validation year: %d" % validation_year)
-    print("Test year: %d" % test_year)
-    validation_year_string = "/" + str(validation_year) + "/"
-    test_year_string = "/" + str(test_year) + "/"
+    print("Validation years:", validation_years)
+    print("Test years:", test_years)
 
-    print("Splitting files....", end='')
-    front_files_validation = list(filter(lambda year: validation_year_string in year, front_files))
-    variable_files_validation = list(filter(lambda year: validation_year_string in year, variable_files))
-    front_files_test = list(filter(lambda year: test_year_string in year, front_files))
-    variable_files_test = list(filter(lambda year: test_year_string in year, variable_files))
+    front_files_test = []
+    variable_files_test = []
+    front_files_validation = []
+    variable_files_validation = []
+    front_files_training_temp = front_files
+    variable_files_training_temp = variable_files
 
-    front_files_training_temp = list(filter(lambda year: validation_year_string not in year, front_files))
-    variable_files_training_temp = list(filter(lambda year: validation_year_string not in year, variable_files))
-    front_files_training = list(filter(lambda year: test_year_string not in year, front_files_training_temp))
-    variable_files_training = list(filter(lambda year: test_year_string not in year, variable_files_training_temp))
-    print("done")
+    for test_year in test_years:
+        test_year_string = "/" + str(test_year) + "/"
+        front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
+        variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files)))
+        front_files_training_temp = list(filter(lambda test_year: test_year_string not in test_year, front_files_training_temp))
+        variable_files_training_temp = list(filter(lambda test_year: test_year_string not in test_year, variable_files_training_temp))
+    front_files_test = list(sorted(itertools.chain(*front_files_test)))
+    variable_files_test = list(sorted(itertools.chain(*variable_files_test)))
 
-    print("All files BEFORE splitting into sets: %d front files, %d variable files" % (len(front_files), len(variable_files)))
-    print("Training set: %d front files, %d variable files" % (len(front_files_training), len(variable_files_training)))
-    print("Validation set (%d): %d front files, %d variable files" % (validation_year, len(front_files_validation), len(variable_files_validation)))
-    print("***Testing set (%d): %d front files, %d variable files   ***THESE WILL NOT BE USED IN TRAINING OR VALIDATION" % (test_year, len(front_files_test), len(variable_files_test)))
+    for validation_year in validation_years:
+        validation_year_string = "/" + str(validation_year) + "/"
+        front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
+        variable_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, variable_files)))
+        front_files_training_temp = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training_temp))
+        variable_files_training_temp = list(filter(lambda validation_year: validation_year_string not in validation_year, variable_files_training_temp))
+    front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
+    variable_files_validation = list(sorted(itertools.chain(*variable_files_validation)))
+
+    front_files_training = front_files_training_temp
+    variable_files_training = variable_files_training_temp
+
+    print("Training file pairs:", len(variable_files_training), "(%.1f%s)" % (100*len(variable_files_training)/len(variable_files),"%"))
+    print("Validation file pairs:", len(variable_files_validation), "(%.1f%s)" % (100*len(variable_files_validation)/len(variable_files),"%"))
+    print("Test file pairs:", len(variable_files_test), "(%.1f%s)" % (100*len(variable_files_test)/len(variable_files),"%"))
+    print("NOTE: Test files will NOT be used in model training nor validation.")
+
     return front_files_training, front_files_validation, variable_files_training, variable_files_validation
 
 

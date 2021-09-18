@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/13/2021 5:12 PM CDT
+Last updated: 9/18/2021 6:07 PM CDT
 """
 
 import random
@@ -21,7 +21,7 @@ from expand_fronts import one_pixel_expansion as ope
 
 
 def calculate_performance_stats(model_number, model_dir, num_variables, num_dimensions, front_types, domain, file_dimensions,
-    test_year, normalization_method, loss, fss_mask_size, fss_c, pixel_expansion, metric, num_images, longitude_domain_length,
+    test_years, normalization_method, loss, fss_mask_size, fss_c, pixel_expansion, metric, num_images, longitude_domain_length,
     image_trim):
     """
     Function that calculates the number of true positives, false positives, true negatives, and false negatives on a testing set.
@@ -46,8 +46,8 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         Domain which the front and variable files cover.
     file_dimensions: int (x2)
         Dimensions of the data files.
-    test_year: int
-        Year for the test set used for calculating performance stats for cross-validation purposes.
+    test_years: list of ints
+        Years for the test set used for calculating performance stats for cross-validation purposes.
     pixel_expansion: int
         Number of pixels to expand the fronts by in all directions.
     metric: str
@@ -64,11 +64,13 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         Number of pixels to trim each image by in the longitude dimension before averaging the overlapping pixels.
     """
 
-    if test_year is not None:
-        front_files, variable_files = fm.load_test_files(num_variables, front_types, domain, file_dimensions, test_year)
+    if test_years is not None:
+        front_files, variable_files = fm.load_test_files(num_variables, front_types, domain, file_dimensions, test_years)
     else:
         front_files, variable_files = fm.load_file_lists(num_variables, front_types, domain, file_dimensions)
+    
     print("Front file count:", len(front_files))
+    
     print("Variable file count:", len(variable_files))
 
     model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
@@ -95,30 +97,30 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
     """
     norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
-    tp_cold = np.zeros(shape=[100])
-    fp_cold = np.zeros(shape=[100])
-    tn_cold = np.zeros(shape=[100])
-    fn_cold = np.zeros(shape=[100])
+    tp_cold = np.zeros(shape=[4,100])
+    fp_cold = np.zeros(shape=[4,100])
+    tn_cold = np.zeros(shape=[4,100])
+    fn_cold = np.zeros(shape=[4,100])
 
-    tp_warm = np.zeros(shape=[100])
-    fp_warm = np.zeros(shape=[100])
-    tn_warm = np.zeros(shape=[100])
-    fn_warm = np.zeros(shape=[100])
+    tp_warm = np.zeros(shape=[4,100])
+    fp_warm = np.zeros(shape=[4,100])
+    tn_warm = np.zeros(shape=[4,100])
+    fn_warm = np.zeros(shape=[4,100])
 
-    tp_stationary = np.zeros(shape=[100])
-    fp_stationary = np.zeros(shape=[100])
-    tn_stationary = np.zeros(shape=[100])
-    fn_stationary = np.zeros(shape=[100])
+    tp_stationary = np.zeros(shape=[4,100])
+    fp_stationary = np.zeros(shape=[4,100])
+    tn_stationary = np.zeros(shape=[4,100])
+    fn_stationary = np.zeros(shape=[4,100])
 
-    tp_occluded = np.zeros(shape=[100])
-    fp_occluded = np.zeros(shape=[100])
-    tn_occluded = np.zeros(shape=[100])
-    fn_occluded = np.zeros(shape=[100])
+    tp_occluded = np.zeros(shape=[4,100])
+    fp_occluded = np.zeros(shape=[4,100])
+    tn_occluded = np.zeros(shape=[4,100])
+    fn_occluded = np.zeros(shape=[4,100])
 
-    tp_dryline = np.zeros(shape=[100])
-    fp_dryline = np.zeros(shape=[100])
-    tn_dryline = np.zeros(shape=[100])
-    fn_dryline = np.zeros(shape=[100])
+    tp_dryline = np.zeros(shape=[4,100])
+    fp_dryline = np.zeros(shape=[4,100])
+    tn_dryline = np.zeros(shape=[4,100])
+    fn_dryline = np.zeros(shape=[4,100])
 
     model_longitude_length = map_dim_x
     raw_image_index_array = np.empty(shape=[num_images,2])
@@ -127,6 +129,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
     latitude_domain_length = 128
 
     for x in range(len(front_files)):
+        
         print("Prediction %d/%d....0/%d" % (x+1, len(front_files), num_images), end='\r')
 
         # Open random pair of files
@@ -146,7 +149,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                 raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing
             else:
                 raw_image_index_array[i][0] = raw_image_index_array[i-1][0] + image_spacing
-                raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing + image_trim - image_trim
+                raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing
 
         lon_pixels_per_image = int(raw_image_index_array[0][1] - raw_image_index_array[0][0])
 
@@ -161,8 +164,8 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         image_lons = fronts_ds.longitude.values[image_trim:longitude_domain_length-image_trim]
 
         for image in range(num_images):
-            # print("Prediction %d/%d....%d/%d" % (x+1, len(front_files_test), image+1, num_images), end='\r')
-            print("Prediction %d/%d....%d/%d" % (x+1, 4, image+1, num_images), end='\r')
+            
+            print("Prediction %d/%d....%d/%d" % (x+1, len(front_files), image+1, num_images), end='\r')
             lat_index = 0
             variable_ds = pd.read_pickle(variables_filename)
             if image == 0:
@@ -215,6 +218,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
             dryline_probs = np.zeros([map_dim_x, map_dim_y])
 
             thresholds = np.linspace(0.01,1,100)
+            boundaries = np.array([25,50,75,100])
 
             """
             Reformatting predictions: change the lines inside the loops according to your U-Net type.
@@ -233,7 +237,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
             <front>_probs[i][j] = prediction[n][0][j][i][x]
             
             ### U-Net 3+ (3D) ###
-            <front>_probs[i][j] = prediction[0][0][j][i][l][x]
+            <front>_probs[i][j] = prediction[n][0][j][i][l][x]
             """
             if front_types == 'CFWF':
                 for i in range(0, map_dim_x):
@@ -265,33 +269,37 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         {"no_probs": (("longitude", "latitude"), image_no_probs), "cold_probs": (("longitude", "latitude"), image_cold_probs),
                          "warm_probs": (("longitude", "latitude"), image_warm_probs)}, coords={"latitude": image_lats, "longitude": image_lons}).transpose()
 
-                    new_fronts = fronts
-                    t_cold_ds = xr.where(new_fronts == 1, 1, 0)
-                    t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
-                    new_fronts = fronts
-                    f_cold_ds = xr.where(new_fronts == 1, 0, 1)
-                    f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
-                    new_fronts = fronts
+                    for boundary in range(4):
+                        fronts = pd.read_pickle(fronts_filename)
+                        for y in range(boundary+1):
+                            fronts = ope(fronts)
 
-                    t_warm_ds = xr.where(new_fronts == 2, 1, 0)
-                    t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
-                    new_fronts = fronts
-                    f_warm_ds = xr.where(new_fronts == 2, 0, 1)
-                    f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
-                    new_fronts = fronts
+                        new_fronts = fronts
+                        t_cold_ds = xr.where(new_fronts == 1, 1, 0)
+                        t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
+                        new_fronts = fronts
+                        f_cold_ds = xr.where(new_fronts == 1, 0, 1)
+                        f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
+                        new_fronts = fronts
 
-                    for i in range(100):
-                        tp_cold[i] += len(np.where(t_cold_probs > thresholds[i])[0])
-                        tn_cold[i] += len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
-                        fp_cold[i] += len(np.where(f_cold_probs > thresholds[i])[0])
-                        fn_cold[i] += len(np.where((t_cold_probs < thresholds[i]) & (t_cold_probs != 0))[0])
-                        tp_warm[i] += len(np.where(t_warm_probs > thresholds[i])[0])
-                        tn_warm[i] += len(np.where((f_warm_probs < thresholds[i]) & (f_warm_probs != 0))[0])
-                        fp_warm[i] += len(np.where(f_warm_probs > thresholds[i])[0])
-                        fn_warm[i] += len(np.where((t_warm_probs < thresholds[i]) & (t_warm_probs != 0))[0])
+                        t_warm_ds = xr.where(new_fronts == 2, 1, 0)
+                        t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
+                        new_fronts = fronts
+                        f_warm_ds = xr.where(new_fronts == 2, 0, 1)
+                        f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
+                        new_fronts = fronts
 
-                    # print("Prediction %d/%d....done" % (x+1, len(front_files_test)))
-                    print("Prediction %d/%d....done" % (x+1, 4))
+                        for i in range(100):
+                            tp_cold[boundary,i] += len(np.where(t_cold_probs > thresholds[i])[0])
+                            tn_cold[boundary,i] += len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
+                            fp_cold[boundary,i] += len(np.where(f_cold_probs > thresholds[i])[0])
+                            fn_cold[boundary,i] += len(np.where((t_cold_probs < thresholds[i]) & (t_cold_probs != 0))[0])
+                            tp_warm[boundary,i] += len(np.where(t_warm_probs > thresholds[i])[0])
+                            tn_warm[boundary,i] += len(np.where((f_warm_probs < thresholds[i]) & (f_warm_probs != 0))[0])
+                            fp_warm[boundary,i] += len(np.where(f_warm_probs > thresholds[i])[0])
+                            fn_warm[boundary,i] += len(np.where((t_warm_probs < thresholds[i]) & (t_warm_probs != 0))[0])
+                    
+                    print("Prediction %d/%d....done" % (x+1, len(front_files)))
 
             elif front_types == 'SFOF':
                 for i in range(0, map_dim_x):
@@ -345,6 +353,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         tn_occluded[i] += len(np.where((f_occluded_probs < thresholds[i]) & (f_occluded_probs != 0))[0])
                         fp_occluded[i] += len(np.where(f_occluded_probs > thresholds[i])[0])
                         fn_occluded[i] += len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
+                    
                     print("Prediction %d/%d....done" % (x+1, len(front_files)))
 
             elif front_types == 'DL':
@@ -490,18 +499,18 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                     print("Prediction %d/%d....done" % (x+1, len(front_files)))
 
     if front_types == 'CFWF':
-        performance_ds = xr.Dataset({"tp_cold": ("threshold", tp_cold), "tp_warm": ("threshold", tp_warm),
-                                     "fp_cold": ("threshold", fp_cold), "fp_warm": ("threshold", fp_warm),
-                                     "tn_cold": ("threshold", tn_cold), "tn_warm": ("threshold", tn_warm),
-                                     "fn_cold": ("threshold", fn_cold), "fn_warm": ("threshold", fn_warm)}, coords={"threshold": thresholds})
+        performance_ds = xr.Dataset({"tp_cold": (["boundary", "threshold"], tp_cold), "tp_warm": (["boundary", "threshold"], tp_warm),
+                                     "fp_cold": (["boundary", "threshold"], fp_cold), "fp_warm": (["boundary", "threshold"], fp_warm),
+                                     "tn_cold": (["boundary", "threshold"], tn_cold), "tn_warm": (["boundary", "threshold"], tn_warm),
+                                     "fn_cold": (["boundary", "threshold"], fn_cold), "fn_warm": (["boundary", "threshold"], fn_warm)}, coords={"boundary": boundaries, "threshold": thresholds})
     elif front_types == 'SFOF':
         performance_ds = xr.Dataset({"tp_stationary": ("threshold", tp_stationary), "tp_occluded": ("threshold", tp_occluded),
                                      "fp_stationary": ("threshold", fp_stationary), "fp_occluded": ("threshold", fp_occluded),
                                      "tn_stationary": ("threshold", tn_stationary), "tn_occluded": ("threshold", tn_occluded),
-                                     "fn_stationary": ("threshold", fn_stationary), "fn_occluded": ("threshold", fn_occluded)}, coords={"threshold": thresholds})
+                                     "fn_stationary": ("threshold", fn_stationary), "fn_occluded": ("threshold", fn_occluded)}, coords={"boundary": boundaries, "threshold": thresholds})
     elif front_types == 'DL':
-        performance_ds = xr.Dataset({"tp_dryline": ("threshold", tp_dryline), "tp_dryline": ("threshold", tp_dryline),
-                                     "fp_dryline": ("threshold", fp_dryline), "tn_dryline": ("threshold", tn_dryline)}, coords={"threshold": thresholds})
+        performance_ds = xr.Dataset({"tp_dryline": ("threshold", tp_dryline), "fp_dryline": ("threshold", tp_dryline),
+                                     "fn_dryline": ("threshold", fp_dryline), "tn_dryline": ("threshold", tn_dryline)}, coords={"boundary": boundaries, "threshold": thresholds})
     elif front_types == 'ALL':
         performance_ds = xr.Dataset({"tp_cold": ("threshold", tp_cold), "tp_warm": ("threshold", tp_warm),
                                      "tp_stationary": ("threshold", tp_stationary), "tp_occluded": ("threshold", tp_occluded),
@@ -510,10 +519,10 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                      "tn_cold": ("threshold", tn_cold), "tn_warm": ("threshold", tn_warm),
                                      "tn_stationary": ("threshold", tn_stationary), "tn_occluded": ("threshold", tn_occluded),
                                      "fn_cold": ("threshold", fn_cold), "fn_warm": ("threshold", fn_warm),
-                                     "fn_stationary": ("threshold", fn_stationary), "fn_occluded": ("threshold", fn_occluded)}, coords={"threshold": thresholds})
+                                     "fn_stationary": ("threshold", fn_stationary), "fn_occluded": ("threshold", fn_occluded)}, coords={"boundary": boundaries, "threshold": thresholds})
 
     print(performance_ds)
-    with open('%s/model_%d/model_%d_performance_stats_%dkm.pkl' % (model_dir, model_number, model_number, int(pixel_expansion*25)), 'wb') as f:
+    with open("%s/model_%d/model_%d_performance_stats_%dimage_%dtrim.pkl" % (model_dir, model_number, model_number, num_images, image_trim), "wb") as f:
         pickle.dump(performance_ds, f)
 
 
@@ -712,13 +721,13 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
           to the correct value for each front type.
         
         ### U-Net ###
-        <front>_probs[i][j] = prediction[0][j][i][x]
+        <front>_probs[i][j] = prediction[0][i][j][x]
         
         ### U-Net 3+ (2D) ###
-        <front>_probs[i][j] = prediction[n][0][j][i][x]
+        <front>_probs[i][j] = prediction[n][0][i][j][x]
         
         ### U-Net 3+ (3D) ###
-        <front>_probs[i][j] = prediction[0][0][j][i][l][x]
+        <front>_probs[i][j] = prediction[n][0][i][j][l][x]
         """
         if front_types == 'CFWF':
             for i in range(0, map_dim_x):
@@ -860,11 +869,11 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                 prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
 
-def make_random_predictions(model_number, model_dir, fronts_files_list, variables_files_list, predictions, normalization_method,
+def make_random_predictions(model_number, model_dir, front_files, variable_files, predictions, normalization_method,
     loss, fss_mask_size, fss_c, front_types, pixel_expansion, metric, num_dimensions, num_images, longitude_domain_length,
     image_trim):
     """
-    Function that makes random predictions using the provided model.
+    Function that makes random predictions using the provided model and an optional test_years argument.
 
     Parameters
     ----------
@@ -872,9 +881,9 @@ def make_random_predictions(model_number, model_dir, fronts_files_list, variable
         Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
         Main directory for the models.
-    fronts_files_list: list
+    front_files: list
         List of filenames that contain front data.
-    variables_files_list: list
+    variable_files: list
         List of filenames that contain variable data.
     predictions: int
         Number of random predictions to make.
@@ -934,9 +943,10 @@ def make_random_predictions(model_number, model_dir, fronts_files_list, variable
     for x in range(predictions):
 
         # Open random pair of files
-        index = random.choices(range(len(fronts_files_list) - 1), k=1)[0]
-        fronts_filename = fronts_files_list[index]
-        variables_filename = variables_files_list[index]
+        
+        index = random.choices(range(len(front_files) - 1), k=1)[0]
+        fronts_filename = front_files[index]
+        variables_filename = variable_files[index]
         fronts_ds = pd.read_pickle(fronts_filename)
 
         for i in range(num_images):
@@ -1026,13 +1036,13 @@ def make_random_predictions(model_number, model_dir, fronts_files_list, variable
               to the correct value for each front type.
             
             ### U-Net ###
-            <front>_probs[i][j] = prediction[0][j][i][x]
+            <front>_probs[i][j] = prediction[0][i][j][x]
             
             ### U-Net 3+ (2D) ###
-            <front>_probs[i][j] = prediction[n][0][j][i][x]
+            <front>_probs[i][j] = prediction[n][0][i][j][x]
             
             ### U-Net 3+ (3D) ###
-            <front>_probs[i][j] = prediction[0][0][j][i][l][x]
+            <front>_probs[i][j] = prediction[n][0][i][j][l][x]
             """
             if front_types == 'CFWF':
                 for i in range(0, map_dim_x):
@@ -1173,7 +1183,7 @@ def make_random_predictions(model_number, model_dir, fronts_files_list, variable
                     prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
 
-def plot_performance_diagrams(model_dir, model_number, front_types):
+def plot_performance_diagrams(model_dir, model_number, front_types, num_images, image_trim):
     """
     Plots CSI performance diagram for different front types.
 
@@ -1185,14 +1195,22 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
         Slurm job number for the model. This is the number in the model's filename.
     front_types: str
         Fronts in the data.
+    num_images: int
+        Number of images to stitch together for the final probability maps.
+    image_trim: int
+        Number of pixels to trim each image by in the longitude dimension before averaging the overlapping pixels.
     """
-    stats_25km = pd.read_pickle("%s/model_%d/model_%d_performance_stats_25km.pkl" % (model_dir, model_number, model_number))
-    stats_100km = pd.read_pickle("%s/model_%d/model_%d_performance_stats_100km.pkl" % (model_dir, model_number, model_number))
+    stats = pd.read_pickle("%s/model_%d/model_%d_performance_stats_%dimage_%dtrim.pkl" % (model_dir, model_number, model_number, num_images, image_trim))
+    stats_25km = stats.sel(boundary=25)
+    stats_50km = stats.sel(boundary=50)
+    stats_75km = stats.sel(boundary=75)
+    stats_100km = stats.sel(boundary=100)
 
+    # Code for performance diagram matrices sourced from Ryan Lagerquist's (lagerqui@ualberta.ca) thunderhoser repository:
+    # https://github.com/thunderhoser/GewitterGefahr/blob/master/gewittergefahr/plotting/model_eval_plotting.py
     success_ratio_matrix, pod_matrix = np.linspace(0,1,100), np.linspace(0,1,100)
     x, y = np.meshgrid(success_ratio_matrix, pod_matrix)
     csi_matrix = (x ** -1 + y ** -1 - 1.) ** -1
-
     CSI_LEVELS = np.linspace(0,1,11)
     cmap = 'Blues'
 
@@ -1200,52 +1218,78 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
         POD_cold_25km = stats_25km['tp_cold']/(stats_25km['tp_cold'] + stats_25km['fn_cold'])
         SR_cold_25km = stats_25km['tp_cold']/(stats_25km['tp_cold'] + stats_25km['fp_cold'])
         CSI_cold_25km = stats_25km['tp_cold']/(stats_25km['tp_cold'] + stats_25km['fp_cold'] + stats_25km['fn_cold'])
+        POD_cold_50km = stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fn_cold'])
+        SR_cold_50km = stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fp_cold'])
+        CSI_cold_50km = stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fp_cold'] + stats_50km['fn_cold'])
+        POD_cold_75km = stats_75km['tp_cold']/(stats_75km['tp_cold'] + stats_75km['fn_cold'])
+        SR_cold_75km = stats_75km['tp_cold']/(stats_75km['tp_cold'] + stats_75km['fp_cold'])
+        CSI_cold_75km = stats_75km['tp_cold']/(stats_75km['tp_cold'] + stats_75km['fp_cold'] + stats_75km['fn_cold'])
         POD_cold_100km = stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fn_cold'])
         SR_cold_100km = stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fp_cold'])
         CSI_cold_100km = stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fp_cold'] + stats_100km['fn_cold'])
         POD_warm_25km = stats_25km['tp_warm']/(stats_25km['tp_warm'] + stats_25km['fn_warm'])
         SR_warm_25km = stats_25km['tp_warm']/(stats_25km['tp_warm'] + stats_25km['fp_warm'])
         CSI_warm_25km = stats_25km['tp_warm']/(stats_25km['tp_warm'] + stats_25km['fp_warm'] + stats_25km['fn_warm'])
+        POD_warm_50km = stats_50km['tp_warm']/(stats_50km['tp_warm'] + stats_50km['fn_warm'])
+        SR_warm_50km = stats_50km['tp_warm']/(stats_50km['tp_warm'] + stats_50km['fp_warm'])
+        CSI_warm_50km = stats_50km['tp_warm']/(stats_50km['tp_warm'] + stats_50km['fp_warm'] + stats_50km['fn_warm'])
+        POD_warm_75km = stats_75km['tp_warm']/(stats_75km['tp_warm'] + stats_75km['fn_warm'])
+        SR_warm_75km = stats_75km['tp_warm']/(stats_75km['tp_warm'] + stats_75km['fp_warm'])
+        CSI_warm_75km = stats_75km['tp_warm']/(stats_75km['tp_warm'] + stats_75km['fp_warm'] + stats_75km['fn_warm'])
         POD_warm_100km = stats_100km['tp_warm']/(stats_100km['tp_warm'] + stats_100km['fn_warm'])
         SR_warm_100km = stats_100km['tp_warm']/(stats_100km['tp_warm'] + stats_100km['fp_warm'])
         CSI_warm_100km = stats_100km['tp_warm']/(stats_100km['tp_warm'] + stats_100km['fp_warm'] + stats_100km['fn_warm'])
 
-        fig = plt.figure()
+        plt.figure()
         plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
         plt.colorbar(label='Critical Success Index (CSI)')
-        plt.plot(SR_cold_25km, POD_cold_25km, 'r', label='25km boundary')
+        plt.plot(SR_cold_25km, POD_cold_25km, color='red', label='25km boundary')
         plt.plot(SR_cold_25km[np.where(CSI_cold_25km == np.max(CSI_cold_25km))], POD_cold_25km[np.where(CSI_cold_25km == np.max(CSI_cold_25km))], color='red', marker='*', markersize=9)
-        plt.text(SR_cold_25km[np.where(CSI_cold_25km == np.max(CSI_cold_25km))]+0.01, POD_cold_25km[np.where(CSI_cold_25km == np.max(CSI_cold_25km))], s=str('%.4f' % np.max(CSI_cold_25km)), color='red')
+        plt.text(0.01, 0.01, s=str('25km: %.4f' % np.max(CSI_cold_25km)), color='red')
+        plt.plot(SR_cold_50km, POD_cold_50km, color='purple', label='50km boundary')
+        plt.plot(SR_cold_50km[np.where(CSI_cold_50km == np.max(CSI_cold_50km))], POD_cold_50km[np.where(CSI_cold_50km == np.max(CSI_cold_50km))], color='purple', marker='*', markersize=9)
+        plt.text(0.01, 0.05, s=str('50km: %.4f' % np.max(CSI_cold_50km)), color='purple')
+        plt.plot(SR_cold_75km, POD_cold_75km, color='brown', label='75km boundary')
+        plt.plot(SR_cold_75km[np.where(CSI_cold_75km == np.max(CSI_cold_75km))], POD_cold_75km[np.where(CSI_cold_75km == np.max(CSI_cold_75km))], color='brown', marker='*', markersize=9)
+        plt.text(0.01, 0.09, s=str('75km: %.4f' % np.max(CSI_cold_75km)), color='brown')
         plt.plot(SR_cold_100km, POD_cold_100km, color='green', label='100km boundary')
         plt.plot(SR_cold_100km[np.where(CSI_cold_100km == np.max(CSI_cold_100km))], POD_cold_100km[np.where(CSI_cold_100km == np.max(CSI_cold_100km))], color='green', marker='*', markersize=9)
-        plt.text(SR_cold_100km[np.where(CSI_cold_100km == np.max(CSI_cold_100km))]+0.01, POD_cold_100km[np.where(CSI_cold_100km == np.max(CSI_cold_100km))], s=str('%.4f' % np.max(CSI_cold_100km)), color='green')
-        plt.legend()
+        plt.text(0.01, 0.13, s=str('100km: %.4f' % np.max(CSI_cold_100km)), color='green')
+        plt.text(0.01, 0.17, s='CSI values', style='oblique')
+        plt.legend(loc='upper right')
         plt.xlabel("Success Ratio (1 - FAR)")
         plt.ylabel("Probability of Detection (POD)")
         plt.title("Model %d Performance for Cold Fronts" % model_number)
         plt.xlim(0,1)
         plt.ylim(0,1)
         plt.show()
-        plt.savefig("%s/model_%d/model_%d_performance_cold.png" % (model_dir, model_number, model_number), bbox_inches='tight')
+        plt.savefig("%s/model_%d/model_%d_performance_cold_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
         plt.close()
 
-        fig = plt.figure()
+        plt.figure()
         plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
         plt.colorbar(label='Critical Success Index (CSI)')
-        plt.plot(SR_warm_25km, POD_warm_25km, 'r', label='25km boundary')
+        plt.plot(SR_warm_25km, POD_warm_25km, color='red', label='25km boundary')
         plt.plot(SR_warm_25km[np.where(CSI_warm_25km == np.max(CSI_warm_25km))], POD_warm_25km[np.where(CSI_warm_25km == np.max(CSI_warm_25km))], color='red', marker='*', markersize=9)
-        plt.text(SR_warm_25km[np.where(CSI_warm_25km == np.max(CSI_warm_25km))]+0.01, POD_warm_25km[np.where(CSI_warm_25km == np.max(CSI_warm_25km))], s=str('%.4f' % np.max(CSI_warm_25km)), color='red')
+        plt.text(0.01, 0.01, s=str('25km: %.4f' % np.max(CSI_warm_25km)), color='red')
+        plt.plot(SR_warm_50km, POD_warm_50km, color='purple', label='50km boundary')
+        plt.plot(SR_warm_50km[np.where(CSI_warm_50km == np.max(CSI_warm_50km))], POD_warm_50km[np.where(CSI_warm_50km == np.max(CSI_warm_50km))], color='purple', marker='*', markersize=9)
+        plt.text(0.01, 0.05, s=str('50km: %.4f' % np.max(CSI_warm_50km)), color='purple')
+        plt.plot(SR_warm_75km, POD_warm_75km, color='brown', label='75km boundary')
+        plt.plot(SR_warm_75km[np.where(CSI_warm_75km == np.max(CSI_warm_75km))], POD_warm_75km[np.where(CSI_warm_75km == np.max(CSI_warm_75km))], color='brown', marker='*', markersize=9)
+        plt.text(0.01, 0.09, s=str('75km: %.4f' % np.max(CSI_warm_75km)), color='brown')
         plt.plot(SR_warm_100km, POD_warm_100km, color='green', label='100km boundary')
         plt.plot(SR_warm_100km[np.where(CSI_warm_100km == np.max(CSI_warm_100km))], POD_warm_100km[np.where(CSI_warm_100km == np.max(CSI_warm_100km))], color='green', marker='*', markersize=9)
-        plt.text(SR_warm_100km[np.where(CSI_warm_100km == np.max(CSI_warm_100km))]+0.01, POD_warm_100km[np.where(CSI_warm_100km == np.max(CSI_warm_100km))], s=str('%.4f' % np.max(CSI_warm_100km)), color='green')
-        plt.legend()
+        plt.text(0.01, 0.13, s=str('100km: %.4f' % np.max(CSI_warm_100km)), color='green')
+        plt.text(0.01, 0.17, s='CSI values', style='oblique')
+        plt.legend(loc='upper right')
         plt.xlabel("Success Ratio (1 - FAR)")
         plt.ylabel("Probability of Detection (POD)")
         plt.title("Model %d Performance for Warm Fronts" % model_number)
         plt.xlim(0,1)
         plt.ylim(0,1)
         plt.show()
-        plt.savefig("%s/model_%d/model_%d_performance_warm.png" % (model_dir, model_number, model_number), bbox_inches='tight')
+        plt.savefig("%s/model_%d/model_%d_performance_warm_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
         plt.close()
 
         if front_types == 'ALL':
@@ -1268,7 +1312,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
             SR_dryline_100km = stats_100km['tp_dryline']/(stats_100km['tp_dryline'] + stats_100km['fp_dryline'])
             CSI_dryline_100km = stats_100km['tp_dryline']/(stats_100km['tp_dryline'] + stats_100km['fp_dryline'] + stats_100km['fn_dryline'])
 
-            fig = plt.figure()
+            plt.figure()
             plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
             plt.colorbar(label='Critical Success Index (CSI)')
             plt.plot(SR_stationary_25km, POD_stationary_25km, 'r', label='25km boundary')
@@ -1284,10 +1328,10 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
             plt.xlim(0,1)
             plt.ylim(0,1)
             plt.show()
-            plt.savefig("%s/model_%d/model_%d_performance_stationary.png" % (model_dir, model_number, model_number), bbox_inches='tight')
+            plt.savefig("%s/model_%d/model_%d_performance_stationary_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
-            fig = plt.figure()
+            plt.figure()
             plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
             plt.colorbar(label='Critical Success Index (CSI)')
             plt.plot(SR_occluded_25km, POD_occluded_25km, 'r', label='25km boundary')
@@ -1303,10 +1347,10 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
             plt.xlim(0,1)
             plt.ylim(0,1)
             plt.show()
-            plt.savefig("%s/model_%d/model_%d_performance_occluded.png" % (model_dir, model_number, model_number),bbox_inches='tight')
+            plt.savefig("%s/model_%d/model_%d_performance_occluded_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
-            fig = plt.figure()
+            plt.figure()
             plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
             plt.colorbar(label='Critical Success Index (CSI)')
             plt.plot(SR_dryline_25km, POD_dryline_25km, 'r', label='25km boundary')
@@ -1322,7 +1366,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
             plt.xlim(0,1)
             plt.ylim(0,1)
             plt.show()
-            plt.savefig("%s/model_%d/model_%d_performance_dryline.png" % (model_dir, model_number, model_number),bbox_inches='tight')
+            plt.savefig("%s/model_%d/model_%d_performance_dryline_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
     elif front_types == 'SFOF':
@@ -1339,7 +1383,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
         SR_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'])
         CSI_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'] + stats_100km['fn_occluded'])
 
-        fig = plt.figure()
+        plt.figure()
         plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
         plt.colorbar(label='Critical Success Index (CSI)')
         plt.plot(SR_stationary_25km, POD_stationary_25km, 'r', label='25km boundary')
@@ -1355,10 +1399,10 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
         plt.xlim(0,1)
         plt.ylim(0,1)
         plt.show()
-        plt.savefig("%s/model_%d/model_%d_performance_stationary.png" % (model_dir, model_number, model_number),bbox_inches='tight')
+        plt.savefig("%s/model_%d/model_%d_performance_stationary_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
         plt.close()
 
-        fig = plt.figure()
+        plt.figure()
         plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
         plt.colorbar(label='Critical Success Index (CSI)')
         plt.plot(SR_occluded_25km, POD_occluded_25km, 'r', label='25km boundary')
@@ -1374,7 +1418,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types):
         plt.xlim(0,1)
         plt.ylim(0,1)
         plt.show()
-        plt.savefig("%s/model_%d/model_%d_performance_occluded.png" % (model_dir, model_number, model_number),bbox_inches='tight')
+        plt.savefig("%s/model_%d/model_%d_performance_occluded_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
         plt.close()
 
 
@@ -1404,7 +1448,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     image_trim: int
         Number of pixels to trim each image by in the longitude dimension before averaging the overlapping pixels.
     """
-    extent = [220, 300, 29, 53]
+    extent = np.array([220, 300, 29, 53])
     crs = ccrs.LambertConformal(central_longitude=250)
 
     # Create custom colorbar for the different front types of the 'truth' plot
@@ -1439,7 +1483,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
     elif front_types == 'SFOF':
-        ig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
+        fig, axarr = plt.subplots(2, 1, figsize=(12, 14), subplot_kw={'projection': crs})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
@@ -1454,7 +1498,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
     elif front_types == 'DL':
-        ig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
+        fig, axarr = plt.subplots(2, 1, figsize=(12, 14), subplot_kw={'projection': crs})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
@@ -1467,7 +1511,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
     elif front_types == 'ALL':
-        ig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
+        fig, axarr = plt.subplots(2, 1, figsize=(12, 14), subplot_kw={'projection': crs})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
@@ -1484,12 +1528,14 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         plt.close()
 
 
-def learning_curve(model_number, model_dir, loss, fss_mask_size, fss_c, metric):
+def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_mask_size, fss_c, metric):
     """
     Function that plots learning curves for the specified model.
 
     Parameters
     ----------
+    include_validation_plots: bool
+        Include validation data in learning curve plots?
     model_number: int
         Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
@@ -1533,10 +1579,17 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, fss_c, metric):
         metric_title = 'Tversky coefficient'
         metric_string = 'tversky'
 
-    plt.subplots(1, 2, figsize=(14, 7), dpi=500)
+    if include_validation_plots is True:
+        nrows = 2
+        figsize = (14,12)
+    else:
+        nrows = 1
+        figsize = (14,7)
 
-    plt.subplot(1, 2, 1)
-    plt.title("Loss: %s" % loss_title)
+    plt.subplots(nrows, 2, figsize=figsize, dpi=500)
+
+    plt.subplot(nrows, 2, 1)
+    plt.title("Training loss: %s" % loss_title)
     plt.grid()
 
     """
@@ -1571,14 +1624,14 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, fss_c, metric):
     plt.plot(history['unet_output_final_activation_loss'], label='final')
     plt.plot(history['loss'], label='total', color='black')
 
-    plt.legend()
+    plt.legend(loc='lower left')
     plt.xlim(xmin=0)
     plt.xlabel('Epochs')
     plt.ylim(ymin=1e-6, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
-    plt.subplot(1, 2, 2)
-    plt.title("Metric: %s" % metric_title)
+    plt.subplot(nrows, 2, 2)
+    plt.title("Training metric: %s" % metric_title)
     plt.grid()
 
     """
@@ -1610,10 +1663,94 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, fss_c, metric):
     plt.plot(history['unet_output_sup4_activation_%s' % metric_string], label='sup4')
     plt.plot(history['unet_output_final_activation_%s' % metric_string], label='final', color='black')
 
-    plt.legend()
+    plt.legend(loc='lower left')
     plt.xlim(xmin=0)
     plt.xlabel('Epochs')
-    plt.ylim(ymin=0.99, ymax=1)  # Limits of the metric graph, adjust as needed
+    plt.ylim(ymin=1e-3, ymax=1e-1)  # Limits of the metric graph, adjust as needed
+    plt.yscale('log')
+
+    if include_validation_plots is True:
+        plt.subplot(nrows, 2, 3)
+        plt.title("Validation loss: %s" % loss_title)
+        plt.grid()
+
+        """
+        Validation loss curves: replace the line(s) below this block according to your U-Net type.
+        
+        ### U-Net ###
+        plt.plot(history['val_loss'], color='black')
+        
+        ### U-Net 3+ ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
+        plt.plot(history['val_unet_output_sup0_activation_loss'], label='sup0')
+        plt.plot(history['val_unet_output_sup1_activation_loss'], label='sup1')
+        plt.plot(history['val_unet_output_sup2_activation_loss'], label='sup2')
+        plt.plot(history['val_unet_output_sup3_activation_loss'], label='sup3')
+        plt.plot(history['val_unet_output_sup4_activation_loss'], label='sup4')
+        plt.plot(history['val_unet_output_final_activation_loss'], label='final')
+        plt.plot(history['val_loss'], label='total', color='black')
+    
+        ### U-Net 3+ (3D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
+        plt.plot(history['val_softmax_loss'], label='Encoder 6')
+        plt.plot(history['val_softmax_1_loss'], label='Decoder 5')
+        plt.plot(history['val_softmax_2_loss'], label='Decoder 4')
+        plt.plot(history['val_softmax_3_loss'], label='Decoder 3')
+        plt.plot(history['val_softmax_4_loss'], label='Decoder 2')
+        plt.plot(history['val_softmax_5_loss'], label='Decoder 1 (final)', color='black')
+        plt.plot(history['val_loss'], label='total', color='black')
+        """
+        plt.plot(history['val_unet_output_sup0_activation_loss'], label='sup0')
+        plt.plot(history['val_unet_output_sup1_activation_loss'], label='sup1')
+        plt.plot(history['val_unet_output_sup2_activation_loss'], label='sup2')
+        plt.plot(history['val_unet_output_sup3_activation_loss'], label='sup3')
+        plt.plot(history['val_unet_output_sup4_activation_loss'], label='sup4')
+        plt.plot(history['val_unet_output_final_activation_loss'], label='final')
+        plt.plot(history['val_loss'], label='total', color='black')
+
+        plt.legend(loc='lower left')
+        plt.xlim(xmin=0)
+        plt.xlabel('Epochs')
+        plt.ylim(ymin=1e-6, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
+        plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
+
+        plt.subplot(nrows, 2, 4)
+        plt.title("Validation metric: %s" % metric_title)
+        plt.grid()
+
+        """
+        Other metric curves: replace the line(s) below this block according to your U-Net type.
+        
+        ### U-Net ###
+        plt.plot(history['val_%s' % metric_string], 'r')
+        
+        ### U-Net 3+ (2D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
+        plt.plot(history['val_unet_output_sup0_activation_%s' % metric_string], label='sup0')
+        plt.plot(history['val_unet_output_sup1_activation_%s' % metric_string], label='sup1')
+        plt.plot(history['val_unet_output_sup2_activation_%s' % metric_string], label='sup2')
+        plt.plot(history['val_unet_output_sup3_activation_%s' % metric_string], label='sup3')
+        plt.plot(history['val_unet_output_sup4_activation_%s' % metric_string], label='sup4')
+        plt.plot(history['val_unet_output_final_activation_%s' % metric_string], label='final', color='black')
+    
+        ### U-Net 3+ (3D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
+        plt.plot(history['val_softmax_%s' % metric_string], label='Encoder 6')
+        plt.plot(history['val_softmax_1_%s' % metric_string], label='Decoder 5')
+        plt.plot(history['val_softmax_2_%s' % metric_string], label='Decoder 4')
+        plt.plot(history['val_softmax_3_%s' % metric_string], label='Decoder 3')
+        plt.plot(history['val_softmax_4_%s' % metric_string], label='Decoder 2')
+        plt.plot(history['val_softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
+        """
+        plt.plot(history['val_unet_output_sup0_activation_%s' % metric_string], label='sup0')
+        plt.plot(history['val_unet_output_sup1_activation_%s' % metric_string], label='sup1')
+        plt.plot(history['val_unet_output_sup2_activation_%s' % metric_string], label='sup2')
+        plt.plot(history['val_unet_output_sup3_activation_%s' % metric_string], label='sup3')
+        plt.plot(history['val_unet_output_sup4_activation_%s' % metric_string], label='sup4')
+        plt.plot(history['val_unet_output_final_activation_%s' % metric_string], label='final', color='black')
+
+        plt.legend(loc='lower left')
+        plt.xlim(xmin=0)
+        plt.xlabel('Epochs')
+        plt.ylim(ymin=1e-3, ymax=1e-1)  # Limits of the metric graph, adjust as needed
+        plt.yscale('log')
+
     plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
 
 
@@ -1637,6 +1774,8 @@ if __name__ == '__main__':
     parser.add_argument('--hour', type=int, required=False, help='Hour for the prediction.')
     parser.add_argument('--image_trim', type=int, required=False,
                         help='Number of pixels to trim the images for stitching before averaging overlapping pixels.')
+    parser.add_argument('--include_validation_plots', type=bool, required=False,
+                        help='Include validation data in learning curve plots?')
     parser.add_argument('--learning_curve', type=bool, required=False, help='Plot learning curve?')
     parser.add_argument('--longitude_domain_length', type=int, required=False,
                         help='Number of pixels in the longitude dimension of the final stitched map.')
@@ -1660,7 +1799,8 @@ if __name__ == '__main__':
     parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by.')
     parser.add_argument('--plot_performance_diagrams', type=bool, required=False, help='Plot performance diagrams for a model?')
     parser.add_argument('--predictions', type=int, required=False, help='Number of predictions to make.')
-    parser.add_argument('--test_year', type=int, required=False, help='Test year for cross-validating the current model.')
+    parser.add_argument('--test_years', type=int, nargs="+", required=False,
+                        help='Test years for cross-validating the current model or making predictions.')
     parser.add_argument('--year', type=int, required=False, help='Year for the prediction.')
 
     args = parser.parse_args()
@@ -1685,11 +1825,8 @@ if __name__ == '__main__':
                 "model_number, normalization_method, num_dimensions, num_images, num_variables, pixel_expansion")
         else:
             calculate_performance_stats(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
-                args.domain, args.file_dimensions, args.test_year, args.normalization_method, args.loss, args.fss_mask_size,
+                args.domain, args.file_dimensions, args.test_years, args.normalization_method, args.loss, args.fss_mask_size,
                 args.fss_c, args.pixel_expansion, args.metric, args.num_images, args.longitude_domain_length, args.image_trim)
-    else:
-        if args.test_year is not None:
-            raise errors.ExtraArgumentError("cross_validate is False but the following argument was provided: test_year")
 
     if args.find_matches is True:
         if args.longitude_domain_length is None or args.model_longitude_length is None:
@@ -1699,11 +1836,12 @@ if __name__ == '__main__':
             find_matches_for_domain(args.longitude_domain_length, args.model_longitude_length)
 
     if args.learning_curve is True:
-        if args.model_number is None or args.model_dir is None or args.loss is None or args.metric is None:
+        if args.model_number is None or args.model_dir is None or args.loss is None or args.metric is None or \
+            args.include_validation_plots is None:
             raise errors.MissingArgumentError("If learning_curve is True, the following arguments must be passed: "
-                                              "loss, metric, model_dir, model_number")
+                                              "include_validation_plots, loss, metric, model_dir, model_number")
         else:
-            learning_curve(args.model_number, args.model_dir, args.loss, args.fss_mask_size, args.fss_c, args.metric)
+            learning_curve(args.include_validation_plots, args.model_number, args.model_dir, args.loss, args.fss_mask_size, args.fss_c, args.metric)
 
     if args.make_prediction is True:
         if args.model_number is None or args.model_dir is None or args.num_variables is None or args.num_dimensions is None or \
@@ -1716,9 +1854,9 @@ if __name__ == '__main__':
                 "month, normalization_method, num_dimensions, num_images, num_variables, pixel_expansion, image_trim, "
                 "year")
         else:
-            fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
+            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
                 args.file_dimensions)
-            make_prediction(args.model_number, args.model_dir, fronts_files_list, variables_files_list, args.normalization_method,
+            make_prediction(args.model_number, args.model_dir, front_files, variable_files, args.normalization_method,
                 args.loss, args.fss_mask_size, args.fss_c, args.front_types, args.pixel_expansion, args.metric, args.num_dimensions,
                 args.num_images, args.longitude_domain_length, args.image_trim, args.year, args.month, args.day, args.hour)
 
@@ -1731,9 +1869,12 @@ if __name__ == '__main__':
                 "domain, file_dimensions, front_types, image_trim, longitude_domain_length, loss, metric, model_dir, model_number, "
                 "normalization_method, num_dimensions, num_images, num_variables, pixel_expansion, predictions")
         else:
-            fronts_files_list, variables_files_list = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
-                args.file_dimensions)
-            make_random_predictions(args.model_number, args.model_dir, fronts_files_list, variables_files_list, args.predictions,
+            if args.test_years is not None:
+                front_files, variable_files = fm.load_test_files(args.num_variables, args.front_types, args.domain, args.file_dimensions, args.test_years)
+            else:
+                front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
+                    args.file_dimensions)
+            make_random_predictions(args.model_number, args.model_dir, front_files, variable_files, args.predictions,
                 args.normalization_method, args.loss, args.fss_mask_size, args.fss_c, args.front_types, args.pixel_expansion,
                 args.metric, args.num_dimensions, args.num_images, args.longitude_domain_length, args.image_trim)
     else:
@@ -1745,4 +1886,4 @@ if __name__ == '__main__':
             raise errors.MissingArgumentError("If plot_performance_diagrams is True, the following arguments must be passed: "
                 "front_types, model_dir, model_number")
         else:
-            plot_performance_diagrams(args.model_dir, args.model_number, args.front_types)
+            plot_performance_diagrams(args.model_dir, args.model_number, args.front_types, args.num_images, args.image_trim)
