@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/23/2021 7:45 PM CDT
+Last updated: 9/23/2021 8:20 PM CDT
 """
 
 import random
@@ -1647,37 +1647,24 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
     plt.title("Training loss: %s" % loss_title)
     plt.grid()
 
-    """
-    Loss curves: replace the line(s) below this block according to your U-Net type.
-    
-    ### U-Net ###
-    plt.plot(history['loss'], color='black')
-    
-    ### U-Net 3+ ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-    plt.plot(history['unet_output_sup0_activation_loss'], label='sup0')
-    plt.plot(history['unet_output_sup1_activation_loss'], label='sup1')
-    plt.plot(history['unet_output_sup2_activation_loss'], label='sup2')
-    plt.plot(history['unet_output_sup3_activation_loss'], label='sup3')
-    plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
-    plt.plot(history['unet_output_final_activation_loss'], label='final')
-    plt.plot(history['loss'], label='total', color='black')
-
-    ### U-Net 3+ (3D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-    plt.plot(history['softmax_loss'], label='Encoder 6')
-    plt.plot(history['softmax_1_loss'], label='Decoder 5')
-    plt.plot(history['softmax_2_loss'], label='Decoder 4')
-    plt.plot(history['softmax_3_loss'], label='Decoder 3')
-    plt.plot(history['softmax_4_loss'], label='Decoder 2')
-    plt.plot(history['softmax_5_loss'], label='Decoder 1 (final)', color='black')
-    plt.plot(history['loss'], label='total', color='black')
-    """
-    plt.plot(history['softmax_loss'], label='Encoder 6')
-    plt.plot(history['softmax_1_loss'], label='Decoder 5')
-    plt.plot(history['softmax_2_loss'], label='Decoder 4')
-    plt.plot(history['softmax_3_loss'], label='Decoder 3')
-    plt.plot(history['softmax_4_loss'], label='Decoder 2')
-    plt.plot(history['softmax_5_loss'], label='Decoder 1 (final)', color='black')
-    plt.plot(history['loss'], label='total', color='black')
+    if 'softmax_loss' in history:
+        plt.plot(history['softmax_loss'], label='Encoder 6')
+        plt.plot(history['softmax_1_loss'], label='Decoder 5')
+        plt.plot(history['softmax_2_loss'], label='Decoder 4')
+        plt.plot(history['softmax_3_loss'], label='Decoder 3')
+        plt.plot(history['softmax_4_loss'], label='Decoder 2')
+        plt.plot(history['softmax_5_loss'], label='Decoder 1 (final)', color='black')
+        plt.plot(history['loss'], label='total', color='black')
+    elif 'unet_output_final_activation_loss' in history:
+        plt.plot(history['unet_output_sup0_activation_loss'], label='sup0')
+        plt.plot(history['unet_output_sup1_activation_loss'], label='sup1')
+        plt.plot(history['unet_output_sup2_activation_loss'], label='sup2')
+        plt.plot(history['unet_output_sup3_activation_loss'], label='sup3')
+        plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
+        plt.plot(history['unet_output_final_activation_loss'], label='final')
+        plt.plot(history['loss'], label='total', color='black')
+    else:
+        plt.plot(history['loss'], color='black')
 
     plt.legend(loc='best')
     plt.xlim(xmin=0)
@@ -1689,34 +1676,22 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
     plt.title("Training metric: %s" % metric_title)
     plt.grid()
 
-    """
-    Other metric curves: replace the line(s) below this block according to your U-Net type.
-    
-    ### U-Net ###
-    plt.plot(history[metric_string], 'r')
-    
-    ### U-Net 3+ (2D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-    plt.plot(history['unet_output_sup0_activation_%s' % metric_string], label='sup0')
-    plt.plot(history['unet_output_sup1_activation_%s' % metric_string], label='sup1')
-    plt.plot(history['unet_output_sup2_activation_%s' % metric_string], label='sup2')
-    plt.plot(history['unet_output_sup3_activation_%s' % metric_string], label='sup3')
-    plt.plot(history['unet_output_sup4_activation_%s' % metric_string], label='sup4')
-    plt.plot(history['unet_output_final_activation_%s' % metric_string], label='final', color='black')
-
-    ### U-Net 3+ (3D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-    plt.plot(history['softmax_%s' % metric_string], label='Encoder 6')
-    plt.plot(history['softmax_1_%s' % metric_string], label='Decoder 5')
-    plt.plot(history['softmax_2_%s' % metric_string], label='Decoder 4')
-    plt.plot(history['softmax_3_%s' % metric_string], label='Decoder 3')
-    plt.plot(history['softmax_4_%s' % metric_string], label='Decoder 2')
-    plt.plot(history['softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
-    """
-    plt.plot(history['softmax_%s' % metric_string], label='Encoder 6')
-    plt.plot(history['softmax_1_%s' % metric_string], label='Decoder 5')
-    plt.plot(history['softmax_2_%s' % metric_string], label='Decoder 4')
-    plt.plot(history['softmax_3_%s' % metric_string], label='Decoder 3')
-    plt.plot(history['softmax_4_%s' % metric_string], label='Decoder 2')
-    plt.plot(history['softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
+    if 'softmax_loss' in history:
+        plt.plot(history['softmax_%s' % metric_string], label='Encoder 6')
+        plt.plot(history['softmax_1_%s' % metric_string], label='Decoder 5')
+        plt.plot(history['softmax_2_%s' % metric_string], label='Decoder 4')
+        plt.plot(history['softmax_3_%s' % metric_string], label='Decoder 3')
+        plt.plot(history['softmax_4_%s' % metric_string], label='Decoder 2')
+        plt.plot(history['softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
+    elif 'unet_output_final_activation_loss' in history:
+        plt.plot(history['unet_output_sup0_activation_%s' % metric_string], label='sup0')
+        plt.plot(history['unet_output_sup1_activation_%s' % metric_string], label='sup1')
+        plt.plot(history['unet_output_sup2_activation_%s' % metric_string], label='sup2')
+        plt.plot(history['unet_output_sup3_activation_%s' % metric_string], label='sup3')
+        plt.plot(history['unet_output_sup4_activation_%s' % metric_string], label='sup4')
+        plt.plot(history['unet_output_final_activation_%s' % metric_string], label='final', color='black')
+    else:
+        plt.plot(history[metric_string], 'r')
 
     plt.legend(loc='best')
     plt.xlim(xmin=0)
@@ -1729,37 +1704,24 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         plt.title("Validation loss: %s" % loss_title)
         plt.grid()
 
-        """
-        Validation loss curves: replace the line(s) below this block according to your U-Net type.
-        
-        ### U-Net ###
-        plt.plot(history['val_loss'], color='black')
-        
-        ### U-Net 3+ ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-        plt.plot(history['val_unet_output_sup0_activation_loss'], label='sup0')
-        plt.plot(history['val_unet_output_sup1_activation_loss'], label='sup1')
-        plt.plot(history['val_unet_output_sup2_activation_loss'], label='sup2')
-        plt.plot(history['val_unet_output_sup3_activation_loss'], label='sup3')
-        plt.plot(history['val_unet_output_sup4_activation_loss'], label='sup4')
-        plt.plot(history['val_unet_output_final_activation_loss'], label='final')
-        plt.plot(history['val_loss'], label='total', color='black')
-    
-        ### U-Net 3+ (3D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-        plt.plot(history['val_softmax_loss'], label='Encoder 6')
-        plt.plot(history['val_softmax_1_loss'], label='Decoder 5')
-        plt.plot(history['val_softmax_2_loss'], label='Decoder 4')
-        plt.plot(history['val_softmax_3_loss'], label='Decoder 3')
-        plt.plot(history['val_softmax_4_loss'], label='Decoder 2')
-        plt.plot(history['val_softmax_5_loss'], label='Decoder 1 (final)', color='black')
-        plt.plot(history['val_loss'], label='total', color='black')
-        """
-        plt.plot(history['val_softmax_loss'], label='Encoder 6')
-        plt.plot(history['val_softmax_1_loss'], label='Decoder 5')
-        plt.plot(history['val_softmax_2_loss'], label='Decoder 4')
-        plt.plot(history['val_softmax_3_loss'], label='Decoder 3')
-        plt.plot(history['val_softmax_4_loss'], label='Decoder 2')
-        plt.plot(history['val_softmax_5_loss'], label='Decoder 1 (final)', color='black')
-        plt.plot(history['val_loss'], label='total', color='black')
+        if 'softmax_loss' in history:
+            plt.plot(history['val_softmax_loss'], label='Encoder 6')
+            plt.plot(history['val_softmax_1_loss'], label='Decoder 5')
+            plt.plot(history['val_softmax_2_loss'], label='Decoder 4')
+            plt.plot(history['val_softmax_3_loss'], label='Decoder 3')
+            plt.plot(history['val_softmax_4_loss'], label='Decoder 2')
+            plt.plot(history['val_softmax_5_loss'], label='Decoder 1 (final)', color='black')
+            plt.plot(history['val_loss'], label='total', color='black')
+        elif 'unet_output_final_activation_loss' in history:
+            plt.plot(history['val_unet_output_sup0_activation_loss'], label='sup0')
+            plt.plot(history['val_unet_output_sup1_activation_loss'], label='sup1')
+            plt.plot(history['val_unet_output_sup2_activation_loss'], label='sup2')
+            plt.plot(history['val_unet_output_sup3_activation_loss'], label='sup3')
+            plt.plot(history['val_unet_output_sup4_activation_loss'], label='sup4')
+            plt.plot(history['val_unet_output_final_activation_loss'], label='final')
+            plt.plot(history['val_loss'], label='total', color='black')
+        else:
+            plt.plot(history['val_loss'], color='black')
 
         plt.legend(loc='best')
         plt.xlim(xmin=0)
@@ -1771,34 +1733,22 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         plt.title("Validation metric: %s" % metric_title)
         plt.grid()
 
-        """
-        Other metric curves: replace the line(s) below this block according to your U-Net type.
-        
-        ### U-Net ###
-        plt.plot(history['val_%s' % metric_string], 'r')
-        
-        ### U-Net 3+ (2D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-        plt.plot(history['val_unet_output_sup0_activation_%s' % metric_string], label='sup0')
-        plt.plot(history['val_unet_output_sup1_activation_%s' % metric_string], label='sup1')
-        plt.plot(history['val_unet_output_sup2_activation_%s' % metric_string], label='sup2')
-        plt.plot(history['val_unet_output_sup3_activation_%s' % metric_string], label='sup3')
-        plt.plot(history['val_unet_output_sup4_activation_%s' % metric_string], label='sup4')
-        plt.plot(history['val_unet_output_final_activation_%s' % metric_string], label='final', color='black')
-    
-        ### U-Net 3+ (3D) ### (Make sure you know if you need to remove or add lines - refer on your U-Net's architecture)
-        plt.plot(history['val_softmax_%s' % metric_string], label='Encoder 6')
-        plt.plot(history['val_softmax_1_%s' % metric_string], label='Decoder 5')
-        plt.plot(history['val_softmax_2_%s' % metric_string], label='Decoder 4')
-        plt.plot(history['val_softmax_3_%s' % metric_string], label='Decoder 3')
-        plt.plot(history['val_softmax_4_%s' % metric_string], label='Decoder 2')
-        plt.plot(history['val_softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
-        """
-        plt.plot(history['val_softmax_%s' % metric_string], label='Encoder 6')
-        plt.plot(history['val_softmax_1_%s' % metric_string], label='Decoder 5')
-        plt.plot(history['val_softmax_2_%s' % metric_string], label='Decoder 4')
-        plt.plot(history['val_softmax_3_%s' % metric_string], label='Decoder 3')
-        plt.plot(history['val_softmax_4_%s' % metric_string], label='Decoder 2')
-        plt.plot(history['val_softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
+        if 'softmax_loss' in history:
+            plt.plot(history['val_softmax_%s' % metric_string], label='Encoder 6')
+            plt.plot(history['val_softmax_1_%s' % metric_string], label='Decoder 5')
+            plt.plot(history['val_softmax_2_%s' % metric_string], label='Decoder 4')
+            plt.plot(history['val_softmax_3_%s' % metric_string], label='Decoder 3')
+            plt.plot(history['val_softmax_4_%s' % metric_string], label='Decoder 2')
+            plt.plot(history['val_softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
+        elif 'unet_output_final_activation_loss' in history:
+            plt.plot(history['val_unet_output_sup0_activation_%s' % metric_string], label='sup0')
+            plt.plot(history['val_unet_output_sup1_activation_%s' % metric_string], label='sup1')
+            plt.plot(history['val_unet_output_sup2_activation_%s' % metric_string], label='sup2')
+            plt.plot(history['val_unet_output_sup3_activation_%s' % metric_string], label='sup3')
+            plt.plot(history['val_unet_output_sup4_activation_%s' % metric_string], label='sup4')
+            plt.plot(history['val_unet_output_final_activation_%s' % metric_string], label='final', color='black')
+        else:
+            plt.plot(history['val_%s' % metric_string], 'r')
 
         plt.legend(loc='best')
         plt.xlim(xmin=0)
