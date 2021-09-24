@@ -2,7 +2,7 @@
 Function used to plot all variables for a given time using pickle files. Each variable plot is saved in its own file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2021 3:46 PM CDT
+Last updated: 9/23/2021 8:24 PM CDT
 """
 
 import matplotlib.pyplot as plt
@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import file_manager as fm
+import matplotlib
+matplotlib.use('Agg')
 
 
 def plot_surface_background(extent):
@@ -57,13 +59,11 @@ if __name__ == "__main__":
                         help='Front format of the file. If your files contain warm and cold fronts, pass this argument '
                              'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
                              'contain all fronts, pass this argument as ALL.')
-    parser.add_argument('--image_outdir', type=str, required=False, help="output directory for image files")
-    
+    parser.add_argument('--image_outdir', type=str, required=True, help="output directory for image files")
+
     args = parser.parse_args()
 
-    print(args)
-
-    extent = [args.extent[0], args.extent[1], args.extent[2], args.extent[3]]
+    extent = np.array([args.extent[0], args.extent[1], args.extent[2], args.extent[3]])
 
     front_file_list, variable_file_list = fm.load_file_lists(num_variables=60, front_types=args.front_types, domain=args.domain, file_dimensions=args.file_dimensions)
 
@@ -80,63 +80,60 @@ if __name__ == "__main__":
 
     variable_list = list(variable_ds.keys())
 
+    norm_temp = mpl.colors.Normalize(vmin=265,vmax=310)
+    norm_dewpoint = mpl.colors.Normalize(vmin=270,vmax=300)
+    norm_theta_w = mpl.colors.Normalize(vmin=280,vmax=300)
+    norm_theta_e = mpl.colors.Normalize(vmin=290,vmax=350)
+    norm_wet_bulb = mpl.colors.Normalize(vmin=270,vmax=300)
+    norm_mix_ratio_q = mpl.colors.Normalize(vmin=0,vmax=0.02)
+    norm_virt_temp = mpl.colors.Normalize(vmin=270,vmax=315)
+    norm_sp = mpl.colors.Normalize(vmin=96000,vmax=103000)
+
     for var in variable_list:
+        print("Generating %s map....             " % var, end='\r')
         ax = plot_surface_background(extent)
         if var == 't2m' or var == 't_1000' or var == 't_950' or var == 't_900' or var == 't_850':
             cmap = 'jet'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['t2m','t_1000','t_950','t_900','t_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['t2m','t_1000','t_950','t_900','t_850']].to_array()))
+            norm = norm_temp
         elif var == 'd2m' or var == 'd_1000' or var == 'd_950' or var == 'd_900' or var == 'd_850':
             cmap = 'terrain_r'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['d2m','d_1000','d_950','d_900','d_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['d2m','d_1000','d_950','d_900','d_850']].to_array()))
+            norm = norm_dewpoint
         elif var == 'rel_humid' or var == 'rel_humid_1000' or var == 'rel_humid_950' or var == 'rel_humid_900' or var == 'rel_humid_850':
             cmap = 'terrain_r'
             norm = mpl.colors.Normalize(vmin=0,vmax=1)
         elif var == 'mix_ratio' or var == 'mix_ratio_1000' or var == 'mix_ratio_950' or var == 'mix_ratio_900' or var == 'mix_ratio_850':
             cmap = 'terrain_r'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['mix_ratio','mix_ratio_1000','mix_ratio_950','mix_ratio_900','mix_ratio_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['mix_ratio','mix_ratio_1000','mix_ratio_950','mix_ratio_900','mix_ratio_850']].to_array()))
+            norm = norm_mix_ratio_q
         elif var == 'q' or var == 'q_1000' or var == 'q_950' or var == 'q_900' or var == 'q_850':
             cmap = 'terrain_r'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['q','q_1000','q_950','q_900','q_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['q','q_1000','q_950','q_900','q_850']].to_array()))
+            norm = norm_mix_ratio_q
         elif var == 'wet_bulb' or var == 'wet_bulb_1000' or var == 'wet_bulb_950' or var == 'wet_bulb_900' or var == 'wet_bulb_850':
             cmap = 'terrain_r'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['wet_bulb','wet_bulb_1000','wet_bulb_950','wet_bulb_900','wet_bulb_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['wet_bulb','wet_bulb_1000','wet_bulb_950','wet_bulb_900','wet_bulb_850']].to_array()))
+            norm = norm_wet_bulb
         elif var == 'theta_w' or var == 'theta_w_1000' or var == 'theta_w_950' or var == 'theta_w_900' or var == 'theta_w_850':
             cmap = 'terrain_r'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['theta_w','theta_w_1000','theta_w_950','theta_w_900','theta_w_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['theta_w','theta_w_1000','theta_w_950','theta_w_900','theta_w_850']].to_array()))
+            norm = norm_theta_w
         elif var == 'theta_e' or var == 'theta_e_1000' or var == 'theta_e_950' or var == 'theta_e_900' or var == 'theta_e_850':
             cmap = 'terrain_r'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['theta_e','theta_e_1000','theta_e_950','theta_e_900','theta_e_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['theta_e','theta_e_1000','theta_e_950','theta_e_900','theta_e_850']].to_array()))
+            norm = norm_theta_e
         elif var == 'virt_temp' or var == 'virt_temp_1000' or var == 'virt_temp_950' or var == 'virt_temp_900' or var == 'virt_temp_850':
             cmap = 'terrain_r'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['virt_temp','virt_temp_1000','virt_temp_950','virt_temp_900','virt_temp_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['virt_temp','virt_temp_1000','virt_temp_950','virt_temp_900','virt_temp_850']].to_array()))
-        elif var == 'q' or var == 'q_1000' or var == 'q_950' or var == 'q_900' or var == 'q_850':
-            cmap = 'terrain_r'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds[['q','q_1000','q_950','q_900','q_850']].to_array()),
-                                        vmax=np.nanmax(variable_ds[['q','q_1000','q_950','q_900','q_850']].to_array()))
+            norm = norm_virt_temp
         elif var == 'z_1000':
             cmap = 'viridis'
-            norm = mpl.colors.Normalize(vmin=1000, vmax=4000)
+            norm = mpl.colors.Normalize(vmin=1000, vmax=2500)
         elif var == 'z_950':
             cmap = 'viridis'
-            norm = mpl.colors.Normalize(vmin=4000, vmax=8000)
+            norm = mpl.colors.Normalize(vmin=4000, vmax=7000)
         elif var == 'z_900':
             cmap = 'viridis'
-            norm = mpl.colors.Normalize(vmin=8000, vmax=12000)
+            norm = mpl.colors.Normalize(vmin=8000, vmax=11000)
         elif var == 'z_850':
             cmap = 'viridis'
             norm = mpl.colors.Normalize(vmin=12000, vmax=16000)
         elif var == 'sp':
             cmap = 'viridis'
-            norm = mpl.colors.Normalize(vmin=np.nanmin(variable_ds['sp']),
-                                        vmax=np.nanmax(variable_ds['sp']))
+            norm = norm_sp
         elif var == 'v10' or var == 'v_1000' or var == 'v_950' or var == 'v_900' or var == 'v_850':
             cmap = 'seismic'
             norm = mpl.colors.Normalize(vmin=-25, vmax=25)
@@ -144,10 +141,43 @@ if __name__ == "__main__":
             cmap = 'seismic'
             norm = mpl.colors.Normalize(vmin=-25, vmax=25)
 
+        if var == 't2m' or var == 'd2m' or var == 'sp' or var == 'q' or var == 'rel_humid' or var == 'mixing_ratio' or var == 'theta_w' or \
+            var == 'theta_e' or var == 'wet_bulb' or var == 'virt_temp' or var == 'u10' or var == 'v10':
+            barbs_longitude = variable_ds.longitude.values[::8]
+            barbs_latitude = variable_ds.latitude.values[::8]
+            barbs_u = variable_ds.u10.values[::8, ::8]
+            barbs_v = variable_ds.v10.values[::8, ::8]
+        elif var == 't_1000' or var == 'd_1000' or var == 'z_1000' or var == 'q_1000' or var == 'rel_humid_1000' or var == 'mixing_ratio_1000' or \
+            var == 'theta_w_1000' or var == 'theta_e_1000' or var == 'wet_bulb_1000' or var == 'virt_temp_1000' or var == 'u_1000' or var == 'v_1000':
+            barbs_longitude = variable_ds.longitude.values[::8]
+            barbs_latitude = variable_ds.latitude.values[::8]
+            barbs_u = variable_ds.u_1000.values[::8, ::8]
+            barbs_v = variable_ds.v_1000.values[::8, ::8]
+        elif var == 't_950' or var == 'd_950' or var == 'z_950' or var == 'q_950' or var == 'rel_humid_950' or var == 'mixing_ratio_950' or \
+            var == 'theta_w_950' or var == 'theta_e_950' or var == 'wet_bulb_950' or var == 'virt_temp_950' or var == 'u_950' or var == 'v_950':
+            barbs_longitude = variable_ds.longitude.values[::8]
+            barbs_latitude = variable_ds.latitude.values[::8]
+            barbs_u = variable_ds.u_950.values[::8, ::8]
+            barbs_v = variable_ds.v_950.values[::8, ::8]
+        elif var == 't_900' or var == 'd_900' or var == 'z_900' or var == 'q_900' or var == 'rel_humid_900' or var == 'mixing_ratio_900' or \
+            var == 'theta_w_900' or var == 'theta_e_900' or var == 'wet_bulb_900' or var == 'virt_temp_900' or var == 'u_900' or var == 'v_900':
+            barbs_longitude = variable_ds.longitude.values[::8]
+            barbs_latitude = variable_ds.latitude.values[::8]
+            barbs_u = variable_ds.u_900.values[::8, ::8]
+            barbs_v = variable_ds.v_900.values[::8, ::8]
+        elif var == 't_850' or var == 'd_850' or var == 'z_850' or var == 'q_850' or var == 'rel_humid_850' or var == 'mixing_ratio_850' or \
+            var == 'theta_w_850' or var == 'theta_e_850' or var == 'wet_bulb_850' or var == 'virt_temp_850' or var == 'u_850' or var == 'v_850':
+            barbs_longitude = variable_ds.longitude.values[::8]
+            barbs_latitude = variable_ds.latitude.values[::8]
+            barbs_u = variable_ds.u_850.values[::8, ::8]
+            barbs_v = variable_ds.v_850.values[::8, ::8]
+
+        plt.barbs(barbs_longitude, barbs_latitude, u=barbs_u*1.94384, v=barbs_v*1.94384, linewidth=0.3,
+                 color='black', length=4, sizes={'height': 0.5, 'width': 0}, transform=ccrs.PlateCarree())
         variable_ds[var].plot(ax=ax, x='longitude', y='latitude', cmap=cmap, norm=norm, alpha=0.5, transform=ccrs.PlateCarree())
 
         cmap_front = mpl.colors.ListedColormap(["none","blue","red",'green','purple','orange'], name='from_list', N=None)
         norm_front = mpl.colors.Normalize(vmin=0,vmax=6)
-        front_ds['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree())
+        front_ds['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
         plt.savefig('%s/%d/%02d/%02d/%02d/%d-%02d-%02d-%02dz_%s_plot.png' % (args.image_outdir, args.year, args.month, args.day, args.hour, args.year, args.month, args.day, args.hour, var), bbox_inches='tight', dpi=400)
         plt.close()
