@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/18/2021 6:07 PM CDT
+Last updated: 9/23/2021 7:45 PM CDT
 """
 
 import random
@@ -14,7 +14,7 @@ import numpy as np
 import file_manager as fm
 import Fronts_Aggregate_Plot as fplot
 import xarray as xr
-import errors
+from errors import check_arguments
 import pickle
 import matplotlib as mpl
 from expand_fronts import one_pixel_expansion as ope
@@ -70,31 +70,27 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         front_files, variable_files = fm.load_file_lists(num_variables, front_types, domain, file_dimensions)
     
     print("Front file count:", len(front_files))
-    
     print("Variable file count:", len(variable_files))
 
     model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
 
+    n = 0  # Counter for the number of down layers in the model
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
     if num_dimensions == 2:
+        for layer in model.layers:
+            if layer.__class__.__name__ == 'MaxPooling2D':
+                n += 1
+        n = int((n - 1)/2)
         channels = model.layers[0].input_shape[0][3]  # Number of variables used
     if num_dimensions == 3:
-        levels = model.layers[0].input_shape[0][3]
+        for layer in model.layers:
+            if layer.__class__.__name__ == 'MaxPooling3D':
+                n += 1
+        n = int((n - 1)/2)
+        levels = model.layers[0].input_shape[0][3]  # Number of levels to the U-Net variables
         channels = model.layers[0].input_shape[0][4]
 
-    """
-    IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
-    
-    If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
-        norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
-    
-    For all models created AFTER August 5, 2021, import the parameters as follows:
-        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
-        
-    If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
-    the wrong normalization parameters.
-    """
     norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
     tp_cold = np.zeros(shape=[4,100])
@@ -128,7 +124,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
     image_spacing = int((longitude_domain_length - model_longitude_length)/(num_images-1))
     latitude_domain_length = 128
 
-    for x in range(len(front_files)):
+    for x in range(2):
         
         print("Prediction %d/%d....0/%d" % (x+1, len(front_files), num_images), end='\r')
 
@@ -159,7 +155,6 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         image_stationary_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
         image_occluded_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
         image_dryline_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
-        fronts = fronts_ds.sel(longitude=fronts_ds.longitude.values[image_trim:longitude_domain_length-image_trim], latitude=fronts_ds.latitude.values[0:128])
         image_lats = fronts_ds.latitude.values[0:128]
         image_lons = fronts_ds.longitude.values[image_trim:longitude_domain_length-image_trim]
 
@@ -220,31 +215,21 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
             thresholds = np.linspace(0.01,1,100)
             boundaries = np.array([25,50,75,100])
 
-            """
-            Reformatting predictions: change the lines inside the loops according to your U-Net type.
-            
-            - <front> is the front type
-            - i and j are loop indices, do NOT change these
-            - n is the number of down layers in the model
-            - l is the level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
-            - x is the index of the front type in the softmax output. Refer to your data and the model structure to set this
-              to the correct value for each front type.
-            
-            ### U-Net ###
-            <front>_probs[i][j] = prediction[0][j][i][x]
-            
-            ### U-Net 3+ (2D) ###
-            <front>_probs[i][j] = prediction[n][0][j][i][x]
-            
-            ### U-Net 3+ (3D) ###
-            <front>_probs[i][j] = prediction[n][0][j][i][l][x]
-            """
             if front_types == 'CFWF':
-                for i in range(0, map_dim_x):
-                    for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[5][0][i][j][0]
-                        cold_probs[i][j] = prediction[5][0][i][j][1]
-                        warm_probs[i][j] = prediction[5][0][i][j][2]
+                if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    print(model.name, "n =", n)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][0]
+                            cold_probs[i][j] = prediction[n][0][i][j][1]
+                            warm_probs[i][j] = prediction[n][0][i][j][2]
+                if model.name == '3plus3D':
+                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][l][0]
+                            cold_probs[i][j] = prediction[n][0][i][j][l][1]
+                            warm_probs[i][j] = prediction[n][0][i][j][l][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -302,11 +287,19 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                     print("Prediction %d/%d....done" % (x+1, len(front_files)))
 
             elif front_types == 'SFOF':
-                for i in range(0, map_dim_x):
-                    for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[5][0][i][j][0]
-                        stationary_probs[i][j] = prediction[5][0][i][j][1]
-                        occluded_probs[i][j] = prediction[5][0][i][j][2]
+                if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][0]
+                            stationary_probs[i][j] = prediction[n][0][i][j][1]
+                            occluded_probs[i][j] = prediction[n][0][i][j][2]
+                if model.name == '3plus3D':
+                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][l][0]
+                            stationary_probs[i][j] = prediction[n][0][i][j][l][1]
+                            occluded_probs[i][j] = prediction[n][0][i][j][l][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -331,36 +324,48 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         {"no_probs": (("longitude", "latitude"), image_no_probs), "stationary_probs": (("longitude", "latitude"), image_stationary_probs),
                          "occluded_probs": (("longitude", "latitude"), image_occluded_probs)}, coords={"latitude": image_lats, "longitude": image_lons})
 
-                    t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
-                    t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
-                    new_fronts = fronts
-                    f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
-                    f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
-                    new_fronts = fronts
+                    for boundary in range(4):
+                        fronts = pd.read_pickle(fronts_filename)
+                        for y in range(boundary+1):
+                            fronts = ope(fronts)
 
-                    t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
-                    t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
-                    new_fronts = fronts
-                    f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
-                    f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
+                        t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
+                        t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
+                        new_fronts = fronts
+                        f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
+                        f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
+                        new_fronts = fronts
 
-                    for i in range(100):
-                        tp_stationary[i] += len(np.where(t_stationary_probs > thresholds[i])[0])
-                        tn_stationary[i] += len(np.where((f_stationary_probs < thresholds[i]) & (f_stationary_probs != 0))[0])
-                        fp_stationary[i] += len(np.where(f_stationary_probs > thresholds[i])[0])
-                        fn_stationary[i] += len(np.where((t_stationary_probs < thresholds[i]) & (t_stationary_probs != 0))[0])
-                        tp_occluded[i] += len(np.where(t_occluded_probs > thresholds[i])[0])
-                        tn_occluded[i] += len(np.where((f_occluded_probs < thresholds[i]) & (f_occluded_probs != 0))[0])
-                        fp_occluded[i] += len(np.where(f_occluded_probs > thresholds[i])[0])
-                        fn_occluded[i] += len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
+                        t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
+                        t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
+                        new_fronts = fronts
+                        f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
+                        f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
+
+                        for i in range(100):
+                            tp_stationary[boundary,i] += len(np.where(t_stationary_probs > thresholds[i])[0])
+                            tn_stationary[boundary,i] += len(np.where((f_stationary_probs < thresholds[i]) & (f_stationary_probs != 0))[0])
+                            fp_stationary[boundary,i] += len(np.where(f_stationary_probs > thresholds[i])[0])
+                            fn_stationary[boundary,i] += len(np.where((t_stationary_probs < thresholds[i]) & (t_stationary_probs != 0))[0])
+                            tp_occluded[boundary,i] += len(np.where(t_occluded_probs > thresholds[i])[0])
+                            tn_occluded[boundary,i] += len(np.where((f_occluded_probs < thresholds[i]) & (f_occluded_probs != 0))[0])
+                            fp_occluded[boundary,i] += len(np.where(f_occluded_probs > thresholds[i])[0])
+                            fn_occluded[boundary,i] += len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
                     
                     print("Prediction %d/%d....done" % (x+1, len(front_files)))
 
             elif front_types == 'DL':
-                for i in range(0, map_dim_x):
-                    for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[5][0][i][j][0]
-                        dryline_probs[i][j] = prediction[5][0][i][j][1]
+                if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][0]
+                            dryline_probs[i][j] = prediction[n][0][i][j][1]
+                if model.name == '3plus3D':
+                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][l][0]
+                            dryline_probs[i][j] = prediction[n][0][i][j][l][1]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -380,29 +385,45 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         {"no_probs": (("latitude", "longitude"), no_probs), "dryline_probs": (("latitude", "longitude"), image_dryline_probs)},
                         coords={"latitude": lats, "longitude": lons})
 
-                    t_dryline_ds = xr.where(new_fronts == 5, 1, 0)
-                    t_dryline_probs = t_dryline_ds.identifier * probs_ds.dryline_probs
-                    new_fronts = fronts
-                    f_dryline_ds = xr.where(new_fronts == 5, 0, 1)
-                    f_dryline_probs = f_dryline_ds.identifier * probs_ds.dryline_probs
+                    for boundary in range(4):
+                        fronts = pd.read_pickle(fronts_filename)
+                        for y in range(boundary+1):
+                            fronts = ope(fronts)
 
-                    for i in range(100):
-                        tp_dryline[i] += len(np.where(t_dryline_probs > thresholds[i])[0])
-                        tn_dryline[i] += len(np.where((f_dryline_probs < thresholds[i]) & (f_dryline_probs != 0))[0])
-                        fp_dryline[i] += len(np.where(f_dryline_probs > thresholds[i])[0])
-                        fn_dryline[i] += len(np.where((t_dryline_probs < thresholds[i]) & (t_dryline_probs != 0))[0])
+                        t_dryline_ds = xr.where(new_fronts == 5, 1, 0)
+                        t_dryline_probs = t_dryline_ds.identifier * probs_ds.dryline_probs
+                        new_fronts = fronts
+                        f_dryline_ds = xr.where(new_fronts == 5, 0, 1)
+                        f_dryline_probs = f_dryline_ds.identifier * probs_ds.dryline_probs
+
+                        for i in range(100):
+                            tp_dryline[boundary,i] += len(np.where(t_dryline_probs > thresholds[i])[0])
+                            tn_dryline[boundary,i] += len(np.where((f_dryline_probs < thresholds[i]) & (f_dryline_probs != 0))[0])
+                            fp_dryline[boundary,i] += len(np.where(f_dryline_probs > thresholds[i])[0])
+                            fn_dryline[boundary,i] += len(np.where((t_dryline_probs < thresholds[i]) & (t_dryline_probs != 0))[0])
 
                     print("Prediction %d/%d....done" % (x+1, len(front_files)))
 
             elif front_types == 'ALL':
-                for i in range(0, map_dim_x):
-                    for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[5][0][i][j][0]
-                        cold_probs[i][j] = prediction[5][0][i][j][1]
-                        warm_probs[i][j] = prediction[5][0][i][j][2]
-                        stationary_probs[i][j] = prediction[5][0][i][j][3]
-                        occluded_probs[i][j] = prediction[5][0][i][j][4]
-                        dryline_probs[i][j] = prediction[5][0][i][j][5]
+                if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][0]
+                            cold_probs[i][j] = prediction[n][0][i][j][1]
+                            warm_probs[i][j] = prediction[n][0][i][j][2]
+                            stationary_probs[i][j] = prediction[n][0][i][j][3]
+                            occluded_probs[i][j] = prediction[n][0][i][j][4]
+                            dryline_probs[i][j] = prediction[n][0][i][j][5]
+                if model.name == '3plus3D':
+                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][l][0]
+                            cold_probs[i][j] = prediction[n][0][i][j][l][1]
+                            warm_probs[i][j] = prediction[n][0][i][j][l][2]
+                            stationary_probs[i][j] = prediction[n][0][i][j][l][3]
+                            occluded_probs[i][j] = prediction[n][0][i][j][l][4]
+                            dryline_probs[i][j] = prediction[n][0][i][j][l][5]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -439,62 +460,72 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                     image_stationary_probs[int(image_spacing*(image-1)) + lon_pixels_per_image:][:] = stationary_probs[image_trim + lon_pixels_per_image - image_spacing:model_longitude_length-image_trim][:]
                     image_occluded_probs[int(image_spacing*(image-1)) + lon_pixels_per_image:][:] = occluded_probs[image_trim + lon_pixels_per_image - image_spacing:model_longitude_length-image_trim][:]
                     image_dryline_probs[int(image_spacing*(image-1)) + lon_pixels_per_image:][:] = dryline_probs[image_trim + lon_pixels_per_image - image_spacing:model_longitude_length-image_trim][:]
+                    probs_ds = xr.Dataset(
+                        {"no_probs": (("latitude", "longitude"), image_no_probs), "cold_probs": (("latitude", "longitude"), image_cold_probs),
+                         "warm_probs": (("latitude", "longitude"), image_warm_probs), "stationary_probs": (("latitude", "longitude"), image_stationary_probs),
+                         "occluded_probs": (("latitude", "longitude"), image_occluded_probs), "dryline_probs": (("latitude", "longitude"), image_dryline_probs)},
+                        coords={"latitude": lats, "longitude": lons})
 
-                    new_fronts = fronts
-                    t_cold_ds = xr.where(new_fronts == 1, 1, 0)
-                    t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
-                    new_fronts = fronts
-                    f_cold_ds = xr.where(new_fronts == 1, 0, 1)
-                    f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
-                    new_fronts = fronts
+                    for boundary in range(4):
+                        fronts = pd.read_pickle(fronts_filename)
+                        for y in range(boundary+1):
+                            fronts = ope(fronts)
 
-                    t_warm_ds = xr.where(new_fronts == 2, 1, 0)
-                    t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
-                    new_fronts = fronts
-                    f_warm_ds = xr.where(new_fronts == 2, 0, 1)
-                    f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
-                    new_fronts = fronts
+                        new_fronts = fronts
+                        t_cold_ds = xr.where(new_fronts == 1, 1, 0)
+                        t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
+                        new_fronts = fronts
+                        f_cold_ds = xr.where(new_fronts == 1, 0, 1)
+                        f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
+                        new_fronts = fronts
 
-                    t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
-                    t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
-                    new_fronts = fronts
-                    f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
-                    f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
-                    new_fronts = fronts
+                        t_warm_ds = xr.where(new_fronts == 2, 1, 0)
+                        t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
+                        new_fronts = fronts
+                        f_warm_ds = xr.where(new_fronts == 2, 0, 1)
+                        f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
+                        new_fronts = fronts
 
-                    t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
-                    t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
-                    new_fronts = fronts
-                    f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
-                    f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
+                        t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
+                        t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
+                        new_fronts = fronts
+                        f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
+                        f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
+                        new_fronts = fronts
 
-                    t_dryline_ds = xr.where(new_fronts == 5, 1, 0)
-                    t_dryline_probs = t_dryline_ds.identifier * probs_ds.dryline_probs
-                    new_fronts = fronts
-                    f_dryline_ds = xr.where(new_fronts == 5, 0, 1)
-                    f_dryline_probs = f_dryline_ds.identifier * probs_ds.dryline_probs
+                        t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
+                        t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
+                        new_fronts = fronts
+                        f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
+                        f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
 
-                    for i in range(100):
-                        tp_cold[i] += len(np.where(t_cold_probs > thresholds[i])[0])
-                        tn_cold[i] += len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
-                        fp_cold[i] += len(np.where(f_cold_probs > thresholds[i])[0])
-                        fn_cold[i] += len(np.where((t_cold_probs < thresholds[i]) & (t_cold_probs != 0))[0])
-                        tp_warm[i] += len(np.where(t_warm_probs > thresholds[i])[0])
-                        tn_warm[i] += len(np.where((f_warm_probs < thresholds[i]) & (f_warm_probs != 0))[0])
-                        fp_warm[i] += len(np.where(f_warm_probs > thresholds[i])[0])
-                        fn_warm[i] += len(np.where((t_warm_probs < thresholds[i]) & (t_warm_probs != 0))[0])
-                        tp_stationary[i] += len(np.where(t_stationary_probs > thresholds[i])[0])
-                        tn_stationary[i] += len(np.where((f_stationary_probs < thresholds[i]) & (f_stationary_probs != 0))[0])
-                        fp_stationary[i] += len(np.where(f_stationary_probs > thresholds[i])[0])
-                        fn_stationary[i] += len(np.where((t_stationary_probs < thresholds[i]) & (t_stationary_probs != 0))[0])
-                        tp_occluded[i] += len(np.where(t_occluded_probs > thresholds[i])[0])
-                        tn_occluded[i] += len(np.where((f_occluded_probs < thresholds[i]) & (f_occluded_probs != 0))[0])
-                        fp_occluded[i] += len(np.where(f_occluded_probs > thresholds[i])[0])
-                        fn_occluded[i] += len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
-                        tp_dryline[i] += len(np.where(t_dryline_probs > thresholds[i])[0])
-                        tn_dryline[i] += len(np.where((f_dryline_probs < thresholds[i]) & (f_dryline_probs != 0))[0])
-                        fp_dryline[i] += len(np.where(f_dryline_probs > thresholds[i])[0])
-                        fn_dryline[i] += len(np.where((t_dryline_probs < thresholds[i]) & (t_dryline_probs != 0))[0])
+                        t_dryline_ds = xr.where(new_fronts == 5, 1, 0)
+                        t_dryline_probs = t_dryline_ds.identifier * probs_ds.dryline_probs
+                        new_fronts = fronts
+                        f_dryline_ds = xr.where(new_fronts == 5, 0, 1)
+                        f_dryline_probs = f_dryline_ds.identifier * probs_ds.dryline_probs
+
+                        for i in range(100):
+                            tp_cold[boundary,i] += len(np.where(t_cold_probs > thresholds[i])[0])
+                            tn_cold[boundary,i] += len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
+                            fp_cold[boundary,i] += len(np.where(f_cold_probs > thresholds[i])[0])
+                            fn_cold[boundary,i] += len(np.where((t_cold_probs < thresholds[i]) & (t_cold_probs != 0))[0])
+                            tp_warm[boundary,i] += len(np.where(t_warm_probs > thresholds[i])[0])
+                            tn_warm[boundary,i] += len(np.where((f_warm_probs < thresholds[i]) & (f_warm_probs != 0))[0])
+                            fp_warm[boundary,i] += len(np.where(f_warm_probs > thresholds[i])[0])
+                            fn_warm[boundary,i] += len(np.where((t_warm_probs < thresholds[i]) & (t_warm_probs != 0))[0])
+                            tp_stationary[boundary,i] += len(np.where(t_stationary_probs > thresholds[i])[0])
+                            tn_stationary[boundary,i] += len(np.where((f_stationary_probs < thresholds[i]) & (f_stationary_probs != 0))[0])
+                            fp_stationary[boundary,i] += len(np.where(f_stationary_probs > thresholds[i])[0])
+                            fn_stationary[boundary,i] += len(np.where((t_stationary_probs < thresholds[i]) & (t_stationary_probs != 0))[0])
+                            tp_occluded[boundary,i] += len(np.where(t_occluded_probs > thresholds[i])[0])
+                            tn_occluded[boundary,i] += len(np.where((f_occluded_probs < thresholds[i]) & (f_occluded_probs != 0))[0])
+                            fp_occluded[boundary,i] += len(np.where(f_occluded_probs > thresholds[i])[0])
+                            fn_occluded[boundary,i] += len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
+                            tp_dryline[boundary,i] += len(np.where(t_dryline_probs > thresholds[i])[0])
+                            tn_dryline[boundary,i] += len(np.where((f_dryline_probs < thresholds[i]) & (f_dryline_probs != 0))[0])
+                            fp_dryline[boundary,i] += len(np.where(f_dryline_probs > thresholds[i])[0])
+                            fn_dryline[boundary,i] += len(np.where((t_dryline_probs < thresholds[i]) & (t_dryline_probs != 0))[0])
 
                     print("Prediction %d/%d....done" % (x+1, len(front_files)))
 
@@ -595,12 +626,21 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
     """
     model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
 
+    n = 0  # Counter for the number of down layers in the model
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
     if num_dimensions == 2:
+        for layer in model.layers:
+            if layer.__class__.__name__ == 'MaxPooling2D':
+                n += 1
+        n = int((n - 1)/2)
         channels = model.layers[0].input_shape[0][3]  # Number of variables used
     if num_dimensions == 3:
-        levels = model.layers[0].input_shape[0][3]
+        for layer in model.layers:
+            if layer.__class__.__name__ == 'MaxPooling3D':
+                n += 1
+        n = int((n - 1)/2)
+        levels = model.layers[0].input_shape[0][3]  # Number of levels to the U-Net variables
         channels = model.layers[0].input_shape[0][4]
 
     model_longitude_length = map_dim_x
@@ -609,18 +649,6 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
     image_spacing = int((longitude_domain_length - model_longitude_length)/(num_images-1))
     latitude_domain_length = 128
 
-    """
-    IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
-    
-    If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
-        norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
-    
-    For all models created AFTER August 5, 2021, import the parameters as follows:
-        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
-        
-    If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
-    the wrong normalization parameters.
-    """
     norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
     front_filename_no_dir = 'FrontObjects_%s_%d%02d%02d%02d_%s_%dx%d.pkl' % (args.front_types, args.year, args.month,
@@ -710,31 +738,20 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
         occluded_probs = np.zeros([map_dim_x, map_dim_y])
         dryline_probs = np.zeros([map_dim_x, map_dim_y])
 
-        """
-        Reformatting predictions: change the lines inside the loops according to your U-Net type.
-        
-        - <front> is the front type
-        - i and j are loop indices, do NOT change these
-        - n is the number of down layers in the model
-        - l is the level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
-        - x is the index of the front type in the softmax output. Refer to your data and the model structure to set this
-          to the correct value for each front type.
-        
-        ### U-Net ###
-        <front>_probs[i][j] = prediction[0][i][j][x]
-        
-        ### U-Net 3+ (2D) ###
-        <front>_probs[i][j] = prediction[n][0][i][j][x]
-        
-        ### U-Net 3+ (3D) ###
-        <front>_probs[i][j] = prediction[n][0][i][j][l][x]
-        """
         if front_types == 'CFWF':
-            for i in range(0, map_dim_x):
-                for j in range(0, map_dim_y):
-                    no_probs[i][j] = prediction[5][0][i][j][0]
-                    cold_probs[i][j] = prediction[5][0][i][j][1]
-                    warm_probs[i][j] = prediction[5][0][i][j][2]
+            if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[n][0][i][j][0]
+                        cold_probs[i][j] = prediction[n][0][i][j][1]
+                        warm_probs[i][j] = prediction[n][0][i][j][2]
+            if model.name == '3plus3D':
+                l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[n][0][i][j][l][0]
+                        cold_probs[i][j] = prediction[n][0][i][j][l][1]
+                        warm_probs[i][j] = prediction[n][0][i][j][l][2]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -761,11 +778,19 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                 prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
         elif front_types == 'SFOF':
-            for i in range(0, map_dim_x):
-                for j in range(0, map_dim_y):
-                    no_probs[i][j] = prediction[5][0][i][j][0]
-                    stationary_probs[i][j] = prediction[5][0][i][j][1]
-                    occluded_probs[i][j] = prediction[5][0][i][j][2]
+            if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[n][0][i][j][0]
+                        stationary_probs[i][j] = prediction[n][0][i][j][1]
+                        occluded_probs[i][j] = prediction[n][0][i][j][2]
+            if model.name == '3plus3D':
+                l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[n][0][i][j][l][0]
+                        stationary_probs[i][j] = prediction[n][0][i][j][l][1]
+                        occluded_probs[i][j] = prediction[n][0][i][j][l][2]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -792,10 +817,17 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                 prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
         elif front_types == 'DL':
-            for i in range(0, map_dim_x):
-                for j in range(0, map_dim_y):
-                    no_probs[i][j] = prediction[5][0][i][j][0]
-                    dryline_probs[i][j] = prediction[5][0][i][j][1]
+            if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[n][0][i][j][0]
+                        dryline_probs[i][j] = prediction[n][0][i][j][1]
+            if model.name == '3plus3D':
+                l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[n][0][i][j][l][0]
+                        dryline_probs[i][j] = prediction[n][0][i][j][l][1]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -817,14 +849,25 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                 prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
         elif front_types == 'ALL':
-            for i in range(0, map_dim_x):
-                for j in range(0, map_dim_y):
-                    no_probs[i][j] = prediction[5][0][i][j][0]
-                    cold_probs[i][j] = prediction[5][0][i][j][1]
-                    warm_probs[i][j] = prediction[5][0][i][j][2]
-                    stationary_probs[i][j] = prediction[5][0][i][j][3]
-                    occluded_probs[i][j] = prediction[5][0][i][j][4]
-                    dryline_probs[i][j] = prediction[5][0][i][j][5]
+            if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[n][0][i][j][0]
+                        cold_probs[i][j] = prediction[n][0][i][j][1]
+                        warm_probs[i][j] = prediction[n][0][i][j][2]
+                        stationary_probs[i][j] = prediction[n][0][i][j][3]
+                        occluded_probs[i][j] = prediction[n][0][i][j][4]
+                        dryline_probs[i][j] = prediction[n][0][i][j][5]
+            if model.name == '3plus3D':
+                l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                for i in range(0, map_dim_x):
+                    for j in range(0, map_dim_y):
+                        no_probs[i][j] = prediction[n][0][i][j][l][0]
+                        cold_probs[i][j] = prediction[n][0][i][j][l][1]
+                        warm_probs[i][j] = prediction[n][0][i][j][l][2]
+                        stationary_probs[i][j] = prediction[n][0][i][j][l][3]
+                        occluded_probs[i][j] = prediction[n][0][i][j][l][4]
+                        dryline_probs[i][j] = prediction[n][0][i][j][l][5]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -912,12 +955,21 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
     """
     model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
 
+    n = 0  # Counter for the number of down layers in the model
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net images
     if num_dimensions == 2:
+        for layer in model.layers:
+            if layer.__class__.__name__ == 'MaxPooling2D':
+                n += 1
+        n = int((n - 1)/2)
         channels = model.layers[0].input_shape[0][3]  # Number of variables used
     if num_dimensions == 3:
-        levels = model.layers[0].input_shape[0][3]
+        for layer in model.layers:
+            if layer.__class__.__name__ == 'MaxPooling3D':
+                n += 1
+        n = int((n - 1)/2)
+        levels = model.layers[0].input_shape[0][3]  # Number of levels to the U-Net variables
         channels = model.layers[0].input_shape[0][4]
 
     model_longitude_length = map_dim_x
@@ -926,18 +978,6 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
     image_spacing = int((longitude_domain_length - model_longitude_length)/(num_images-1))
     latitude_domain_length = 128
 
-    """
-    IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
-    
-    If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
-        norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
-    
-    For all models created AFTER August 5, 2021, import the parameters as follows:
-        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
-        
-    If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
-    the wrong normalization parameters.
-    """
     norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
     for x in range(predictions):
@@ -1025,31 +1065,20 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
             occluded_probs = np.zeros([map_dim_x, map_dim_y])
             dryline_probs = np.zeros([map_dim_x, map_dim_y])
 
-            """
-            Reformatting predictions: change the lines inside the loops according to your U-Net type.
-            
-            - <front> is the front type
-            - i and j are loop indices, do NOT change these
-            - n is the number of down layers in the model
-            - l is the level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
-            - x is the index of the front type in the softmax output. Refer to your data and the model structure to set this
-              to the correct value for each front type.
-            
-            ### U-Net ###
-            <front>_probs[i][j] = prediction[0][i][j][x]
-            
-            ### U-Net 3+ (2D) ###
-            <front>_probs[i][j] = prediction[n][0][i][j][x]
-            
-            ### U-Net 3+ (3D) ###
-            <front>_probs[i][j] = prediction[n][0][i][j][l][x]
-            """
             if front_types == 'CFWF':
-                for i in range(0, map_dim_x):
-                    for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[5][0][i][j][0]
-                        cold_probs[i][j] = prediction[5][0][i][j][1]
-                        warm_probs[i][j] = prediction[5][0][i][j][2]
+                if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][0]
+                            cold_probs[i][j] = prediction[n][0][i][j][1]
+                            warm_probs[i][j] = prediction[n][0][i][j][2]
+                if model.name == '3plus3D':
+                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][l][0]
+                            cold_probs[i][j] = prediction[n][0][i][j][l][1]
+                            warm_probs[i][j] = prediction[n][0][i][j][l][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -1076,11 +1105,19 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
                     prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
             elif front_types == 'SFOF':
-                for i in range(0, map_dim_x):
-                    for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[5][0][i][j][0]
-                        stationary_probs[i][j] = prediction[5][0][i][j][1]
-                        occluded_probs[i][j] = prediction[5][0][i][j][2]
+                if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][0]
+                            stationary_probs[i][j] = prediction[n][0][i][j][1]
+                            occluded_probs[i][j] = prediction[n][0][i][j][2]
+                if model.name == '3plus3D':
+                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][l][0]
+                            stationary_probs[i][j] = prediction[n][0][i][j][l][1]
+                            occluded_probs[i][j] = prediction[n][0][i][j][l][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -1107,10 +1144,17 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
                     prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
             elif front_types == 'DL':
-                for i in range(0, map_dim_x):
-                    for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[5][0][i][j][0]
-                        dryline_probs[i][j] = prediction[5][0][i][j][1]
+                if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][0]
+                            dryline_probs[i][j] = prediction[n][0][i][j][1]
+                if model.name == '3plus3D':
+                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][l][0]
+                            dryline_probs[i][j] = prediction[n][0][i][j][l][1]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -1132,14 +1176,25 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
                     prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, num_images, image_trim)
 
             elif front_types == 'ALL':
-                for i in range(0, map_dim_x):
-                    for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[5][0][i][j][0]
-                        cold_probs[i][j] = prediction[5][0][i][j][1]
-                        warm_probs[i][j] = prediction[5][0][i][j][2]
-                        stationary_probs[i][j] = prediction[5][0][i][j][3]
-                        occluded_probs[i][j] = prediction[5][0][i][j][4]
-                        dryline_probs[i][j] = prediction[5][0][i][j][5]
+                if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][0]
+                            cold_probs[i][j] = prediction[n][0][i][j][1]
+                            warm_probs[i][j] = prediction[n][0][i][j][2]
+                            stationary_probs[i][j] = prediction[n][0][i][j][3]
+                            occluded_probs[i][j] = prediction[n][0][i][j][4]
+                            dryline_probs[i][j] = prediction[n][0][i][j][5]
+                if model.name == '3plus3D':
+                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                    for i in range(0, map_dim_x):
+                        for j in range(0, map_dim_y):
+                            no_probs[i][j] = prediction[n][0][i][j][l][0]
+                            cold_probs[i][j] = prediction[n][0][i][j][l][1]
+                            warm_probs[i][j] = prediction[n][0][i][j][l][2]
+                            stationary_probs[i][j] = prediction[n][0][i][j][l][3]
+                            occluded_probs[i][j] = prediction[n][0][i][j][l][4]
+                            dryline_probs[i][j] = prediction[n][0][i][j][l][5]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -1455,18 +1510,18 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     cmap = mpl.colors.ListedColormap(["white","blue","red",'green','purple','orange'], name='from_list', N=None)
     norm = mpl.colors.Normalize(vmin=0,vmax=6)
 
-    cold_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
-    warm_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
-    stationary_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
-    occluded_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
-    dryline_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.6)
+    cold_norm = mpl.colors.Normalize(vmin=0, vmax=0.6)
+    warm_norm = mpl.colors.Normalize(vmin=0, vmax=0.6)
+    stationary_norm = mpl.colors.Normalize(vmin=0, vmax=0.6)
+    occluded_norm = mpl.colors.Normalize(vmin=0, vmax=0.6)
+    dryline_norm = mpl.colors.Normalize(vmin=0.02, vmax=0.6)
 
     if pixel_expansion == 1:
         fronts = ope(fronts)  # 1-pixel expansion
     elif pixel_expansion == 2:
         fronts = ope(ope(fronts))  # 2-pixel expansion
 
-    probs_ds = xr.where(probs_ds > 0.2, probs_ds, float("NaN"))
+    probs_ds = xr.where(probs_ds > 0.02, probs_ds, float("NaN"))
 
     if front_types == 'CFWF':
         fig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
@@ -1616,15 +1671,15 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
     plt.plot(history['softmax_5_loss'], label='Decoder 1 (final)', color='black')
     plt.plot(history['loss'], label='total', color='black')
     """
-    plt.plot(history['unet_output_sup0_activation_loss'], label='sup0')
-    plt.plot(history['unet_output_sup1_activation_loss'], label='sup1')
-    plt.plot(history['unet_output_sup2_activation_loss'], label='sup2')
-    plt.plot(history['unet_output_sup3_activation_loss'], label='sup3')
-    plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
-    plt.plot(history['unet_output_final_activation_loss'], label='final')
+    plt.plot(history['softmax_loss'], label='Encoder 6')
+    plt.plot(history['softmax_1_loss'], label='Decoder 5')
+    plt.plot(history['softmax_2_loss'], label='Decoder 4')
+    plt.plot(history['softmax_3_loss'], label='Decoder 3')
+    plt.plot(history['softmax_4_loss'], label='Decoder 2')
+    plt.plot(history['softmax_5_loss'], label='Decoder 1 (final)', color='black')
     plt.plot(history['loss'], label='total', color='black')
 
-    plt.legend(loc='lower left')
+    plt.legend(loc='best')
     plt.xlim(xmin=0)
     plt.xlabel('Epochs')
     plt.ylim(ymin=1e-6, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
@@ -1656,14 +1711,14 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
     plt.plot(history['softmax_4_%s' % metric_string], label='Decoder 2')
     plt.plot(history['softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
     """
-    plt.plot(history['unet_output_sup0_activation_%s' % metric_string], label='sup0')
-    plt.plot(history['unet_output_sup1_activation_%s' % metric_string], label='sup1')
-    plt.plot(history['unet_output_sup2_activation_%s' % metric_string], label='sup2')
-    plt.plot(history['unet_output_sup3_activation_%s' % metric_string], label='sup3')
-    plt.plot(history['unet_output_sup4_activation_%s' % metric_string], label='sup4')
-    plt.plot(history['unet_output_final_activation_%s' % metric_string], label='final', color='black')
+    plt.plot(history['softmax_%s' % metric_string], label='Encoder 6')
+    plt.plot(history['softmax_1_%s' % metric_string], label='Decoder 5')
+    plt.plot(history['softmax_2_%s' % metric_string], label='Decoder 4')
+    plt.plot(history['softmax_3_%s' % metric_string], label='Decoder 3')
+    plt.plot(history['softmax_4_%s' % metric_string], label='Decoder 2')
+    plt.plot(history['softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
 
-    plt.legend(loc='lower left')
+    plt.legend(loc='best')
     plt.xlim(xmin=0)
     plt.xlabel('Epochs')
     plt.ylim(ymin=1e-3, ymax=1e-1)  # Limits of the metric graph, adjust as needed
@@ -1698,15 +1753,15 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         plt.plot(history['val_softmax_5_loss'], label='Decoder 1 (final)', color='black')
         plt.plot(history['val_loss'], label='total', color='black')
         """
-        plt.plot(history['val_unet_output_sup0_activation_loss'], label='sup0')
-        plt.plot(history['val_unet_output_sup1_activation_loss'], label='sup1')
-        plt.plot(history['val_unet_output_sup2_activation_loss'], label='sup2')
-        plt.plot(history['val_unet_output_sup3_activation_loss'], label='sup3')
-        plt.plot(history['val_unet_output_sup4_activation_loss'], label='sup4')
-        plt.plot(history['val_unet_output_final_activation_loss'], label='final')
+        plt.plot(history['val_softmax_loss'], label='Encoder 6')
+        plt.plot(history['val_softmax_1_loss'], label='Decoder 5')
+        plt.plot(history['val_softmax_2_loss'], label='Decoder 4')
+        plt.plot(history['val_softmax_3_loss'], label='Decoder 3')
+        plt.plot(history['val_softmax_4_loss'], label='Decoder 2')
+        plt.plot(history['val_softmax_5_loss'], label='Decoder 1 (final)', color='black')
         plt.plot(history['val_loss'], label='total', color='black')
 
-        plt.legend(loc='lower left')
+        plt.legend(loc='best')
         plt.xlim(xmin=0)
         plt.xlabel('Epochs')
         plt.ylim(ymin=1e-6, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
@@ -1738,14 +1793,14 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         plt.plot(history['val_softmax_4_%s' % metric_string], label='Decoder 2')
         plt.plot(history['val_softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
         """
-        plt.plot(history['val_unet_output_sup0_activation_%s' % metric_string], label='sup0')
-        plt.plot(history['val_unet_output_sup1_activation_%s' % metric_string], label='sup1')
-        plt.plot(history['val_unet_output_sup2_activation_%s' % metric_string], label='sup2')
-        plt.plot(history['val_unet_output_sup3_activation_%s' % metric_string], label='sup3')
-        plt.plot(history['val_unet_output_sup4_activation_%s' % metric_string], label='sup4')
-        plt.plot(history['val_unet_output_final_activation_%s' % metric_string], label='final', color='black')
+        plt.plot(history['val_softmax_%s' % metric_string], label='Encoder 6')
+        plt.plot(history['val_softmax_1_%s' % metric_string], label='Decoder 5')
+        plt.plot(history['val_softmax_2_%s' % metric_string], label='Decoder 4')
+        plt.plot(history['val_softmax_3_%s' % metric_string], label='Decoder 3')
+        plt.plot(history['val_softmax_4_%s' % metric_string], label='Decoder 2')
+        plt.plot(history['val_softmax_5_%s' % metric_string], label='Decoder 1 (final)', color='black')
 
-        plt.legend(loc='lower left')
+        plt.legend(loc='best')
         plt.xlim(xmin=0)
         plt.xlabel('Epochs')
         plt.ylim(ymin=1e-3, ymax=1e-1)  # Limits of the metric graph, adjust as needed
@@ -1804,86 +1859,65 @@ if __name__ == '__main__':
     parser.add_argument('--year', type=int, required=False, help='Year for the prediction.')
 
     args = parser.parse_args()
-
-    print(args)
+    provided_arguments = vars(args)
 
     if args.loss == 'fss':
-        if args.fss_c is None or args.fss_mask_size is None:
-            raise errors.MissingArgumentError("If loss is fss, the following arguments must be passed: fss_c, fss_mask_size")
-    else:
-        if args.fss_c is not None or args.fss_mask_size is not None:
-            raise errors.ExtraArgumentError("loss is not fss but one or more of the following arguments was provided: "
-                                            "fss_c, fss_mask_size")
+        required_arguments = ['fss_c', 'fss_mask_size']
+        print("Checking arguments for FSS loss function....", end='')
+        check_arguments(provided_arguments, required_arguments)
 
     if args.calculate_performance_stats is True:
-        if args.model_number is None or args.model_dir is None or args.num_variables is None or args.num_dimensions is None or \
-            args.front_types is None or args.domain is None or args.file_dimensions is None or args.normalization_method is None or \
-            args.loss is None or args.pixel_expansion is None or args.metric is None or args.num_images is None or \
-            args.longitude_domain_length is None or args.image_trim is None:
-            raise errors.MissingArgumentError("If calculate_performance_stats is True, the following arguments must be passed: "
-                "domain, file_dimensions, front_types, image_trim, longitude_domain_length, loss, metric, model_dir, "
-                "model_number, normalization_method, num_dimensions, num_images, num_variables, pixel_expansion")
-        else:
-            calculate_performance_stats(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
-                args.domain, args.file_dimensions, args.test_years, args.normalization_method, args.loss, args.fss_mask_size,
-                args.fss_c, args.pixel_expansion, args.metric, args.num_images, args.longitude_domain_length, args.image_trim)
+        required_arguments = ['domain', 'file_dimensions', 'front_types', 'image_trim', 'longitude_domain_length',
+                              'loss', 'metric', 'model_dir', 'model_number', 'normalization_method', 'num_dimensions',
+                              'num_images', 'num_variables', 'pixel_expansion']
+        print("Checking arguments for 'calculate_performance_stats'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        calculate_performance_stats(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
+            args.domain, args.file_dimensions, args.test_years, args.normalization_method, args.loss, args.fss_mask_size,
+            args.fss_c, args.pixel_expansion, args.metric, args.num_images, args.longitude_domain_length, args.image_trim)
 
     if args.find_matches is True:
-        if args.longitude_domain_length is None or args.model_longitude_length is None:
-            raise errors.MissingArgumentError("If find_matches is True, the following arguments must be provided: "
-                                              "longitude_domain_length, model_longitude_length")
-        else:
-            find_matches_for_domain(args.longitude_domain_length, args.model_longitude_length)
+        required_arguments = ['longitude_domain_length', 'model_longitude_length']
+        print("Checking arguments for 'find_matches'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        find_matches_for_domain(args.longitude_domain_length, args.model_longitude_length)
 
     if args.learning_curve is True:
-        if args.model_number is None or args.model_dir is None or args.loss is None or args.metric is None or \
-            args.include_validation_plots is None:
-            raise errors.MissingArgumentError("If learning_curve is True, the following arguments must be passed: "
-                                              "include_validation_plots, loss, metric, model_dir, model_number")
-        else:
-            learning_curve(args.include_validation_plots, args.model_number, args.model_dir, args.loss, args.fss_mask_size, args.fss_c, args.metric)
+        required_arguments = ['include_validation_plots', 'loss', 'metric', 'model_dir', 'model_number']
+        print("Checking arguments for 'learning_curve'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        learning_curve(args.include_validation_plots, args.model_number, args.model_dir, args.loss, args.fss_mask_size,
+                       args.fss_c, args.metric)
 
     if args.make_prediction is True:
-        if args.model_number is None or args.model_dir is None or args.num_variables is None or args.num_dimensions is None or \
-            args.front_types is None or args.domain is None or args.file_dimensions is None or args.normalization_method is None or \
-            args.loss is None or args.pixel_expansion is None or args.metric is None or args.num_images is None or \
-            args.longitude_domain_length is None or args.image_trim is None or args.year is None or args.month is None or \
-            args.day is None or args.hour is None:
-            raise errors.MissingArgumentError("If predict is True, the following arguments must be passed: "
-                "day, domain, file_dimensions, front_types, hour, longitude_domain_length, loss, metric, model_dir, model_number, "
-                "month, normalization_method, num_dimensions, num_images, num_variables, pixel_expansion, image_trim, "
-                "year")
+        required_arguments = ['model_number', 'model_dir', 'num_variables', 'num_dimensions', 'front_types', 'domain',
+            'file_dimensions', 'normalization_method', 'loss', 'pixel_expansion', 'metric', 'num_images',
+            'longitude_domain_length', 'image_trim', 'year', 'month', 'day', 'hour']
+        print("Checking arguments for 'make_prediction'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
+            args.file_dimensions)
+        make_prediction(args.model_number, args.model_dir, front_files, variable_files, args.normalization_method,
+            args.loss, args.fss_mask_size, args.fss_c, args.front_types, args.pixel_expansion, args.metric, args.num_dimensions,
+            args.num_images, args.longitude_domain_length, args.image_trim, args.year, args.month, args.day, args.hour)
+
+    if args.make_random_predictions is True:
+        required_arguments = ['model_number', 'model_dir', 'num_variables', 'num_dimensions', 'front_types', 'domain',
+            'file_dimensions', 'normalization_method', 'loss', 'pixel_expansion', 'metric', 'num_images',
+            'longitude_domain_length', 'image_trim', 'predictions']
+        print("Checking arguments for 'make_random_predictions'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        if args.test_years is not None:
+            front_files, variable_files = fm.load_test_files(args.num_variables, args.front_types, args.domain, args.file_dimensions, args.test_years)
         else:
             front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
                 args.file_dimensions)
-            make_prediction(args.model_number, args.model_dir, front_files, variable_files, args.normalization_method,
-                args.loss, args.fss_mask_size, args.fss_c, args.front_types, args.pixel_expansion, args.metric, args.num_dimensions,
-                args.num_images, args.longitude_domain_length, args.image_trim, args.year, args.month, args.day, args.hour)
-
-    if args.make_random_predictions is True:
-        if args.model_number is None or args.model_dir is None or args.num_variables is None or args.num_dimensions is None or \
-            args.front_types is None or args.domain is None or args.file_dimensions is None or args.predictions is None or \
-            args.normalization_method is None or args.loss is None or args.pixel_expansion is None or args.metric is None or \
-            args.num_images is None or args.longitude_domain_length is None or args.image_trim is None:
-            raise errors.MissingArgumentError("If make_random_predictions is True, the following arguments must be passed: "
-                "domain, file_dimensions, front_types, image_trim, longitude_domain_length, loss, metric, model_dir, model_number, "
-                "normalization_method, num_dimensions, num_images, num_variables, pixel_expansion, predictions")
-        else:
-            if args.test_years is not None:
-                front_files, variable_files = fm.load_test_files(args.num_variables, args.front_types, args.domain, args.file_dimensions, args.test_years)
-            else:
-                front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
-                    args.file_dimensions)
-            make_random_predictions(args.model_number, args.model_dir, front_files, variable_files, args.predictions,
-                args.normalization_method, args.loss, args.fss_mask_size, args.fss_c, args.front_types, args.pixel_expansion,
-                args.metric, args.num_dimensions, args.num_images, args.longitude_domain_length, args.image_trim)
-    else:
-        if args.predictions is not None:
-            raise errors.ExtraArgumentError("make_random_predictions is False but the following argument was provided: predictions")
+        make_random_predictions(args.model_number, args.model_dir, front_files, variable_files, args.predictions,
+            args.normalization_method, args.loss, args.fss_mask_size, args.fss_c, args.front_types, args.pixel_expansion,
+            args.metric, args.num_dimensions, args.num_images, args.longitude_domain_length, args.image_trim)
 
     if args.plot_performance_diagrams is True:
-        if args.model_dir is None or args.model_number is None or args.front_types is None:
-            raise errors.MissingArgumentError("If plot_performance_diagrams is True, the following arguments must be passed: "
-                "front_types, model_dir, model_number")
-        else:
-            plot_performance_diagrams(args.model_dir, args.model_number, args.front_types, args.num_images, args.image_trim)
+        required_arguments = ['model_number', 'model_dir', 'front_types', 'num_images', 'image_trim']
+        print("Checking arguments for 'plot_performance_diagrams'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        plot_performance_diagrams(args.model_dir, args.model_number, args.front_types, args.num_images, args.image_trim)

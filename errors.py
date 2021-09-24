@@ -2,7 +2,7 @@
 Script that contains custom errors.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2021 4:54 PM CDT
+Last updated: 9/23/2021 7:29 PM CDT
 """
 
 
@@ -20,8 +20,23 @@ class MissingArgumentError(TypeError):
     pass
 
 
-class ExtraArgumentError(TypeError):
+def check_arguments(provided_arguments, required_arguments):
     """
-    Error raised if an unwanted argument is passed into the function.
+    Function that checks if the necessary arguments were provided to perform a necessary operation(s).
+
+    Parameters
+    ----------
+    provided_arguments: list
+    required_arguments: list
     """
-    pass
+    missing_arguments = []
+
+    for argument in required_arguments:
+        if provided_arguments[argument] is None:
+            missing_arguments.append(argument)
+
+    if len(missing_arguments) > 0:
+        print("error")
+        raise MissingArgumentError(f'%d argument(s) are missing: {", ".join(list(sorted(missing_arguments)))}' % len(missing_arguments))
+    else:
+        print("done")
