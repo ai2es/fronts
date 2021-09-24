@@ -2,7 +2,7 @@
 Function that extracts variable and front data from a given domain and saves it into a pickle file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2021 5:45 PM CDT
+Last updated: 9/22/2021 4:18 PM CDT
 """
 
 import argparse
@@ -423,7 +423,7 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.theta_w_850.attrs['units'] = 'K'
     xr_pickle.theta_w_850.attrs['long_name'] = '850mb Wet-bulb potential temperature'
     xr_pickle.virt_temp_850.attrs['units'] = 'K'
-    xr_pickle.virt_temp_850.attrs['long_name'] = '850mb Virtual potential temperature'
+    xr_pickle.virt_temp_850.attrs['long_name'] = '850mb Virtual temperature'
     xr_pickle.wet_bulb_850.attrs['units'] = 'K'
     xr_pickle.wet_bulb_850.attrs['long_name'] = '850mb Wet-bulb temperature'
 
@@ -447,7 +447,7 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.theta_w_900.attrs['units'] = 'K'
     xr_pickle.theta_w_900.attrs['long_name'] = '900mb Wet-bulb potential temperature'
     xr_pickle.virt_temp_900.attrs['units'] = 'K'
-    xr_pickle.virt_temp_900.attrs['long_name'] = '900mb Virtual potential temperature'
+    xr_pickle.virt_temp_900.attrs['long_name'] = '900mb Virtual temperature'
     xr_pickle.wet_bulb_900.attrs['units'] = 'K'
     xr_pickle.wet_bulb_900.attrs['long_name'] = '900mb Wet-bulb temperature'
 
@@ -471,7 +471,7 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.theta_w_950.attrs['units'] = 'K'
     xr_pickle.theta_w_950.attrs['long_name'] = '950mb Wet-bulb potential temperature'
     xr_pickle.virt_temp_950.attrs['units'] = 'K'
-    xr_pickle.virt_temp_950.attrs['long_name'] = '950mb Virtual potential temperature'
+    xr_pickle.virt_temp_950.attrs['long_name'] = '950mb Virtual temperature'
     xr_pickle.wet_bulb_950.attrs['units'] = 'K'
     xr_pickle.wet_bulb_950.attrs['long_name'] = '950mb Wet-bulb temperature'
 
@@ -495,7 +495,7 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
     xr_pickle.theta_w_1000.attrs['units'] = 'K'
     xr_pickle.theta_w_1000.attrs['long_name'] = '1000mb Wet-bulb potential temperature'
     xr_pickle.virt_temp_1000.attrs['units'] = 'K'
-    xr_pickle.virt_temp_1000.attrs['long_name'] = '1000mb Virtual potential temperature'
+    xr_pickle.virt_temp_1000.attrs['long_name'] = '1000mb Virtual temperature'
     xr_pickle.wet_bulb_1000.attrs['units'] = 'K'
     xr_pickle.wet_bulb_1000.attrs['long_name'] = '1000mb Wet-bulb temperature'
 
