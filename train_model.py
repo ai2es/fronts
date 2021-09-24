@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/18/2021 4:57 PM CDT
+Last updated: 9/23/2021 8:48 PM CDT
 """
 
 import random
@@ -17,6 +17,7 @@ from tensorflow.keras.utils import to_categorical
 import file_manager as fm
 import os
 from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
+from errors import check_arguments
 import errors
 import custom_losses
 import custom_models
@@ -54,18 +55,6 @@ class DataGenerator_2D(tf.keras.utils.Sequence):
         front_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, self.num_classes))
         variable_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, self.num_variables))
 
-        """
-        IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
-        
-        If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
-            norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
-        
-        For all models created AFTER August 5, 2021, import the parameters as follows:
-            norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
-            
-        If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
-        the wrong normalization parameters.
-        """
         norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
         for i in range(self.batch_size):
@@ -155,22 +144,11 @@ class DataGenerator_3D(tf.keras.utils.Sequence):
     def __data_generation(self):
         front_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, 5, self.num_classes))
         variable_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, 5, 12))
-        """
-        IMPORTANT!!!! Parameters for normalization were changed on August 5, 2021.
-        
-        If your model was trained prior to August 5, 2021, you MUST import the old parameters as follows:
-            norm_params = pd.read_csv('normalization_parameters_old.csv', index_col='Variable')
-        
-        For all models created AFTER August 5, 2021, import the parameters as follows:
-            norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
-            
-        If the prediction plots come out as a solid color across the domain with all probabilities near 0, you may be importing
-        the wrong normalization parameters.
-        """
+
         norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
 
         for i in range(self.batch_size):
-            # Open random files with random coordinate domains until a sample contains at least one pixel with a front.
+            # Open random files with random coordinate domains until a sample contains at least one image with a front.
             num_identifiers = 0
             while num_identifiers < self.front_threshold:
                 index = random.choices(range(len(self.front_files) - 1), k=1)[0]
@@ -389,7 +367,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
             print("Creating 2D U-Net....",end='')
             model = models.unet_3plus_2d((map_dim_x, map_dim_y, num_variables), filter_num_down=[64, 128, 256, 512, 1024, 2048],
                 filter_num_skip='auto', filter_num_aggregate='auto', n_labels=num_classes, stack_num_down=5, stack_num_up=5,
-                activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
+                activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='U-Net',
                 deep_supervision=True)
         elif num_dimensions == 3:
             print("Creating 3D U-Net....",end='')
@@ -726,8 +704,7 @@ if __name__ == "__main__":
     parser.add_argument('--workers', type=int, required=False, help='Number of workers for training the U-Net.')
 
     args = parser.parse_args()
-
-    print(args)
+    provided_arguments = vars(args)
 
     print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
@@ -737,48 +714,35 @@ if __name__ == "__main__":
         raise errors.MissingArgumentError("one of the following arguments must be provided: import_model_number, job_number")
 
     if args.loss == 'fss':
-        if args.fss_c is None or args.fss_mask_size is None:
-            raise errors.MissingArgumentError("loss is fss but one or more of the following arguments was not provided: "
-                                              "fss_c, fss_mask_size")
-    else:
-        if args.fss_c is not None or args.fss_mask_size is not None:
-            raise errors.ExtraArgumentError("loss is not fss but one or more of the following arguments was provided: "
-                                            "fss_c, fss_mask_size")
+        required_arguments = ['fss_c', 'fss_mask_size']
+        print("Checking arguments for FSS loss function....", end='')
+        check_arguments(provided_arguments, required_arguments)
 
     if args.import_model_number is not None:
         if args.map_dim_x_y is not None:
             raise errors.ExtraArgumentError('import_model_number is not None but the following argument was passed: map_dim_x_y')
-        if args.learning_rate is None or args.epochs is None or args.train_valid_steps is None or args.train_valid_batch_size is None or \
-            args.train_valid_fronts is None or args.valid_freq is None or args.loss is None or args.workers is None or \
-            args.model_dir is None or args.front_types is None or args.normalization_method is None or args.pixel_expansion is None or \
-            args.num_variables is None or args.file_dimensions is None or args.num_dimensions is None or args.domain is None or \
-            args.metric is None:
-            raise errors.MissingArgumentError("import_model_number is not None but one or more of the following arguments was not provided: "
-                "domain, epochs, file_dimensions, front_types, learning_rate, loss, metric, model_dir, normalization_method, num_dimensions, "
-                "num_variables, pixel_expansion, train_valid_batch_size, train_valid_fronts, train_valid_steps, valid_freq, workers")
-        else:
-            print("WARNING: You have imported model %d for training." % args.import_model_number)
-            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.file_dimensions)
-            train_imported_unet(front_files, variable_files, args.learning_rate, args.epochs, args.train_valid_steps[0], args.train_valid_batch_size[0],
-                args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1], args.valid_freq, args.train_valid_fronts[1],
-                args.loss, args.workers, args.import_model_number, args.model_dir, args.front_types, args.normalization_method, args.fss_mask_size,
-                args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions, args.validation_years, args.test_years, args.num_dimensions,
-                args.metric)
+        required_arguments = ['domain', 'epochs', 'file_dimensions', 'front_types', 'learning_rate', 'loss', 'metric',
+                              'model_dir', 'normalization_method', 'num_dimensions', 'num_variables', 'pixel_expansion',
+                              'train_valid_batch_size', 'train_valid_fronts', 'train_valid_steps', 'valid_freq', 'workers']
+        print("Checking arguments for 'train_imported_unet'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        print("WARNING: You have imported model %d for training." % args.import_model_number)
+        front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.file_dimensions)
+        train_imported_unet(front_files, variable_files, args.learning_rate, args.epochs, args.train_valid_steps[0], args.train_valid_batch_size[0],
+            args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1], args.valid_freq, args.train_valid_fronts[1],
+            args.loss, args.workers, args.import_model_number, args.model_dir, args.front_types, args.normalization_method, args.fss_mask_size,
+            args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions, args.validation_years, args.test_years, args.num_dimensions,
+            args.metric)
 
     if args.job_number is not None:
-        if args.learning_rate is None or args.epochs is None or args.train_valid_steps is None or args.train_valid_batch_size is None or \
-            args.train_valid_fronts is None or args.valid_freq is None or args.loss is None or args.workers is None or \
-            args.model_dir is None or args.front_types is None or args.normalization_method is None or args.pixel_expansion is None or \
-            args.num_variables is None or args.file_dimensions is None or args.num_dimensions is None or args.map_dim_x_y is None or \
-            args.domain is None or args.metric is None:
-            raise errors.MissingArgumentError("job_number is not None but one or more of the following arguments was not provided: "
-                "domain, epochs, file_dimensions, front_types, learning_rate, loss, map_dim_x_y, metric, model_dir, normalization_method, "
-                "num_dimensions, num_variables, pixel_expansion, train_valid_batch_size, train_valid_fronts, train_valid_steps, "
-                "valid_freq, workers")
-        else:
-            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.file_dimensions)
-            train_new_unet(front_files, variable_files, args.map_dim_x_y[0], args.map_dim_x_y[1], args.learning_rate, args.epochs,
-                args.train_valid_steps[0], args.train_valid_batch_size[0], args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1],
-                args.valid_freq, args.train_valid_fronts[1], args.loss, args.workers, args.job_number, args.model_dir, args.front_types,
-                args.normalization_method, args.fss_mask_size, args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions,
-                args.validation_years, args.test_years, args.num_dimensions, args.metric)
+        required_arguments = ['domain', 'epochs', 'file_dimensions', 'front_types', 'learning_rate', 'loss', 'map_dim_x_y',
+                              'metric', 'model_dir', 'normalization_method', 'num_dimensions', 'num_variables', 'pixel_expansion',
+                              'train_valid_batch_size', 'train_valid_fronts', 'train_valid_steps', 'valid_freq', 'workers']
+        print("Checking arguments for 'train_new_unet'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, args.file_dimensions)
+        train_new_unet(front_files, variable_files, args.map_dim_x_y[0], args.map_dim_x_y[1], args.learning_rate, args.epochs,
+            args.train_valid_steps[0], args.train_valid_batch_size[0], args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1],
+            args.valid_freq, args.train_valid_fronts[1], args.loss, args.workers, args.job_number, args.model_dir, args.front_types,
+            args.normalization_method, args.fss_mask_size, args.fss_c, args.pixel_expansion, args.num_variables, args.file_dimensions,
+            args.validation_years, args.test_years, args.num_dimensions, args.metric)

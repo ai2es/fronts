@@ -2,7 +2,7 @@
 Functions in this code manage data files and directories.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/18/2021 4:58 PM CDT
+Last updated: 9/23/2021 8:48 PM CDT
 """
 
 from glob import glob
@@ -10,10 +10,10 @@ import pickle
 import argparse
 import numpy as np
 import os
-import errors
 import tensorflow as tf
 import custom_losses
 import itertools
+from errors import check_arguments
 
 
 def add_hourly_directories(main_dir_subdir, year, month, day):
@@ -325,7 +325,7 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
                 try:
                     model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                         custom_objects={loss_string: loss_function, metric_string: metric_function})
-                except:
+                except ValueError:
                     print("failed")
                     if loss_string == 'FSS_loss_2D':
                         print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
@@ -337,7 +337,7 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
                 try:
                     model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                         custom_objects={loss_string: loss_function})
-                except:
+                except ValueError:
                     print("failed")
                     if loss_string == 'FSS_loss_2D':
                         print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
@@ -488,30 +488,25 @@ if __name__ == '__main__':
                         help='Path of pickle files containing front object and variable data.')
 
     args = parser.parse_args()
-
-    print(args)
+    provided_arguments = vars(args)
 
     if args.create_subdirectories is True:
-        if args.hour_dirs is None or args.main_dir_subdir is None:
-            raise errors.MissingArgumentError("If create_subdirectories is True, the following arguments must be passed: "
-                                              "hour_dirs, main_dir_subdir")
-        else:
-            create_subdirectories(args.main_dir_subdir, args.hour_dirs)
+        required_arguments = ['hour_dirs', 'main_dir_subdir']
+        print("Checking arguments for 'create_subdirectories'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        create_subdirectories(args.main_dir_subdir, args.hour_dirs)
 
     if args.delete_grouped_files is True:
-        if args.glob_file_string is None or args.main_dir_group is None or args.num_subdir is None:
-            raise errors.MissingArgumentError("If delete_grouped_files is True, the following arguments must be passed: "
-                                              "glob_file_string, main_dir_group, num_subdir")
-        else:
-            delete_grouped_files(args.main_dir_group, args.glob_file_string, args.num_subdir)
+        required_arguments = ['glob_file_string', 'main_dir_group', 'num_subdir']
+        print("Checking arguments for 'delete_grouped_files'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        delete_grouped_files(args.main_dir_group, args.glob_file_string, args.num_subdir)
 
     if args.generate_lists is True:
-        if args.domain is None or args.file_dimensions is None or args.front_types is None or args.num_variables is None or \
-            args.pickle_indir is None:
-            raise errors.MissingArgumentError("If generate_lists is True, the following arguments must be passed: "
-                                              "domain, file_dimensions, front_types, num_variables, pickle_indir")
-        else:
-            front_files, variable_files = load_files(args.pickle_indir, args.num_variables, args.front_types, args.domain,
-                args.file_dimensions)
-            generate_file_lists(front_files, variable_files, args.num_variables, args.front_types, args.domain,
-                args.file_dimensions)
+        required_arguments = ['domain', 'file_dimensions', 'front_types', 'num_variables', 'pickle_indir']
+        print("Checking arguments for 'generate_file_lists'....", end='')
+        check_arguments(provided_arguments, required_arguments)
+        front_files, variable_files = load_files(args.pickle_indir, args.num_variables, args.front_types, args.domain,
+            args.file_dimensions)
+        generate_file_lists(front_files, variable_files, args.num_variables, args.front_types, args.domain,
+            args.file_dimensions)
