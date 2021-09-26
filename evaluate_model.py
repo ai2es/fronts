@@ -124,7 +124,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
     image_spacing = int((longitude_domain_length - model_longitude_length)/(num_images-1))
     latitude_domain_length = 128
 
-    for x in range(2):
+    for x in range(len(front_files)):
         
         print("Prediction %d/%d....0/%d" % (x+1, len(front_files), num_images), end='\r')
 
