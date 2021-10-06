@@ -475,8 +475,10 @@ if __name__ == "__main__":
     ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_wind, ds_theta_w, ds_mixing_ratio, ds_RH, ds_Tv, ds_Tw \
         = create_datasets(args.year, args.month, args.day, args.netcdf_ERA5_indir)
 
-    extent = [210, 310, 25, 50]
+    extent = [248, 268, 35, 50]
     ax = plot_background(extent)
+
+    timestring = "%d-%02d-%02dT%d:00:00" % (args.year, args.month, args.day, args.hour)
 
     plotname = "%d-%02d-%02d-%02dz" % (args.year, args.month, args.day, args.hour)
     plt.title("%d-%02d-%02d-%02dz" % (args.year, args.month, args.day, args.hour))
@@ -486,11 +488,12 @@ if __name__ == "__main__":
     # ds_theta_w.theta_w.sel(latitude=slice(extent[3]+10,extent[2]-10), longitude=slice(extent[0]-10,extent[1]+10)).plot(
     #    ax=ax,x='longitude',y='latitude', cmap="terrain_r", transform=ccrs.PlateCarree())
 
-    # ds_2mT.t2m.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
-    # ds_2mTd.d2m.plot(ax=ax,x='longitude',y='latitude', cmap='terrain_r', transform=ccrs.PlateCarree())
+    # ds_2mT.t2m.sel(time=timestring).plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
+    # print(ds_2mTd)
+    # ds_theta_w.theta_w.sel(time=timestring).plot(ax=ax,x='longitude',y='latitude', transform=ccrs.PlateCarree())
     # ds_sp.sp.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
     # ds.sp.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
-    # ds.u10.plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
+    ds_U10m.u10.sel(time=timestring).plot(ax=ax,x='longitude',y='latitude',transform=ccrs.PlateCarree())
     # ds.v10.sel(latitude=slice(38.5,35), longitude=slice(240,320)).plot(ax=ax,x='longitude',
     #            y='latitude',transform=ccrs.PlateCarree())
 
@@ -509,4 +512,4 @@ if __name__ == "__main__":
     plt.scatter(x=stationary_front_lon, y=stationary_front_lat, s=3, transform=ccrs.PlateCarree(), marker='o',
                 color='green')
 
-    plt.savefig(os.path.join(args.image_outdir, '%s_ERA5_plot.png' % plotname), bbox_inches='tight', dpi=1000)
+    plt.savefig(os.path.join(args.image_outdir, '%s_ERA5_plot_temp.png' % plotname), bbox_inches='tight', dpi=1000)

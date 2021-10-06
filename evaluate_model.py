@@ -1,8 +1,8 @@
 """
-Functions used for evaluating a U-Net model. The functions can be used to make predictions or plot learning curves.
+Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/23/2021 8:20 PM CDT
+Last updated: 10/6/2021 3:31 PM CDT
 """
 
 import random
@@ -18,6 +18,7 @@ from errors import check_arguments
 import pickle
 import matplotlib as mpl
 from expand_fronts import one_pixel_expansion as ope
+from variables import normalize
 
 
 def calculate_performance_stats(model_number, model_dir, num_variables, num_dimensions, front_types, domain, file_dimensions,
@@ -64,6 +65,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         Number of pixels to trim each image by in the longitude dimension before averaging the overlapping pixels.
     """
 
+    # If test_years is provided, load files corresponding to those years, otherwise just load all files
     if test_years is not None:
         front_files, variable_files = fm.load_test_files(num_variables, front_types, domain, file_dimensions, test_years)
     else:
@@ -81,17 +83,14 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         for layer in model.layers:
             if layer.__class__.__name__ == 'MaxPooling2D':
                 n += 1
-        n = int((n - 1)/2)
         channels = model.layers[0].input_shape[0][3]  # Number of variables used
     if num_dimensions == 3:
         for layer in model.layers:
             if layer.__class__.__name__ == 'MaxPooling3D':
                 n += 1
-        n = int((n - 1)/2)
         levels = model.layers[0].input_shape[0][3]  # Number of levels to the U-Net variables
-        channels = model.layers[0].input_shape[0][4]
-
-    norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
+        channels = model.layers[0].input_shape[0][4]  # Number of variables at each level
+    n = int((n - 1)/2)
 
     tp_cold = np.zeros(shape=[4,100])
     fp_cold = np.zeros(shape=[4,100])
@@ -118,13 +117,14 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
     tn_dryline = np.zeros(shape=[4,100])
     fn_dryline = np.zeros(shape=[4,100])
 
+    # Properties of the final map made from stitched images
     model_longitude_length = map_dim_x
-    raw_image_index_array = np.empty(shape=[num_images,2])
     longitude_domain_length_trim = longitude_domain_length - 2*image_trim
     image_spacing = int((longitude_domain_length - model_longitude_length)/(num_images-1))
     latitude_domain_length = 128
+    lon_pixels_per_image = int(model_longitude_length - 2*image_trim)  # Longitude dimension of the images
 
-    for x in range(2):
+    for x in range(len(front_files)):
         
         print("Prediction %d/%d....0/%d" % (x+1, len(front_files), num_images), end='\r')
 
@@ -133,28 +133,18 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         fronts_filename = front_files[index]
         variables_filename = variable_files[index]
         fronts_ds = pd.read_pickle(fronts_filename)
-        for i in range(pixel_expansion):
-            fronts_ds = ope(fronts_ds)
+        for i in range(pixel_expansion):  # Expand fronts by the given number of pixels
+            fronts_ds = ope(fronts_ds)  # ope: one_pixel_expansion function in expand_fronts.py
 
-        for i in range(num_images):
-            if i == 0:
-                raw_image_index_array[i][0] = image_trim
-                raw_image_index_array[i][1] = model_longitude_length - image_trim
-            elif i != num_images - 1:
-                raw_image_index_array[i][0] = raw_image_index_array[i-1][0] + image_spacing
-                raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing
-            else:
-                raw_image_index_array[i][0] = raw_image_index_array[i-1][0] + image_spacing
-                raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing
-
-        lon_pixels_per_image = int(raw_image_index_array[0][1] - raw_image_index_array[0][0])
-
+        # Create arrays containing data for the final stitched map
         image_no_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
         image_cold_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
         image_warm_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
         image_stationary_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
         image_occluded_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
         image_dryline_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
+
+        # Save longitude and latitude domain for making the prediction plot
         image_lats = fronts_ds.latitude.values[0:128]
         image_lons = fronts_ds.longitude.values[image_trim:longitude_domain_length-image_trim]
 
@@ -171,38 +161,25 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
             lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]
             lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
 
-            variable_list = list(variable_ds.keys())
-            for j in range(len(variable_list)):
-                var = variable_list[j]
-                if normalization_method == 1:
-                    # Min-max normalization
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
-                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
-                elif normalization_method == 2:
-                    # Mean normalization
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
-                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+            variable_ds = normalize(variable_ds, normalization_method)  # Normalize variables
 
             if num_dimensions == 2:
                 variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
                     map_dim_y, channels))
-            elif num_dimensions == 3:
+            else:
                 variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
-                                             'q']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                             'q']].sel(longitude=lons, latitude=lats).to_array().values
                 variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
-                                              'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                              'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().values
                 variables_950 = variable_ds[['t_950','d_950','z_950','u_950','v_950','theta_w_950','mix_ratio_950','rel_humid_950','virt_temp_950',
-                                             'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                             'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().values
                 variables_900 = variable_ds[['t_900','d_900','z_900','u_900','v_900','theta_w_900','mix_ratio_900','rel_humid_900','virt_temp_900',
-                                             'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                             'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().values
                 variables_850 = variable_ds[['t_850','d_850','z_850','u_850','v_850','theta_w_850','mix_ratio_850','rel_humid_850','virt_temp_850',
-                                             'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
-                variable_ds_new = np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).reshape(1,map_dim_x,map_dim_y,levels,channels)
+                                             'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().values
+                variable_ds_new = np.expand_dims(np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).transpose([3,2,0,1]), axis=0)
 
             prediction = model.predict(variable_ds_new)
-
-            # time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
-            # print(time)
 
             # Arrays of probabilities for all front types
             no_probs = np.zeros([map_dim_x, map_dim_y])
@@ -217,19 +194,18 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
 
             if front_types == 'CFWF':
                 if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
-                    print(model.name, "n =", n)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
                             no_probs[i][j] = prediction[n][0][i][j][0]
                             cold_probs[i][j] = prediction[n][0][i][j][1]
                             warm_probs[i][j] = prediction[n][0][i][j][2]
-                if model.name == '3plus3D':
-                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                elif model.name == '3plus3D':
+                    l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[n][0][i][j][l][0]
-                            cold_probs[i][j] = prediction[n][0][i][j][l][1]
-                            warm_probs[i][j] = prediction[n][0][i][j][l][2]
+                            no_probs[i][j] = prediction[0][0][i][j][l][0]
+                            cold_probs[i][j] = prediction[0][0][i][j][l][1]
+                            warm_probs[i][j] = prediction[0][0][i][j][l][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -259,21 +235,31 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         for y in range(boundary+1):
                             fronts = ope(fronts)
 
+                        """
+                        t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
+                        f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
+                        """
                         new_fronts = fronts
                         t_cold_ds = xr.where(new_fronts == 1, 1, 0)
                         t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
                         new_fronts = fronts
                         f_cold_ds = xr.where(new_fronts == 1, 0, 1)
                         f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
-                        new_fronts = fronts
 
+                        new_fronts = fronts
                         t_warm_ds = xr.where(new_fronts == 2, 1, 0)
                         t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
                         new_fronts = fronts
                         f_warm_ds = xr.where(new_fronts == 2, 0, 1)
                         f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
-                        new_fronts = fronts
 
+                        """
+                        Performance stats
+                        tp_<front>: Number of true positives of the given front
+                        tn_<front>: Number of true negatives of the given front
+                        fp_<front>: Number of false positives of the given front
+                        fn_<front>: Number of false negatives of the given front
+                        """
                         for i in range(100):
                             tp_cold[boundary,i] += len(np.where(t_cold_probs > thresholds[i])[0])
                             tn_cold[boundary,i] += len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
@@ -293,13 +279,13 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             no_probs[i][j] = prediction[n][0][i][j][0]
                             stationary_probs[i][j] = prediction[n][0][i][j][1]
                             occluded_probs[i][j] = prediction[n][0][i][j][2]
-                if model.name == '3plus3D':
-                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                elif model.name == '3plus3D':
+                    l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[n][0][i][j][l][0]
-                            stationary_probs[i][j] = prediction[n][0][i][j][l][1]
-                            occluded_probs[i][j] = prediction[n][0][i][j][l][2]
+                            no_probs[i][j] = prediction[0][0][i][j][l][0]
+                            stationary_probs[i][j] = prediction[0][0][i][j][l][1]
+                            occluded_probs[i][j] = prediction[0][0][i][j][l][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -329,19 +315,31 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         for y in range(boundary+1):
                             fronts = ope(fronts)
 
+                        """
+                        t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
+                        f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
+                        """
+                        new_fronts = fronts
                         t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
                         t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
                         new_fronts = fronts
                         f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
                         f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
-                        new_fronts = fronts
 
+                        new_fronts = fronts
                         t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
                         t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
                         new_fronts = fronts
                         f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
                         f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
 
+                        """
+                        Performance stats
+                        tp_<front>: Number of true positives of the given front
+                        tn_<front>: Number of true negatives of the given front
+                        fp_<front>: Number of false positives of the given front
+                        fn_<front>: Number of false negatives of the given front
+                        """
                         for i in range(100):
                             tp_stationary[boundary,i] += len(np.where(t_stationary_probs > thresholds[i])[0])
                             tn_stationary[boundary,i] += len(np.where((f_stationary_probs < thresholds[i]) & (f_stationary_probs != 0))[0])
@@ -360,12 +358,12 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         for j in range(0, map_dim_y):
                             no_probs[i][j] = prediction[n][0][i][j][0]
                             dryline_probs[i][j] = prediction[n][0][i][j][1]
-                if model.name == '3plus3D':
-                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                elif model.name == '3plus3D':
+                    l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[n][0][i][j][l][0]
-                            dryline_probs[i][j] = prediction[n][0][i][j][l][1]
+                            no_probs[i][j] = prediction[0][0][i][j][l][0]
+                            dryline_probs[i][j] = prediction[0][0][i][j][l][1]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -390,12 +388,24 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         for y in range(boundary+1):
                             fronts = ope(fronts)
 
+                        """
+                        t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
+                        f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
+                        """
+                        new_fronts = fronts
                         t_dryline_ds = xr.where(new_fronts == 5, 1, 0)
                         t_dryline_probs = t_dryline_ds.identifier * probs_ds.dryline_probs
                         new_fronts = fronts
                         f_dryline_ds = xr.where(new_fronts == 5, 0, 1)
                         f_dryline_probs = f_dryline_ds.identifier * probs_ds.dryline_probs
 
+                        """
+                        Performance stats
+                        tp_<front>: Number of true positives of the given front
+                        tn_<front>: Number of true negatives of the given front
+                        fp_<front>: Number of false positives of the given front
+                        fn_<front>: Number of false negatives of the given front
+                        """
                         for i in range(100):
                             tp_dryline[boundary,i] += len(np.where(t_dryline_probs > thresholds[i])[0])
                             tn_dryline[boundary,i] += len(np.where((f_dryline_probs < thresholds[i]) & (f_dryline_probs != 0))[0])
@@ -414,25 +424,24 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             stationary_probs[i][j] = prediction[n][0][i][j][3]
                             occluded_probs[i][j] = prediction[n][0][i][j][4]
                             dryline_probs[i][j] = prediction[n][0][i][j][5]
-                if model.name == '3plus3D':
-                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                elif model.name == '3plus3D':
+                    l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[n][0][i][j][l][0]
-                            cold_probs[i][j] = prediction[n][0][i][j][l][1]
-                            warm_probs[i][j] = prediction[n][0][i][j][l][2]
-                            stationary_probs[i][j] = prediction[n][0][i][j][l][3]
-                            occluded_probs[i][j] = prediction[n][0][i][j][l][4]
-                            dryline_probs[i][j] = prediction[n][0][i][j][l][5]
+                            no_probs[i][j] = prediction[0][0][i][j][l][0]
+                            cold_probs[i][j] = prediction[0][0][i][j][l][1]
+                            warm_probs[i][j] = prediction[0][0][i][j][l][2]
+                            stationary_probs[i][j] = prediction[0][0][i][j][l][3]
+                            occluded_probs[i][j] = prediction[0][0][i][j][l][4]
+                            dryline_probs[i][j] = prediction[0][0][i][j][l][5]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
                     image_warm_probs[0: model_longitude_length - image_trim][:] = warm_probs[image_trim: model_longitude_length][:]
                     image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
                     image_occluded_probs[0: model_longitude_length - image_trim][:] = occluded_probs[image_trim: model_longitude_length][:]
-                elif image != num_images - 1:
                     image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
-
+                elif image != num_images - 1:
                     image_no_probs[int(image * image_spacing):int(image_spacing*(image-1)) + lon_pixels_per_image][:] = np.maximum(image_no_probs[int(image * image_spacing):int(image_spacing*(image-1)) + lon_pixels_per_image][:], no_probs[image_trim:image_trim + lon_pixels_per_image - image_spacing][:])
                     image_cold_probs[int(image * image_spacing):int(image_spacing*(image-1)) + lon_pixels_per_image][:] = np.maximum(image_cold_probs[int(image * image_spacing):int(image_spacing*(image-1)) + lon_pixels_per_image][:], cold_probs[image_trim:image_trim + lon_pixels_per_image - image_spacing][:])
                     image_warm_probs[int(image * image_spacing):int(image_spacing*(image-1)) + lon_pixels_per_image][:] = np.maximum(image_warm_probs[int(image * image_spacing):int(image_spacing*(image-1)) + lon_pixels_per_image][:], warm_probs[image_trim:image_trim + lon_pixels_per_image - image_spacing][:])
@@ -471,40 +480,52 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         for y in range(boundary+1):
                             fronts = ope(fronts)
 
+                        """
+                        t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
+                        f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
+                        """
                         new_fronts = fronts
                         t_cold_ds = xr.where(new_fronts == 1, 1, 0)
                         t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
                         new_fronts = fronts
                         f_cold_ds = xr.where(new_fronts == 1, 0, 1)
                         f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
-                        new_fronts = fronts
 
+                        new_fronts = fronts
                         t_warm_ds = xr.where(new_fronts == 2, 1, 0)
                         t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
                         new_fronts = fronts
                         f_warm_ds = xr.where(new_fronts == 2, 0, 1)
                         f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
-                        new_fronts = fronts
 
+                        new_fronts = fronts
                         t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
                         t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
                         new_fronts = fronts
                         f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
                         f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
-                        new_fronts = fronts
 
+                        new_fronts = fronts
                         t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
                         t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
                         new_fronts = fronts
                         f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
                         f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
 
+                        new_fronts = fronts
                         t_dryline_ds = xr.where(new_fronts == 5, 1, 0)
                         t_dryline_probs = t_dryline_ds.identifier * probs_ds.dryline_probs
                         new_fronts = fronts
                         f_dryline_ds = xr.where(new_fronts == 5, 0, 1)
                         f_dryline_probs = f_dryline_ds.identifier * probs_ds.dryline_probs
 
+                        """
+                        Performance stats
+                        tp_<front>: Number of true positives of the given front
+                        tn_<front>: Number of true negatives of the given front
+                        fp_<front>: Number of false positives of the given front
+                        fn_<front>: Number of false negatives of the given front
+                        """
                         for i in range(100):
                             tp_cold[boundary,i] += len(np.where(t_cold_probs > thresholds[i])[0])
                             tn_cold[boundary,i] += len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
@@ -557,7 +578,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         pickle.dump(performance_ds, f)
 
 
-def find_matches_for_domain(longitude_domain_length, model_longitude_length):
+def find_matches_for_domain(longitude_domain_length, model_longitude_length, compatibility_mode=False, compat_images=None, compat_trim=None):
     """
     Function that outputs the number of images that can be stitched together with the specified domain length and the length
     of the domain dimension output by the model.
@@ -568,17 +589,41 @@ def find_matches_for_domain(longitude_domain_length, model_longitude_length):
         Number of pixels in the longitude dimension of the final stitched map.
     model_longitude_length: int
         Number of pixels in the longitude dimension of the model's output.
+    compatibility_mode: bool
+        Boolean that declares whether or not the function is being used to check compatibility of given parameters.
+    compat_images: int
+        Number of images declared for the stitched image. (Compatibility mode only)
+    compat_trim: int
+        Declared number of pixels for each stitched image. (Compatibility mode only)
     """
 
-    # latitude_domain_length = 128
-    # model_latitude_length = 128
+    if compatibility_mode is True:
+        images_are_compatible = False
+        trim_is_compatible = False
+
     num_matches = 0
     for i in range(2,longitude_domain_length-model_longitude_length):  # Image counter
         image_spacing_match = (longitude_domain_length-model_longitude_length)/(i-1)
         if image_spacing_match - int(image_spacing_match) == 0 and image_spacing_match > 1 and model_longitude_length-image_spacing_match > 0:
-            num_matches += 1
-            print("MATCH: (Images, Spacing, Overlap, Max Trim)", i, int(image_spacing_match), int(model_longitude_length-image_spacing_match), int(np.floor(image_spacing_match/2)))
-    print("\nMatches found: %d" % num_matches)
+            if compatibility_mode is False:
+                num_matches += 1
+                print("MATCH: (Images, Spacing, Overlap, Max Trim)", i, int(image_spacing_match), int(model_longitude_length-image_spacing_match), int(np.floor(image_spacing_match/2)))
+            elif i == compat_images:
+                images_are_compatible = True
+                max_trim = int(np.floor(image_spacing_match/2))
+                if compat_trim <= int(np.floor(image_spacing_match/2)):
+                    trim_is_compatible = True
+
+    if compatibility_mode is True:
+        if images_are_compatible is True:
+            if trim_is_compatible is False:
+                raise ValueError("image_trim=%d is too large for %d images with model_longitude_length=%d and longitude_domain_length=%d (Max trim = %d)" % (compat_trim, compat_images, model_longitude_length, longitude_domain_length, max_trim))
+            else:
+                print("done")
+        elif images_are_compatible is False:
+            raise ValueError("num_images=%d is not compatible with model_longitude_length=%d and longitude_domain_length=%d" % (compat_images, model_longitude_length, longitude_domain_length))
+    else:
+        print("\nMatches found: %d" % num_matches)
 
 
 def make_prediction(model_number, model_dir, front_file_list, variable_file_list, normalization_method, loss, fss_mask_size,
@@ -633,46 +678,29 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
         for layer in model.layers:
             if layer.__class__.__name__ == 'MaxPooling2D':
                 n += 1
-        n = int((n - 1)/2)
         channels = model.layers[0].input_shape[0][3]  # Number of variables used
     if num_dimensions == 3:
         for layer in model.layers:
             if layer.__class__.__name__ == 'MaxPooling3D':
                 n += 1
-        n = int((n - 1)/2)
         levels = model.layers[0].input_shape[0][3]  # Number of levels to the U-Net variables
-        channels = model.layers[0].input_shape[0][4]
+        channels = model.layers[0].input_shape[0][4]  # Number of variables on each level
+    n = int((n - 1)/2)
 
     model_longitude_length = map_dim_x
-    raw_image_index_array = np.empty(shape=[num_images,2])
     longitude_domain_length_trim = longitude_domain_length - 2*image_trim
-    image_spacing = int((longitude_domain_length - model_longitude_length)/(num_images-1))
+    image_spacing = int((longitude_domain_length - model_longitude_length)/(num_images-1))  # Number of pixels separating each image
     latitude_domain_length = 128
+    lon_pixels_per_image = int(model_longitude_length - 2*image_trim)  # Longitude dimension of the images
 
-    norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
-
+    # Find files with provided date and time to make a prediction
     front_filename_no_dir = 'FrontObjects_%s_%d%02d%02d%02d_%s_%dx%d.pkl' % (args.front_types, args.year, args.month,
         args.day, args.hour, args.domain, args.file_dimensions[0], args.file_dimensions[1])
     variable_filename_no_dir = 'Data_%dvar_%d%02d%02d%02d_%s_%dx%d.pkl' % (60, args.year, args.month, args.day, args.hour,
         args.domain, args.file_dimensions[0], args.file_dimensions[1])
-
     front_file = [front_filename for front_filename in front_file_list if front_filename_no_dir in front_filename][0]
     variable_file = [variable_filename for variable_filename in variable_file_list if variable_filename_no_dir in variable_filename][0]
-
     fronts_ds = pd.read_pickle(front_file)
-
-    for i in range(num_images):
-        if i == 0:
-            raw_image_index_array[i][0] = image_trim
-            raw_image_index_array[i][1] = model_longitude_length - image_trim
-        elif i != num_images - 1:
-            raw_image_index_array[i][0] = raw_image_index_array[i-1][0] + image_spacing
-            raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing
-        else:
-            raw_image_index_array[i][0] = raw_image_index_array[i-1][0] + image_spacing
-            raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing + image_trim - image_trim
-
-    lon_pixels_per_image = int(raw_image_index_array[0][1] - raw_image_index_array[0][0])
 
     image_no_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
     image_cold_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
@@ -697,38 +725,26 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
         lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]
         lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
 
-        variable_list = list(variable_ds.keys())
-        for j in range(len(variable_list)):
-            var = variable_list[j]
-            if normalization_method == 1:
-                # Min-max normalization
-                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
-                                                        (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
-            elif normalization_method == 2:
-                # Mean normalization
-                variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
-                                                        (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+        variable_ds = normalize(variable_ds, normalization_method)  # Normalize variables
 
         if num_dimensions == 2:
             variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
                 map_dim_y, channels))
         elif num_dimensions == 3:
             variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
-                                         'q']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'q']].sel(longitude=lons, latitude=lats).to_array().values
             variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
-                                          'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                          'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().values
             variables_950 = variable_ds[['t_950','d_950','z_950','u_950','v_950','theta_w_950','mix_ratio_950','rel_humid_950','virt_temp_950',
-                                         'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().values
             variables_900 = variable_ds[['t_900','d_900','z_900','u_900','v_900','theta_w_900','mix_ratio_900','rel_humid_900','virt_temp_900',
-                                         'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().values
             variables_850 = variable_ds[['t_850','d_850','z_850','u_850','v_850','theta_w_850','mix_ratio_850','rel_humid_850','virt_temp_850',
-                                         'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
-            variable_ds_new = np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).reshape(1,map_dim_x,map_dim_y,levels,channels)
-
+                                         'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().values
+            variable_ds_new = np.expand_dims(np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).transpose([3,2,0,1]), axis=0)
         prediction = model.predict(variable_ds_new)
 
         time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
-        # print(time)
 
         # Arrays of probabilities for all front types
         no_probs = np.zeros([map_dim_x, map_dim_y])
@@ -745,13 +761,13 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                         no_probs[i][j] = prediction[n][0][i][j][0]
                         cold_probs[i][j] = prediction[n][0][i][j][1]
                         warm_probs[i][j] = prediction[n][0][i][j][2]
-            if model.name == '3plus3D':
-                l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+            elif model.name == '3plus3D':
+                l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                 for i in range(0, map_dim_x):
                     for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[n][0][i][j][l][0]
-                        cold_probs[i][j] = prediction[n][0][i][j][l][1]
-                        warm_probs[i][j] = prediction[n][0][i][j][l][2]
+                        no_probs[i][j] = prediction[0][0][i][j][l][0]
+                        cold_probs[i][j] = prediction[0][0][i][j][l][1]
+                        warm_probs[i][j] = prediction[0][0][i][j][l][2]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -784,13 +800,13 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                         no_probs[i][j] = prediction[n][0][i][j][0]
                         stationary_probs[i][j] = prediction[n][0][i][j][1]
                         occluded_probs[i][j] = prediction[n][0][i][j][2]
-            if model.name == '3plus3D':
-                l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+            elif model.name == '3plus3D':
+                l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                 for i in range(0, map_dim_x):
                     for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[n][0][i][j][l][0]
-                        stationary_probs[i][j] = prediction[n][0][i][j][l][1]
-                        occluded_probs[i][j] = prediction[n][0][i][j][l][2]
+                        no_probs[i][j] = prediction[0][0][i][j][l][0]
+                        stationary_probs[i][j] = prediction[0][0][i][j][l][1]
+                        occluded_probs[i][j] = prediction[0][0][i][j][l][2]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -822,12 +838,12 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                     for j in range(0, map_dim_y):
                         no_probs[i][j] = prediction[n][0][i][j][0]
                         dryline_probs[i][j] = prediction[n][0][i][j][1]
-            if model.name == '3plus3D':
-                l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+            elif model.name == '3plus3D':
+                l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                 for i in range(0, map_dim_x):
                     for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[n][0][i][j][l][0]
-                        dryline_probs[i][j] = prediction[n][0][i][j][l][1]
+                        no_probs[i][j] = prediction[0][0][i][j][l][0]
+                        dryline_probs[i][j] = prediction[0][0][i][j][l][1]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -858,16 +874,16 @@ def make_prediction(model_number, model_dir, front_file_list, variable_file_list
                         stationary_probs[i][j] = prediction[n][0][i][j][3]
                         occluded_probs[i][j] = prediction[n][0][i][j][4]
                         dryline_probs[i][j] = prediction[n][0][i][j][5]
-            if model.name == '3plus3D':
-                l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+            elif model.name == '3plus3D':
+                l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                 for i in range(0, map_dim_x):
                     for j in range(0, map_dim_y):
-                        no_probs[i][j] = prediction[n][0][i][j][l][0]
-                        cold_probs[i][j] = prediction[n][0][i][j][l][1]
-                        warm_probs[i][j] = prediction[n][0][i][j][l][2]
-                        stationary_probs[i][j] = prediction[n][0][i][j][l][3]
-                        occluded_probs[i][j] = prediction[n][0][i][j][l][4]
-                        dryline_probs[i][j] = prediction[n][0][i][j][l][5]
+                        no_probs[i][j] = prediction[0][0][i][j][l][0]
+                        cold_probs[i][j] = prediction[0][0][i][j][l][1]
+                        warm_probs[i][j] = prediction[0][0][i][j][l][2]
+                        stationary_probs[i][j] = prediction[0][0][i][j][l][3]
+                        occluded_probs[i][j] = prediction[0][0][i][j][l][4]
+                        dryline_probs[i][j] = prediction[0][0][i][j][l][5]
             if image == 0:
                 image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                 image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -962,45 +978,28 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
         for layer in model.layers:
             if layer.__class__.__name__ == 'MaxPooling2D':
                 n += 1
-        n = int((n - 1)/2)
         channels = model.layers[0].input_shape[0][3]  # Number of variables used
     if num_dimensions == 3:
         for layer in model.layers:
             if layer.__class__.__name__ == 'MaxPooling3D':
                 n += 1
-        n = int((n - 1)/2)
         levels = model.layers[0].input_shape[0][3]  # Number of levels to the U-Net variables
-        channels = model.layers[0].input_shape[0][4]
+        channels = model.layers[0].input_shape[0][4]  # Number of variables at each level
+    n = int((n - 1)/2)
 
     model_longitude_length = map_dim_x
-    raw_image_index_array = np.empty(shape=[num_images,2])
     longitude_domain_length_trim = longitude_domain_length - 2*image_trim
     image_spacing = int((longitude_domain_length - model_longitude_length)/(num_images-1))
     latitude_domain_length = 128
-
-    norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
+    lon_pixels_per_image = int(model_longitude_length - 2*image_trim)  # Longitude dimension of the images
 
     for x in range(predictions):
 
         # Open random pair of files
-        
         index = random.choices(range(len(front_files) - 1), k=1)[0]
         fronts_filename = front_files[index]
         variables_filename = variable_files[index]
         fronts_ds = pd.read_pickle(fronts_filename)
-
-        for i in range(num_images):
-            if i == 0:
-                raw_image_index_array[i][0] = image_trim
-                raw_image_index_array[i][1] = model_longitude_length - image_trim
-            elif i != num_images - 1:
-                raw_image_index_array[i][0] = raw_image_index_array[i-1][0] + image_spacing
-                raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing
-            else:
-                raw_image_index_array[i][0] = raw_image_index_array[i-1][0] + image_spacing
-                raw_image_index_array[i][1] = raw_image_index_array[i-1][1] + image_spacing + image_trim - image_trim
-
-        lon_pixels_per_image = int(raw_image_index_array[0][1] - raw_image_index_array[0][0])
 
         image_no_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
         image_cold_probs = np.empty(shape=[longitude_domain_length_trim,latitude_domain_length])
@@ -1024,38 +1023,27 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
             lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]
             lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
 
-            variable_list = list(variable_ds.keys())
-            for j in range(len(variable_list)):
-                var = variable_list[j]
-                if normalization_method == 1:
-                    # Min-max normalization
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
-                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
-                elif normalization_method == 2:
-                    # Mean normalization
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
-                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+            variable_ds = normalize(variable_ds, normalization_method)  # Normalize variables
 
             if num_dimensions == 2:
                 variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
                     map_dim_y, channels))
             elif num_dimensions == 3:
                 variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
-                                             'q']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                             'q']].sel(longitude=lons, latitude=lats).to_array().values
                 variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
-                                              'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                              'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().values
                 variables_950 = variable_ds[['t_950','d_950','z_950','u_950','v_950','theta_w_950','mix_ratio_950','rel_humid_950','virt_temp_950',
-                                             'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                             'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().values
                 variables_900 = variable_ds[['t_900','d_900','z_900','u_900','v_900','theta_w_900','mix_ratio_900','rel_humid_900','virt_temp_900',
-                                             'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                             'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().values
                 variables_850 = variable_ds[['t_850','d_850','z_850','u_850','v_850','theta_w_850','mix_ratio_850','rel_humid_850','virt_temp_850',
-                                             'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
-                variable_ds_new = np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).reshape(1,map_dim_x,map_dim_y,levels,channels)
+                                             'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().values
+                variable_ds_new = np.expand_dims(np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).transpose([3,2,0,1]), axis=0)
 
             prediction = model.predict(variable_ds_new)
 
             time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
-            # print(time)
 
             # Arrays of probabilities for all front types
             no_probs = np.zeros([map_dim_x, map_dim_y])
@@ -1072,13 +1060,13 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
                             no_probs[i][j] = prediction[n][0][i][j][0]
                             cold_probs[i][j] = prediction[n][0][i][j][1]
                             warm_probs[i][j] = prediction[n][0][i][j][2]
-                if model.name == '3plus3D':
-                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                elif model.name == '3plus3D':
+                    l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[n][0][i][j][l][0]
-                            cold_probs[i][j] = prediction[n][0][i][j][l][1]
-                            warm_probs[i][j] = prediction[n][0][i][j][l][2]
+                            no_probs[i][j] = prediction[0][0][i][j][l][0]
+                            cold_probs[i][j] = prediction[0][0][i][j][l][1]
+                            warm_probs[i][j] = prediction[0][0][i][j][l][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -1111,13 +1099,13 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
                             no_probs[i][j] = prediction[n][0][i][j][0]
                             stationary_probs[i][j] = prediction[n][0][i][j][1]
                             occluded_probs[i][j] = prediction[n][0][i][j][2]
-                if model.name == '3plus3D':
-                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                elif model.name == '3plus3D':
+                    l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[n][0][i][j][l][0]
-                            stationary_probs[i][j] = prediction[n][0][i][j][l][1]
-                            occluded_probs[i][j] = prediction[n][0][i][j][l][2]
+                            no_probs[i][j] = prediction[0][0][i][j][l][0]
+                            stationary_probs[i][j] = prediction[0][0][i][j][l][1]
+                            occluded_probs[i][j] = prediction[0][0][i][j][l][2]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -1149,12 +1137,12 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
                         for j in range(0, map_dim_y):
                             no_probs[i][j] = prediction[n][0][i][j][0]
                             dryline_probs[i][j] = prediction[n][0][i][j][1]
-                if model.name == '3plus3D':
-                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                elif model.name == '3plus3D':  # U-Net 3+ (3D)
+                    l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[n][0][i][j][l][0]
-                            dryline_probs[i][j] = prediction[n][0][i][j][l][1]
+                            no_probs[i][j] = prediction[0][0][i][j][l][0]
+                            dryline_probs[i][j] = prediction[0][0][i][j][l][1]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -1185,16 +1173,16 @@ def make_random_predictions(model_number, model_dir, front_files, variable_files
                             stationary_probs[i][j] = prediction[n][0][i][j][3]
                             occluded_probs[i][j] = prediction[n][0][i][j][4]
                             dryline_probs[i][j] = prediction[n][0][i][j][5]
-                if model.name == '3plus3D':
-                    l = 0  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
+                elif model.name == '3plus3D':
+                    l = 2  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[n][0][i][j][l][0]
-                            cold_probs[i][j] = prediction[n][0][i][j][l][1]
-                            warm_probs[i][j] = prediction[n][0][i][j][l][2]
-                            stationary_probs[i][j] = prediction[n][0][i][j][l][3]
-                            occluded_probs[i][j] = prediction[n][0][i][j][l][4]
-                            dryline_probs[i][j] = prediction[n][0][i][j][l][5]
+                            no_probs[i][j] = prediction[0][0][i][j][l][0]
+                            cold_probs[i][j] = prediction[0][0][i][j][l][1]
+                            warm_probs[i][j] = prediction[0][0][i][j][l][2]
+                            stationary_probs[i][j] = prediction[0][0][i][j][l][3]
+                            occluded_probs[i][j] = prediction[0][0][i][j][l][4]
+                            dryline_probs[i][j] = prediction[0][0][i][j][l][5]
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -1282,6 +1270,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         POD_cold_100km = stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fn_cold'])
         SR_cold_100km = stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fp_cold'])
         CSI_cold_100km = stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fp_cold'] + stats_100km['fn_cold'])
+
         POD_warm_25km = stats_25km['tp_warm']/(stats_25km['tp_warm'] + stats_25km['fn_warm'])
         SR_warm_25km = stats_25km['tp_warm']/(stats_25km['tp_warm'] + stats_25km['fp_warm'])
         CSI_warm_25km = stats_25km['tp_warm']/(stats_25km['tp_warm'] + stats_25km['fp_warm'] + stats_25km['fn_warm'])
@@ -1351,18 +1340,38 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             POD_stationary_25km = stats_25km['tp_stationary']/(stats_25km['tp_stationary'] + stats_25km['fn_stationary'])
             SR_stationary_25km = stats_25km['tp_stationary']/(stats_25km['tp_stationary'] + stats_25km['fp_stationary'])
             CSI_stationary_25km = stats_25km['tp_stationary']/(stats_25km['tp_stationary'] + stats_25km['fp_stationary'] + stats_25km['fn_stationary'])
+            POD_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fn_stationary'])
+            SR_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'])
+            CSI_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'] + stats_50km['fn_stationary'])
+            POD_stationary_75km = stats_75km['tp_stationary']/(stats_75km['tp_stationary'] + stats_75km['fn_stationary'])
+            SR_stationary_75km = stats_75km['tp_stationary']/(stats_75km['tp_stationary'] + stats_75km['fp_stationary'])
+            CSI_stationary_75km = stats_75km['tp_stationary']/(stats_75km['tp_stationary'] + stats_75km['fp_stationary'] + stats_75km['fn_stationary'])
             POD_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fn_stationary'])
             SR_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fp_stationary'])
             CSI_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fp_stationary'] + stats_100km['fn_stationary'])
+
             POD_occluded_25km = stats_25km['tp_occluded']/(stats_25km['tp_occluded'] + stats_25km['fn_occluded'])
             SR_occluded_25km = stats_25km['tp_occluded']/(stats_25km['tp_occluded'] + stats_25km['fp_occluded'])
             CSI_occluded_25km = stats_25km['tp_occluded']/(stats_25km['tp_occluded'] + stats_25km['fp_occluded'] + stats_25km['fn_occluded'])
+            POD_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fn_occluded'])
+            SR_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fp_occluded'])
+            CSI_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fp_occluded'] + stats_50km['fn_occluded'])
+            POD_occluded_75km = stats_75km['tp_occluded']/(stats_75km['tp_occluded'] + stats_75km['fn_occluded'])
+            SR_occluded_75km = stats_75km['tp_occluded']/(stats_75km['tp_occluded'] + stats_75km['fp_occluded'])
+            CSI_occluded_75km = stats_75km['tp_occluded']/(stats_75km['tp_occluded'] + stats_75km['fp_occluded'] + stats_75km['fn_occluded'])
             POD_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fn_occluded'])
             SR_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'])
             CSI_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'] + stats_100km['fn_occluded'])
+
             POD_dryline_25km = stats_25km['tp_dryline']/(stats_25km['tp_dryline'] + stats_25km['fn_dryline'])
             SR_dryline_25km = stats_25km['tp_dryline']/(stats_25km['tp_dryline'] + stats_25km['fp_dryline'])
             CSI_dryline_25km = stats_25km['tp_dryline']/(stats_25km['tp_dryline'] + stats_25km['fp_dryline'] + stats_25km['fn_dryline'])
+            POD_dryline_50km = stats_50km['tp_dryline']/(stats_50km['tp_dryline'] + stats_50km['fn_dryline'])
+            SR_dryline_50km = stats_50km['tp_dryline']/(stats_50km['tp_dryline'] + stats_50km['fp_dryline'])
+            CSI_dryline_50km = stats_50km['tp_dryline']/(stats_50km['tp_dryline'] + stats_50km['fp_dryline'] + stats_50km['fn_dryline'])
+            POD_dryline_75km = stats_75km['tp_dryline']/(stats_75km['tp_dryline'] + stats_75km['fn_dryline'])
+            SR_dryline_75km = stats_75km['tp_dryline']/(stats_75km['tp_dryline'] + stats_75km['fp_dryline'])
+            CSI_dryline_75km = stats_75km['tp_dryline']/(stats_75km['tp_dryline'] + stats_75km['fp_dryline'] + stats_75km['fn_dryline'])
             POD_dryline_100km = stats_100km['tp_dryline']/(stats_100km['tp_dryline'] + stats_100km['fn_dryline'])
             SR_dryline_100km = stats_100km['tp_dryline']/(stats_100km['tp_dryline'] + stats_100km['fp_dryline'])
             CSI_dryline_100km = stats_100km['tp_dryline']/(stats_100km['tp_dryline'] + stats_100km['fp_dryline'] + stats_100km['fn_dryline'])
@@ -1370,13 +1379,20 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.figure()
             plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
             plt.colorbar(label='Critical Success Index (CSI)')
-            plt.plot(SR_stationary_25km, POD_stationary_25km, 'r', label='25km boundary')
+            plt.plot(SR_stationary_25km, POD_stationary_25km, color='red', label='25km boundary')
             plt.plot(SR_stationary_25km[np.where(CSI_stationary_25km == np.max(CSI_stationary_25km))], POD_stationary_25km[np.where(CSI_stationary_25km == np.max(CSI_stationary_25km))], color='red', marker='*', markersize=9)
-            plt.text(SR_stationary_25km[np.where(CSI_stationary_25km == np.max(CSI_stationary_25km))]+0.01, POD_stationary_25km[np.where(CSI_stationary_25km == np.max(CSI_stationary_25km))], s=str('%.4f' % np.max(CSI_stationary_25km)), color='red')
+            plt.text(0.01, 0.01, s=str('25km: %.4f' % np.max(CSI_stationary_25km)), color='red')
+            plt.plot(SR_stationary_50km, POD_stationary_50km, color='purple', label='50km boundary')
+            plt.plot(SR_stationary_50km[np.where(CSI_stationary_50km == np.max(CSI_stationary_50km))], POD_stationary_50km[np.where(CSI_stationary_50km == np.max(CSI_stationary_50km))], color='purple', marker='*', markersize=9)
+            plt.text(0.01, 0.05, s=str('50km: %.4f' % np.max(CSI_stationary_50km)), color='purple')
+            plt.plot(SR_stationary_75km, POD_stationary_75km, color='brown', label='75km boundary')
+            plt.plot(SR_stationary_75km[np.where(CSI_stationary_75km == np.max(CSI_stationary_75km))], POD_stationary_75km[np.where(CSI_stationary_75km == np.max(CSI_stationary_75km))], color='brown', marker='*', markersize=9)
+            plt.text(0.01, 0.09, s=str('75km: %.4f' % np.max(CSI_stationary_75km)), color='brown')
             plt.plot(SR_stationary_100km, POD_stationary_100km, color='green', label='100km boundary')
             plt.plot(SR_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))], POD_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))], color='green', marker='*', markersize=9)
-            plt.text(SR_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))]+0.01, POD_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))], s=str('%.4f' % np.max(CSI_stationary_100km)), color='green')
-            plt.legend()
+            plt.text(0.01, 0.13, s=str('100km: %.4f' % np.max(CSI_stationary_100km)), color='green')
+            plt.text(0.01, 0.17, s='CSI values', style='oblique')
+            plt.legend(loc='upper right')
             plt.xlabel("Success Ratio (1 - FAR)")
             plt.ylabel("Probability of Detection (POD)")
             plt.title("Model %d Performance for Stationary Fronts" % model_number)
@@ -1389,13 +1405,20 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.figure()
             plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
             plt.colorbar(label='Critical Success Index (CSI)')
-            plt.plot(SR_occluded_25km, POD_occluded_25km, 'r', label='25km boundary')
+            plt.plot(SR_occluded_25km, POD_occluded_25km, color='red', label='25km boundary')
             plt.plot(SR_occluded_25km[np.where(CSI_occluded_25km == np.max(CSI_occluded_25km))], POD_occluded_25km[np.where(CSI_occluded_25km == np.max(CSI_occluded_25km))], color='red', marker='*', markersize=9)
-            plt.text(SR_occluded_25km[np.where(CSI_occluded_25km == np.max(CSI_occluded_25km))]+0.01, POD_occluded_25km[np.where(CSI_occluded_25km == np.max(CSI_occluded_25km))], s=str('%.4f' % np.max(CSI_occluded_25km)), color='red')
+            plt.text(0.01, 0.01, s=str('25km: %.4f' % np.max(CSI_occluded_25km)), color='red')
+            plt.plot(SR_occluded_50km, POD_occluded_50km, color='purple', label='50km boundary')
+            plt.plot(SR_occluded_50km[np.where(CSI_occluded_50km == np.max(CSI_occluded_50km))], POD_occluded_50km[np.where(CSI_occluded_50km == np.max(CSI_occluded_50km))], color='purple', marker='*', markersize=9)
+            plt.text(0.01, 0.05, s=str('50km: %.4f' % np.max(CSI_occluded_50km)), color='purple')
+            plt.plot(SR_occluded_75km, POD_occluded_75km, color='brown', label='75km boundary')
+            plt.plot(SR_occluded_75km[np.where(CSI_occluded_75km == np.max(CSI_occluded_75km))], POD_occluded_75km[np.where(CSI_occluded_75km == np.max(CSI_occluded_75km))], color='brown', marker='*', markersize=9)
+            plt.text(0.01, 0.09, s=str('75km: %.4f' % np.max(CSI_occluded_75km)), color='brown')
             plt.plot(SR_occluded_100km, POD_occluded_100km, color='green', label='100km boundary')
             plt.plot(SR_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))], POD_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))], color='green', marker='*', markersize=9)
-            plt.text(SR_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))]+0.01, POD_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))], s=str('%.4f' % np.max(CSI_occluded_100km)), color='green')
-            plt.legend()
+            plt.text(0.01, 0.13, s=str('100km: %.4f' % np.max(CSI_occluded_100km)), color='green')
+            plt.text(0.01, 0.17, s='CSI values', style='oblique')
+            plt.legend(loc='upper right')
             plt.xlabel("Success Ratio (1 - FAR)")
             plt.ylabel("Probability of Detection (POD)")
             plt.title("Model %d Performance for Occluded Fronts" % model_number)
@@ -1408,13 +1431,20 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.figure()
             plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
             plt.colorbar(label='Critical Success Index (CSI)')
-            plt.plot(SR_dryline_25km, POD_dryline_25km, 'r', label='25km boundary')
+            plt.plot(SR_dryline_25km, POD_dryline_25km, color='red', label='25km boundary')
             plt.plot(SR_dryline_25km[np.where(CSI_dryline_25km == np.max(CSI_dryline_25km))], POD_dryline_25km[np.where(CSI_dryline_25km == np.max(CSI_dryline_25km))], color='red', marker='*', markersize=9)
-            plt.text(SR_dryline_25km[np.where(CSI_dryline_25km == np.max(CSI_dryline_25km))]+0.01, POD_dryline_25km[np.where(CSI_dryline_25km == np.max(CSI_dryline_25km))], s=str('%.4f' % np.max(CSI_dryline_25km)), color='red')
+            plt.text(0.01, 0.01, s=str('25km: %.4f' % np.max(CSI_dryline_25km)), color='red')
+            plt.plot(SR_dryline_50km, POD_dryline_50km, color='purple', label='50km boundary')
+            plt.plot(SR_dryline_50km[np.where(CSI_dryline_50km == np.max(CSI_dryline_50km))], POD_dryline_50km[np.where(CSI_dryline_50km == np.max(CSI_dryline_50km))], color='purple', marker='*', markersize=9)
+            plt.text(0.01, 0.05, s=str('50km: %.4f' % np.max(CSI_dryline_50km)), color='purple')
+            plt.plot(SR_dryline_75km, POD_dryline_75km, color='brown', label='75km boundary')
+            plt.plot(SR_dryline_75km[np.where(CSI_dryline_75km == np.max(CSI_dryline_75km))], POD_dryline_75km[np.where(CSI_dryline_75km == np.max(CSI_dryline_75km))], color='brown', marker='*', markersize=9)
+            plt.text(0.01, 0.09, s=str('75km: %.4f' % np.max(CSI_dryline_75km)), color='brown')
             plt.plot(SR_dryline_100km, POD_dryline_100km, color='green', label='100km boundary')
             plt.plot(SR_dryline_100km[np.where(CSI_dryline_100km == np.max(CSI_dryline_100km))], POD_dryline_100km[np.where(CSI_dryline_100km == np.max(CSI_dryline_100km))], color='green', marker='*', markersize=9)
-            plt.text(SR_dryline_100km[np.where(CSI_dryline_100km == np.max(CSI_dryline_100km))]+0.01, POD_dryline_100km[np.where(CSI_dryline_100km == np.max(CSI_dryline_100km))], s=str('%.4f' % np.max(CSI_dryline_100km)), color='green')
-            plt.legend()
+            plt.text(0.01, 0.13, s=str('100km: %.4f' % np.max(CSI_dryline_100km)), color='green')
+            plt.text(0.01, 0.17, s='CSI values', style='oblique')
+            plt.legend(loc='upper right')
             plt.xlabel("Success Ratio (1 - FAR)")
             plt.ylabel("Probability of Detection (POD)")
             plt.title("Model %d Performance for Dryline Fronts" % model_number)
@@ -1428,12 +1458,25 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         POD_stationary_25km = stats_25km['tp_stationary']/(stats_25km['tp_stationary'] + stats_25km['fn_stationary'])
         SR_stationary_25km = stats_25km['tp_stationary']/(stats_25km['tp_stationary'] + stats_25km['fp_stationary'])
         CSI_stationary_25km = stats_25km['tp_stationary']/(stats_25km['tp_stationary'] + stats_25km['fp_stationary'] + stats_25km['fn_stationary'])
+        POD_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fn_stationary'])
+        SR_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'])
+        CSI_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'] + stats_50km['fn_stationary'])
+        POD_stationary_75km = stats_75km['tp_stationary']/(stats_75km['tp_stationary'] + stats_75km['fn_stationary'])
+        SR_stationary_75km = stats_75km['tp_stationary']/(stats_75km['tp_stationary'] + stats_75km['fp_stationary'])
+        CSI_stationary_75km = stats_75km['tp_stationary']/(stats_75km['tp_stationary'] + stats_75km['fp_stationary'] + stats_75km['fn_stationary'])
         POD_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fn_stationary'])
         SR_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fp_stationary'])
         CSI_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fp_stationary'] + stats_100km['fn_stationary'])
+
         POD_occluded_25km = stats_25km['tp_occluded']/(stats_25km['tp_occluded'] + stats_25km['fn_occluded'])
         SR_occluded_25km = stats_25km['tp_occluded']/(stats_25km['tp_occluded'] + stats_25km['fp_occluded'])
         CSI_occluded_25km = stats_25km['tp_occluded']/(stats_25km['tp_occluded'] + stats_25km['fp_occluded'] + stats_25km['fn_occluded'])
+        POD_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fn_occluded'])
+        SR_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fp_occluded'])
+        CSI_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fp_occluded'] + stats_50km['fn_occluded'])
+        POD_occluded_75km = stats_75km['tp_occluded']/(stats_75km['tp_occluded'] + stats_75km['fn_occluded'])
+        SR_occluded_75km = stats_75km['tp_occluded']/(stats_75km['tp_occluded'] + stats_75km['fp_occluded'])
+        CSI_occluded_75km = stats_75km['tp_occluded']/(stats_75km['tp_occluded'] + stats_75km['fp_occluded'] + stats_75km['fn_occluded'])
         POD_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fn_occluded'])
         SR_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'])
         CSI_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'] + stats_100km['fn_occluded'])
@@ -1441,13 +1484,20 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         plt.figure()
         plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
         plt.colorbar(label='Critical Success Index (CSI)')
-        plt.plot(SR_stationary_25km, POD_stationary_25km, 'r', label='25km boundary')
+        plt.plot(SR_stationary_25km, POD_stationary_25km, color='red', label='25km boundary')
         plt.plot(SR_stationary_25km[np.where(CSI_stationary_25km == np.max(CSI_stationary_25km))], POD_stationary_25km[np.where(CSI_stationary_25km == np.max(CSI_stationary_25km))], color='red', marker='*', markersize=9)
-        plt.text(SR_stationary_25km[np.where(CSI_stationary_25km == np.max(CSI_stationary_25km))]+0.01, POD_stationary_25km[np.where(CSI_stationary_25km == np.max(CSI_stationary_25km))], s=str('%.4f' % np.max(CSI_stationary_25km)), color='red')
+        plt.text(0.01, 0.01, s=str('25km: %.4f' % np.max(CSI_stationary_25km)), color='red')
+        plt.plot(SR_stationary_50km, POD_stationary_50km, color='purple', label='50km boundary')
+        plt.plot(SR_stationary_50km[np.where(CSI_stationary_50km == np.max(CSI_stationary_50km))], POD_stationary_50km[np.where(CSI_stationary_50km == np.max(CSI_stationary_50km))], color='purple', marker='*', markersize=9)
+        plt.text(0.01, 0.05, s=str('50km: %.4f' % np.max(CSI_stationary_50km)), color='purple')
+        plt.plot(SR_stationary_75km, POD_stationary_75km, color='brown', label='75km boundary')
+        plt.plot(SR_stationary_75km[np.where(CSI_stationary_75km == np.max(CSI_stationary_75km))], POD_stationary_75km[np.where(CSI_stationary_75km == np.max(CSI_stationary_75km))], color='brown', marker='*', markersize=9)
+        plt.text(0.01, 0.09, s=str('75km: %.4f' % np.max(CSI_stationary_75km)), color='brown')
         plt.plot(SR_stationary_100km, POD_stationary_100km, color='green', label='100km boundary')
         plt.plot(SR_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))], POD_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))], color='green', marker='*', markersize=9)
-        plt.text(SR_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))]+0.01, POD_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))], s=str('%.4f' % np.max(CSI_stationary_100km)), color='green')
-        plt.legend()
+        plt.text(0.01, 0.13, s=str('100km: %.4f' % np.max(CSI_stationary_100km)), color='green')
+        plt.text(0.01, 0.17, s='CSI values', style='oblique')
+        plt.legend(loc='upper right')
         plt.xlabel("Success Ratio (1 - FAR)")
         plt.ylabel("Probability of Detection (POD)")
         plt.title("Model %d Performance for Stationary Fronts" % model_number)
@@ -1460,13 +1510,20 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         plt.figure()
         plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
         plt.colorbar(label='Critical Success Index (CSI)')
-        plt.plot(SR_occluded_25km, POD_occluded_25km, 'r', label='25km boundary')
+        plt.plot(SR_occluded_25km, POD_occluded_25km, color='red', label='25km boundary')
         plt.plot(SR_occluded_25km[np.where(CSI_occluded_25km == np.max(CSI_occluded_25km))], POD_occluded_25km[np.where(CSI_occluded_25km == np.max(CSI_occluded_25km))], color='red', marker='*', markersize=9)
-        plt.text(SR_occluded_25km[np.where(CSI_occluded_25km == np.max(CSI_occluded_25km))]+0.01, POD_occluded_25km[np.where(CSI_occluded_25km == np.max(CSI_occluded_25km))], s=str('%.4f' % np.max(CSI_occluded_25km)), color='red')
+        plt.text(0.01, 0.01, s=str('25km: %.4f' % np.max(CSI_occluded_25km)), color='red')
+        plt.plot(SR_occluded_50km, POD_occluded_50km, color='purple', label='50km boundary')
+        plt.plot(SR_occluded_50km[np.where(CSI_occluded_50km == np.max(CSI_occluded_50km))], POD_occluded_50km[np.where(CSI_occluded_50km == np.max(CSI_occluded_50km))], color='purple', marker='*', markersize=9)
+        plt.text(0.01, 0.05, s=str('50km: %.4f' % np.max(CSI_occluded_50km)), color='purple')
+        plt.plot(SR_occluded_75km, POD_occluded_75km, color='brown', label='75km boundary')
+        plt.plot(SR_occluded_75km[np.where(CSI_occluded_75km == np.max(CSI_occluded_75km))], POD_occluded_75km[np.where(CSI_occluded_75km == np.max(CSI_occluded_75km))], color='brown', marker='*', markersize=9)
+        plt.text(0.01, 0.09, s=str('75km: %.4f' % np.max(CSI_occluded_75km)), color='brown')
         plt.plot(SR_occluded_100km, POD_occluded_100km, color='green', label='100km boundary')
         plt.plot(SR_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))], POD_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))], color='green', marker='*', markersize=9)
-        plt.text(SR_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))]+0.01, POD_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))], s=str('%.4f' % np.max(CSI_occluded_100km)), color='green')
-        plt.legend()
+        plt.text(0.01, 0.13, s=str('100km: %.4f' % np.max(CSI_occluded_100km)), color='green')
+        plt.text(0.01, 0.17, s='CSI values', style='oblique')
+        plt.legend(loc='upper right')
         plt.xlabel("Success Ratio (1 - FAR)")
         plt.ylabel("Probability of Detection (POD)")
         plt.title("Model %d Performance for Occluded Fronts" % model_number)
@@ -1510,19 +1567,19 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     cmap = mpl.colors.ListedColormap(["white","blue","red",'green','purple','orange'], name='from_list', N=None)
     norm = mpl.colors.Normalize(vmin=0,vmax=6)
 
-    cold_norm = mpl.colors.Normalize(vmin=0, vmax=0.6)
-    warm_norm = mpl.colors.Normalize(vmin=0, vmax=0.6)
-    stationary_norm = mpl.colors.Normalize(vmin=0, vmax=0.6)
-    occluded_norm = mpl.colors.Normalize(vmin=0, vmax=0.6)
-    dryline_norm = mpl.colors.Normalize(vmin=0.02, vmax=0.6)
+    cold_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.8)
+    warm_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.8)
+    stationary_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.8)
+    occluded_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.8)
+    dryline_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.8)
 
     if pixel_expansion == 1:
         fronts = ope(fronts)  # 1-pixel expansion
     elif pixel_expansion == 2:
         fronts = ope(ope(fronts))  # 2-pixel expansion
 
-    probs_ds = xr.where(probs_ds > 0.02, probs_ds, float("NaN"))
-
+    probs_ds = xr.where(probs_ds > 0.2, probs_ds, float("NaN"))
+    print(np.nanmax(probs_ds.cold_probs.values))
     if front_types == 'CFWF':
         fig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
         axlist = axarr.flatten()
@@ -1604,6 +1661,10 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
     metric: str
         Metric used for evaluating the U-Net during training.
     """
+
+    """
+    loss_title: Title of the loss plots on the learning curves
+    """
     with open("%s/model_%d/model_%d_history.csv" % (model_dir, model_number, model_number), 'rb') as f:
         history = pd.read_csv(f)
 
@@ -1617,7 +1678,13 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         loss_title = 'Dice coefficient'
     elif loss == 'tversky':
         loss_title = 'Tversky coefficient'
+    else:
+        loss_title = None
 
+    """
+    metric_title: Title of the metric plots on the learning curves
+    metric_string: Metric as it appears in the history files
+    """
     if metric == 'fss':
         metric_title = 'Fractions Skill Score (mask=%d, c=%.1f)' % (fss_mask_size, fss_c)
         metric_string = 'FSS_loss'
@@ -1633,6 +1700,8 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
     elif metric == 'tversky':
         metric_title = 'Tversky coefficient'
         metric_string = 'tversky'
+    else:
+        metric_title = None
 
     if include_validation_plots is True:
         nrows = 2
@@ -1655,6 +1724,12 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         plt.plot(history['softmax_4_loss'], label='Decoder 2')
         plt.plot(history['softmax_5_loss'], label='Decoder 1 (final)', color='black')
         plt.plot(history['loss'], label='total', color='black')
+        if 1e-4 > np.min(history['softmax_loss']) > 1e-5:
+            loss_lower_limit, loss_upper_limit = 1e-5, 1e-3
+        elif 1e-5 > np.min(history['softmax_loss']) > 1e-6:
+            loss_lower_limit, loss_upper_limit = 1e-6, 1e-4
+        elif 1e-6 > np.min(history['softmax_loss']) > 1e-7:
+            loss_lower_limit, loss_upper_limit = 1e-7, 1e-5
     elif 'unet_output_final_activation_loss' in history:
         plt.plot(history['unet_output_sup0_activation_loss'], label='sup0')
         plt.plot(history['unet_output_sup1_activation_loss'], label='sup1')
@@ -1663,13 +1738,20 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         plt.plot(history['unet_output_sup4_activation_loss'], label='sup4')
         plt.plot(history['unet_output_final_activation_loss'], label='final')
         plt.plot(history['loss'], label='total', color='black')
+        if 1e-4 > np.min(history['unet_output_sup0_activation_loss']) > 1e-5:
+            loss_lower_limit, loss_upper_limit = 1e-5, 1e-3
+        elif 1e-5 > np.min(history['unet_output_sup0_activation_loss']) > 1e-6:
+            loss_lower_limit, loss_upper_limit = 1e-6, 1e-4
+        elif 1e-6 > np.min(history['unet_output_sup0_activation_loss']) > 1e-7:
+            loss_lower_limit, loss_upper_limit = 1e-7, 1e-5
     else:
         plt.plot(history['loss'], color='black')
 
     plt.legend(loc='best')
     plt.xlim(xmin=0)
     plt.xlabel('Epochs')
-    plt.ylim(ymin=1e-6, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
+
+    plt.ylim(ymin=loss_lower_limit, ymax=loss_upper_limit)  # Limits of the loss function graph
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     plt.subplot(nrows, 2, 2)
@@ -1697,7 +1779,7 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
     plt.xlim(xmin=0)
     plt.xlabel('Epochs')
     plt.ylim(ymin=1e-3, ymax=1e-1)  # Limits of the metric graph, adjust as needed
-    plt.yscale('log')
+    plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions or metrics appear as very sharp curves.
 
     if include_validation_plots is True:
         plt.subplot(nrows, 2, 3)
@@ -1726,8 +1808,8 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         plt.legend(loc='best')
         plt.xlim(xmin=0)
         plt.xlabel('Epochs')
-        plt.ylim(ymin=1e-6, ymax=1e-4)  # Limits of the loss function graph, adjust these as needed
-        plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
+        plt.ylim(ymin=loss_lower_limit, ymax=loss_upper_limit)  # Limits of the loss function graph
+        plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions or metrics appear as very sharp curves.
 
         plt.subplot(nrows, 2, 4)
         plt.title("Validation metric: %s" % metric_title)
@@ -1754,7 +1836,7 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
         plt.xlim(xmin=0)
         plt.xlabel('Epochs')
         plt.ylim(ymin=1e-3, ymax=1e-1)  # Limits of the metric graph, adjust as needed
-        plt.yscale('log')
+        plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions or metrics appear as very sharp curves.
 
     plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
 

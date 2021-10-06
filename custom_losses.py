@@ -16,7 +16,6 @@ def dice():
 # Fraction Skill Score (FSS) Loss Function - code taken from: https://github.com/CIRA-ML/custom_loss_functions
 # Fraction Skill Score original paper: N.M. Roberts and H.W. Lean, "Scale-Selective Verification of Rainfall
 #     Accumulation from High-Resolution Forecasts of Convective Events", Monthly Weather Review, 2008.
-
 def make_FSS_loss_2D(mask_size, c_param):
 
     @tf.function()
@@ -145,8 +144,10 @@ def make_FSS_loss_3D(mask_size, c_param):
 
     return FSS_loss_3D
 
+
 def tversky():
     return losses.tversky
+
 
 def brier_skill_score(y_true, y_pred):
     """

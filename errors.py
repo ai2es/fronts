@@ -22,7 +22,8 @@ class MissingArgumentError(TypeError):
 
 def check_arguments(provided_arguments, required_arguments):
     """
-    Function that checks if the necessary arguments were provided to perform a necessary operation(s).
+    Function that checks if the necessary arguments were provided to perform a necessary operation(s) or if certain
+    arguments are incompatible with each other.
 
     Parameters
     ----------

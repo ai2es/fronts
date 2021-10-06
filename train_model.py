@@ -2,12 +2,11 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/23/2021 8:48 PM CDT
+Last updated: 10/6/2021 3:31 PM CDT
 """
 
 import random
 import argparse
-import keras.utils
 from keras_unet_collection import models, losses
 import tensorflow as tf
 from keras.optimizers import Adam
@@ -22,7 +21,7 @@ import errors
 import custom_losses
 import custom_models
 from expand_fronts import one_pixel_expansion as ope
-import pandas as pd
+from variables import normalize
 
 
 class DataGenerator_2D(tf.keras.utils.Sequence):
@@ -52,57 +51,37 @@ class DataGenerator_2D(tf.keras.utils.Sequence):
         return inputs, outputs
 
     def __data_generation(self):
+
+        # Create empty arrays that will contain the data for the final batch that will be sent to the GPU
         front_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, self.num_classes))
         variable_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, self.num_variables))
 
-        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
-
         for i in range(self.batch_size):
-            # Open random files with random coordinate domains until a sample contains at least one pixel with a front.
-            num_identifiers = 0
-            while num_identifiers < self.front_threshold:
-                index = random.choices(range(len(self.front_files) - 1), k=1)[0]
+            # Open random files with random coordinate domains until a domain contains a specified number of pixels with fronts.
+            num_identifiers = 0  # Initialize variable for the number of pixels in the images
+            while num_identifiers < self.front_threshold:  # Continue opening files until the image contains at least front_threshold pixels
+                index = random.choices(range(len(self.front_files) - 1), k=1)[0]  # Select random file
                 with open(self.front_files[index], 'rb') as front_file:
-                    if self.pixel_expansion == 0:
-                        front_ds = pickle.load(front_file)  # No expansion
-                    elif self.pixel_expansion == 1:
-                        front_ds = ope(pickle.load(front_file))  # 1-pixel expansion
-                    elif self.pixel_expansion == 2:
-                        front_ds = ope(ope(pickle.load(front_file)))  # 2-pixel expansion
+                    front_ds = pickle.load(front_file)
+                    for pixel in range(self.pixel_expansion):  # Expand fronts by a specified number of pixels in each direction
+                        front_ds = ope(front_ds)  # ope: one_pixel_expansion function in expand_fronts.py
+                lon_index = random.choices(range(self.file_dimensions[0] - self.map_dim_x))[0]  # Select a random part of the longitude domain
+                lat_index = random.choices(range(self.file_dimensions[1] - self.map_dim_y))[0]  # Select a random part of the latitude domain
+                lons = front_ds.longitude.values[lon_index:lon_index + self.map_dim_x]  # Select longitude points in front dataset
+                lats = front_ds.latitude.values[lat_index:lat_index + self.map_dim_y]  # Select latitude points in front dataset
+                num_identifiers = np.count_nonzero(front_ds.sel(longitude=lons, latitude=lats).identifier.values.flatten())  # Number of pixels in the new front dataset with fronts
 
-                # Select a random portion of the map
-                lon_index = random.choices(range(self.file_dimensions[0] - self.map_dim_x))[0]
-                lat_index = random.choices(range(self.file_dimensions[1] - self.map_dim_y))[0]
-                lons = front_ds.longitude.values[lon_index:lon_index + self.map_dim_x]
-                lats = front_ds.latitude.values[lat_index:lat_index + self.map_dim_y]
-
-                num_identifiers = np.count_nonzero(front_ds.sel(longitude=lons, latitude=lats).identifier.values.flatten())
+            # Open corresponding variable file
             with open(self.variable_files[index], 'rb') as variable_file:
                 variable_ds = pickle.load(variable_file)
-            variable_list = list(variable_ds.keys())
-            for j in range(self.num_variables):
-                var = variable_list[j]
-                if self.normalization_method == 1:
-                    # Min-max normalization
-                    """
-                    numpy.nan_to_num: Turns NaN values into 0 and inf numbers into very large numbers
-                    """
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
-                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
-                elif self.normalization_method == 2:
-                    # Mean normalization
-                    """
-                    numpy.nan_to_num: Turns NaN values into zeros and inf numbers into very large numbers
-                    """
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
-                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+
+            variable_ds = normalize(variable_ds, self.normalization_method)  # Normalize variables
+
             fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values
             if self.front_types == b'SFOF':
-                # Prevents generator from making 5 classes
-                fronts = np.where(np.where(fronts == 3, 1, fronts) == 4, 2, np.where(fronts == 3, 1, fronts))
+                fronts = np.where(np.where(fronts == 3, 1, fronts) == 4, 2, np.where(fronts == 3, 1, fronts))  # Prevents generator from making 5 classes
             elif self.front_types == b'DL':
-                # Prevents generator from making 6 classes
-                fronts = np.where(np.where(fronts == 5, 1, fronts))
+                fronts = np.where(np.where(fronts == 5, 1, fronts))  # Prevents generator from making 6 classes
             """
             tensorflow.keras.utils.to_categorical: binarizes identifier (front label) values
             Example: [0, 2, 3, 4] ---> [[1, 0, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 1]] 
@@ -142,79 +121,62 @@ class DataGenerator_3D(tf.keras.utils.Sequence):
         return inputs, outputs
 
     def __data_generation(self):
+
+        # Create empty arrays that will contain the data for the final batch that will be sent to the GPU
         front_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, 5, self.num_classes))
         variable_dss = np.empty(shape=(self.batch_size, self.map_dim_x, self.map_dim_y, 5, 12))
 
-        norm_params = pd.read_csv('normalization_parameters.csv', index_col='Variable')
-
         for i in range(self.batch_size):
-            # Open random files with random coordinate domains until a sample contains at least one image with a front.
-            num_identifiers = 0
-            while num_identifiers < self.front_threshold:
-                index = random.choices(range(len(self.front_files) - 1), k=1)[0]
+
+            # Open random files with random coordinate domains until a domain contains a specified number of pixels with fronts.
+            num_identifiers = 0  # Initialize variable for the number of pixels in the images
+            while num_identifiers < self.front_threshold:  # Continue opening files until the image contains at least front_threshold pixels
+                index = random.choices(range(len(self.front_files) - 1), k=1)[0]  # Select random file
                 with open(self.front_files[index], 'rb') as front_file:
-                    if self.pixel_expansion == 0:
-                        front_ds = pickle.load(front_file)  # No expansion
-                    elif self.pixel_expansion == 1:
-                        front_ds = ope(pickle.load(front_file))  # 1-pixel expansion
-                    elif self.pixel_expansion == 2:
-                        front_ds = ope(ope(pickle.load(front_file)))  # 2-pixel expansion
+                    front_ds = pickle.load(front_file)
+                    for pixel in range(self.pixel_expansion):  # Expand fronts by a specified number of pixels in each direction
+                        front_ds = ope(front_ds)  # ope: one_pixel_expansion function in expand_fronts.py
+                lon_index = random.choices(range(self.file_dimensions[0] - self.map_dim_x))[0]  # Select a random part of the longitude domain
+                lat_index = random.choices(range(self.file_dimensions[1] - self.map_dim_y))[0]  # Select a random part of the latitude domain
+                lons = front_ds.longitude.values[lon_index:lon_index + self.map_dim_x]  # Select longitude points in front dataset
+                lats = front_ds.latitude.values[lat_index:lat_index + self.map_dim_y]  # Select latitude points in front dataset
+                num_identifiers = np.count_nonzero(front_ds.sel(longitude=lons, latitude=lats).identifier.values.flatten())  # Number of pixels in the new front dataset with fronts
 
-                # Select a random portion of the map
-                lon_index = random.choices(range(self.file_dimensions[0] - self.map_dim_x))[0]
-                lat_index = random.choices(range(self.file_dimensions[1] - self.map_dim_y))[0]
-                lons = front_ds.longitude.values[lon_index:lon_index + self.map_dim_x]
-                lats = front_ds.latitude.values[lat_index:lat_index + self.map_dim_y]
-
-                num_identifiers = np.count_nonzero(front_ds.sel(longitude=lons, latitude=lats).identifier.values.flatten())
+            # Open corresponding variable file
             with open(self.variable_files[index], 'rb') as variable_file:
                 variable_ds = pickle.load(variable_file)
-            variable_list = list(variable_ds.keys())
-            for j in range(self.num_variables):
-                var = variable_list[j]
-                if self.normalization_method == 1:
-                    # Min-max normalization
-                    """
-                    numpy.nan_to_num: Turns NaN values into 0 and inf numbers into very large numbers
-                    """
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
-                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
-                elif self.normalization_method == 2:
-                    # Mean normalization
-                    """
-                    numpy.nan_to_num: Turns NaN values into zeros and inf numbers into very large numbers
-                    """
-                    variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
-                                                            (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+
+            variable_ds = normalize(variable_ds, self.normalization_method)  # Normalize variables
+
             # Split variable dataset into 5 different datasets for the different levels
             variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
-                                         'q']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'q']].sel(longitude=lons, latitude=lats).to_array().values
             variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
-                                          'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                          'wet_bulb_1000','theta_e_1000','q_1000']].sel(longitude=lons, latitude=lats).to_array().values
             variables_950 = variable_ds[['t_950','d_950','z_950','u_950','v_950','theta_w_950','mix_ratio_950','rel_humid_950','virt_temp_950',
-                                         'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'wet_bulb_950','theta_e_950','q_950']].sel(longitude=lons, latitude=lats).to_array().values
             variables_900 = variable_ds[['t_900','d_900','z_900','u_900','v_900','theta_w_900','mix_ratio_900','rel_humid_900','virt_temp_900',
-                                         'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'wet_bulb_900','theta_e_900','q_900']].sel(longitude=lons, latitude=lats).to_array().values
             variables_850 = variable_ds[['t_850','d_850','z_850','u_850','v_850','theta_w_850','mix_ratio_850','rel_humid_850','virt_temp_850',
-                                         'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().T.values
+                                         'wet_bulb_850','theta_e_850','q_850']].sel(longitude=lons, latitude=lats).to_array().values
             # Concatenate datasets
-            variables_all_levels = np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).reshape(1,self.map_dim_x,self.map_dim_y,5,12)
+            variables_all_levels = np.expand_dims(np.array([variables_sfc,variables_1000,variables_950,variables_900,variables_850]).transpose([3,2,0,1]), axis=0)
 
-            fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values
+            fronts = front_ds.identifier.sel(longitude=lons, latitude=lats)  # Turn dataset into array
             if self.front_types == b'SFOF':
-                # Prevents generator from making 5 classes
-                fronts = np.where(np.where(fronts == 3, 1, fronts) == 4, 2, np.where(fronts == 3, 1, fronts))
+                fronts = np.where(np.where(fronts == 3, 1, fronts) == 4, 2, np.where(fronts == 3, 1, fronts))  # Prevents generator from making 5 classes
             elif self.front_types == b'DL':
-                # Prevents generator from making 6 classes
-                fronts = np.where(np.where(fronts == 5, 1, fronts))
+                fronts = np.where(np.where(fronts == 5, 1, fronts))  # Prevents generator from making 6 classes
             """
             tensorflow.keras.utils.to_categorical: binarizes identifier (front label) values
             Example: [0, 2, 3, 4] ---> [[1, 0, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 1]] 
             """
-            binarized_fronts = to_categorical(fronts, num_classes=self.num_classes)
             # Duplicate front array for the 5 different levels in the data
-            fronts_all_levels = np.array([binarized_fronts,binarized_fronts,binarized_fronts,binarized_fronts,binarized_fronts]).reshape(1,self.map_dim_x,self.map_dim_y,5,self.num_classes)
-            front_dss[i] = fronts_all_levels
+            fronts_all_levels = np.expand_dims(np.array([fronts,fronts,fronts,fronts,fronts]).transpose([2,1,0]), axis=0)
+
+            binarized_fronts = to_categorical(fronts_all_levels, num_classes=self.num_classes)
+
+            front_dss[i] = binarized_fronts
             variable_dss[i] = variables_all_levels
         return variable_dss, front_dss
 
@@ -448,11 +410,9 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, job_number, job_number)
     history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, job_number, job_number)
 
-    # ModelCheckpoint: saves model at a specified interval
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
-        save_weights_only=False, save_freq='epoch')
-    # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
-    early_stopping = EarlyStopping('val_loss', patience=150, verbose=1)
+        save_weights_only=False, save_freq='epoch')  # ModelCheckpoint: saves model at a specified interval
+    early_stopping = EarlyStopping('val_loss', patience=500, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
@@ -654,11 +614,9 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number)
     history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, model_number, model_number)
 
-    # ModelCheckpoint: saves model at a specified interval
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
-        save_weights_only=False, save_freq='epoch')
-    # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
-    early_stopping = EarlyStopping('val_loss', patience=150, verbose=1)
+        save_weights_only=False, save_freq='epoch')  # ModelCheckpoint: saves model at a specified interval
+    early_stopping = EarlyStopping('val_loss', patience=500, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,

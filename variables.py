@@ -3,7 +3,7 @@ Function that creates new variable datasets.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
 Modified for Xarray by: John Allen (allen4jt@cmich.edu)
-Last updated: 7/19/2021 3:17 PM CDT by Andrew Justin
+Last updated: 10/6/2021 3:31 PM CDT by Andrew Justin
 
 ---Sources used in this code---
 (Bolton 1980): https://doi.org/10.1175/1520-0493(1980)108<1046:TCOEPT>2.0.CO;2
@@ -13,7 +13,7 @@ Last updated: 7/19/2021 3:17 PM CDT by Andrew Justin
 
 import xarray as xr
 import numpy as np
-
+from pandas import read_csv
 
 def dew_point_from_specific_humidity(P, T, q):
     """
@@ -284,3 +284,37 @@ def wet_bulb_temperature(T, Td):
             c4 * np.power(RH, 1.5) * np.arctan(c5 * RH)) - c6 + 273.15
 
     return Tw
+
+
+def normalize(variable_ds, normalization_method):
+    """
+    Function that normalizes variables.
+
+    Parameters
+    ----------
+    variable_ds: Xarray dataset
+        Dataset containing variable data.
+    normalization_method: int
+        Integer that determines the normalization method.
+
+    Returns
+    -------
+    variable_ds: Xarray dataset
+        Dataset containing normalized variable data.
+    """
+
+    norm_params = read_csv('normalization_parameters.csv', index_col='Variable')
+
+    variable_list = list(variable_ds.keys())
+    for j in range(len(variable_list)):
+        var = variable_list[j]
+        if normalization_method == 1:
+            # Min-max normalization
+            variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Min']) /
+                                                    (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+        elif normalization_method == 2:
+            # Mean normalization
+            variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var,'Mean']) /
+                                                    (norm_params.loc[var,'Max'] - norm_params.loc[var,'Min']))
+
+    return variable_ds
