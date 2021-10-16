@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/16/2021 12:50 PM CDT
+Last updated: 10/16/2021 1:06 PM CDT
 """
 
 import random
@@ -612,10 +612,12 @@ def find_matches_for_domain(longitude_domain_length, model_longitude_length, com
     if compatibility_mode is True:
         if images_are_compatible is True:
             if trim_is_compatible is False:
+                print("error")
                 raise ValueError("image_trim=%d is too large for %d images with model_longitude_length=%d and longitude_domain_length=%d (Max trim = %d)" % (compat_trim, compat_images, model_longitude_length, longitude_domain_length, max_trim))
             else:
                 print("done")
-        elif images_are_compatible is False:
+        else:
+            print("error")
             raise ValueError("num_images=%d is not compatible with model_longitude_length=%d and longitude_domain_length=%d" % (compat_images, model_longitude_length, longitude_domain_length))
     else:
         print("\nMatches found: %d" % num_matches)
@@ -2021,6 +2023,9 @@ if __name__ == '__main__':
                               'num_images', 'num_variables', 'pixel_expansion']
         print("Checking arguments for 'calculate_performance_stats'....", end='')
         check_arguments(provided_arguments, required_arguments)
+        print("Checking compatibility of image stitching arguments....", end='')
+        find_matches_for_domain(args.longitude_domain_length, model_longitude_length=128, compatibility_mode=True,
+                                compat_images=args.num_images, compat_trim=args.image_trim)
         calculate_performance_stats(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
             args.domain, args.file_dimensions, args.test_years, args.normalization_method, args.loss, args.fss_mask_size,
             args.fss_c, args.pixel_expansion, args.metric, args.num_images, args.longitude_domain_length, args.image_trim)
@@ -2045,7 +2050,11 @@ if __name__ == '__main__':
         print("Checking arguments for 'generate_predictions'....", end='')
         check_arguments(provided_arguments, required_arguments)
 
-        print("Checking compatibility of arguments....",end='')
+        print("Checking compatibility of image stitching arguments....", end='')
+        find_matches_for_domain(args.longitude_domain_length, model_longitude_length=128, compatibility_mode=True,
+                                compat_images=args.num_images, compat_trim=args.image_trim)
+
+        print("Checking compatibility of prediction arguments....",end='')
         if args.predictions is not None:
             if args.year is not None or args.month is not None or args.day is not None or args.hour is not None:
                 print("error")
