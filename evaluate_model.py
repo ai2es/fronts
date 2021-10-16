@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/16/2021 12:32 PM CDT
+Last updated: 10/16/2021 12:50 PM CDT
 """
 
 import random
@@ -200,12 +200,11 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             cold_probs[i][j] = prediction[n][0][i][j][1]
                             warm_probs[i][j] = prediction[n][0][i][j][2]
                 elif model.name == '3plus3D':
-                    l = 1  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[0][0][i][j][l][0]
-                            cold_probs[i][j] = prediction[0][0][i][j][l][1]
-                            warm_probs[i][j] = prediction[0][0][i][j][l][2]
+                            no_probs[i][j] = np.amax(prediction[0][0][i][j][:,0])
+                            cold_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
+                            warm_probs[i][j] = np.amax(prediction[0][0][i][j][:,2])
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
@@ -279,12 +278,11 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             stationary_probs[i][j] = prediction[n][0][i][j][1]
                             occluded_probs[i][j] = prediction[n][0][i][j][2]
                 elif model.name == '3plus3D':
-                    l = 1  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[0][0][i][j][l][0]
-                            stationary_probs[i][j] = prediction[0][0][i][j][l][1]
-                            occluded_probs[i][j] = prediction[0][0][i][j][l][2]
+                            no_probs[i][j] = np.amax(prediction[0][0][i][j][:,0])
+                            stationary_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
+                            occluded_probs[i][j] = np.amax(prediction[0][0][i][j][:,2])
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_stationary_probs[0: model_longitude_length - image_trim][:] = stationary_probs[image_trim: model_longitude_length][:]
@@ -358,11 +356,10 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             no_probs[i][j] = prediction[n][0][i][j][0]
                             dryline_probs[i][j] = prediction[n][0][i][j][1]
                 elif model.name == '3plus3D':
-                    l = 1  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[0][0][i][j][l][0]
-                            dryline_probs[i][j] = prediction[0][0][i][j][l][1]
+                            no_probs[i][j] = np.amax(prediction[0][0][i][j][:,0])
+                            dryline_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_dryline_probs[0: model_longitude_length - image_trim][:] = dryline_probs[image_trim: model_longitude_length][:]
@@ -424,15 +421,14 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             occluded_probs[i][j] = prediction[n][0][i][j][4]
                             dryline_probs[i][j] = prediction[n][0][i][j][5]
                 elif model.name == '3plus3D':
-                    l = 1  # Level index (0 = surface, 1 = 1000mb, 2 = 950mb, 3 = 900mb, 4 = 850mb)
                     for i in range(0, map_dim_x):
                         for j in range(0, map_dim_y):
-                            no_probs[i][j] = prediction[0][0][i][j][l][0]
-                            cold_probs[i][j] = prediction[0][0][i][j][l][1]
-                            warm_probs[i][j] = prediction[0][0][i][j][l][2]
-                            stationary_probs[i][j] = prediction[0][0][i][j][l][3]
-                            occluded_probs[i][j] = prediction[0][0][i][j][l][4]
-                            dryline_probs[i][j] = prediction[0][0][i][j][l][5]
+                            no_probs[i][j] = np.amax(prediction[0][0][i][j][:,0])
+                            cold_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
+                            warm_probs[i][j] = np.amax(prediction[0][0][i][j][:,2])
+                            stationary_probs[i][j] = np.amax(prediction[0][0][i][j][:,3])
+                            occluded_probs[i][j] = np.amax(prediction[0][0][i][j][:,4])
+                            dryline_probs[i][j] = np.amax(prediction[0][0][i][j][:,5])
                 if image == 0:
                     image_no_probs[0: model_longitude_length - image_trim][:] = no_probs[image_trim: model_longitude_length][:]
                     image_cold_probs[0: model_longitude_length - image_trim][:] = cold_probs[image_trim: model_longitude_length][:]
