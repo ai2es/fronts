@@ -2,7 +2,7 @@
 Function used to plot all variables for a given time using pickle files. Each variable plot is saved in its own file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/23/2021 8:24 PM CDT
+Last updated: 10/20/2021 11:21 AM CDT
 """
 
 import matplotlib.pyplot as plt
@@ -48,13 +48,10 @@ if __name__ == "__main__":
     parser.add_argument('--month', type=int, required=True, help="month for the data to be read in")
     parser.add_argument('--day', type=int, required=True, help="day for the data to be read in")
     parser.add_argument('--hour', type=int, required=True, help="hour for the data to be read in")
-
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data. Possible values are: conus')
     parser.add_argument('--extent', type=float, required=True, nargs=4,
                         help='Extent of the plot. Pass 4 integers in the following order: MIN LON, MAX LON, MIN LAT, '
                              'MAX_LAT')
-    parser.add_argument('--file_dimensions', type=int, nargs=2, required=True,
-                        help='Dimensions of the file size. Two integers need to be passed.')
     parser.add_argument('--front_types', type=str, required=True,
                         help='Front format of the file. If your files contain warm and cold fronts, pass this argument '
                              'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
@@ -65,12 +62,12 @@ if __name__ == "__main__":
 
     extent = np.array([args.extent[0], args.extent[1], args.extent[2], args.extent[3]])
 
-    front_file_list, variable_file_list = fm.load_file_lists(num_variables=60, front_types=args.front_types, domain=args.domain, file_dimensions=args.file_dimensions)
+    front_file_list, variable_file_list = fm.load_file_lists(num_variables=60, front_types=args.front_types, domain=args.domain)
 
-    front_filename_no_dir = 'FrontObjects_%s_%d%02d%02d%02d_%s_%dx%d.pkl' % (args.front_types, args.year, args.month,
-        args.day, args.hour, args.domain, args.file_dimensions[0], args.file_dimensions[1])
-    variable_filename_no_dir = 'Data_%dvar_%d%02d%02d%02d_%s_%dx%d.pkl' % (60, args.year, args.month, args.day, args.hour,
-        args.domain, args.file_dimensions[0], args.file_dimensions[1])
+    front_filename_no_dir = 'FrontObjects_%s_%d%02d%02d%02d_%s.pkl' % (args.front_types, args.year, args.month,
+        args.day, args.hour, args.domain)
+    variable_filename_no_dir = 'Data_%dvar_%d%02d%02d%02d_%s.pkl' % (60, args.year, args.month, args.day, args.hour,
+        args.domain)
 
     front_file = [front_filename for front_filename in front_file_list if front_filename_no_dir in front_filename][0]
     variable_file = [variable_filename for variable_filename in variable_file_list if variable_filename_no_dir in variable_filename][0]

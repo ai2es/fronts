@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/16/2021 1:06 PM CDT
+Last updated: 10/20/2021 10:23 AM CDT
 """
 
 import random
@@ -21,9 +21,8 @@ from expand_fronts import one_pixel_expansion as ope
 from variables import normalize
 
 
-def calculate_performance_stats(model_number, model_dir, num_variables, num_dimensions, front_types, domain, file_dimensions,
-    test_years, normalization_method, loss, fss_mask_size, fss_c, pixel_expansion, metric, num_images, longitude_domain_length,
-    image_trim):
+def calculate_performance_stats(model_number, model_dir, num_variables, num_dimensions, front_types, domain, test_years,
+    normalization_method, loss, fss_mask_size, fss_c, pixel_expansion, metric, num_images, longitude_domain_length, image_trim):
     """
     Function that calculates the number of true positives, false positives, true negatives, and false negatives on a testing set.
 
@@ -45,8 +44,6 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         Fronts in the data.
     domain: str
         Domain which the front and variable files cover.
-    file_dimensions: int (x2)
-        Dimensions of the data files.
     test_years: list of ints
         Years for the test set used for calculating performance stats for cross-validation purposes.
     pixel_expansion: int
@@ -67,9 +64,9 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
 
     # If test_years is provided, load files corresponding to those years, otherwise just load all files
     if test_years is not None:
-        front_files, variable_files = fm.load_test_files(num_variables, front_types, domain, file_dimensions, test_years)
+        front_files, variable_files = fm.load_test_files(num_variables, front_types, domain, test_years)
     else:
-        front_files, variable_files = fm.load_file_lists(num_variables, front_types, domain, file_dimensions)
+        front_files, variable_files = fm.load_file_lists(num_variables, front_types, domain)
     
     print("Front file count:", len(front_files))
     print("Variable file count:", len(variable_files))
@@ -124,7 +121,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
     latitude_domain_length = 128
     lon_pixels_per_image = int(model_longitude_length - 2*image_trim)  # Longitude dimension of the images
 
-    for x in range(len(front_files)):
+    for x in range(1):
         
         print("Prediction %d/%d....0/%d" % (x+1, len(front_files), num_images), end='\r')
 
@@ -551,22 +548,22 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                      "tn_cold": (["boundary", "threshold"], tn_cold), "tn_warm": (["boundary", "threshold"], tn_warm),
                                      "fn_cold": (["boundary", "threshold"], fn_cold), "fn_warm": (["boundary", "threshold"], fn_warm)}, coords={"boundary": boundaries, "threshold": thresholds})
     elif front_types == 'SFOF':
-        performance_ds = xr.Dataset({"tp_stationary": ("threshold", tp_stationary), "tp_occluded": ("threshold", tp_occluded),
-                                     "fp_stationary": ("threshold", fp_stationary), "fp_occluded": ("threshold", fp_occluded),
-                                     "tn_stationary": ("threshold", tn_stationary), "tn_occluded": ("threshold", tn_occluded),
-                                     "fn_stationary": ("threshold", fn_stationary), "fn_occluded": ("threshold", fn_occluded)}, coords={"boundary": boundaries, "threshold": thresholds})
+        performance_ds = xr.Dataset({"tp_stationary": (["boundary", "threshold"], tp_stationary), "tp_occluded": (["boundary", "threshold"], tp_occluded),
+                                     "fp_stationary": (["boundary", "threshold"], fp_stationary), "fp_occluded": (["boundary", "threshold"], fp_occluded),
+                                     "tn_stationary": (["boundary", "threshold"], tn_stationary), "tn_occluded": (["boundary", "threshold"], tn_occluded),
+                                     "fn_stationary": (["boundary", "threshold"], fn_stationary), "fn_occluded": (["boundary", "threshold"], fn_occluded)}, coords={"boundary": boundaries, "threshold": thresholds})
     elif front_types == 'DL':
-        performance_ds = xr.Dataset({"tp_dryline": ("threshold", tp_dryline), "fp_dryline": ("threshold", tp_dryline),
-                                     "fn_dryline": ("threshold", fp_dryline), "tn_dryline": ("threshold", tn_dryline)}, coords={"boundary": boundaries, "threshold": thresholds})
+        performance_ds = xr.Dataset({"tp_dryline": (["boundary", "threshold"], tp_dryline), "fp_dryline": (["boundary", "threshold"], tp_dryline),
+                                     "fn_dryline": (["boundary", "threshold"], fp_dryline), "tn_dryline": (["boundary", "threshold"], tn_dryline)}, coords={"boundary": boundaries, "threshold": thresholds})
     elif front_types == 'ALL':
-        performance_ds = xr.Dataset({"tp_cold": ("threshold", tp_cold), "tp_warm": ("threshold", tp_warm),
-                                     "tp_stationary": ("threshold", tp_stationary), "tp_occluded": ("threshold", tp_occluded),
-                                     "fp_cold": ("threshold", fp_cold), "fp_warm": ("threshold", fp_warm),
-                                     "fp_stationary": ("threshold", fp_stationary), "fp_occluded": ("threshold", fp_occluded),
-                                     "tn_cold": ("threshold", tn_cold), "tn_warm": ("threshold", tn_warm),
-                                     "tn_stationary": ("threshold", tn_stationary), "tn_occluded": ("threshold", tn_occluded),
-                                     "fn_cold": ("threshold", fn_cold), "fn_warm": ("threshold", fn_warm),
-                                     "fn_stationary": ("threshold", fn_stationary), "fn_occluded": ("threshold", fn_occluded)}, coords={"boundary": boundaries, "threshold": thresholds})
+        performance_ds = xr.Dataset({"tp_cold": (["boundary", "threshold"], tp_cold), "tp_warm": (["boundary", "threshold"], tp_warm),
+                                     "tp_stationary": (["boundary", "threshold"], tp_stationary), "tp_occluded": (["boundary", "threshold"], tp_occluded),
+                                     "fp_cold": (["boundary", "threshold"], fp_cold), "fp_warm": (["boundary", "threshold"], fp_warm),
+                                     "fp_stationary": (["boundary", "threshold"], fp_stationary), "fp_occluded": (["boundary", "threshold"], fp_occluded),
+                                     "tn_cold": (["boundary", "threshold"], tn_cold), "tn_warm": (["boundary", "threshold"], tn_warm),
+                                     "tn_stationary": (["boundary", "threshold"], tn_stationary), "tn_occluded": (["boundary", "threshold"], tn_occluded),
+                                     "fn_cold": (["boundary", "threshold"], fn_cold), "fn_warm": (["boundary", "threshold"], fn_warm),
+                                     "fn_stationary": (["boundary", "threshold"], fn_stationary), "fn_occluded": (["boundary", "threshold"], fn_occluded)}, coords={"boundary": boundaries, "threshold": thresholds})
 
     print(performance_ds)
     with open("%s/model_%d/model_%d_performance_stats_%dimage_%dtrim.pkl" % (model_dir, model_number, model_number, num_images, image_trim), "wb") as f:
@@ -694,10 +691,10 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
     # Find files with provided date and time to make a prediction (if applicable)
     if year is not None and month is not None and day is not None and hour is not None and predictions is None:
         predictions = 1
-        front_filename_no_dir = 'FrontObjects_%s_%d%02d%02d%02d_%s_%dx%d.pkl' % (args.front_types, args.year, args.month,
-            args.day, args.hour, args.domain, args.file_dimensions[0], args.file_dimensions[1])
-        variable_filename_no_dir = 'Data_%dvar_%d%02d%02d%02d_%s_%dx%d.pkl' % (60, args.year, args.month, args.day, args.hour,
-            args.domain, args.file_dimensions[0], args.file_dimensions[1])
+        front_filename_no_dir = 'FrontObjects_%s_%d%02d%02d%02d_%s.pkl' % (args.front_types, args.year, args.month,
+            args.day, args.hour, args.domain)
+        variable_filename_no_dir = 'Data_%dvar_%d%02d%02d%02d_%s.pkl' % (60, args.year, args.month, args.day, args.hour,
+            args.domain)
         front_files = [front_filename for front_filename in front_files if front_filename_no_dir in front_filename][0]
         variable_files = [variable_filename for variable_filename in variable_files if variable_filename_no_dir in variable_filename][0]
     else:
@@ -1265,7 +1262,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.legend(loc='upper right')
             plt.xlabel("Success Ratio (1 - FAR)")
             plt.ylabel("Probability of Detection (POD)")
-            plt.title("Model %d Performance for Cold Fronts" % model_number)
+            plt.title("Model %d Performance for Stationary Fronts" % model_number)
             plt.xlim(0,1)
             plt.ylim(0,1)
             plt.savefig("%s/model_%d/model_%d_performance_stationary_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
@@ -1290,7 +1287,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.legend(loc='upper right')
             plt.xlabel("Probability Threshold (%)")
             plt.ylabel("F1 Score")
-            plt.title("Model %d F1 Score for Cold Fronts" % model_number)
+            plt.title("Model %d F1 Score for Stationary Fronts" % model_number)
             plt.savefig("%s/model_%d/model_%d_F1_stationary_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
@@ -1310,7 +1307,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.ylabel("Probability of Detection (POD)")
             plt.xlim(0,np.max(POFD_stationary_50km))
             plt.ylim(0,np.max(POD_stationary_50km))
-            plt.title("Model %d ROC Curve for Cold Fronts" % model_number)
+            plt.title("Model %d ROC Curve for Stationary Fronts" % model_number)
             plt.savefig("%s/model_%d/model_%d_AUC_stationary_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
@@ -1358,7 +1355,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.legend(loc='upper right')
             plt.xlabel("Probability Threshold (%)")
             plt.ylabel("F1 Score")
-            plt.title("Model %d F1 Score for Warm Fronts" % model_number)
+            plt.title("Model %d F1 Score for Occluded Fronts" % model_number)
             plt.savefig("%s/model_%d/model_%d_F1_occluded_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
@@ -1378,7 +1375,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.ylabel("Probability of Detection (POD)")
             plt.xlim(0,np.max(POFD_occluded_50km))
             plt.ylim(0,np.max(POD_occluded_50km))
-            plt.title("Model %d ROC Curve for Warm Fronts" % model_number)
+            plt.title("Model %d ROC Curve for Occluded Fronts" % model_number)
             plt.savefig("%s/model_%d/model_%d_AUC_occluded_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
@@ -1401,7 +1398,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.legend(loc='upper right')
             plt.xlabel("Success Ratio (1 - FAR)")
             plt.ylabel("Probability of Detection (POD)")
-            plt.title("Model %d Performance for Warm Fronts" % model_number)
+            plt.title("Model %d Performance for Drylines" % model_number)
             plt.xlim(0,1)
             plt.ylim(0,1)
             plt.savefig("%s/model_%d/model_%d_performance_dryline_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
@@ -1426,7 +1423,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.legend(loc='upper right')
             plt.xlabel("Probability Threshold (%)")
             plt.ylabel("F1 Score")
-            plt.title("Model %d F1 Score for Warm Fronts" % model_number)
+            plt.title("Model %d F1 Score for Drylines" % model_number)
             plt.savefig("%s/model_%d/model_%d_F1_dryline_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
@@ -1446,7 +1443,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
             plt.ylabel("Probability of Detection (POD)")
             plt.xlim(0,np.max(POFD_dryline_50km))
             plt.ylim(0,np.max(POD_dryline_50km))
-            plt.title("Model %d ROC Curve for Warm Fronts" % model_number)
+            plt.title("Model %d ROC Curve for Drylines" % model_number)
             plt.savefig("%s/model_%d/model_%d_AUC_dryline_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
             plt.close()
 
@@ -1527,7 +1524,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         plt.legend(loc='upper right')
         plt.xlabel("Success Ratio (1 - FAR)")
         plt.ylabel("Probability of Detection (POD)")
-        plt.title("Model %d Performance for Cold Fronts" % model_number)
+        plt.title("Model %d Performance for Stationary Fronts" % model_number)
         plt.xlim(0,1)
         plt.ylim(0,1)
         plt.savefig("%s/model_%d/model_%d_performance_stationary_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
@@ -1552,7 +1549,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         plt.legend(loc='upper right')
         plt.xlabel("Probability Threshold (%)")
         plt.ylabel("F1 Score")
-        plt.title("Model %d F1 Score for Cold Fronts" % model_number)
+        plt.title("Model %d F1 Score for Stationary Fronts" % model_number)
         plt.savefig("%s/model_%d/model_%d_F1_stationary_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
         plt.close()
 
@@ -1572,7 +1569,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         plt.ylabel("Probability of Detection (POD)")
         plt.xlim(0,np.max(POFD_stationary_50km))
         plt.ylim(0,np.max(POD_stationary_50km))
-        plt.title("Model %d ROC Curve for Cold Fronts" % model_number)
+        plt.title("Model %d ROC Curve for Stationary Fronts" % model_number)
         plt.savefig("%s/model_%d/model_%d_AUC_stationary_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
         plt.close()
 
@@ -1595,7 +1592,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         plt.legend(loc='upper right')
         plt.xlabel("Success Ratio (1 - FAR)")
         plt.ylabel("Probability of Detection (POD)")
-        plt.title("Model %d Performance for Warm Fronts" % model_number)
+        plt.title("Model %d Performance for Occluded Fronts" % model_number)
         plt.xlim(0,1)
         plt.ylim(0,1)
         plt.savefig("%s/model_%d/model_%d_performance_occluded_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
@@ -1620,7 +1617,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         plt.legend(loc='upper right')
         plt.xlabel("Probability Threshold (%)")
         plt.ylabel("F1 Score")
-        plt.title("Model %d F1 Score for Warm Fronts" % model_number)
+        plt.title("Model %d F1 Score for Occluded Fronts" % model_number)
         plt.savefig("%s/model_%d/model_%d_F1_occluded_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
         plt.close()
 
@@ -1640,7 +1637,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, num_images, 
         plt.ylabel("Probability of Detection (POD)")
         plt.xlim(0,np.max(POFD_occluded_50km))
         plt.ylim(0,np.max(POD_occluded_50km))
-        plt.title("Model %d ROC Curve for Warm Fronts" % model_number)
+        plt.title("Model %d ROC Curve for Occluded Fronts" % model_number)
         plt.savefig("%s/model_%d/model_%d_AUC_occluded_%d_%d.png" % (model_dir, model_number, model_number, num_images, image_trim),bbox_inches='tight')
         plt.close()
 
@@ -1701,7 +1698,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     elif pixel_expansion == 2:
         fronts = ope(ope(fronts))  # 2-pixel expansion
 
-    probs_ds = xr.where(probs_ds > 0, probs_ds, float("NaN"))
+    probs_ds = xr.where(probs_ds > 0.1, probs_ds, float("NaN"))
     fronts = xr.where(fronts == 0, float("NaN"), fronts)
     
     probability_plot_title = "%s Front probabilities (images=%d, trim=%d)" % (time, num_images, image_trim)
@@ -1970,8 +1967,6 @@ if __name__ == '__main__':
                         help='Are you calculating performance stats for a model?')
     parser.add_argument('--day', type=int, required=False, help='Day for the prediction.')
     parser.add_argument('--domain', type=str, required=False, help='Domain of the data.')
-    parser.add_argument('--file_dimensions', type=int, nargs=2, required=False,
-                        help='Dimensions of the file size. Two integers need to be passed.')
     parser.add_argument('--find_matches', type=bool, required=False, help='Find matches for stitching predictions?')
     parser.add_argument('--front_types', type=str, required=False,
                         help='Front format of the file. If your files contain warm and cold fronts, pass this argument'
@@ -2018,17 +2013,17 @@ if __name__ == '__main__':
         check_arguments(provided_arguments, required_arguments)
 
     if args.calculate_performance_stats is True:
-        required_arguments = ['domain', 'file_dimensions', 'front_types', 'image_trim', 'longitude_domain_length',
-                              'loss', 'metric', 'model_dir', 'model_number', 'normalization_method', 'num_dimensions',
-                              'num_images', 'num_variables', 'pixel_expansion']
+        required_arguments = ['domain', 'front_types', 'image_trim', 'longitude_domain_length', 'loss', 'metric',
+                              'model_dir', 'model_number', 'normalization_method', 'num_dimensions', 'num_images',
+                              'num_variables', 'pixel_expansion']
         print("Checking arguments for 'calculate_performance_stats'....", end='')
         check_arguments(provided_arguments, required_arguments)
         print("Checking compatibility of image stitching arguments....", end='')
         find_matches_for_domain(args.longitude_domain_length, model_longitude_length=128, compatibility_mode=True,
                                 compat_images=args.num_images, compat_trim=args.image_trim)
         calculate_performance_stats(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
-            args.domain, args.file_dimensions, args.test_years, args.normalization_method, args.loss, args.fss_mask_size,
-            args.fss_c, args.pixel_expansion, args.metric, args.num_images, args.longitude_domain_length, args.image_trim)
+            args.domain, args.test_years, args.normalization_method, args.loss, args.fss_mask_size, args.fss_c,
+            args.pixel_expansion, args.metric, args.num_images, args.longitude_domain_length, args.image_trim)
 
     if args.find_matches is True:
         required_arguments = ['longitude_domain_length', 'model_longitude_length']
@@ -2045,8 +2040,8 @@ if __name__ == '__main__':
 
     if args.generate_predictions is True:
         required_arguments = ['model_number', 'model_dir', 'num_variables', 'num_dimensions', 'front_types', 'domain',
-            'file_dimensions', 'normalization_method', 'loss', 'pixel_expansion', 'metric', 'num_images',
-            'longitude_domain_length', 'image_trim']
+            'normalization_method', 'loss', 'pixel_expansion', 'metric', 'num_images', 'longitude_domain_length',
+            'image_trim']
         print("Checking arguments for 'generate_predictions'....", end='')
         check_arguments(provided_arguments, required_arguments)
 
@@ -2073,10 +2068,9 @@ if __name__ == '__main__':
                     check_arguments(provided_arguments, required_arguments)
 
         if args.test_years is not None:
-            front_files, variable_files = fm.load_test_files(args.num_variables, args.front_types, args.domain, args.file_dimensions, args.test_years)
+            front_files, variable_files = fm.load_test_files(args.num_variables, args.front_types, args.domain, args.test_years)
         else:
-            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain,
-                args.file_dimensions)
+            front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain)
         generate_predictions(args.model_number, args.model_dir, front_files, variable_files, args.predictions, args.normalization_method,
             args.loss, args.fss_mask_size, args.fss_c, args.front_types, args.pixel_expansion, args.metric, args.num_dimensions,
             args.num_images, args.longitude_domain_length, args.image_trim, args.year, args.month, args.day, args.hour)

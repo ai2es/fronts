@@ -2,7 +2,7 @@
 Functions in this code manage data files and directories.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/23/2021 8:48 PM CDT
+Last updated: 10/17/2021 12:16 AM CDT
 """
 
 from glob import glob
@@ -104,7 +104,7 @@ def delete_grouped_files(main_dir_group, glob_file_string, num_subdir):
     print("done")
 
 
-def generate_file_lists(front_files, variable_files, num_variables, front_types, domain, file_dimensions):
+def generate_file_lists(front_files, variable_files, num_variables, front_types, domain):
     """
     Generates lists of files containing front and variable data. Creating separate lists and loading them saves time as
     opposed to just loading all of the files individually each time the code is ran.
@@ -121,8 +121,6 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
         Fronts in the frontobject datasets.
     domain: str
         Domain which the front and variable files cover.
-    file_dimensions: int (x2)
-        Dimensions of the domain/files.
     """
     front_files_no_prefix = []
     variable_files_no_prefix = []
@@ -163,8 +161,7 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
 
     # Check the end of the filenames to match up files together
     for i in range(len(front_files_list)):
-        if front_files_list[0][-22-len(str(file_dimensions[0]))-len(str(file_dimensions[1])):] == \
-            variable_files_list[0][-22-len(str(file_dimensions[0]))-len(str(file_dimensions[1])):]:
+        if front_files_list[0][-15:] == variable_files_list[0][-15:]:
             matches += 1
         else:
             mismatches += 1
@@ -178,16 +175,14 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
         print("ERROR: File lists do not have matching dates, check your data and remake the lists.\n")
 
     print("Saving lists....", end='')
-    with open('%dvar_%s_%s_%dx%d_front_files_list.pkl' % (num_variables, front_types, domain, file_dimensions[0],
-                                                          file_dimensions[1]), 'wb') as f:
+    with open('%dvar_%s_%s_front_files_list.pkl' % (num_variables, front_types, domain), 'wb') as f:
         pickle.dump(front_files_list, f)
-    with open('%dvar_%s_%s_%dx%d_variable_files_list.pkl' % (num_variables, front_types, domain, file_dimensions[0],
-                                                             file_dimensions[1]), 'wb') as f:
+    with open('%dvar_%s_%s_variable_files_list.pkl' % (num_variables, front_types, domain), 'wb') as f:
         pickle.dump(variable_files_list, f)
     print("done")
 
 
-def load_files(pickle_indir, num_variables, front_types, domain, file_dimensions):
+def load_files(pickle_indir, num_variables, front_types, domain):
     """
     Function that loads and returns lists of data files.
 
@@ -201,8 +196,6 @@ def load_files(pickle_indir, num_variables, front_types, domain, file_dimensions
         Fronts in the frontobject datasets.
     domain: str
         Domain which the front and variable files cover.
-    file_dimensions: int (x2)
-        Dimensions of the domain/files.
 
     Returns
     -------
@@ -212,18 +205,16 @@ def load_files(pickle_indir, num_variables, front_types, domain, file_dimensions
         List of all files containing variable data.
     """
     print("Collecting front object files....", end='')
-    front_files = sorted(glob("%s/*/*/*/FrontObjects_%s_*_%s_%dx%d.pkl" % (pickle_indir, front_types, domain, file_dimensions[0],
-                                                                           file_dimensions[1])))
+    front_files = sorted(glob("%s/*/*/*/FrontObjects_%s_*_%s.pkl" % (pickle_indir, front_types, domain)))
     print("done, %d files found" % len(front_files))
     print("Collecting variable data files....", end='')
-    variable_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s_%dx%d.pkl" % (pickle_indir, num_variables, domain, file_dimensions[0],
-                                                                         file_dimensions[1])))
+    variable_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s.pkl" % (pickle_indir, num_variables, domain)))
     print("done, %d files found" % len(variable_files))
 
     return front_files, variable_files
 
 
-def load_file_lists(num_variables, front_types, domain, file_dimensions):
+def load_file_lists(num_variables, front_types, domain):
     """
     Opens files containing lists of filenames for fronts and variable data.
 
@@ -235,8 +226,6 @@ def load_file_lists(num_variables, front_types, domain, file_dimensions):
         Fronts in the frontobject datasets.
     domain: str
         Domain which the front and variable files cover.
-    file_dimensions: int (x2)
-        Dimensions of the domain/files.
 
     Returns
     -------
@@ -245,11 +234,9 @@ def load_file_lists(num_variables, front_types, domain, file_dimensions):
     variable_files_list: list
         List of filenames that contain variable data.
     """
-    with open('%dvar_%s_%s_%dx%d_front_files_list.pkl' % (num_variables, front_types, domain, file_dimensions[0],
-                                                          file_dimensions[1]), 'rb') as f:
+    with open('%dvar_%s_%s_front_files_list.pkl' % (num_variables, front_types, domain), 'rb') as f:
         front_files_list = pickle.load(f)
-    with open('%dvar_%s_%s_%dx%d_variable_files_list.pkl' % (num_variables, front_types, domain, file_dimensions[0],
-                                                             file_dimensions[1]), 'rb') as f:
+    with open('%dvar_%s_%s_variable_files_list.pkl' % (num_variables, front_types, domain), 'rb') as f:
         variable_files_list = pickle.load(f)
 
     return front_files_list, variable_files_list
@@ -353,7 +340,7 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
     return model
 
 
-def load_test_files(num_variables, front_types, domain, file_dimensions, test_years):
+def load_test_files(num_variables, front_types, domain, test_years):
     """
     Splits front and variable data files into training and validation sets.
 
@@ -365,8 +352,6 @@ def load_test_files(num_variables, front_types, domain, file_dimensions, test_ye
         Fronts in the frontobject datasets.
     domain: str
         Domain which the front and variable files cover.
-    file_dimensions: int (x2)
-        Dimensions of the domain/files.
     test_years: list of ints
         Years for the test set (will not be used in training or validation).
 
@@ -377,7 +362,7 @@ def load_test_files(num_variables, front_types, domain, file_dimensions, test_ye
     variable_files_test: list
         List of files containing variable data for the test dataset.
     """
-    front_files, variable_files = load_file_lists(num_variables, front_types, domain, file_dimensions)
+    front_files, variable_files = load_file_lists(num_variables, front_types, domain)
 
     print("Test years:", test_years)
 
@@ -385,7 +370,7 @@ def load_test_files(num_variables, front_types, domain, file_dimensions, test_ye
     variable_files_test = []
 
     for test_year in test_years:
-        test_year_string = "/" + str(test_year) + "/"
+        test_year_string = "\\" + str(test_year) + "\\"
         front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
         variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files)))
     front_files_test = list(sorted(itertools.chain(*front_files_test)))
@@ -434,7 +419,7 @@ def split_file_lists(front_files, variable_files, validation_years, test_years):
     variable_files_training_temp = variable_files
 
     for test_year in test_years:
-        test_year_string = "/" + str(test_year) + "/"
+        test_year_string = "\\" + str(test_year) + "\\"
         front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
         variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files)))
         front_files_training_temp = list(filter(lambda test_year: test_year_string not in test_year, front_files_training_temp))
@@ -443,7 +428,7 @@ def split_file_lists(front_files, variable_files, validation_years, test_years):
     variable_files_test = list(sorted(itertools.chain(*variable_files_test)))
 
     for validation_year in validation_years:
-        validation_year_string = "/" + str(validation_year) + "/"
+        validation_year_string = "\\" + str(validation_year) + "\\"
         front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
         variable_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, variable_files)))
         front_files_training_temp = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training_temp))
@@ -468,8 +453,6 @@ if __name__ == '__main__':
     parser.add_argument('--create_subdirectories', type=bool, required=False, help='Create new directories?')
     parser.add_argument('--delete_grouped_files', type=bool, required=False, help='Delete a set of files?')
     parser.add_argument('--domain', type=str, required=False, help='Domain of the data.')
-    parser.add_argument('--file_dimensions', type=int, nargs=2, required=False,
-                        help='Dimensions of the map size. Two integers need to be passed.')
     parser.add_argument('--front_types', type=str, required=False,
                         help='Front format of the file. If your files contain warm and cold fronts, pass this argument'
                              'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
@@ -503,10 +486,8 @@ if __name__ == '__main__':
         delete_grouped_files(args.main_dir_group, args.glob_file_string, args.num_subdir)
 
     if args.generate_lists is True:
-        required_arguments = ['domain', 'file_dimensions', 'front_types', 'num_variables', 'pickle_indir']
+        required_arguments = ['domain', 'front_types', 'num_variables', 'pickle_indir']
         print("Checking arguments for 'generate_file_lists'....", end='')
         check_arguments(provided_arguments, required_arguments)
-        front_files, variable_files = load_files(args.pickle_indir, args.num_variables, args.front_types, args.domain,
-            args.file_dimensions)
-        generate_file_lists(front_files, variable_files, args.num_variables, args.front_types, args.domain,
-            args.file_dimensions)
+        front_files, variable_files = load_files(args.pickle_indir, args.num_variables, args.front_types, args.domain)
+        generate_file_lists(front_files, variable_files, args.num_variables, args.front_types, args.domain)
