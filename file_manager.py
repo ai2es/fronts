@@ -370,7 +370,7 @@ def load_test_files(num_variables, front_types, domain, test_years):
     variable_files_test = []
 
     for test_year in test_years:
-        test_year_string = "\\" + str(test_year) + "\\"
+        test_year_string = "/" + str(test_year) + "/"
         front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
         variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files)))
     front_files_test = list(sorted(itertools.chain(*front_files_test)))
