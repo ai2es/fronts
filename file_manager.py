@@ -419,7 +419,7 @@ def split_file_lists(front_files, variable_files, validation_years, test_years):
     variable_files_training_temp = variable_files
 
     for test_year in test_years:
-        test_year_string = "\\" + str(test_year) + "\\"
+        test_year_string = "/" + str(test_year) + "/"
         front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
         variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files)))
         front_files_training_temp = list(filter(lambda test_year: test_year_string not in test_year, front_files_training_temp))
@@ -428,7 +428,7 @@ def split_file_lists(front_files, variable_files, validation_years, test_years):
     variable_files_test = list(sorted(itertools.chain(*variable_files_test)))
 
     for validation_year in validation_years:
-        validation_year_string = "\\" + str(validation_year) + "\\"
+        validation_year_string = "/" + str(validation_year) + "/"
         front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
         variable_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, variable_files)))
         front_files_training_temp = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training_temp))
