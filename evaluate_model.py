@@ -121,7 +121,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
     latitude_domain_length = 128
     lon_pixels_per_image = int(model_longitude_length - 2*image_trim)  # Longitude dimension of the images
 
-    for x in range(1):
+    for x in range(len(front_files)):
         
         print("Prediction %d/%d....0/%d" % (x+1, len(front_files), num_images), end='\r')
 
