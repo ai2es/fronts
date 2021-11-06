@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/30/2021 4:15 PM CDT
+Last updated: 11/5/2021 10:02 PM CDT
 """
 
 import random
@@ -73,7 +73,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         print("Front file count:", len(front_files))
         print("Variable file count:", len(variable_files))
 
-    model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)
+    model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)  #
 
     n = 0  # Counter for the number of down layers in the model
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net images
@@ -90,57 +90,70 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         channels = model.layers[0].input_shape[0][4]  # Number of variables at each level
     n = int((n - 1)/2)
 
+    """
+    Performance stats
+    tp_<front>: Array for the numbers of true positives of the given front and threshold
+    tn_<front>: Array for the numbers of true negatives of the given front and threshold
+    fp_<front>: Array for the numbers of false positives of the given front and threshold
+    fn_<front>: Array for the numbers of false negatives of the given front and threshold
+    """
     tp_cold = np.zeros(shape=[4,100])
     fp_cold = np.zeros(shape=[4,100])
     tn_cold = np.zeros(shape=[4,100])
     fn_cold = np.zeros(shape=[4,100])
-
     tp_warm = np.zeros(shape=[4,100])
     fp_warm = np.zeros(shape=[4,100])
     tn_warm = np.zeros(shape=[4,100])
     fn_warm = np.zeros(shape=[4,100])
-
     tp_stationary = np.zeros(shape=[4,100])
     fp_stationary = np.zeros(shape=[4,100])
     tn_stationary = np.zeros(shape=[4,100])
     fn_stationary = np.zeros(shape=[4,100])
-
     tp_occluded = np.zeros(shape=[4,100])
     fp_occluded = np.zeros(shape=[4,100])
     tn_occluded = np.zeros(shape=[4,100])
     fn_occluded = np.zeros(shape=[4,100])
 
-    # Properties of the final map made from stitched images
-    # Properties of the final map made from stitched images
+    """ Properties of the final map made from stitched images """
     domain_images_lon, domain_images_lat = domain_images[0], domain_images[1]
     domain_length_lon, domain_length_lat = domain_lengths[0], domain_lengths[1]
     domain_trim_lon, domain_trim_lat = domain_trim[0], domain_trim[1]
-    model_length_lon, model_length_lat = map_dim_x, map_dim_y
+    model_length_lon, model_length_lat = map_dim_x, map_dim_y  # Dimensions of the model's predictions
+    domain_length_lon_trimmed = domain_length_lon - 2*domain_trim_lon  # Longitude dimension of the full stitched map after trimming
+    domain_length_lat_trimmed = domain_length_lat - 2*domain_trim_lat  # Latitude dimension of the full stitched map after trimming
+    lon_pixels_per_image = int(model_length_lon - 2*domain_trim_lon)  # Longitude dimension of each image after trimming
+    lat_pixels_per_image = int(model_length_lat - 2*domain_trim_lat)  # Latitude dimension of each image after trimming
 
-    domain_length_lon_trimmed = domain_length_lon - 2*domain_trim_lon
     if domain_images_lon > 1:
         lon_image_spacing = int((domain_length_lon - model_length_lon)/(domain_images_lon-1))
     else:
         lon_image_spacing = 0
-    lon_pixels_per_image = int(model_length_lon - 2*domain_trim_lon)  # Longitude dimension of the images
-    domain_length_lat_trimmed = domain_length_lat - 2*domain_trim_lat
+
     if domain_images_lat > 1:
         lat_image_spacing = int((domain_length_lat - model_length_lat)/(domain_images_lat-1))
     else:
         lat_image_spacing = 0
-    lat_pixels_per_image = int(model_length_lat - 2*domain_trim_lat)  # Latitude dimension of the images
 
-    for x in range(2):
+    for index in range(1):
 
         # Open random pair of files
-        index = x
         fronts_filename = front_files[index]
         variables_filename = variable_files[index]
         fronts_ds = pd.read_pickle(fronts_filename)
+        raw_variable_ds = normalize(pd.read_pickle(variables_filename), normalization_method)  # This dataset can be thought of as a "backup" that is used to reset the variable dataset.
         for i in range(pixel_expansion):  # Expand fronts by the given number of pixels
             fronts_ds = ope(fronts_ds)  # ope: one_pixel_expansion function in expand_fronts.py
 
-        # Create arrays containing data for the final stitched map
+        # Randomize variable (if applicable)
+        if random_variable is not None:
+            domain_dim_lon = len(raw_variable_ds['longitude'].values)  # Length of the full domain in the longitude direction (# of pixels)
+            domain_dim_lat = len(raw_variable_ds['latitude'].values)  # Length of the full domain in the latitude direction (# of pixels)
+
+            var_values = raw_variable_ds[random_variable].values.flatten()
+            np.random.shuffle(var_values)
+            raw_variable_ds[random_variable].values = var_values.reshape(domain_dim_lat,domain_dim_lon)
+
+        # Create arrays containing probabilities for each front type in the final stitched map
         image_cold_probs = np.empty(shape=[domain_length_lon_trimmed,domain_length_lat_trimmed])
         image_warm_probs = np.empty(shape=[domain_length_lon_trimmed,domain_length_lat_trimmed])
         image_stationary_probs = np.empty(shape=[domain_length_lon_trimmed,domain_length_lat_trimmed])
@@ -152,33 +165,23 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
 
         time = str(fronts_ds.time.values)[0:13].replace('T', '-') + 'z'
 
-        image_created = False
+        image_created = False  # Boolean that dtermines whether or not the final stitched map has been created
 
         for lat_image in range(domain_images_lat):
-            lat_index = int(lat_image*lat_image_spacing)
+            lat_index = int(lat_image*lat_image_spacing)  # Index of the latitude coordinates array
             for lon_image in range(domain_images_lon):
                 print("%s....%d/%d" % (time, int(lat_image*domain_images_lon)+lon_image+1, int(domain_images_lon*domain_images_lat)),end='\r')
-                lon_index = int(lon_image*lon_image_spacing)
+                lon_index = int(lon_image*lon_image_spacing)  # Index of the longitude coordinates array
 
-                variable_ds = pd.read_pickle(variables_filename)  # Reset variable dataset
-                lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]
-                lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
-
-                variable_ds = normalize(variable_ds, normalization_method)  # Normalize variables
-
-                # Randomize variable
-                if random_variable is not None:
-                    domain_dim_lon = len(variable_ds['longitude'].values)
-                    domain_dim_lat = len(variable_ds['latitude'].values)
-
-                    var_values = variable_ds[random_variable].values.flatten()
-                    np.random.shuffle(var_values)
-                    variable_ds[random_variable].values = var_values.reshape(domain_dim_lat,domain_dim_lon)
+                variable_ds = raw_variable_ds  # Reset variable dataset with "backup" copy
+                lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]  # Longitude values for the current image
+                lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]  # Latitude values for the current image
 
                 if num_dimensions == 2:
                     variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, map_dim_x,
-                        map_dim_y, channels))
+                        map_dim_y, channels))  # Create new variable dataset for the current image
                 else:
+                    # Create new variable datasets for each level (surface, 1000mb, 950mb, 900mb, 850mb)
                     variables_sfc = variable_ds[['t2m','d2m','sp','u10','v10','theta_w','mix_ratio','rel_humid','virt_temp','wet_bulb','theta_e',
                                                  'q']].sel(longitude=lons, latitude=lats).to_array().values
                     variables_1000 = variable_ds[['t_1000','d_1000','z_1000','u_1000','v_1000','theta_w_1000','mix_ratio_1000','rel_humid_1000','virt_temp_1000',
@@ -199,11 +202,12 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                 stationary_probs = np.zeros([map_dim_x, map_dim_y])
                 occluded_probs = np.zeros([map_dim_x, map_dim_y])
 
-                thresholds = np.linspace(0.01,1,100)
-                boundaries = np.array([50,100,150,200])
+                thresholds = np.linspace(0.01,1,100)  # Probability thresholds for calculating performance statistics
+                boundaries = np.array([50,100,150,200])  # Boundaries for checking whether or not a front is present (kilometers)
 
+                # Use predictions to build stitched map
                 if front_types == 'CFWF':
-                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':  # Names of the previous 2D models
                         for i in range(0, map_dim_x):
                             for j in range(0, map_dim_y):
                                 cold_probs[i][j] = prediction[n][0][i][j][1]
@@ -337,12 +341,15 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             {"cold_probs": (("longitude", "latitude"), image_cold_probs),
                              "warm_probs": (("longitude", "latitude"), image_warm_probs)}, coords={"latitude": image_lats, "longitude": image_lons}).transpose()
                         for boundary in range(4):
-                            fronts = pd.read_pickle(fronts_filename)
+                            fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
                             for y in range(int(2*boundary+1)):
-                                fronts = ope(fronts)
+                                fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
                             """
                             t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
                             f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
+                            
+                            'new_fronts' dataset is kept separate from the 'fronts' dataset to so it can be repeatedly modified and reset
+                            new_fronts = fronts  <---- this line resets the front dataset after it is modified by xr.where()
                             """
                             new_fronts = fronts
                             t_cold_ds = xr.where(new_fronts == 1, 1, 0)
@@ -376,7 +383,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 fn_warm[boundary,i] += len(np.where((t_warm_probs < thresholds[i]) & (t_warm_probs != 0))[0])
 
                 elif front_types == 'SFOF':
-                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':  # Names of the previous 2D models
                         for i in range(0, map_dim_x):
                             for j in range(0, map_dim_y):
                                 stationary_probs[i][j] = prediction[n][0][i][j][1]
@@ -510,12 +517,15 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             {"stationary_probs": (("longitude", "latitude"), image_stationary_probs),
                              "occluded_probs": (("longitude", "latitude"), image_occluded_probs)}, coords={"latitude": image_lats, "longitude": image_lons}).transpose()
                         for boundary in range(4):
-                            fronts = pd.read_pickle(fronts_filename)
+                            fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
                             for y in range(int(2*boundary+1)):
-                                fronts = ope(fronts)
+                                fronts = ope(fronts) # ope: one_pixel_expansion function in expand_fronts.py
                             """
                             t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
                             f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
+                            
+                            'new_fronts' dataset is kept separate from the 'fronts' dataset to so it can be repeatedly modified and reset
+                            new_fronts = fronts  <---- this line resets the front dataset after it is modified by xr.where()
                             """
                             new_fronts = fronts
                             t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
@@ -549,7 +559,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 fn_occluded[boundary,i] += len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
 
                 elif front_types == 'ALL':
-                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':  # Names of the previous 2D models
                         for i in range(0, map_dim_x):
                             for j in range(0, map_dim_y):
                                 cold_probs[i][j] = prediction[n][0][i][j][1]
@@ -767,13 +777,16 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                              "occluded_probs": (("latitude", "longitude"), image_occluded_probs)},
                             coords={"latitude": lats, "longitude": lons})
                         for boundary in range(4):
-                            fronts = pd.read_pickle(fronts_filename)
+                            fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
                             for y in range(int(2*(boundary+1))):
-                                fronts = ope(fronts)
+                                fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
 
                             """
                             t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
                             f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
+                            
+                            'new_fronts' dataset is kept separate from the 'fronts' dataset to so it can be repeatedly modified and reset
+                            new_fronts = fronts  <---- this line resets the front dataset after it is modified by xr.where()
                             """
                             new_fronts = fronts
                             t_cold_ds = xr.where(new_fronts == 1, 1, 0)
@@ -863,7 +876,8 @@ def find_matches_for_domain(domain_lengths, model_lengths, compatibility_mode=Fa
     """
     Function that outputs the number of images that can be stitched together with the specified domain length and the length
     of the domain dimension output by the model. This is also used to determine the compatibility of declared image and
-    trim parameters for model predictions.
+    trim parameters for model predictions. However, if the number of images in either the longitude or latitude direction is 1,
+    this function cannot be used and errors may occur when creating the final stitched maps.
 
     Parameters
     ----------
@@ -874,23 +888,26 @@ def find_matches_for_domain(domain_lengths, model_lengths, compatibility_mode=Fa
     compatibility_mode: bool
         Boolean that declares whether or not the function is being used to check compatibility of given parameters.
     compat_images: int (x2)
-        Number of images declared for the stitched map. (Compatibility mode only)
+        Number of images declared for the stitched map in each dimension (lon lat). (Compatibility mode only)
     compat_trim: int (x2)
         Number of pixels to trim images by along each dimension before np.maximum() is taken across overlapped pixels (lon lat).
         (Compatibility mode only)
     """
 
     if compatibility_mode is True:
-        compat_images_lon = compat_images[0]
-        compat_images_lat = compat_images[1]
-        compat_trim_lon = compat_trim[0]
-        compat_trim_lat = compat_trim[1]
+        """ These parameters are used when checking the compatibility of image stitching arguments. """
+        compat_images_lon = compat_images[0]  # Number of images in the longitude direction
+        compat_images_lat = compat_images[1]  # Number of images in the latitude direction
+        compat_trim_lon = compat_trim[0]  # Number of pixels to trim each image by along the longitude dimension
+        compat_trim_lat = compat_trim[1]  # Number of pixels to trim each image by along the latitude dimension
+
+        # All of these boolean variables must be True after the compatibility check or else a ValueError is returned
         lon_images_are_compatible = False
         lat_images_are_compatible = False
         lon_trim_is_compatible = False
         lat_trim_is_compatible = False
 
-    num_matches = 0
+    num_matches = 0  # Total number of matching image and trim arguments found with the provided arguments
     for i in range(2,domain_lengths[0]-model_lengths[0]):  # Image counter for longitude dimension
         lon_spacing = (domain_lengths[0]-model_lengths[0])/(i-1)  # Spacing between images in the longitude dimension
         if lon_spacing - int(lon_spacing) == 0 and lon_spacing > 1 and model_lengths[0]-lon_spacing > 0:  # Check compatibility of longitude image spacing
@@ -1000,20 +1017,21 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
     domain_images_lon, domain_images_lat = domain_images[0], domain_images[1]
     domain_length_lon, domain_length_lat = domain_lengths[0], domain_lengths[1]
     domain_trim_lon, domain_trim_lat = domain_trim[0], domain_trim[1]
-    model_length_lon, model_length_lat = map_dim_x, map_dim_y
+    model_length_lon, model_length_lat = map_dim_x, map_dim_y  # Dimensions of the model's predictions
+    domain_length_lon_trimmed = domain_length_lon - 2*domain_trim_lon  # Longitude dimension of the full stitched map after trimming
+    domain_length_lat_trimmed = domain_length_lat - 2*domain_trim_lat  # Latitude dimension of the full stitched map after trimming
+    lon_pixels_per_image = int(model_length_lon - 2*domain_trim_lon)  # Longitude dimension of each image after trimming
+    lat_pixels_per_image = int(model_length_lat - 2*domain_trim_lat)  # Latitude dimension of each image after trimming
 
-    domain_length_lon_trimmed = domain_length_lon - 2*domain_trim_lon
     if domain_images_lon > 1:
         lon_image_spacing = int((domain_length_lon - model_length_lon)/(domain_images_lon-1))
     else:
         lon_image_spacing = 0
-    lon_pixels_per_image = int(model_length_lon - 2*domain_trim_lon)  # Longitude dimension of the images
-    domain_length_lat_trimmed = domain_length_lat - 2*domain_trim_lat
+
     if domain_images_lat > 1:
         lat_image_spacing = int((domain_length_lat - model_length_lat)/(domain_images_lat-1))
     else:
         lat_image_spacing = 0
-    lat_pixels_per_image = int(model_length_lat - 2*domain_trim_lat)  # Latitude dimension of the images
 
     # Find files with provided date and time to make a prediction (if applicable)
     if year is not None and month is not None and day is not None and hour is not None and predictions is None:
@@ -1035,19 +1053,33 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
             fronts_filename = front_files[indices[x]]
             variables_filename = variable_files[indices[x]]
 
-        fronts_ds = pd.read_pickle(fronts_filename)
+        # Create arrays containing probabilities for each front type in the final stitched map
         image_cold_probs = np.empty(shape=[domain_length_lon_trimmed,domain_length_lat_trimmed])
         image_warm_probs = np.empty(shape=[domain_length_lon_trimmed,domain_length_lat_trimmed])
         image_stationary_probs = np.empty(shape=[domain_length_lon_trimmed,domain_length_lat_trimmed])
         image_occluded_probs = np.empty(shape=[domain_length_lon_trimmed,domain_length_lat_trimmed])
+
+        raw_variable_ds = normalize(pd.read_pickle(variables_filename), normalization_method)
+        # Randomize variable
+        if random_variable is not None:
+            domain_dim_lon = len(raw_variable_ds['longitude'].values)  # Length of the full domain in the longitude direction (# of pixels)
+            domain_dim_lat = len(raw_variable_ds['latitude'].values)  # Length of the full domain in the latitude direction (# of pixels)
+
+            var_values = raw_variable_ds[random_variable].values.flatten()
+            np.random.shuffle(var_values)
+            raw_variable_ds[random_variable].values = var_values.reshape(domain_dim_lat,domain_dim_lon)
+
+        fronts_ds = pd.read_pickle(fronts_filename)
         fronts = fronts_ds.sel(longitude=fronts_ds.longitude.values[domain_trim_lon:domain_length_lon-domain_trim_lon],
                                latitude=fronts_ds.latitude.values[domain_trim_lat:domain_length_lat-domain_trim_lat])
+
+        # Latitude and longitude points in the domain
         image_lats = fronts_ds.latitude.values[domain_trim_lat:domain_length_lat-domain_trim_lat]
         image_lons = fronts_ds.longitude.values[domain_trim_lon:domain_length_lon-domain_trim_lon]
 
         time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
 
-        image_created = False
+        image_created = False  # Boolean that dtermines whether or not the final stitched map has been created
 
         for lat_image in range(domain_images_lat):
             lat_index = int(lat_image*lat_image_spacing)
@@ -1055,16 +1087,14 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                 print("%s....%d/%d" % (time, int(lat_image*domain_images_lon)+lon_image+1, int(domain_images_lon*domain_images_lat)),end='\r')
                 lon_index = int(lon_image*lon_image_spacing)
 
-                variable_ds = pd.read_pickle(variables_filename)  # Reset variable dataset
-                lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]
-                lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]
-
-                variable_ds = normalize(variable_ds, normalization_method)  # Normalize variables
+                variable_ds = raw_variable_ds
+                lons = variable_ds.longitude.values[lon_index:lon_index + map_dim_x]  # Longitude points for the current image
+                lats = variable_ds.latitude.values[lat_index:lat_index + map_dim_y]  # Latitude points for the current image
 
                 # Randomize variable
                 if random_variable is not None:
-                    domain_dim_lon = len(variable_ds['longitude'].values)
-                    domain_dim_lat = len(variable_ds['latitude'].values)
+                    domain_dim_lon = len(variable_ds['longitude'].values)  # Length of the full domain in the longitude direction (# of pixels)
+                    domain_dim_lat = len(variable_ds['latitude'].values)  # Length of the full domain in the latitude direction (# of pixels)
 
                     var_values = variable_ds[random_variable].values.flatten()
                     np.random.shuffle(var_values)
@@ -1095,7 +1125,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                 occluded_probs = np.zeros([map_dim_x, map_dim_y])
 
                 if front_types == 'CFWF':
-                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':  # Names of the previous 2D models
                         for i in range(0, map_dim_x):
                             for j in range(0, map_dim_y):
                                 cold_probs[i][j] = prediction[n][0][i][j][1]
@@ -1228,10 +1258,10 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                         probs_ds = xr.Dataset(
                             {"cold_probs": (("longitude", "latitude"), image_cold_probs),
                              "warm_probs": (("longitude", "latitude"), image_warm_probs)}, coords={"latitude": image_lats, "longitude": image_lons}).transpose()
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images_lon, domain_trim_lon)
+                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim)
 
                 elif front_types == 'SFOF':
-                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':  # Names of the previous 2D models
                         for i in range(0, map_dim_x):
                             for j in range(0, map_dim_y):
                                 stationary_probs[i][j] = prediction[n][0][i][j][1]
@@ -1364,10 +1394,10 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                         probs_ds = xr.Dataset(
                             {"stationary_probs": (("longitude", "latitude"), image_stationary_probs),
                              "occluded_probs": (("longitude", "latitude"), image_occluded_probs)}, coords={"latitude": image_lats, "longitude": image_lons}).transpose()
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images_lon, domain_trim_lon)
+                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim)
 
                 elif front_types == 'ALL':
-                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':
+                    if model.name == 'U-Net' or model.name == 'unet' or model.name == 'model':  # Names of the previous 2D models
                         for i in range(0, map_dim_x):
                             for j in range(0, map_dim_y):
                                 cold_probs[i][j] = prediction[n][0][i][j][1]
@@ -1585,7 +1615,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                              "warm_probs": (("latitude", "longitude"), image_warm_probs), "stationary_probs": (("latitude", "longitude"), image_stationary_probs),
                              "occluded_probs": (("latitude", "longitude"), image_occluded_probs)},
                             coords={"latitude": lats, "longitude": lons})
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images_lon, domain_trim_lon)
+                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim)
 
 
 def plot_performance_diagrams(model_dir, model_number, front_types, domain_images, domain_trim, random_variable=None):
@@ -2239,10 +2269,6 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     extent = np.array([120, 380, 0, 80])
     crs = ccrs.LambertConformal(central_longitude=250)
 
-    # Create custom colorbar for the different front types of the 'truth' plot
-    cmap = mpl.colors.ListedColormap(["blue","red",'green','purple'], name='from_list', N=None)
-    norm = mpl.colors.Normalize(vmin=1,vmax=5)
-
     cold_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.8)
     warm_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.8)
     stationary_norm = mpl.colors.Normalize(vmin=0.2, vmax=0.8)
@@ -2258,38 +2284,83 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     stationary_levels = np.arange(0,1.1,0.1)
     occluded_levels = np.arange(0,1.1,0.1)
 
-    if pixel_expansion == 1:
-        fronts = ope(fronts)  # 1-pixel expansion
-    elif pixel_expansion == 2:
-        fronts = ope(ope(fronts))  # 2-pixel expansion
+    for expansion in range(pixel_expansion):
+        fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
 
-    probs_ds = xr.where(probs_ds > 0.1, probs_ds, float("NaN"))
+    probs_ds = xr.where(probs_ds > 0.1, probs_ds, 0)
+
     fronts = xr.where(fronts == 0, float("NaN"), fronts)
 
     probability_plot_title = "%s Front probabilities (images=[%d,%d], trim=[%d,%d])" % (time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
 
     if front_types == 'CFWF':
+
+        # Create custom colorbar for the different front types of the 'truth' plot
+        cmap = mpl.colors.ListedColormap(['blue','red'], name='from_list', N=None)
+        norm = mpl.colors.Normalize(vmin=1,vmax=3)
+
+        """ Create datasets for each front type and modify them so they do not overlap in the prediction plot """
+        probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
+        probs_ds_cold = probs_ds_copy_cold.drop(labels="warm_probs").rename({"cold_probs": "probs"})
+        probs_ds_warm = probs_ds_copy_warm.drop(labels="cold_probs").rename({"warm_probs": "probs"})
+        cold_ds = xr.where(probs_ds_cold > probs_ds_warm, probs_ds_cold, float("NaN")).rename({"probs": "cold_probs"})
+        probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
+        probs_ds_cold = probs_ds_copy_cold.drop(labels="warm_probs").rename({"cold_probs": "probs"})
+        probs_ds_warm = probs_ds_copy_warm.drop(labels="cold_probs").rename({"warm_probs": "probs"})
+        warm_ds = xr.where(probs_ds_warm > probs_ds_cold, probs_ds_warm, float("NaN")).rename({"probs": "warm_probs"})
+
+        # Create prediction plot
         fig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
         fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
         axlist[0].title.set_text("%s Truth" % time)
-        probs_ds.cold_probs.isel().plot.contourf(ax=axlist[1], cmap="Blues", norm=cold_norm_contour, levels=cold_levels, x='longitude', y='latitude', transform=ccrs.PlateCarree())
-        probs_ds.warm_probs.isel().plot.contourf(ax=axlist[1], cmap="Reds", norm=warm_norm_contour, levels=warm_levels, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        cold_ds.cold_probs.isel().plot.contourf(ax=axlist[1], cmap="Blues", norm=cold_norm_contour, levels=cold_levels, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        warm_ds.warm_probs.isel().plot.contourf(ax=axlist[1], cmap="Reds", norm=warm_norm_contour, levels=warm_levels, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text(probability_plot_title)
 
+        cbar = plt.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=axlist[0])
+        cbar.set_ticks(np.arange(1,5,1)+0.5)
+        cbar.set_ticklabels(['Cold','Warm'])
+        cbar.set_label('Front type')
+
     elif front_types == 'SFOF':
+
+        # Create custom colorbar for the different front types of the 'truth' plot
+        cmap = mpl.colors.ListedColormap(['green','purple'], name='from_list', N=None)
+        norm = mpl.colors.Normalize(vmin=3,vmax=5)
+
+        """ Create datasets for each front type and modify them so they do not overlap in the prediction plot """
+        probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
+        probs_ds_stationary = probs_ds_copy_stationary.drop(labels="occluded_probs").rename({"stationary_probs": "probs"})
+        probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
+        stationary_ds = xr.where(probs_ds_stationary > probs_ds_occluded, probs_ds_stationary, float("NaN")).rename({"probs": "stationary_probs"})
+        probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
+        probs_ds_stationary = probs_ds_copy_stationary.drop(labels="occluded_probs").rename({"stationary_probs": "probs"})
+        probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
+        occluded_ds = xr.where(probs_ds_occluded > probs_ds_stationary, probs_ds_occluded, float("NaN")).rename({"probs": "occluded_probs"})
+
         fig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs})
         axlist = axarr.flatten()
         for ax in axlist:
             fplot.plot_background(ax, extent)
         fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-        probs_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], cmap="Greens", norm=stationary_norm_contour, levels=stationary_levels, x='longitude', y='latitude', transform=ccrs.PlateCarree())
-        probs_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], cmap="Purples", norm=occluded_norm_contour, levels=occluded_levels, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], cmap="Greens", norm=stationary_norm_contour, levels=stationary_levels, x='longitude', y='latitude', transform=ccrs.PlateCarree())
+        occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], cmap="Purples", norm=occluded_norm_contour, levels=occluded_levels, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text(probability_plot_title)
 
+        cbar = plt.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=axlist[0])
+        cbar.set_ticks(np.arange(1,5,1)+0.5)
+        cbar.set_ticklabels(['Stationary','Occluded'])
+        cbar.set_label('Front type')
+
     elif front_types == 'ALL':
+
+        # Create custom colorbar for the different front types of the 'truth' plot
+        cmap = mpl.colors.ListedColormap(["blue","red",'green','purple'], name='from_list', N=None)
+        norm = mpl.colors.Normalize(vmin=1,vmax=5)
+
         fig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs})
         axlist = axarr.flatten()
         for ax in axlist:
@@ -2302,10 +2373,10 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         probs_ds.occluded_probs.plot(ax=axlist[1], cmap='Purples', norm=occluded_norm, x='longitude', y='latitude', transform=ccrs.PlateCarree())
         axlist[1].title.set_text(probability_plot_title)
 
-    cbar = plt.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=axlist[0])
-    cbar.set_ticks(np.arange(1,5,1)+0.5)
-    cbar.set_ticklabels(['Cold','Warm','Stationary','Occluded'])
-    cbar.set_label('Front type')
+        cbar = plt.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=axlist[0])
+        cbar.set_ticks(np.arange(1,5,1)+0.5)
+        cbar.set_ticklabels(['Cold','Warm','Stationary','Occluded'])
+        cbar.set_label('Front type')
 
     plt.savefig('%s/model_%d/predictions/model_%d_%s_plot_%dx%dimages_%dx%dtrim.png' % (model_dir, model_number, model_number,
         time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1]), bbox_inches='tight', dpi=1000)
