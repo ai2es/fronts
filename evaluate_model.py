@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 11/20/2021 4:00 PM CDT
+Last updated: 11/22/2021 10:41 PM CDT
 """
 
 import random
@@ -231,6 +231,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             for j in range(0, map_dim_y):
                                 cold_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
                                 warm_probs[i][j] = np.amax(prediction[0][0][i][j][:,2])
+
                     if lon_image == 0:
                         if lat_image == 0:
                             image_cold_probs[0: model_length_lon - domain_trim_lon, 0: model_length_lat - domain_trim_lat] = cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat: model_length_lat]
@@ -244,21 +245,21 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 np.maximum(image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                cold_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                warm_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 1 and domain_images_lat == 2:
                                 image_created = True
                         else:
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_cold_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_warm_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                cold_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                warm_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             if domain_images_lon == 1 and domain_images_lat > 2:
                                 image_created = True
 
@@ -270,9 +271,9 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat], warm_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: model_length_lat])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_warm_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             if domain_images_lon == 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
@@ -281,10 +282,10 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             image_warm_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat] = \
                                 np.maximum(image_warm_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat], warm_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
                                 cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -298,10 +299,10 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             image_warm_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
                                 np.maximum(image_warm_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):], warm_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
                                 cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -408,6 +409,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             for j in range(0, map_dim_y):
                                 stationary_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
                                 occluded_probs[i][j] = np.amax(prediction[0][0][i][j][:,2])
+
                     if lon_image == 0:
                         if lat_image == 0:
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, 0: model_length_lat - domain_trim_lat] = stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat: model_length_lat]
@@ -421,21 +423,21 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 np.maximum(image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                stationary_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                occluded_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 1 and domain_images_lat == 2:
                                 image_created = True
                         else:
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_stationary_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_occluded_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                stationary_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                occluded_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             if domain_images_lon == 1 and domain_images_lat > 2:
                                 image_created = True
 
@@ -447,9 +449,9 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: model_length_lat])
 
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_occluded_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             if domain_images_lon == 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
@@ -458,10 +460,10 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat] = \
                                 np.maximum(image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
                                 stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -475,10 +477,10 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
                                 np.maximum(image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
                                 stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -609,33 +611,33 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 np.maximum(image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                cold_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                warm_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                stationary_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                occluded_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 1 and domain_images_lat == 2:
                                 image_created = True
                         else:
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_cold_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_warm_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_stationary_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_occluded_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                cold_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                warm_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                stationary_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                occluded_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             if domain_images_lon == 1 and domain_images_lat > 2:
                                 image_created = True
 
@@ -651,13 +653,13 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: model_length_lat])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_warm_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_occluded_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             if domain_images_lon == 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
@@ -670,14 +672,14 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat] = \
                                 np.maximum(image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
                                 cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -699,14 +701,14 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
                                 np.maximum(image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
                                 cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -733,7 +735,6 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             image_warm_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, 0: model_length_lat - domain_trim_lat] = warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:model_length_lon-domain_trim_lon, domain_trim_lat: model_length_lat]
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, 0: model_length_lat - domain_trim_lat] = stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:model_length_lon-domain_trim_lon, domain_trim_lat: model_length_lat]
                             image_occluded_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, 0: model_length_lat - domain_trim_lat] = occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:model_length_lon-domain_trim_lon, domain_trim_lat: model_length_lat]
-
                             if domain_images_lon > 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
@@ -867,6 +868,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                         for i in range(0, map_dim_x):
                             for j in range(0, map_dim_y):
                                 front_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
+
                     if lon_image == 0:
                         if lat_image == 0:
                             image_front_probs[0: model_length_lon - domain_trim_lon, 0: model_length_lat - domain_trim_lat] = front_probs[domain_trim_lon: model_length_lon, domain_trim_lat: model_length_lat]
@@ -877,15 +879,15 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 np.maximum(image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], front_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                front_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                front_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 1 and domain_images_lat == 2:
                                 image_created = True
                         else:
                             image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], front_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_front_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], front_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                front_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                front_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             if domain_images_lon == 1 and domain_images_lat > 2:
                                 image_created = True
 
@@ -895,15 +897,15 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                                 np.maximum(image_front_probs[int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat], front_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: model_length_lat])
 
                             image_front_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                front_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                front_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             if domain_images_lon == 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
                             image_front_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat] = \
                                 np.maximum(image_front_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat], front_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_front_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_front_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], front_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_front_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_front_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], front_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_front_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
                                 front_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -913,8 +915,8 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             image_front_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
                                 np.maximum(image_front_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):], front_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_front_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_front_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], front_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_front_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_front_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], front_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_front_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
                                 front_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -964,9 +966,11 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
                             new_fronts = fronts  <---- this line resets the front dataset after it is modified by xr.where()
                             """
                             new_fronts = fronts
-                            t_front_ds = xr.where(new_fronts > 0, 1, 0)
+                            t_front_ds = xr.where(new_fronts == 5, 0, new_fronts)
+                            t_front_ds = xr.where(t_front_ds > 0, 1, 0)
                             t_front_probs = t_front_ds.identifier * probs_ds.front_probs
                             new_fronts = fronts
+                            t_front_ds = xr.where(new_fronts == 5, 0, new_fronts)
                             f_front_ds = xr.where(new_fronts > 0, 0, 1)
                             f_front_probs = f_front_ds.identifier * probs_ds.front_probs
 
@@ -1296,6 +1300,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             for j in range(0, map_dim_y):
                                 cold_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
                                 warm_probs[i][j] = np.amax(prediction[0][0][i][j][:,2])
+
                     if lon_image == 0:
                         if lat_image == 0:
                             image_cold_probs[0: model_length_lon - domain_trim_lon, 0: model_length_lat - domain_trim_lat] = cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat: model_length_lat]
@@ -1309,21 +1314,21 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 np.maximum(image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                cold_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                warm_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 1 and domain_images_lat == 2:
                                 image_created = True
                         else:
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_cold_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_warm_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                cold_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                warm_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             if domain_images_lon == 1 and domain_images_lat > 2:
                                 image_created = True
 
@@ -1335,9 +1340,9 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat], warm_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: model_length_lat])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_warm_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             if domain_images_lon == 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
@@ -1346,10 +1351,10 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             image_warm_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat] = \
                                 np.maximum(image_warm_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat], warm_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
                                 cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -1363,10 +1368,10 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             image_warm_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
                                 np.maximum(image_warm_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):], warm_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
                                 cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -1437,6 +1442,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             for j in range(0, map_dim_y):
                                 stationary_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
                                 occluded_probs[i][j] = np.amax(prediction[0][0][i][j][:,2])
+
                     if lon_image == 0:
                         if lat_image == 0:
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, 0: model_length_lat - domain_trim_lat] = stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat: model_length_lat]
@@ -1450,21 +1456,21 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 np.maximum(image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                stationary_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                occluded_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 1 and domain_images_lat == 2:
                                 image_created = True
                         else:
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_stationary_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_occluded_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                stationary_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                occluded_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             if domain_images_lon == 1 and domain_images_lat > 2:
                                 image_created = True
 
@@ -1476,9 +1482,9 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: model_length_lat])
 
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_occluded_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             if domain_images_lon == 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
@@ -1487,10 +1493,10 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat] = \
                                 np.maximum(image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
                                 stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -1504,10 +1510,10 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
                                 np.maximum(image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
                                 stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -1602,33 +1608,33 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 np.maximum(image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                cold_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                warm_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                stationary_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                occluded_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 1 and domain_images_lat == 2:
                                 image_created = True
                         else:
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_cold_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_warm_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_stationary_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_occluded_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                cold_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                cold_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_warm_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                warm_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                warm_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_stationary_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                stationary_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                stationary_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             image_occluded_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                occluded_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                occluded_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             if domain_images_lon == 1 and domain_images_lat > 2:
                                 image_created = True
 
@@ -1644,13 +1650,13 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: model_length_lat])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_warm_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             image_occluded_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             if domain_images_lon == 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
@@ -1663,14 +1669,14 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat] = \
                                 np.maximum(image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
                                 cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -1692,14 +1698,14 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
                                 np.maximum(image_occluded_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):], occluded_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
-                            image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_cold_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], cold_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_warm_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], warm_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_stationary_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], stationary_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_occluded_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], occluded_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_cold_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
                                 cold_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -1711,7 +1717,6 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 2 and domain_images_lat > 2:
                                 image_created = True
-
                     else:
                         if lat_image == 0:
                             image_cold_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
@@ -1727,7 +1732,6 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             image_warm_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, 0: model_length_lat - domain_trim_lat] = warm_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:model_length_lon-domain_trim_lon, domain_trim_lat: model_length_lat]
                             image_stationary_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, 0: model_length_lat - domain_trim_lat] = stationary_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:model_length_lon-domain_trim_lon, domain_trim_lat: model_length_lat]
                             image_occluded_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, 0: model_length_lat - domain_trim_lat] = occluded_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:model_length_lon-domain_trim_lon, domain_trim_lat: model_length_lat]
-
                             if domain_images_lon > 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
@@ -1802,6 +1806,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                         for i in range(0, map_dim_x):
                             for j in range(0, map_dim_y):
                                 front_probs[i][j] = np.amax(prediction[0][0][i][j][:,1])
+
                     if lon_image == 0:
                         if lat_image == 0:
                             image_front_probs[0: model_length_lon - domain_trim_lon, 0: model_length_lat - domain_trim_lat] = front_probs[domain_trim_lon: model_length_lon, domain_trim_lat: model_length_lat]
@@ -1812,15 +1817,15 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 np.maximum(image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], front_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                                front_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+                                front_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
                             if domain_images_lon == 1 and domain_images_lat == 2:
                                 image_created = True
                         else:
                             image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                                np.maximum(image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], front_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                                np.maximum(image_front_probs[domain_trim_lon: model_length_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image], front_probs[domain_trim_lon: model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_front_probs[0: model_length_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                                front_probs[0: model_length_lon - domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
+                                front_probs[domain_trim_lon: model_length_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:model_length_lat-domain_trim_lat]
                             if domain_images_lon == 1 and domain_images_lat > 2:
                                 image_created = True
 
@@ -1830,15 +1835,15 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                                 np.maximum(image_front_probs[int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat], front_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: model_length_lat])
 
                             image_front_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat] = \
-                                front_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, 0: model_length_lat - domain_trim_lat]
+                                front_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: model_length_lat]
                             if domain_images_lon == 2 and domain_images_lat == 1:
                                 image_created = True
                         elif lat_image != domain_images_lat - 1:
                             image_front_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat] = \
                                 np.maximum(image_front_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+model_length_lat-domain_trim_lat], front_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_front_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_front_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], front_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_front_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_front_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], front_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_front_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
                                 front_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -1848,8 +1853,8 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             image_front_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
                                 np.maximum(image_front_probs[int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):], front_probs[domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:model_length_lat-domain_trim_lat])
 
-                            image_front_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                                np.maximum(image_front_probs[int(lon_image*lon_image_spacing)+domain_trim_lon:int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], front_probs[domain_trim_lon:model_length_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+                            image_front_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
+                                np.maximum(image_front_probs[int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+model_length_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], front_probs[domain_trim_lon:model_length_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
 
                             image_front_probs[int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
                                 front_probs[domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
@@ -2087,14 +2092,22 @@ def plot_performance_diagrams(model_dir, model_number, front_types, domain_image
         POFD_warm_200km = np.append(np.array([1]),np.append(POFD_warm_200km[0:99],0))
 
         for threshold in range(99):
-            AUC_cold_50km += POD_cold_50km[threshold]*(POFD_cold_50km[threshold]-POFD_cold_50km[threshold+1])
-            AUC_cold_100km += POD_cold_100km[threshold]*(POFD_cold_100km[threshold]-POFD_cold_100km[threshold+1])
-            AUC_cold_150km += POD_cold_150km[threshold]*(POFD_cold_150km[threshold]-POFD_cold_150km[threshold+1])
-            AUC_cold_200km += POD_cold_200km[threshold]*(POFD_cold_200km[threshold]-POFD_cold_200km[threshold+1])
-            AUC_warm_50km += POD_warm_50km[threshold]*(POFD_warm_50km[threshold]-POFD_warm_50km[threshold+1])
-            AUC_warm_100km += POD_warm_100km[threshold]*(POFD_warm_100km[threshold]-POFD_warm_100km[threshold+1])
-            AUC_warm_150km += POD_warm_150km[threshold]*(POFD_warm_150km[threshold]-POFD_warm_150km[threshold+1])
-            AUC_warm_200km += POD_warm_200km[threshold]*(POFD_warm_200km[threshold]-POFD_warm_200km[threshold+1])
+            AUC_cold_50km += POD_cold_50km[threshold]*(POFD_cold_50km[threshold]-POFD_cold_50km[threshold+1])-\
+                              (0.5*(POFD_cold_50km[threshold]-POFD_cold_50km[threshold+1])*(POD_cold_50km[threshold]-POD_cold_50km[threshold+1]))
+            AUC_cold_100km += POD_cold_100km[threshold]*(POFD_cold_100km[threshold]-POFD_cold_100km[threshold+1])-\
+                              (0.5*(POFD_cold_100km[threshold]-POFD_cold_100km[threshold+1])*(POD_cold_100km[threshold]-POD_cold_100km[threshold+1]))
+            AUC_cold_150km += POD_cold_150km[threshold]*(POFD_cold_150km[threshold]-POFD_cold_150km[threshold+1])-\
+                              (0.5*(POFD_cold_150km[threshold]-POFD_cold_150km[threshold+1])*(POD_cold_150km[threshold]-POD_cold_150km[threshold+1]))
+            AUC_cold_200km += POD_cold_200km[threshold]*(POFD_cold_200km[threshold]-POFD_cold_200km[threshold+1])-\
+                              (0.5*(POFD_cold_200km[threshold]-POFD_cold_200km[threshold+1])*(POD_cold_200km[threshold]-POD_cold_200km[threshold+1]))
+            AUC_warm_50km += POD_warm_50km[threshold]*(POFD_warm_50km[threshold]-POFD_warm_50km[threshold+1])-\
+                              (0.5*(POFD_warm_50km[threshold]-POFD_warm_50km[threshold+1])*(POD_warm_50km[threshold]-POD_warm_50km[threshold+1]))
+            AUC_warm_100km += POD_warm_100km[threshold]*(POFD_warm_100km[threshold]-POFD_warm_100km[threshold+1])-\
+                              (0.5*(POFD_warm_100km[threshold]-POFD_warm_100km[threshold+1])*(POD_warm_100km[threshold]-POD_warm_100km[threshold+1]))
+            AUC_warm_150km += POD_warm_150km[threshold]*(POFD_warm_150km[threshold]-POFD_warm_150km[threshold+1])-\
+                              (0.5*(POFD_warm_150km[threshold]-POFD_warm_150km[threshold+1])*(POD_warm_150km[threshold]-POD_warm_150km[threshold+1]))
+            AUC_warm_200km += POD_warm_200km[threshold]*(POFD_warm_200km[threshold]-POFD_warm_200km[threshold+1])-\
+                              (0.5*(POFD_warm_200km[threshold]-POFD_warm_200km[threshold+1])*(POD_warm_200km[threshold]-POD_warm_200km[threshold+1]))
 
         plt.figure()
         plt.plot(np.arange(0,1.01,0.01),np.arange(0,1.01,0.01),'k--')
@@ -2316,14 +2329,22 @@ def plot_performance_diagrams(model_dir, model_number, front_types, domain_image
             POFD_occluded_200km = np.append(np.array([1]),np.append(POFD_occluded_200km[0:99],0))
 
             for threshold in range(99):
-                AUC_stationary_50km += POD_stationary_50km[threshold]*(POFD_stationary_50km[threshold]-POFD_stationary_50km[threshold+1])
-                AUC_stationary_100km += POD_stationary_100km[threshold]*(POFD_stationary_100km[threshold]-POFD_stationary_100km[threshold+1])
-                AUC_stationary_150km += POD_stationary_150km[threshold]*(POFD_stationary_150km[threshold]-POFD_stationary_150km[threshold+1])
-                AUC_stationary_200km += POD_stationary_200km[threshold]*(POFD_stationary_200km[threshold]-POFD_stationary_200km[threshold+1])
-                AUC_occluded_50km += POD_occluded_50km[threshold]*(POFD_occluded_50km[threshold]-POFD_occluded_50km[threshold+1])
-                AUC_occluded_100km += POD_occluded_100km[threshold]*(POFD_occluded_100km[threshold]-POFD_occluded_100km[threshold+1])
-                AUC_occluded_150km += POD_occluded_150km[threshold]*(POFD_occluded_150km[threshold]-POFD_occluded_150km[threshold+1])
-                AUC_occluded_200km += POD_occluded_200km[threshold]*(POFD_occluded_200km[threshold]-POFD_occluded_200km[threshold+1])
+                AUC_stationary_50km += POD_stationary_50km[threshold]*(POFD_stationary_50km[threshold]-POFD_stationary_50km[threshold+1])-\
+                                  (0.5*(POFD_stationary_50km[threshold]-POFD_stationary_50km[threshold+1])*(POD_stationary_50km[threshold]-POD_stationary_50km[threshold+1]))
+                AUC_stationary_100km += POD_stationary_100km[threshold]*(POFD_stationary_100km[threshold]-POFD_stationary_100km[threshold+1])-\
+                                  (0.5*(POFD_stationary_100km[threshold]-POFD_stationary_100km[threshold+1])*(POD_stationary_100km[threshold]-POD_stationary_100km[threshold+1]))
+                AUC_stationary_150km += POD_stationary_150km[threshold]*(POFD_stationary_150km[threshold]-POFD_stationary_150km[threshold+1])-\
+                                  (0.5*(POFD_stationary_150km[threshold]-POFD_stationary_150km[threshold+1])*(POD_stationary_150km[threshold]-POD_stationary_150km[threshold+1]))
+                AUC_stationary_200km += POD_stationary_200km[threshold]*(POFD_stationary_200km[threshold]-POFD_stationary_200km[threshold+1])-\
+                                  (0.5*(POFD_stationary_200km[threshold]-POFD_stationary_200km[threshold+1])*(POD_stationary_200km[threshold]-POD_stationary_200km[threshold+1]))
+                AUC_occluded_50km += POD_occluded_50km[threshold]*(POFD_occluded_50km[threshold]-POFD_occluded_50km[threshold+1])-\
+                                  (0.5*(POFD_occluded_50km[threshold]-POFD_occluded_50km[threshold+1])*(POD_occluded_50km[threshold]-POD_occluded_50km[threshold+1]))
+                AUC_occluded_100km += POD_occluded_100km[threshold]*(POFD_occluded_100km[threshold]-POFD_occluded_100km[threshold+1])-\
+                                  (0.5*(POFD_occluded_100km[threshold]-POFD_occluded_100km[threshold+1])*(POD_occluded_100km[threshold]-POD_occluded_100km[threshold+1]))
+                AUC_occluded_150km += POD_occluded_150km[threshold]*(POFD_occluded_150km[threshold]-POFD_occluded_150km[threshold+1])-\
+                                  (0.5*(POFD_occluded_150km[threshold]-POFD_occluded_150km[threshold+1])*(POD_occluded_150km[threshold]-POD_occluded_150km[threshold+1]))
+                AUC_occluded_200km += POD_occluded_200km[threshold]*(POFD_occluded_200km[threshold]-POFD_occluded_200km[threshold+1])-\
+                                  (0.5*(POFD_occluded_200km[threshold]-POFD_occluded_200km[threshold+1])*(POD_occluded_200km[threshold]-POD_occluded_200km[threshold+1]))
 
             plt.figure()
             plt.plot(np.arange(0,1.01,0.01),np.arange(0,1.01,0.01),'k--')
@@ -2523,14 +2544,22 @@ def plot_performance_diagrams(model_dir, model_number, front_types, domain_image
         POFD_occluded_200km = np.append(np.array([1]),np.append(POFD_occluded_200km[0:99],0))
 
         for threshold in range(99):
-            AUC_stationary_50km += POD_stationary_50km[threshold]*(POFD_stationary_50km[threshold]-POFD_stationary_50km[threshold+1])
-            AUC_stationary_100km += POD_stationary_100km[threshold]*(POFD_stationary_100km[threshold]-POFD_stationary_100km[threshold+1])
-            AUC_stationary_150km += POD_stationary_150km[threshold]*(POFD_stationary_150km[threshold]-POFD_stationary_150km[threshold+1])
-            AUC_stationary_200km += POD_stationary_200km[threshold]*(POFD_stationary_200km[threshold]-POFD_stationary_200km[threshold+1])
-            AUC_occluded_50km += POD_occluded_50km[threshold]*(POFD_occluded_50km[threshold]-POFD_occluded_50km[threshold+1])
-            AUC_occluded_100km += POD_occluded_100km[threshold]*(POFD_occluded_100km[threshold]-POFD_occluded_100km[threshold+1])
-            AUC_occluded_150km += POD_occluded_150km[threshold]*(POFD_occluded_150km[threshold]-POFD_occluded_150km[threshold+1])
-            AUC_occluded_200km += POD_occluded_200km[threshold]*(POFD_occluded_200km[threshold]-POFD_occluded_200km[threshold+1])
+            AUC_stationary_50km += POD_stationary_50km[threshold]*(POFD_stationary_50km[threshold]-POFD_stationary_50km[threshold+1])-\
+                              (0.5*(POFD_stationary_50km[threshold]-POFD_stationary_50km[threshold+1])*(POD_stationary_50km[threshold]-POD_stationary_50km[threshold+1]))
+            AUC_stationary_100km += POD_stationary_100km[threshold]*(POFD_stationary_100km[threshold]-POFD_stationary_100km[threshold+1])-\
+                              (0.5*(POFD_stationary_100km[threshold]-POFD_stationary_100km[threshold+1])*(POD_stationary_100km[threshold]-POD_stationary_100km[threshold+1]))
+            AUC_stationary_150km += POD_stationary_150km[threshold]*(POFD_stationary_150km[threshold]-POFD_stationary_150km[threshold+1])-\
+                              (0.5*(POFD_stationary_150km[threshold]-POFD_stationary_150km[threshold+1])*(POD_stationary_150km[threshold]-POD_stationary_150km[threshold+1]))
+            AUC_stationary_200km += POD_stationary_200km[threshold]*(POFD_stationary_200km[threshold]-POFD_stationary_200km[threshold+1])-\
+                              (0.5*(POFD_stationary_200km[threshold]-POFD_stationary_200km[threshold+1])*(POD_stationary_200km[threshold]-POD_stationary_200km[threshold+1]))
+            AUC_occluded_50km += POD_occluded_50km[threshold]*(POFD_occluded_50km[threshold]-POFD_occluded_50km[threshold+1])-\
+                              (0.5*(POFD_occluded_50km[threshold]-POFD_occluded_50km[threshold+1])*(POD_occluded_50km[threshold]-POD_occluded_50km[threshold+1]))
+            AUC_occluded_100km += POD_occluded_100km[threshold]*(POFD_occluded_100km[threshold]-POFD_occluded_100km[threshold+1])-\
+                              (0.5*(POFD_occluded_100km[threshold]-POFD_occluded_100km[threshold+1])*(POD_occluded_100km[threshold]-POD_occluded_100km[threshold+1]))
+            AUC_occluded_150km += POD_occluded_150km[threshold]*(POFD_occluded_150km[threshold]-POFD_occluded_150km[threshold+1])-\
+                              (0.5*(POFD_occluded_150km[threshold]-POFD_occluded_150km[threshold+1])*(POD_occluded_150km[threshold]-POD_occluded_150km[threshold+1]))
+            AUC_occluded_200km += POD_occluded_200km[threshold]*(POFD_occluded_200km[threshold]-POFD_occluded_200km[threshold+1])-\
+                              (0.5*(POFD_occluded_200km[threshold]-POFD_occluded_200km[threshold+1])*(POD_occluded_200km[threshold]-POD_occluded_200km[threshold+1]))
 
         plt.figure()
         plt.plot(np.arange(0,1.01,0.01),np.arange(0,1.01,0.01),'k--')
@@ -2654,10 +2683,14 @@ def plot_performance_diagrams(model_dir, model_number, front_types, domain_image
         AUC_front_50km, AUC_front_100km, AUC_front_150km, AUC_front_200km = 0,0,0,0
 
         for threshold in range(99):
-            AUC_front_50km += POD_front_50km[threshold]*(POFD_front_50km[threshold]-POFD_front_50km[threshold+1])
-            AUC_front_100km += POD_front_100km[threshold]*(POFD_front_100km[threshold]-POFD_front_100km[threshold+1])
-            AUC_front_150km += POD_front_150km[threshold]*(POFD_front_150km[threshold]-POFD_front_150km[threshold+1])
-            AUC_front_200km += POD_front_200km[threshold]*(POFD_front_200km[threshold]-POFD_front_200km[threshold+1])
+            AUC_front_50km += POD_front_50km[threshold]*(POFD_front_50km[threshold]-POFD_front_50km[threshold+1])-\
+                              (0.5*(POFD_front_50km[threshold]-POFD_front_50km[threshold+1])*(POD_front_50km[threshold]-POD_front_50km[threshold+1]))
+            AUC_front_100km += POD_front_100km[threshold]*(POFD_front_100km[threshold]-POFD_front_100km[threshold+1])-\
+                              (0.5*(POFD_front_100km[threshold]-POFD_front_100km[threshold+1])*(POD_front_100km[threshold]-POD_front_100km[threshold+1]))
+            AUC_front_150km += POD_front_150km[threshold]*(POFD_front_150km[threshold]-POFD_front_150km[threshold+1])-\
+                              (0.5*(POFD_front_150km[threshold]-POFD_front_150km[threshold+1])*(POD_front_150km[threshold]-POD_front_150km[threshold+1]))
+            AUC_front_200km += POD_front_200km[threshold]*(POFD_front_200km[threshold]-POFD_front_200km[threshold+1])-\
+                              (0.5*(POFD_front_200km[threshold]-POFD_front_200km[threshold+1])*(POD_front_200km[threshold]-POD_front_200km[threshold+1]))
 
         plt.figure()
         plt.plot(np.arange(0,1.01,0.01),np.arange(0,1.01,0.01),'k--')
