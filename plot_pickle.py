@@ -2,7 +2,7 @@
 Function used to plot all variables for a given time using pickle files. Each variable plot is saved in its own file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/20/2021 11:21 AM CDT
+Last updated: 11/29/2021 10:23 PM CST
 """
 
 import matplotlib.pyplot as plt
@@ -23,13 +23,11 @@ def plot_surface_background(extent):
 
     Parameters
     ----------
-    extent: ndarray
-        Numpy array containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat].
+    extent: Numpy array containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat].
 
     Returns
     -------
-    ax: GeoAxesSubplot
-        New plot background.
+    ax: New plot background.
     """
     crs = ccrs.LambertConformal(central_longitude=250)
     ax = plt.axes(projection=crs)

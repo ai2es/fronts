@@ -2,7 +2,7 @@
 Functions used to create ERA5 plots.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 6/30/2021 1:30 PM CDT by Andrew Justin
+Last updated: 11/29/2021 10:18 PM CST
 """
 
 import matplotlib.pyplot as plt
@@ -26,28 +26,20 @@ def read_xml_files_ERA5(year, month, day, hour, xml_indir):
 
     Parameters
     ----------
-    year: int
-    month: int
-    day: int
-    hour: int
-        Hour of the day in UTC.
-    xml_indir: str
-        Directory for the XML files.
+    xml_indir: Directory for the XML files.
+    year: year
+    month: month
+    day: day
+    hour: hour
 
     Returns
     -------
-    df: DataFrame
-        DataFrame containing frontal data organized by date, type, number, and coordinates.
-    cold_front: ndarray
-        Numpy array containing indices where cold fronts are present in the DataFrame.
-    warm_front: ndarray
-        Numpy array containing indices where warm fronts are present in the DataFrame.
-    occluded_front: ndarray
-        Numpy array containing indices where occluded fronts are present in the DataFrame.
-    stationary_front: ndarray
-        Numpy array containing indices where stationary fronts are present in the DataFrame.
-    dryline: ndarray
-        Numpy array containing indices where drylines are present in the DataFrame.
+    cold_front: Numpy array containing indices where cold fronts are present in the DataFrame.
+    df: DataFrame containing frontal data organized by date, type, number, and coordinates.
+    dryline: Numpy array containing indices where drylines are present in the DataFrame.
+    occluded_front: Numpy array containing indices where occluded fronts are present in the DataFrame.
+    stationary_front: Numpy array containing indices where stationary fronts are present in the DataFrame.
+    warm_front: Numpy array containing indices where warm fronts are present in the DataFrame.
     """
     files = glob("%s/pres_pmsl_%d%02d%02d%02df000.xml" % (xml_indir, year, month, day, hour))
 
@@ -200,8 +192,8 @@ def read_xml_files_ERA5(year, month, day, hour, xml_indir):
         # instability = np.where(df['Front Type'] == 'INSTABILITY')[0]
         # trof = np.where(df['Front Type'] == 'TROF')[0]
         # tropical_trof = np.where(df['Front Type'] == 'TROPICAL_TROF')[0]
-        dryline = np.where(df['Front Type'] == 'DRY_LINE')[0]
-        return df, cold_front, warm_front, occluded_front, stationary_front, dryline
+        # dryline = np.where(df['Front Type'] == 'DRY_LINE')[0]
+        return df, cold_front, warm_front, occluded_front, stationary_front
 
 
 def cold_front_latlon_arrays(df, cold_front):
@@ -210,17 +202,13 @@ def cold_front_latlon_arrays(df, cold_front):
 
     Parameters
     ----------
-    df: DataFrame
-        DataFrame containing points, front type, front number, and date.
-    cold_front: ndarray
-        Numpy array containing indices where cold fronts are located in the dataframe.
+    cold_front: Numpy array containing indices where cold fronts are located in the dataframe.
+    df: DataFrame containing points, front type, front number, and date.
 
     Returns
     -------
-    cold_front_lon: ndarray
-        Numpy array with points of longitude where cold fronts are located.
-    cold_front_lat: ndarray
-        Numpy array with points of latitude where cold fronts are located.
+    cold_front_lat: Numpy array with points of latitude where cold fronts are located.
+    cold_front_lon: Numpy array with points of longitude where cold fronts are located.
     """
     cold_front_lon = []
     cold_front_lat = []
@@ -236,17 +224,13 @@ def warm_front_latlon_arrays(df, warm_front):
 
     Parameters
     ----------
-    df: DataFrame
-        DataFrame containing points, front type, front number, and date.
-    warm_front: ndarray
-        Numpy array containing indices where warm fronts are located in the dataframe.
+    df: DataFrame containing points, front type, front number, and date.
+    warm_front: Numpy array containing indices where warm fronts are located in the dataframe.
 
     Returns
     -------
-    warm_front_lon: ndarray
-        Numpy array with points of longitude where warm fronts are located.
-    warm_front_lat: ndarray
-        Numpy array with points of latitude where warm fronts are located.
+    warm_front_lat: Numpy array with points of latitude where warm fronts are located.
+    warm_front_lon: Numpy array with points of longitude where warm fronts are located.
     """
     warm_front_lon = []
     warm_front_lat = []
@@ -262,17 +246,13 @@ def occluded_front_latlon_arrays(df, occluded_front):
 
     Parameters
     ----------
-    df: DataFrame
-        DataFrame containing points, front type, front number, and date.
-    occluded_front: ndarray
-        Numpy array containing indices where occluded fronts are located in the dataframe.
+    df: DataFrame containing points, front type, front number, and date.
+    occluded_front: Numpy array containing indices where occluded fronts are located in the dataframe.
 
     Returns
     -------
-    occluded_front_lon: ndarray
-        Numpy array with points of longitude where occluded fronts are located.
-    occluded_front_lat: ndarray
-        Numpy array with points of latitude where occluded fronts are located.
+    occluded_front_lat: Numpy array with points of latitude where occluded fronts are located.
+    occluded_front_lon: Numpy array with points of longitude where occluded fronts are located.
     """
     occluded_front_lon = []
     occluded_front_lat = []
@@ -288,17 +268,13 @@ def stationary_front_latlon_arrays(df, stationary_front):
 
     Parameters
     ----------
-    df: DataFrame
-        DataFrame containing points, front type, front number, and date.
-    stationary_front: ndarray
-        Numpy array containing indices where stationary fronts are located in the dataframe.
+    df: DataFrame containing points, front type, front number, and date.
+    stationary_front: Numpy array containing indices where stationary fronts are located in the dataframe.
 
     Returns
     -------
-    stationary_front_lon: ndarray
-        Numpy array with points of longitude where stationary fronts are located.
-    stationary_front_lat: ndarray
-        Numpy array with points of latitude where stationary fronts are located.
+    stationary_front_lat: Numpy array with points of latitude where stationary fronts are located.
+    stationary_front_lon: Numpy array with points of longitude where stationary fronts are located.
     """
     stationary_front_lon = []
     stationary_front_lat = []
@@ -308,48 +284,18 @@ def stationary_front_latlon_arrays(df, stationary_front):
     return stationary_front_lon, stationary_front_lat
 
 
-def dryline_latlon_arrays(df, dryline):
-    """
-    Return coordinates for points where drylines are located.
-
-    Parameters
-    ----------
-    df: DataFrame
-        DataFrame containing points, front type, front number, and date.
-    dryline: ndarray
-        Numpy array containing indices where drylines are located in the dataframe.
-
-    Returns
-    -------
-    dryline_front_lon: ndarray
-        Numpy array with points of longitude where drylines are located.
-    dryline_front_lat: ndarray
-        Numpy array with points of latitude where drylines are located.
-    """
-    dryline_lon = []
-    dryline_lat = []
-    for d in range(len(dryline)):
-        dryline_lon.append(df['Longitude'][dryline[d]])
-        dryline_lat.append(df['Latitude'][dryline[d]])
-    return dryline_lon, dryline_lat
-
-
 def wind_components_dataset(ds_U10m, ds_V10m):
     """
     Returns xarray dataset containing u (zonal) and v (meridional) wind components.
 
     Parameters
     ----------
-    ds_U10m: Dataset
-        Dataset containing u wind components at 10 meters above the surface. Wind speed is in meters per second.
-    ds_V10m: Dataset
-        Dataset containing v wind components at 10 meters above the surface. Wind speed is in meters per second.
+    ds_U10m: Dataset containing u wind components at 10 meters above the surface. Wind speed is in meters per second.
+    ds_V10m: Dataset containing v wind components at 10 meters above the surface. Wind speed is in meters per second.
 
     Returns
     -------
-    ds_wind: Dataset
-        Dataset containing both u and v wind components at 10 meters above the surface. Wind speed is in meters per
-        second.
+    ds_wind: Dataset containing both u and v wind components at 10 meters above the surface. Wind speed is in meters per second.
     """
     ds_wind = xr.merge((ds_U10m, ds_V10m))
     return ds_wind
@@ -361,13 +307,11 @@ def plot_background(extent):
 
     Parameters
     ----------
-    extent: ndarray
-        Numpy array containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat].
+    extent: Numpy array containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat].
 
     Returns
     -------
-    ax: GeoAxesSubplot
-        New plot background.
+    ax: New plot background.
     """
     crs = ccrs.LambertConformal(central_longitude=250)
     ax = plt.axes(projection=crs)
@@ -385,39 +329,27 @@ def create_datasets(year, month, day, netcdf_ERA5_indir):
 
     Parameters
     ----------
-    year: int
-    month: int
-    day: int
-    netcdf_ERA5_indir: str
-        Directory where the ERA5 files are stored.
+    netcdf_ERA5_indir: Directory where the ERA5 files are stored.
+    year: year
+    month: month
+    day: day
 
     Returns
     -------
-    ds_2mT: Dataset
-        Dataset containing 2-meter AGL temperature data. Temperature has units of kelvin (K).
-    ds_2mTd: Dataset
-        Dataset containing 2-meter AGL dew point temperature data. Dew point temperature has units of kelvin (K).
-    ds_sp: Dataset
-        Dataset containing surface pressure data. Surface pressure has units of pascals (Pa).
-    ds_U10m: Dataset
-        Dataset containing u wind components at 10 meters above the surface. Wind speed is in meters per second.
-    ds_V10m: Dataset
-        Dataset containing v wind components at 10 meters above the surface. Wind speed is in meters per second.
-    ds_wind: Dataset
-        Dataset containing both u and v wind components at 10 meters above the surface. Wind speed is in meters per
+    ds_2mT: Dataset containing 2-meter AGL temperature data. Temperature has units of kelvin (K).
+    ds_2mTd: Dataset containing 2-meter AGL dew point temperature data. Dew point temperature has units of kelvin (K).
+    ds_mixing_ratio: Dataset containing data for 2-meter AGL mixing ratio. Mixing ratio has units of grams of water per
+        kilogram of dry air (g/kg).
+    ds_RH: Dataset containing 2-meter AGL relative humidity data.
+    ds_sp: Dataset containing surface pressure data. Surface pressure has units of pascals (Pa).
+    ds_theta_w: Dataset containing 2-meter AGL wet bulb potential temperature data. Wet bulb potential temperature has units
+        of kelvin (K).
+    ds_Tv: Dataset containing 2-meter AGL virtual temperature data. Virtual temperature has units of kelvin (K).
+    ds_Tw: Dataset containing 2-meter AGL wet bulb temperature data. Wet bulb temperature has units of kelvin (K).
+    ds_U10m: Dataset containing u wind components at 10 meters above the surface. Wind speed is in meters per second.
+    ds_V10m: Dataset containing v wind components at 10 meters above the surface. Wind speed is in meters per second.
+    ds_wind: Dataset containing both u and v wind components at 10 meters above the surface. Wind speed is in meters per
         second.
-    ds_theta_w: Dataset
-        Dataset containing 2-meter AGL wet bulb potential temperature data. Wet bulb potential temperature has units of
-        kelvin (K).
-    ds_mixing_ratio: Dataset
-        Dataset containing data for 2-meter AGL mixing ratio. Mixing ratio has units of grams of water per kilogram of
-        dry air (g/kg).
-    ds_RH: Dataset
-        Dataset containing 2-meter AGL relative humidity data.
-    ds_Tv: Dataset
-        Dataset containing 2-meter AGL virtual temperature data. Virtual temperature has units of kelvin (K).
-    ds_Tw: Dataset
-        Dataset containing 2-meter AGL wet bulb temperature data. Wet bulb temperature has units of kelvin (K).
     """
     in_file_name_2mT = 'ERA5Global_%d_3hrly_2mT.nc' % year
     in_file_name_2mTd = 'ERA5Global_%d_3hrly_2mTd.nc' % year
@@ -464,12 +396,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Organize coordinates of fronts into arrays based on front type.
-    df, cold_front, warm_front, occluded_front, stationary_front, dryline = read_xml_files_ERA5(args.year, args.month, args.day, args.hour, args.xml_indir)
+    df, cold_front, warm_front, occluded_front, stationary_front = read_xml_files_ERA5(args.year, args.month, args.day, args.hour, args.xml_indir)
     cold_front_lon, cold_front_lat = cold_front_latlon_arrays(df, cold_front)
     warm_front_lon, warm_front_lat = warm_front_latlon_arrays(df, warm_front)
     occluded_front_lon, occluded_front_lat = occluded_front_latlon_arrays(df, occluded_front)
     stationary_front_lon, stationary_front_lat = stationary_front_latlon_arrays(df, stationary_front)
-    dryline_lon, dryline_lat = dryline_latlon_arrays(df, dryline)
 
     # Create datasets for each netCDF file containing an input variable.
     ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_wind, ds_theta_w, ds_mixing_ratio, ds_RH, ds_Tv, ds_Tw \
@@ -508,7 +439,6 @@ if __name__ == "__main__":
     plt.scatter(x=warm_front_lon, y=warm_front_lat, s=3, transform=ccrs.PlateCarree(), marker='o', color='red')
     plt.scatter(x=occluded_front_lon, y=occluded_front_lat, s=3, transform=ccrs.PlateCarree(), marker='o',
                 color='purple')
-    plt.scatter(x=dryline_lon, y=dryline_lat, s=3, transform=ccrs.PlateCarree(), marker='o', color='orange')
     plt.scatter(x=stationary_front_lon, y=stationary_front_lat, s=3, transform=ccrs.PlateCarree(), marker='o',
                 color='green')
 

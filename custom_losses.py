@@ -2,7 +2,7 @@
 Custom loss functions for U-Net models.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/28/2021 12:56 PM CDT
+Last updated: 11/28/2021 5:23 PM CST
 """
 
 import tensorflow as tf
@@ -10,6 +10,7 @@ from keras_unet_collection import losses
 
 
 def dice():
+    """ Dice coefficient """
     return losses.dice
 
 
@@ -17,9 +18,11 @@ def dice():
 # Fraction Skill Score original paper: N.M. Roberts and H.W. Lean, "Scale-Selective Verification of Rainfall
 #     Accumulation from High-Resolution Forecasts of Convective Events", Monthly Weather Review, 2008.
 def make_FSS_loss_2D(mask_size, c_param):
+    """ Make 2D fractions skill score loss function """
 
     @tf.function()
     def FSS_loss_2D(y_true, y_pred):
+        """ Calculate fractions skill score """
 
         want_hard_discretization = False
 
@@ -80,10 +83,13 @@ def make_FSS_loss_2D(mask_size, c_param):
 
     return FSS_loss_2D
 
+
 def make_FSS_loss_3D(mask_size, c_param):
+    """ Make 3D fractions skill score loss function """
 
     @tf.function()
     def FSS_loss_3D(y_true, y_pred):
+        """ Calculate fractions skill score """
 
         want_hard_discretization = False
 
@@ -146,13 +152,12 @@ def make_FSS_loss_3D(mask_size, c_param):
 
 
 def tversky():
+    """ Tversky coefficient """
     return losses.tversky
 
 
 def brier_skill_score(y_true, y_pred):
-    """
-    Computes brier skill score
-    """
+    """ Brier skill score """
     losses = tf.subtract(y_true, y_pred)**2
     brier_score = tf.math.reduce_sum(losses)/tf.cast(tf.size(losses), tf.float32)
     return brier_score

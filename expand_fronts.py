@@ -1,8 +1,8 @@
 """
-Function that expands frontal objects by 1 pixel in all directiond (N, S, E, W, NE, SE, SW, NW).
+Function that expands frontal objects by 1 pixel in all directions (N, S, E, W, NE, SE, SW, NW).
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/1/2021 3:05 PM CDT
+Last updated: 11/29/2021 7:11 PM CST
 """
 
 import numpy as np
@@ -14,13 +14,11 @@ def one_pixel_expansion(ds_fronts):
 
     Parameters
     ----------
-    ds_fronts: Dataset
-        Dataset that contains frontal objects.
+    ds_fronts: Dataset that contains frontal objects.
 
     Returns
     -------
-    ds_fronts: Dataset
-        Dataset that contains expanded frontal objects.
+    ds_fronts: Dataset that contains expanded frontal objects.
     """
     lats = ds_fronts.latitude.values
     lons = ds_fronts.longitude.values

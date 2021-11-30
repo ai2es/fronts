@@ -3,7 +3,7 @@ Function used to create netCDF files from the fronts' xml data.
 
 Code started by: Alyssa Woodward (alyssakwoodward@ou.edu)
 Code completed by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 6/30/2021 10:43 AM CDT
+Last updated: 11/29/2021 7:05 PM CST
 """
 
 import math
@@ -25,25 +25,17 @@ def haversine(lon1, lat1, lon2, lat2):
 
     Parameters
     ----------
-    lon1: float
-        First longitude point in degrees to be interpolated.
-    lat1: float
-        First latitude point in degrees to be interpolated.
-    lon2: float
-        Second longitude point in degrees to be interpolated.
-    lat2: float
-        Second latitude point in degrees to be interpolated.
+    lon1: First longitude point in degrees to be interpolated.
+    lat1: First latitude point in degrees to be interpolated.
+    lon2: Second longitude point in degrees to be interpolated.
+    lat2: Second latitude point in degrees to be interpolated.
 
     Returns
     -------
-    dlon: float
-        Longitudinal distance between the two points in degrees.
-    dlat: float
-        Latitudinal distance between the two points in degrees.
-    dx: float
-        Longitudinal distance between the two points in kilometers (km).
-    dy: float
-        Latitudinal distance between the two points in kilometers (km).
+    dlon: Longitudinal distance between the two points in degrees.
+    dlat: Latitudinal distance between the two points in degrees.
+    dx: Longitudinal distance between the two points in kilometers (km).
+    dy: Latitudinal distance between the two points in kilometers (km).
 
     Sources
     -------
@@ -63,15 +55,12 @@ def geometric(x_km_new, y_km_new):
 
     Parameters
     ----------
-    x_km_new: list
-        List containing longitude coordinates of fronts in kilometers.
-    y_km_new: list
-        List containing latitude coordinates of fronts in kilometers.
+    x_km_new: List containing longitude coordinates of fronts in kilometers.
+    y_km_new: List containing latitude coordinates of fronts in kilometers.
 
     Returns
     -------
-    xy_linestring: LineString
-        LineString object containing coordinates of fronts in kilometers.
+    xy_linestring: LineString object containing coordinates of fronts in kilometers.
     """
     df_xy = pd.DataFrame(list(zip(x_km_new, y_km_new)), columns=['Longitude_km', 'Latitude_km'])
     geometry = [xy for xy in zip(df_xy.Longitude_km, df_xy.Latitude_km)]
@@ -85,15 +74,12 @@ def redistribute_vertices(xy_linestring, distance):
 
     Parameters
     ----------
-    xy_linestring: LineString
-        LineString object containing coordinates of fronts in kilometers.
-    distance: int
-        Distance at which to interpolate the x/y coordinates.
+    xy_linestring: LineString object containing coordinates of fronts in kilometers.
+    distance: Distance at which to interpolate the x/y coordinates.
 
     Returns
     -------
-    xy_vertices: MultiLineString
-        Normalized MultiLineString that contains the interpolate coordinates of fronts in kilometers.
+    xy_vertices: Normalized MultiLineString that contains the interpolate coordinates of fronts in kilometers.
 
     Sources
     -------
@@ -119,35 +105,22 @@ def reverse_haversine(lons, lats, lon_new, lat_new, front_points, i, a, dx, dy):
 
     Parameters
     ----------
-    lons: list
-        List containing original longitude coordinates of fronts.
-    lats: list
-        List containing original latitude coordinates of fronts.
-    lon_new: list
-        List that will contain interpolated longitude coordinates of fronts.
-    lat_new: list
-        List that will contain interpolated latitude coordinates of fronts.
-    front_points: list
-        List that shows which points are in each front using indices.
-    i: int
-        Current front number.
-    a: int
-        Current index of the lon_new and lat_new lists.
-    dx: float
-        Distance between the two selected longitude coordinates in kilometers.
-    dy: float
-        Distance between the two selected latitude coordinates in kilometers.
+    lons: List containing original longitude coordinates of fronts.
+    lats: List containing original latitude coordinates of fronts.
+    lon_new: List that will contain interpolated longitude coordinates of fronts.
+    lat_new: List that will contain interpolated latitude coordinates of fronts.
+    front_points: List that shows which points are in each front using indices.
+    i: Current front number.
+    a: Current index of the lon_new and lat_new lists.
+    dx: Distance between the two selected longitude coordinates in kilometers.
+    dy: Distance between the two selected latitude coordinates in kilometers.
 
     Returns
     -------
-    lon1: float
-        First longitude point in degrees.
-    lat1: float
-        First latitude point in degrees.
-    lon2: float
-        Second longitude point in degrees.
-    lat2: float
-        Second latitude point in degrees.
+    lon1: First longitude point in degrees.
+    lat1: First latitude point in degrees.
+    lon2: Second longitude point in degrees.
+    lat2: Second latitude point in degrees.
     """
     if i == 1:
         if a == 1:
@@ -180,8 +153,7 @@ def read_xml_files(year, month, day):
 
     Returns
     -------
-    dns: Dataset
-        Xarray dataset containing front data organized by date, type, number, and coordinates.
+    dns: Xarray dataset containing front data organized by date, type, number, and coordinates.
     """
     file_path = "/ourdisk/hpc/ai2es/ajustin/xmls_2006122012-2020061900"
     print(file_path)

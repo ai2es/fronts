@@ -2,7 +2,7 @@
 Custom U-Net Models
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/16/2021 2:18 PM CDT
+Last updated: 11/28/2021 5:44 PM CST
 """
 
 import keras
@@ -16,17 +16,13 @@ def UNet_3plus_3D(map_dim_x, map_dim_y, num_classes):
 
     Parameters
     ----------
-    map_dim_x: int
-        Integer that determines the X dimension of the image (map) to be fed into the Unet.
-    map_dim_y: int
-        Integer that determines the Y dimension of the image (map) to be fed into the Unet.
-    num_classes: int
-        Number of classes/labels that the U-Net will try to predict.
+    map_dim_x: Integer that determines the X dimension of the image (map) to be fed into the Unet.
+    map_dim_y: Integer that determines the Y dimension of the image (map) to be fed into the Unet.
+    num_classes: Number of classes/labels that the U-Net will try to predict.
 
     Returns
     -------
-    model: Keras model
-        3D U-Net 3+.
+    model: 3D U-Net 3+
     """
 
     filter_num_down = [16, 32, 64, 128, 256, 512]
@@ -389,17 +385,13 @@ def UNet_3plus_3D_extra_skips(map_dim_x, map_dim_y, num_classes):
 
     Parameters
     ----------
-    map_dim_x: int
-        Integer that determines the X dimension of the image (map) to be fed into the Unet.
-    map_dim_y: int
-        Integer that determines the Y dimension of the image (map) to be fed into the Unet.
-    num_classes: int
-        Number of classes/labels that the U-Net will try to predict.
+    map_dim_x: Integer that determines the X dimension of the image (map) to be fed into the Unet.
+    map_dim_y: Integer that determines the Y dimension of the image (map) to be fed into the Unet.
+    num_classes: Number of classes/labels that the U-Net will try to predict.
 
     Returns
     -------
-    model: Keras model
-        3D U-Net 3+.
+    model: 3D U-Net 3+ with extra skip connections
     """
 
     filter_num_down = [16, 32, 64, 128, 256, 512]
@@ -786,17 +778,13 @@ def UNet_3plus_2D(map_dim_x, map_dim_y, num_classes):
 
     Parameters
     ----------
-    map_dim_x: int
-        Integer that determines the X dimension of the image (map) to be fed into the Unet.
-    map_dim_y: int
-        Integer that determines the Y dimension of the image (map) to be fed into the Unet.
-    num_classes: int
-        Number of classes/labels that the U-Net will try to predict.
+    map_dim_x: Integer that determines the X dimension of the image (map) to be fed into the Unet.
+    map_dim_y: Integer that determines the Y dimension of the image (map) to be fed into the Unet.
+    num_classes: Number of classes/labels that the U-Net will try to predict.
 
     Returns
     -------
-    model: Keras model
-        2D U-Net 3+.
+    model: 2D U-Net 3+
     """
     # U-Net 3+ #
     filter_num_down = [64, 128, 256, 512, 1024, 2048]

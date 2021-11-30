@@ -3,7 +3,7 @@ Function that creates new variable datasets.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
 Modified for Xarray by: John Allen (allen4jt@cmich.edu)
-Last updated: 10/6/2021 3:31 PM CDT by Andrew Justin
+Last updated: 11/29/2021 10:51 PM CST by Andrew Justin
 
 ---Sources used in this code---
 (Bolton 1980): https://doi.org/10.1175/1520-0493(1980)108<1046:TCOEPT>2.0.CO;2
@@ -14,6 +14,7 @@ Last updated: 10/6/2021 3:31 PM CDT by Andrew Justin
 import xarray as xr
 import numpy as np
 from pandas import read_csv
+
 
 def dew_point_from_specific_humidity(P, T, q):
     """
@@ -27,18 +28,14 @@ def dew_point_from_specific_humidity(P, T, q):
 
     Parameters
     ----------
-    P: Dataset
-        Xarray dataset containing data for pressure. Pressure has units of pascals (Pa).
-    T: Dataset
-        Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
-    q: Dataset
-        Xarray dataset containing data for specific humidity. Specific humidity has units of grams of water vapor per
+    P: Xarray dataset containing data for pressure. Pressure has units of pascals (Pa).
+    q: Xarray dataset containing data for specific humidity. Specific humidity has units of grams of water vapor per
         gram of dry air (g/g).
+    T: Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
 
     Returns
     -------
-    Td: Dataset
-        Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
+    Td: Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
     """
     P = P / 100  # Convert pressure from Pa to hPa (hectopascals).
 
@@ -64,16 +61,12 @@ def mixing_ratio(Td, P):
 
     Parameters
     ----------
-    Td: Dataset
-        Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
-    P: Dataset
-        Xarray dataset containing data for pressure. Pressure has units of pascals (Pa).
+    P: Xarray dataset containing data for pressure. Pressure has units of pascals (Pa).
+    Td: Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
 
     Returns
     -------
-    r: Dataset
-        Xarray dataset containing data for mixing ratio. Mixing ratio has units of grams of water per gram of dry air
-        (g/g).
+    r: Xarray dataset containing data for mixing ratio. Mixing ratio has units of grams of water per gram of dry air (g/g).
     """
     epsilon = 0.622
     P = P / 100  # Convert pressure from Pa to hPa (hectopascals).
@@ -89,16 +82,12 @@ def relative_humidity(T, Td):
 
     Parameters
     ----------
-    T: Dataset
-        Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
-    Td: Dataset
-        Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin
-        (K).
+    T: Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
+    Td: Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
 
     Returns
     -------
-    RH: Dataset
-        Xarray dataset containing data for relative humidity. Relative humidity has no units.
+    RH: Xarray dataset containing data for relative humidity. Relative humidity has no units.
     """
     e = 6.112 * np.exp((17.67 * (Td - 273.15)) / ((Td - 273.15) + 243.5))  # (Bolton 1980, Eq. 10)
     es = 6.112 * np.exp((17.67 * (T - 273.15)) / ((T - 273.15) + 243.5))  # (Bolton 1980, Eq. 10)
@@ -113,15 +102,12 @@ def specific_humidity(Td, P):
 
     Parameters
     ----------
-    Td: Dataset
-        Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
-    P: Dataset
-        Xarray dataset containing data for pressure. Pressure has units of pascals (Pa).
+    P: Xarray dataset containing data for pressure. Pressure has units of pascals (Pa).
+    Td: Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
 
     Returns
     -------
-    q: Dataset
-        Xarray dataset containing data for specific humidity. Specific humidity has units of grams of water vapor per
+    q: Xarray dataset containing data for specific humidity. Specific humidity has units of grams of water vapor per
         gram of dry air (g/g).
     """
     epsilon = 0.622
@@ -135,23 +121,18 @@ def specific_humidity(Td, P):
 
 def theta_e(T, Td, P):
     """
-    Returns dataset containing wet-bulb potential temperature (theta-w) data with units of kelvin (K).
+    Returns dataset containing equivalent potential temperature (theta-e) data with units of kelvin (K).
 
     Parameters
     ----------
-    T: Dataset
-        Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
-    Td: Dataset
-        Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin
-        (K).
-    P: Dataset
-        Xarray dataset containing data for air pressure. Air pressure has units of pascals (Pa).
+    P: Xarray dataset containing data for air pressure. Air pressure has units of pascals (Pa).
+    T: Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
+    Td: Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
 
     Returns
     -------
-    theta_w: Dataset
-        Xarray dataset containing data for wet-bulb potential temperature. Wet-bulb potential temperature has units of
-        kelvin (K).
+    theta_e: Xarray dataset containing data for equivalent potential temperature. Equivalent potential temperature has
+        units of kelvin (K).
     """
     epsilon = 0.622
     p_knot = 1000  # hPa
@@ -174,19 +155,14 @@ def theta_w(T, Td, P):
 
     Parameters
     ----------
-    T: Dataset
-        Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
-    Td: Dataset
-        Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin
-        (K).
-    P: Dataset
-        Xarray dataset containing data for pressure. Pressure has units of pascals (Pa).
+    P: Xarray dataset containing data for air pressure. Air pressure has units of pascals (Pa).
+    T: Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
+    Td: Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
 
     Returns
     -------
-    theta_w: Dataset
-        Xarray dataset containing data for wet-bulb potential temperature. Wet-bulb potential temperature has units of
-        kelvin (K).
+    theta_w: Xarray dataset containing data for wet-bulb potential temperature. Wet-bulb potential temperature has units
+        of kelvin (K).
     """
     epsilon = 0.622
     C = 273.15  # K (Davies-Jones 2008, Section 2)
@@ -228,18 +204,13 @@ def virtual_temperature(T, Td, P):
 
     Parameters
     ----------
-    T: Dataset
-        Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
-    Td: Dataset
-        Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin
-        (K).
-    P: Dataset
-        Xarray dataset containing data for pressure. Pressure has units of pascals (Pa).
+    P: Xarray dataset containing data for air pressure. Air pressure has units of pascals (Pa).
+    T: Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
+    Td: Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
 
     Returns
     -------
-    Tv: Dataset
-        Xarray dataset containing data for virtual temperature. Virtual temperature has units of kelvin (K).
+    Tv: Xarray dataset containing data for virtual temperature. Virtual temperature has units of kelvin (K).
     """
     epsilon = 0.622
     P = P / 100  # Convert pressure from Pa to hPa (hectopascals).
@@ -257,16 +228,12 @@ def wet_bulb_temperature(T, Td):
 
     Parameters
     ----------
-    T: Dataset
-        Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
-    Td: Dataset
-        Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin
-        (K).
+    T: Xarray dataset containing data for air temperature. Air temperature has units of kelvin (K).
+    Td: Xarray dataset containing data for dew-point temperature. Dew-point temperature has units of kelvin (K).
 
     Returns
     -------
-    Tw: Dataset
-        Xarray dataset containing data for wet-bulb temperature. Wet-bulb temperature has units of kelvin (K).
+    Tw: Xarray dataset containing data for wet-bulb temperature. Wet-bulb temperature has units of kelvin (K).
     """
     e = 6.112 * np.exp((17.67 * (Td - 273.15)) / ((Td - 273.15) + 243.5))  # Vapor pressure (Bolton 1980, Eq. 10)
     es = 6.112 * np.exp((17.67 * (T - 273.15)) / ((T - 273.15) + 243.5))  # Saturation vapor pressure (Bolton 1980, Eq. 10)
@@ -292,15 +259,12 @@ def normalize(variable_ds, normalization_method):
 
     Parameters
     ----------
-    variable_ds: Xarray dataset
-        Dataset containing variable data.
-    normalization_method: int
-        Integer that determines the normalization method.
+    normalization_method: Integer that determines the normalization method.
+    variable_ds: Dataset containing variable data.
 
     Returns
     -------
-    variable_ds: Xarray dataset
-        Dataset containing normalized variable data.
+    variable_ds: Dataset containing normalized variable data.
     """
 
     norm_params = read_csv('normalization_parameters.csv', index_col='Variable')

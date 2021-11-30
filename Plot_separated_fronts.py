@@ -2,10 +2,11 @@
 Function that plots each front individually on its own plot. This function can be used for debugging purposes.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 3/9/2021 13:53 CST by Andrew Justin
+Last updated: 11/29/2021 10:26 PM CST
 """
 
 import matplotlib.pyplot as plt
+
 
 def plot_front_xy(x_km_new, y_km_new, x_new, y_new, date, image_outdir, i):
     """
@@ -13,20 +14,13 @@ def plot_front_xy(x_km_new, y_km_new, x_new, y_new, date, image_outdir, i):
 
     Parameters
     ----------
-    x_km_new: list
-        List containing longitude coordinates in kilometers BEFORE interpolation.
-    y_km_new: list
-        List containing latitude coordinates in kilometers BEFORE interpolation.
-    x_new: list
-        List containing longitude coordinates in kilometers AFTER interpolation.
-    y_new: list
-        List containing latitude coordinates in kilometers AFTER interpolation.
-    date: list
-        List containing date and time of the specified fronts.
-    image_outdir: str
-        Output directory of the plot.
-    i: int
-        Current front number.
+    date: List containing date and time of the specified fronts.
+    i: Current front number.
+    image_outdir: Output directory of the plot.
+    x_km_new: List containing longitude coordinates in kilometers BEFORE interpolation.
+    x_new: List containing longitude coordinates in kilometers AFTER interpolation.
+    y_km_new: List containing latitude coordinates in kilometers BEFORE interpolation.
+    y_new: List containing latitude coordinates in kilometers AFTER interpolation.
     """
 
     plt.subplots(2,1)
@@ -52,22 +46,18 @@ def plot_front_xy(x_km_new, y_km_new, x_new, y_new, date, image_outdir, i):
     plt.tight_layout(w_pad=3)
     plt.savefig(plotName,bbox_inches='tight')
 
+
 def plot_front_latlon(lon_new, lat_new, date, image_outdir, i):
     """
     Takes lon/lat coordinates AFTER interpolation and plots them to check for errors.
 
     Parameters
     ----------
-    lon_new: list
-        List containing longitude coordinates in degrees AFTER interpolation.
-    lat_new: list
-        List containing latitude coordinates in degrees AFTER interpolation.
-    date: list
-        List containing date and time of the specified fronts.
-    image_outdir: str
-        Output directory of the plot.
-    i: int
-        Current front number.
+    date: List containing date and time of the specified fronts.
+    i: Current front number.
+    image_outdir: Output directory of the plot.
+    lat_new: List containing latitude coordinates in degrees AFTER interpolation.
+    lon_new: List containing longitude coordinates in degrees AFTER interpolation.
     """
 
     plt.figure(figsize=(5,5))
@@ -82,20 +72,17 @@ def plot_front_latlon(lon_new, lat_new, date, image_outdir, i):
     plotName = "%s/separated_fronts/%s - Front #%d (LatLon).png" % (image_outdir, date, i)
     plt.savefig(plotName,bbox_inches='tight')
 
+
 def plot_file_xy(x_km, y_km, date, image_outdir):
     """
     Plots all coordinates of every front in the file in kilometers BEFORE interpolation to check for errors.
 
     Parameters
     ----------
-    x_km: list
-        List containing longitude coordinates of every front in the file in kilometers BEFORE interpolation.
-    y_km: list
-        List containing latitude coordinates of every front in the file in kilometers BEFORE interpolation.
-    date: list
-        List containing date and time of the specified fronts.
-    image_outdir: str
-        Output directory of the plot.
+    date: List containing date and time of the specified fronts.
+    image_outdir: Output directory of the plot.
+    x_km: List containing longitude coordinates of every front in the file in kilometers BEFORE interpolation.
+    y_km: List containing latitude coordinates of every front in the file in kilometers BEFORE interpolation.
     """
 
     plt.figure(figsize=(5,5))

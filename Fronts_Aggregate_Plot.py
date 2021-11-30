@@ -2,12 +2,11 @@
 Function used to create frequency map subplots.
 
 Code written by: John Allen (allen4jt@cmich.edu)
-Last updated: 8/2/2021 9:02 PM CDT by Andrew Justin (andrewjustin@ou.edu)
+Last updated: 11/29/2021 10:04 PM CST by Andrew Justin (andrewjustin@ou.edu)
 """
 
 import matplotlib.pyplot as plt
 import xarray as xr
-
 from glob import glob
 import argparse
 import os
@@ -22,15 +21,12 @@ def plot_background(ax, extent):
 
     Parameters
     ----------
-    ax: GeoAxesSubplot
-        Initial subplot axes.
-    extent: ndarray
-        Numpy array containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat].
+    ax: Initial subplot axes.
+    extent: Numpy array containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat].
 
     Returns
     -------
-    ax: GeoAxesSubplot
-        New plot background.
+    ax: New plot background.
     """
     # ax.gridlines()
     ax.add_feature(cfeature.COASTLINE.with_scale('50m'), linewidth=0.25)

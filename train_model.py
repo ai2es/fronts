@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/18/2021 10:44 AM CDT
+Last updated: 11/29/2021 10:44 PM CST
 """
 
 import random
@@ -192,65 +192,38 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 
     Parameters
     ----------
-    front_files: list
-        List of all files containing fronts. Includes files with no fronts present in their respective domains.
-    variable_files: list
-        List of all files containing variable data.
-    map_dim_x: int
-        Integer that determines the X dimension of the image (map) to be fed into the Unet.
-    map_dim_y: int
-        Integer that determines the Y dimension of the image (map) to be fed into the Unet.
-    learning_rate: float
-        Value that determines how fast the optimization algorithm overrides old information (how fast the Unet learns).
-    train_epochs: int
-        Number of times that the Unet will cycle over the data, or in this case, the number of times that the model will
+    front_files: List of all files containing fronts. Includes files with no fronts present in their respective domains.
+    front_types: Fronts in the data.
+    fss_c: C hyperparameter for the FSS loss' sigmoid function.
+    fss_mask_size: Size of the mask for the FSS loss function.
+    job_number: Slurm job number. This is set automatically and should not be changed by the user.
+    learning_rate: Value that determines how fast the optimization algorithm overrides old information (how fast the U-Net learns).
+    loss: Loss function for the U-Net.
+    map_dim_x: Integer that determines the X dimension of the image (map) to be fed into the U-Net.
+    map_dim_y: Integer that determines the Y dimension of the image (map) to be fed into the U-Net.
+    metric: Metric used for evaluating the U-Net during training.
+    model_dir: Directory that the models are saved to.
+    normalization_method: Normalization method for the data (described near the end of the script).
+    num_dimensions: Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
+    num_variables: Number of variables in the datasets.
+    pixel_expansion: Number of pixels to expand the fronts by in all directions.
+    test_years: Years for the test dataset.
+    train_batch_size: Number of images/datasets to process for each step of each epoch in the training generator.
+    train_epochs: Number of times that the U-Net will cycle over the data, or in this case, the number of times that the model will
         run the training generator.
-    train_steps: int
-        Number of steps per epoch for the training generator. This is the number of times that a batch will be generated
+    train_fronts: Minimum number of pixels containing fronts that must be present in an image for it to be used for training the
+        U-net.
+    train_steps: Number of steps per epoch for the training generator. This is the number of times that a batch will be generated
         before the generator moves onto the next epoch.
-    train_batch_size: int
-        Number of images/datasets to process for each step of each epoch in the training generator.
-    train_fronts: int
-        Minimum number of pixels containing fronts that must be present in an image for it to be used for training the
-        Unet.
-    valid_steps: int
-        Number of steps for each epoch in the validation generator.
-    valid_batch_size: int
-        Number of images/datasets to process for each step of each epoch in the validation generator.
-    valid_freq: int
-        This integer represents how often the model will be validated, or having its hyperparameters automatically
+    valid_batch_size: Number of images/datasets to process for each step of each epoch in the validation generator.
+    valid_freq: This integer represents how often the model will be validated, or having its hyperparameters automatically
         tuned. For example, setting this to 4 means that the model will be validated every 4 epochs.
-    valid_fronts: int
-        Minimum number of pixels containing fronts that must be present in an image for it to be used in Unet
+    valid_fronts: Minimum number of pixels containing fronts that must be present in an image for it to be used in U-Net
         validation.
-    loss: str
-        Loss function for the Unet.
-    workers: int
-        Number of threads that will be generating batches in parallel.
-    job_number: int
-        Slurm job number. This is set automatically and should not be changed by the user.
-    model_dir: str
-        Directory that the models are saved to.
-    front_types: str
-        Fronts in the data.
-    normalization_method: int
-        Normalization method for the data (described near the end of the script).
-    fss_mask_size: int
-        Size of the mask for the FSS loss function.
-    fss_c: float
-        C hyperparameter for the FSS loss' sigmoid function.
-    pixel_expansion: int
-        Number of pixels to expand the fronts by in all directions.
-    num_variables: int
-        Number of variables in the datasets.
-    validation_years: list of ints
-        Years for the validation dataset.
-    test_years: list of ints
-        Years for the test dataset.
-    num_dimensions: int
-        Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
-    metric: str
-        Metric used for evaluating the U-Net during training.
+    valid_steps: Number of steps for each epoch in the validation generator.
+    validation_years: Years for the validation dataset.
+    variable_files: List of all files containing variable data.
+    workers: Number of threads that will be generating batches in parallel.
     """
 
     if front_types == 'CFWF' or front_types == 'SFOF':
@@ -420,61 +393,36 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     Function that trains the U-Net model and saves the model along with its weights.
     Parameters
     ----------
-    front_files: list
-        List of all files containing fronts. Includes files with no fronts present in their respective domains.
-    variable_files: list
-        List of all files containing variable data.
-    learning_rate: float
-        Value that determines how fast the optimization algorithm overrides old information (how fast the Unet learns).
-    train_epochs: int
-        Number of times that the Unet will cycle over the data, or in this case, the number of times that the model will
+    front_files: List of all files containing fronts. Includes files with no fronts present in their respective domains.
+    front_types: Fronts in the data.
+    fss_c: C hyperparameter for the FSS loss' sigmoid function.
+    fss_mask_size: Size of the mask for the FSS loss function.
+    learning_rate: Value that determines how fast the optimization algorithm overrides old information (how fast the U-Net learns).
+    loss: Loss function for the U-Net.
+    metric: Metric used for evaluating the U-Net during training.
+    model_dir: Directory that the models are saved to.
+    model_number: Number of the imported model.
+    normalization_method: Normalization method for the data (described near the end of the script).
+    num_dimensions: Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
+    num_variables: Number of variables in the datasets.
+    pixel_expansion: Number of pixels to expand the fronts by in all directions.
+    test_years: Years for the test dataset.
+    train_batch_size: Number of images/datasets to process for each step of each epoch in the training generator.
+    train_epochs: Number of times that the U-Net will cycle over the data, or in this case, the number of times that the model will
         run the training generator.
-    train_steps: int
-        Number of steps per epoch for the training generator. This is the number of times that a batch will be generated
+    train_fronts: Minimum number of pixels containing fronts that must be present in an image for it to be used for training the
+        U-Net.
+    train_steps: Number of steps per epoch for the training generator. This is the number of times that a batch will be generated
         before the generator moves onto the next epoch.
-    train_batch_size: int
-        Number of images/datasets to process for each step of each epoch in the training generator.
-    train_fronts: int
-        Minimum number of pixels containing fronts that must be present in an image for it to be used for training the
-        Unet.
-    valid_steps: int
-        Number of steps for each epoch in the validation generator.
-    valid_batch_size: int
-        Number of images/datasets to process for each step of each epoch in the validation generator.
-    valid_freq: int
-        This integer represents how often the model will be validated, or having its hyperparameters automatically
+    valid_batch_size: Number of images/datasets to process for each step of each epoch in the validation generator.
+    valid_freq: This integer represents how often the model will be validated, or having its hyperparameters automatically
         tuned. For example, setting this to 4 means that the model will be validated every 4 epochs.
-    valid_fronts: int
-        Minimum number of pixels containing fronts that must be present in an image for it to be used in Unet
+    valid_fronts: Minimum number of pixels containing fronts that must be present in an image for it to be used in U-Net
         validation.
-    loss: str
-        Loss function for the Unet.
-    workers: int
-        Number of threads that will be generating batches in parallel.
-    model_number: int
-        Number of the imported model.
-    model_dir: str
-        Directory that the models are saved to.
-    front_types: str
-        Fronts in the data.
-    normalization_method: int
-        Normalization method for the data (described near the end of the script).
-    fss_mask_size: int
-        Size of the mask for the FSS loss function.
-    fss_c: float
-        C hyperparameter for the FSS loss' sigmoid function.
-    pixel_expansion: int
-        Number of pixels to expand the fronts by in all directions.
-    num_variables: int
-        Number of variables in the datasets.
-    validation_years: int
-        Years for the validation dataset.
-    test_years: int
-        Years for the test dataset.
-    num_dimensions: int
-        Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
-    metric: str
-        Metric used for evaluating the U-Net during training.
+    valid_steps: Number of steps for each epoch in the validation generator.
+    validation_years: Years for the validation dataset.
+    variable_files: List of all files containing variable data.
+    workers: Number of threads that will be generating batches in parallel.
     """
 
     if front_types == 'CFWF' or front_types == 'SFOF':

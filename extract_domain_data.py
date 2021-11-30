@@ -2,7 +2,7 @@
 Function that extracts variable and front data from a given domain and saves it into a pickle file.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/22/2021 4:18 PM CDT
+Last updated: 11/29/2021 9:22 PM CST
 """
 
 import argparse
@@ -23,23 +23,16 @@ def read_xml_files_360(year, month, day):
 
     Parameters
     ----------
-    year: int
-    month: int
-    day: int
+    year: year
+    month: month
+    day: day
 
     Returns
     -------
-    dns: Dataset
-        Xarray dataset containing frontal object data organized by date, type, number, and coordinates.
+    dns: Xarray dataset containing frontal object data organized by date, type, number, and coordinates.
     """
     file_path = "/ourdisk/hpc/ai2es/ajustin/xmls_2006122012-2020061900"
     print(file_path)
-
-    # files = []
-    # files.extend(glob.glob("%s/*%04d%02d%02d00f*.xml" % (file_path, year, month, day)))
-    # files.extend(glob.glob("%s/*%04d%02d%02d06f*.xml" % (file_path, year, month, day)))
-    # files.extend(glob.glob("%s/*%04d%02d%02d12f*.xml" % (file_path, year, month, day)))
-    # files.extend(glob.glob("%s/*%04d%02d%02d18f*.xml" % (file_path, year, month, day)))
 
     files = sorted(glob.glob("%s/*%04d%02d%02d*.xml" % (file_path, year, month, day)))
 
@@ -205,20 +198,16 @@ def extract_input_variables(lon, lat, year, month, day, netcdf_ERA5_indir):
 
     Parameters
     ----------
-    lon: float (x2)
-        Two values that specify the longitude domain in degrees in the 360 coordinate system: lon_MIN lon_MAX
-    lat: float (x2)
-        Two values that specify the latitude domain in degrees: lat_MIN lat_MAX
-    year: int
-    month: int
-    day: int
-    netcdf_ERA5_indir: str
-        Directory where the ERA5 netCDF files are contained.
+    lat: Two values that specify the latitude domain in degrees: lat_MIN lat_MAX
+    lon: Two values that specify the longitude domain in degrees in the 360 coordinate system: lon_MIN lon_MAX
+    netcdf_ERA5_indir: Directory where the ERA5 netCDF files are contained.
+    year: year
+    month: month
+    day: day
 
     Returns
     -------
-    xr_pickle: Dataset
-        Xarray dataset containing variable data for the specified domain.
+    xr_pickle: Xarray dataset containing variable data for the specified domain.
     """
     ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_wind, da_theta_w, da_mixing_ratio, da_RH, da_Tv, da_Tw \
         = Plot_ERA5.create_datasets(year, month, day, netcdf_ERA5_indir)
@@ -510,17 +499,13 @@ def save_variable_data_to_pickle(year, month, day, hour, xr_pickle, pickle_outdi
 
     Parameters
     ----------
-    year: int
-    month: int
-    day: int
-    hour: int
-        Hour in UTC.
-    xr_pickle: Dataset
-        Xarray dataset containing variable data for the specified domain.
-    pickle_outdir: str
-        Directory where the created pickle files containing the variable data will be stored.
-    domain: str
-        Name of the domain for the data.
+    domain: Name of the domain for the data.
+    pickle_outdir: Directory where the created pickle files containing the variable data will be stored.
+    xr_pickle: Xarray dataset containing variable data for the specified domain.
+    year: day
+    month: month
+    day: day
+    hour: hour
     """
     xr_pickle_data = xr_pickle.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
@@ -544,17 +529,13 @@ def save_fronts_CFWF_to_pickle(ds, year, month, day, hour, pickle_outdir, domain
 
     Parameters
     ----------
-    ds: Dataset
-        Xarray dataset containing warm front and cold front data.
-    year: int
-    month: int
-    day: int
-    hour: int
-        Hour in UTC.
-    pickle_outdir: str
-        Directory where the created pickle files containing warm front and cold front data will be stored.
-    domain: str
-        Name of the domain for the data.
+    domain: Name of the domain for the data.
+    ds: Xarray dataset containing warm front and cold front data.
+    pickle_outdir: Directory where the created pickle files containing warm front and cold front data will be stored.
+    year: year
+    month: month
+    day: day
+    hour: hour
     """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
@@ -597,17 +578,13 @@ def save_fronts_SFOF_to_pickle(ds, year, month, day, hour, pickle_outdir, domain
 
     Parameters
     ----------
-    ds: Dataset
-        Xarray dataset containing stationary front and occluded front data.
-    year: int
-    month: int
-    day: int
-    hour: int
-        Hour in UTC.
-    pickle_outdir: str
-        Directory where the created pickle files containing stationary front and occluded front data will be stored.
-    domain: str
-        Name of the domain for the data.
+    domain: Name of the domain for the data.
+    ds: Xarray dataset containing stationary front and occluded front data.
+    pickle_outdir: Directory where the created pickle files containing stationary front and occluded front data will be stored.
+    year: year
+    month: month
+    day: day
+    hour: hour
     """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
@@ -644,73 +621,19 @@ def save_fronts_SFOF_to_pickle(ds, year, month, day, hour, pickle_outdir, domain
     outfile.close()
 
 
-def save_fronts_DL_to_pickle(ds, year, month, day, hour, pickle_outdir, domain):
-    """
-    Saves dryline data to a pickle file.
-
-    Parameters
-    ----------
-    ds: Dataset
-        Xarray dataset containing dryline data.
-    year: int
-    month: int
-    day: int
-    hour: int
-        Hour in UTC.
-    pickle_outdir: str
-        Directory where the created pickle files containing dryline data will be stored.
-    domain: str
-        Name of the domain for the data.
-    """
-    xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
-
-    fronttype = np.empty([len(xr_pickle.latitude), len(xr_pickle.longitude)])
-
-    time = xr_pickle.time
-    frequency = xr_pickle.Frequency.values
-    types = xr_pickle.type.values
-    lats = xr_pickle.latitude.values
-    lons = xr_pickle.longitude.values
-
-    for i in range(len(lats)):
-        for j in range(len(lons)):
-            for k in range(len(types)):
-                if types[k] == 'DRY_LINE':
-                    if frequency[k][i][j] > 0:
-                        fronttype[i][j] = 5
-                    else:
-                        fronttype[i][j] = 0
-
-    xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
-                                 coords={"latitude": lats, "longitude": lons, "time": time})
-
-    filename = "FrontObjects_DL_%04d%02d%02d%02d_%s_289x129.pkl" % (year, month, day, hour, domain)
-
-    print(filename)
-
-    xr_pickle_front.load()
-    outfile = open("%s/%d/%02d/%02d/%s" % (pickle_outdir, year, month, day, filename), 'wb')
-    pickle.dump(xr_pickle_front, outfile)
-    outfile.close()
-
-
 def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir, domain):
     """
     Saves all front data (cold, warm, stationary, occluded, dryline) to a pickle file.
 
     Parameters
     ----------
-    ds: Dataset
-        Xarray dataset containing all front data.
-    year: int
-    month: int
-    day: int
-    hour: int
-        Hour in UTC.
-    pickle_outdir: str
-        Directory where the created pickle files containing all front data will be stored.
-    domain: str
-        Name of the domain for the data.
+    domain: Name of the domain for the data.
+    ds: Xarray dataset containing stationary front and occluded front data.
+    pickle_outdir: Directory where the created pickle files containing stationary front and occluded front data will be stored.
+    year: year
+    month: month
+    day: day
+    hour: hour
     """
     xr_pickle = ds.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
 
@@ -739,9 +662,6 @@ def save_fronts_ALL_to_pickle(ds, year, month, day, hour, pickle_outdir, domain)
                 elif types[k] == 'OCCLUDED_FRONT':
                     if frequency[k][i][j] > 0:
                         fronttype[i][j] = 4
-                elif types[k] == 'DRY_LINE':
-                    if frequency[k][i][j] > 0:
-                        fronttype[i][j] = 5
 
     xr_pickle_front = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)},
                                  coords={"latitude": lats, "longitude": lons, "time": time})
@@ -781,5 +701,4 @@ if __name__ == "__main__":
 
         # save_fronts_CFWF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir, args.domain)
         # save_fronts_SFOF_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir, args.domain)
-        # save_fronts_DL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir, args.domain)
         # save_fronts_ALL_to_pickle(ds_hour, args.year, args.month, args.day, hour, args.pickle_outdir, args.domain)

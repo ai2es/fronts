@@ -2,7 +2,7 @@
 Functions in this code manage data files and directories.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/17/2021 12:16 AM CDT
+Last updated: 11/29/2021 10:03 PM CST
 """
 
 from glob import glob
@@ -22,11 +22,10 @@ def add_hourly_directories(main_dir_subdir, year, month, day):
 
     Parameters
     ----------
-    main_dir_subdir: str
-        Main directory for the subdirectories.
-    year: int
-    month: int
-    day: int
+    main_dir_subdir: Main directory for the subdirectories.
+    year: year
+    month: month
+    day: day
     """
     for hour in range(0,24,3):
         os.mkdir('%s/%d/%02d/%02d/%02d' % (main_dir_subdir, year, month, day, hour))
@@ -38,10 +37,8 @@ def create_subdirectories(main_dir_subdir, hour_dirs):
 
     Parameters
     ----------
-    main_dir_subdir: str
-        Main directory for the subdirectories.
-    hour_dirs: Boolean
-        Boolean flag that determines whether or not hourly subdirectories will be generated.
+    hour_dirs: Boolean flag that determines whether or not hourly subdirectories will be generated.
+    main_dir_subdir: Main directory for the subdirectories.
     """
 
     years = list(np.linspace(2006,2020,15))
@@ -82,12 +79,9 @@ def delete_grouped_files(main_dir_group, glob_file_string, num_subdir):
 
     Parameters
     ----------
-    main_dir_group: str
-        Main directory or directories where the grouped files are located.
-    glob_file_string: str
-        String of the names of the files to delete.
-    num_subdir: int
-        Number of subdirectory layers in the main directory.
+    glob_file_string: String of the names of the files to delete.
+    main_dir_group: Main directory or directories where the grouped files are located.
+    num_subdir: Number of subdirectory layers in the main directory.
     """
 
     subdir_string = ''
@@ -111,16 +105,11 @@ def generate_file_lists(front_files, variable_files, num_variables, front_types,
 
     Parameters
     ----------
-    front_files: list
-        List of files containing front data.
-    variable_files: list
-        List of files containing variable data.
-    num_variables: int
-        Number of variables in the variable datasets.
-    front_types: str
-        Fronts in the frontobject datasets.
-    domain: str
-        Domain which the front and variable files cover.
+    domain: Domain which the front and variable files cover.
+    front_files: List of files containing front data.
+    front_types: Fronts in the frontobject datasets.
+    num_variables: Number of variables in the variable datasets.
+    variable_files: List of files containing variable data.
     """
     front_files_no_prefix = []
     variable_files_no_prefix = []
@@ -188,21 +177,15 @@ def load_files(pickle_indir, num_variables, front_types, domain):
 
     Parameters
     ----------
-    pickle_indir: str
-        Directory where the created pickle files containing the domain data will be stored.
-    num_variables: int
-        Number of variables in the variable datasets.
-    front_types: str
-        Fronts in the frontobject datasets.
-    domain: str
-        Domain which the front and variable files cover.
+    domain: Domain which the front and variable files cover.
+    front_types: Fronts in the frontobject datasets.
+    num_variables: Number of variables in the variable datasets.
+    pickle_indir: Directory where the created pickle files containing the domain data will be stored.
 
     Returns
     -------
-    front_files: list
-        List of all files containing fronts. Includes files with no fronts present in their respective domains.
-    variable_files: list
-        List of all files containing variable data.
+    front_files: List of all files containing fronts. Includes files with no fronts present in their respective domains.
+    variable_files: List of all files containing variable data.
     """
     print("Collecting front object files....", end='')
     front_files = sorted(glob("%s/*/*/*/FrontObjects_%s_*_%s.pkl" % (pickle_indir, front_types, domain)))
@@ -220,19 +203,14 @@ def load_file_lists(num_variables, front_types, domain):
 
     Parameters
     ----------
-    num_variables: int
-        Number of variables in the variable datasets.
-    front_types: str
-        Fronts in the frontobject datasets.
-    domain: str
-        Domain which the front and variable files cover.
+    domain: Domain which the front and variable files cover.
+    front_types: Fronts in the frontobject datasets.
+    num_variables: Number of variables in the variable datasets.
 
     Returns
     -------
-    front_files_list: list
-        List of filenames that contain front data.
-    variable_files_list: list
-        List of filenames that contain variable data.
+    front_files_list: List of filenames that contain front data.
+    variable_files_list: List of filenames that contain variable data.
     """
     with open('%dvar_%s_%s_front_files_list.pkl' % (num_variables, front_types, domain), 'rb') as f:
         front_files_list = pickle.load(f)
@@ -248,20 +226,13 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
 
     Parameters
     ----------
-    model_number: int
-        Slurm job number for the model. This is the number in the model's filename.
-    model_dir: str
-        Main directory for the models.
-    loss: str
-        Loss function for the Unet.
-    fss_mask_size: int
-        Size of the mask for the FSS loss function.
-    fss_c: float
-        C hyperparameter for the FSS loss' sigmoid function.
-    metric: str
-        Metric used for evaluating the U-Net during training.
-    num_dimensions: int
-        Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
+    fss_c: C hyperparameter for the FSS loss' sigmoid function.
+    fss_mask_size: Size of the mask for the FSS loss function.
+    loss: Loss function for the Unet.
+    metric: Metric used for evaluating the U-Net during training.
+    model_dir: Main directory for the models.
+    model_number: Slurm job number for the model. This is the number in the model's filename.
+    num_dimensions: Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     """
     if loss == 'cce' and metric == 'auc':
         model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
@@ -346,21 +317,15 @@ def load_test_files(num_variables, front_types, domain, test_years):
 
     Parameters
     ----------
-    num_variables: int
-        Number of variables in the variable datasets.
-    front_types: str
-        Fronts in the frontobject datasets.
-    domain: str
-        Domain which the front and variable files cover.
-    test_years: list of ints
-        Years for the test set (will not be used in training or validation).
+    domain: Domain which the front and variable files cover.
+    front_types: Fronts in the frontobject datasets.
+    num_variables: Number of variables in the variable datasets.
+    test_years: Years for the test set (will not be used in training or validation).
 
     Returns
     -------
-    front_files_test: list
-        List of files containing front data for the test dataset.
-    variable_files_test: list
-        List of files containing variable data for the test dataset.
+    front_files_test: List of files containing front data for the test dataset.
+    variable_files_test: List of files containing variable data for the test dataset.
     """
     front_files, variable_files = load_file_lists(num_variables, front_types, domain)
 
@@ -387,25 +352,17 @@ def split_file_lists(front_files, variable_files, validation_years, test_years):
 
     Parameters
     ----------
-    front_files: list
-        List of files containing front data.
-    variable_files: list
-        List of files containing variable data.
-    validation_years: list of ints
-        Year for the validation set.
-    test_years: list of ints
-        Years for the test set (will not be used in training or validation).
+    front_files: List of files containing front data.
+    test_years: Years for the test set (will not be used in training or validation).
+    variable_files: List of files containing variable data.
+    validation_years: Year for the validation set.
 
     Returns
     -------
-    front_files_training: list
-        List of files containing front data for the training dataset.
-    front_files_validation: list
-        List of files containing front data for the validation dataset.
-    variable_files_training: list
-        List of files containing variable data for the training dataset.
-    variable_files_validation: list
-        List of files containing variable data for the validation dataset.
+    front_files_training:  List of files containing front data for the training dataset.
+    front_files_validation: List of files containing front data for the validation dataset.
+    variable_files_training: List of files containing variable data for the training dataset.
+    variable_files_validation: List of files containing variable data for the validation dataset.
     """
 
     print("Validation years:", validation_years)

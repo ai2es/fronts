@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 11/28/2021 5:03 PM CDT
+Last updated: 11/28/2021 5:03 PM CST
 """
 
 import random
@@ -2120,7 +2120,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     plt.close()
 
 
-def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_mask_size, fss_c, metric):
+def learning_curve(model_number, model_dir, loss, fss_mask_size, fss_c, metric, include_validation_plots=True):
     """
     Function that plots learning curves for the specified model.
 
@@ -2128,7 +2128,7 @@ def learning_curve(include_validation_plots, model_number, model_dir, loss, fss_
     ----------
     fss_mask_size: Size of the mask for the FSS loss function.
     fss_c: C hyperparameter for the FSS loss' sigmoid function.
-    include_validation_plots: Include validation data in learning curve plots?
+    include_validation_plots: Setting this to True will plot validation data in addition to training data.
     loss: Loss function for the U-Net.
     metric: Metric used for evaluating the U-Net during training.
     model_number: Slurm job number for the model. This is the number in the model's filename.
@@ -2347,8 +2347,6 @@ if __name__ == '__main__':
     parser.add_argument('--fss_mask_size', type=int, required=False, help='Mask size for the FSS loss function.')
     parser.add_argument('--generate_predictions', type=bool, required=False, help='Generate prediction plots?')
     parser.add_argument('--hour', type=int, required=False, help='Hour for the prediction.')
-    parser.add_argument('--include_validation_plots', type=bool, required=False,
-                        help='Include validation data in learning curve plots?')
     parser.add_argument('--learning_curve', type=bool, required=False, help='Plot learning curve?')
     parser.add_argument('--loss', type=str, required=False, help='Loss function used for training the U-Net.')
     parser.add_argument('--metric', type=str, required=False, help='Metric used for evaluating the U-Net during training.')
@@ -2405,11 +2403,10 @@ if __name__ == '__main__':
         find_matches_for_domain(args.domain_lengths, args.model_lengths)
 
     if args.learning_curve is True:
-        required_arguments = ['include_validation_plots', 'loss', 'metric', 'model_dir', 'model_number']
+        required_arguments = ['loss', 'metric', 'model_dir', 'model_number']
         print("Checking arguments for 'learning_curve'....", end='')
         check_arguments(provided_arguments, required_arguments)
-        learning_curve(args.include_validation_plots, args.model_number, args.model_dir, args.loss, args.fss_mask_size,
-                       args.fss_c, args.metric)
+        learning_curve(args.model_number, args.model_dir, args.loss, args.fss_mask_size, args.fss_c, args.metric)
 
     if args.generate_predictions is True:
         required_arguments = ['model_number', 'model_dir', 'num_variables', 'num_dimensions', 'front_types', 'domain',
