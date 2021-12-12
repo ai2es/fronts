@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 11/28/2021 5:03 PM CST
+Last updated: 12/11/2021 8:02 PM CST
 """
 
 import random
@@ -684,7 +684,7 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
         pickle.dump(performance_ds, f)
 
 
-def find_matches_for_domain(domain_lengths, model_lengths, compatibility_mode=False, compat_images=None, compat_trim=None):
+def find_matches_for_domain(domain_lengths, model_lengths, compatibility_mode=False, compat_images=None):
     """
     Function that outputs the number of images that can be stitched together with the specified domain length and the length
     of the domain dimension output by the model. This is also used to determine the compatibility of declared image and
@@ -694,74 +694,88 @@ def find_matches_for_domain(domain_lengths, model_lengths, compatibility_mode=Fa
     Parameters
     ----------
     compat_images: Number of images declared for the stitched map in each dimension (lon lat). (Compatibility mode only)
-    compat_trim: Number of pixels to trim images by along each dimension before np.maximum() is taken across overlapped pixels (lon lat). (Compatibility mode only)
     compatibility_mode: Boolean that declares whether or not the function is being used to check compatibility of given parameters. (Compatibility mode only)
     domain_lengths: Number of pixels along each dimension of the final stitched map (lon lat).
     model_lengths: Number of pixels along each dimension of the model's output (lon lat).
     """
-
     if compatibility_mode is True:
         """ These parameters are used when checking the compatibility of image stitching arguments. """
         compat_images_lon = compat_images[0]  # Number of images in the longitude direction
         compat_images_lat = compat_images[1]  # Number of images in the latitude direction
-        compat_trim_lon = compat_trim[0]  # Number of pixels to trim each image by along the longitude dimension
-        compat_trim_lat = compat_trim[1]  # Number of pixels to trim each image by along the latitude dimension
     else:
-        compat_images_lon, compat_images_lat, compat_trim_lon, compat_trim_lat = None, None, None, None
+        compat_images_lon, compat_images_lat = None, None
 
     # All of these boolean variables must be True after the compatibility check or else a ValueError is returned
     lon_images_are_compatible = False
     lat_images_are_compatible = False
-    lon_trim_is_compatible = False
-    lat_trim_is_compatible = False
 
-    max_trim_lon, max_trim_lat = 0, 0  # Maximum number of pixels that images can be trimmed along the respective dimensions
+    num_matches = [0,0]  # Total number of matching image arguments found for each dimension
 
-    num_matches = 0  # Total number of matching image and trim arguments found with the provided arguments
-    for i in range(2,domain_lengths[0]-model_lengths[0]):  # Image counter for longitude dimension
-        lon_spacing = (domain_lengths[0]-model_lengths[0])/(i-1)  # Spacing between images in the longitude dimension
-        if lon_spacing - int(lon_spacing) == 0 and lon_spacing > 1 and model_lengths[0]-lon_spacing > 0:  # Check compatibility of longitude image spacing
-            for j in range(2,domain_lengths[1]-model_lengths[1]):  # Image counter for latitude dimension
-                lat_spacing = (domain_lengths[1]-model_lengths[1])/(j-1)  # Spacing between images in the latitude dimension
-                if lat_spacing - int(lat_spacing) == 0 and lat_spacing > 1 and model_lengths[1]-lat_spacing > 0:  # Check compatibility of latitude image spacing
-                    if compatibility_mode is False:
-                        num_matches += 1
-                        print("MATCH [lon,lat]: (Images, Max Trim)", [i,j], [int(np.floor(lon_spacing/2)),int(np.floor(lat_spacing/2))])
-                    else:
-                        if i == compat_images_lon:
-                            lon_images_are_compatible = True
-                            max_trim_lon = int(np.floor(lon_spacing/2))
-                            if compat_trim_lon <= max_trim_lon:
-                                lon_trim_is_compatible = True
-                        if j == compat_images_lat:
-                            lat_images_are_compatible = True
-                            max_trim_lat = int(np.floor(lat_spacing/2))
-                            if compat_trim_lat <= max_trim_lat:
-                                lat_trim_is_compatible = True
+    lon_image_matches = []
+    lat_image_matches = []
 
+    for lon_images in range(1,domain_lengths[0]-model_lengths[0]):  # Image counter for longitude dimension
+        if lon_images > 1:
+            lon_spacing = (domain_lengths[0]-model_lengths[0])/(lon_images-1)  # Spacing between images in the longitude dimension
+        else:
+            lon_spacing = 0
+        if lon_spacing - int(lon_spacing) == 0 and lon_spacing > 1 and model_lengths[0]-lon_spacing > 0:  # Check compatibility of latitude image spacing
+            lon_image_matches.append(lon_images)  # Add longitude image match to list
+            num_matches[0] += 1
+            if compatibility_mode is True:
+                if compat_images_lon == lon_images:  # If the number of images for the compatibility check equals the match
+                    lon_images_are_compatible = True
+        elif lon_spacing == 0 and domain_lengths[0] - model_lengths[0] == 0:
+            lon_image_matches.append(lon_images)  # Add lonitude image match to list
+            num_matches[0] += 1
+            if compatibility_mode is True:
+                if compat_images_lon == lon_images:  # If the number of images for the compatibility check equals the match
+                    lon_images_are_compatible = True
+
+    if num_matches[0] == 0:
+        raise ValueError(f"No compatible value for domain_images[0] was found with domain_lengths[0]={domain_lengths[0]} and model_lengths[0]={model_lengths[0]}.")
     if compatibility_mode is True:
-        if lon_images_are_compatible is True:
-            if lon_trim_is_compatible is False:
-                print("error")
-                raise ValueError("domain_trim[0]=%d is too large for %d images with model_lengths[0]=%d and domain_lengths[0]=%d (Max trim = %d)" % (compat_trim[0], compat_images[0], model_lengths[0], domain_lengths[0], max_trim_lon))
-        else:
-            print("error")
-            raise ValueError("domain_images[0]=%d is not compatible with model_lengths[0]=%d and domain_lengths[0]=%d" % (compat_images[0], model_lengths[0], domain_lengths[0]))
+        if lon_images_are_compatible is False:
+            raise ValueError(f"domain_images[0]={compat_images_lon} is not compatible with domain_lengths[0]={domain_lengths[0]} "
+                             f"and model_lengths[0]={model_lengths[0]}.\n"
+                             f"====> Compatible values for domain_images[0] given domain_lengths[0]={domain_lengths[0]} "
+                             f"and model_lengths[0]={model_lengths[0]}: {lon_image_matches}")
+    else:
+        print(f"Compatible longitude images: {lon_image_matches}")
 
-        if lat_images_are_compatible is True:
-            if lat_trim_is_compatible is False:
-                print("error")
-                raise ValueError("domain_trim[1]=%d is too large for %d images with model_lengths[1]=%d and domain_lengths[1]=%d (Max trim = %d)" % (compat_trim[1], compat_images[1], model_lengths[1], domain_lengths[1], max_trim_lat))
-            else:
-                print("done")
+    for lat_images in range(1,domain_lengths[1]-model_lengths[1]+2):  # Image counter for latitude dimension
+        if lat_images > 1:
+            lat_spacing = (domain_lengths[1]-model_lengths[1])/(lat_images-1)  # Spacing between images in the latitude dimension
         else:
-            print("error")
-            raise ValueError("domain_images[1]=%d is not compatible with model_lengths[1]=%d and domain_lengths[1]=%d" % (compat_images[1], model_lengths[1], domain_lengths[1]))
+            lat_spacing = 0
+        if lat_spacing - int(lat_spacing) == 0 and lat_spacing > 1 and model_lengths[1]-lat_spacing > 0:  # Check compatibility of latitude image spacing
+            lat_image_matches.append(lat_images)  # Add latitude image match to list
+            num_matches[1] += 1
+            if compatibility_mode is True:
+                if compat_images_lat == lat_images:  # If the number of images for the compatibility check equals the match
+                    lat_images_are_compatible = True
+        elif lat_spacing == 0 and domain_lengths[1] - model_lengths[1] == 0:
+            lat_image_matches.append(lat_images)  # Add latitude image match to list
+            num_matches[1] += 1
+            if compatibility_mode is True:
+                if compat_images_lat == lat_images:  # If the number of images for the compatibility check equals the match
+                    lat_images_are_compatible = True
+
+    if num_matches[1] == 0:
+        raise ValueError(f"No compatible value for domain_images[1] was found with domain_lengths[1]={domain_lengths[1]} and model_lengths[1]={model_lengths[1]}.")
+    if compatibility_mode is True:
+        if lat_images_are_compatible is False:
+            raise ValueError(f"domain_images[1]={compat_images_lat} is not compatible with domain_lengths[1]={domain_lengths[1]} "
+                             f"and model_lengths[1]={model_lengths[1]}.\n"
+                             f"====> Compatible values for domain_images[1] given domain_lengths[1]={domain_lengths[1]} "
+                             f"and model_lengths[1]={model_lengths[1]}: {lat_image_matches}")
+    else:
+        print(f"Compatible latitude images: {lat_image_matches}")
 
 
 def generate_predictions(model_number, model_dir, front_files, variable_files, predictions, normalization_method,
     loss, fss_mask_size, fss_c, front_types, pixel_expansion, metric, num_dimensions, domain_images, domain_lengths,
-    domain_trim, year, month, day, hour, random_variable=None, save_probabilities=True):
+    domain_trim, year, month, day, hour, random_variable=None, save_probabilities=False):
     """
     Function that makes random predictions using the provided model.
 
@@ -1905,10 +1919,10 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
 
     if front_types == 'ALL_bin':
-        probs_ds = xr.where(probs_ds > 0.1, probs_ds, float("NaN"))
+        probs_ds = xr.where(probs_ds > 0.4, probs_ds, float("NaN"))
         fronts = xr.where(fronts == 5, float("NaN"), fronts)  # Remove drylines from dataset
     else:
-        probs_ds = xr.where(probs_ds > 0.1, probs_ds, 0)
+        probs_ds = xr.where(probs_ds > 0.4, probs_ds, 0)
 
     fronts = xr.where(fronts == 0, float("NaN"), fronts)
 
@@ -2384,13 +2398,9 @@ if __name__ == '__main__':
                               'pixel_expansion', 'model_lengths']
         print("Checking arguments for 'calculate_performance_stats'....", end='')
         check_arguments(provided_arguments, required_arguments)
-
-        if args.domain_images[0] == 1 or args.domain_images[1] == 1:
-            print("WARNING: At least one dimension was only given 1 image, therefore compatibility cannot be checked. This may result in errors within the predictions.")
-        else:
-            print("Checking compatibility of image stitching arguments....", end='')
-            find_matches_for_domain(args.domain_lengths, args.model_lengths, compatibility_mode=True,
-                                    compat_images=args.domain_images, compat_trim=args.domain_trim)
+        print("Checking compatibility of image stitching arguments....", end='')
+        find_matches_for_domain(args.domain_lengths, args.model_lengths, compatibility_mode=True, compat_images=args.domain_images)
+        print("done")
         calculate_performance_stats(args.model_number, args.model_dir, args.num_variables, args.num_dimensions, args.front_types,
             args.domain, args.test_years, args.normalization_method, args.loss, args.fss_mask_size, args.fss_c,
             args.pixel_expansion, args.metric, args.domain_images, args.domain_lengths, args.domain_trim,
@@ -2419,8 +2429,8 @@ if __name__ == '__main__':
             print("WARNING: At least one dimension was only given 1 image, therefore compatibility cannot be checked. This may result in errors within the predictions.")
         else:
             print("Checking compatibility of image stitching arguments....", end='')
-            find_matches_for_domain(args.domain_lengths, args.model_lengths, compatibility_mode=True,
-                                    compat_images=args.domain_images, compat_trim=args.domain_trim)
+            find_matches_for_domain(args.domain_lengths, args.model_lengths, compatibility_mode=True, compat_images=args.domain_images)
+            print("done")
 
         print("Checking compatibility of prediction arguments....",end='')
         if args.predictions is not None:
