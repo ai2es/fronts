@@ -1037,7 +1037,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                             {"cold_probs": (("longitude", "latitude"), stitched_map_cold_probs),
                              "warm_probs": (("longitude", "latitude"), stitched_map_warm_probs), "stationary_probs": (("longitude", "latitude"), stitched_map_stationary_probs),
                              "occluded_probs": (("longitude", "latitude"), stitched_map_occluded_probs)},
-                            coords={"latitude": lats, "longitude": lons})
+                            coords={"latitude": image_lats, "longitude": image_lons})
                         prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim)
                         if save_probabilities is True:
                             outfile = '%s/model_%d/predictions/model_%d_%s_probabilities.pkl' % (model_dir, model_number, model_number, time)
@@ -1877,7 +1877,7 @@ def plot_performance_diagrams(model_dir, model_number, front_types, domain_image
 
 
 def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim,
-                    same_map=True):
+                    same_map=True, probability_mask=0.10):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
     subplots.
@@ -1891,46 +1891,45 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     model_number: Slurm job number for the model. This is the number in the model's filename.
     model_dir: Main directory for the models.
     pixel_expansion: Number of pixels to expand the fronts by in all directions.
+    probability_mask: Mask for front probabilities. Any probabilities smaller than this number will not be plotted.
+        (Must be a multiple of 0.1, greater than 0, and no greater than 0.9)
     probs_ds: Xarray dataset containing prediction (probability) data for fronts.
     same_map: Setting this to true will plot the probabilities and the ground truth on the same plot.
     time: Timestring for the prediction plot title.
     """
-    extent = np.array([120, 380, 0, 80])
+    # extent = np.array([220, 300, 25, 52])  # Extent for CONUS
+    extent = np.array([120, 380, 0, 80])  # Extent for full domain
     crs = ccrs.LambertConformal(central_longitude=250)
 
-    cold_levels = np.arange(0,1.1,0.1)
-    warm_levels = np.arange(0,1.1,0.1)
-    stationary_levels = np.arange(0,1.1,0.1)
-    occluded_levels = np.arange(0,1.1,0.1)
-    front_levels = np.arange(0,1.1,0.1)
+    cmap_cold, cmap_warm, cmap_stationary, cmap_occluded, cmap_front = cm.get_cmap('Blues', 10), cm.get_cmap('Reds', 10), \
+        cm.get_cmap('Greens', 10), cm.get_cmap('Purples', 10), cm.get_cmap('Greys', 10)
 
-    cmap_cold = cm.get_cmap('Blues', 12)
-    cold_norm_contour = mpl.colors.BoundaryNorm(cold_levels, cmap_cold.N)
-    cmap_warm = cm.get_cmap('Reds', 12)
-    warm_norm_contour = mpl.colors.BoundaryNorm(warm_levels, cmap_warm.N)
-    cmap_stationary = cm.get_cmap('Greens', 12)
-    stationary_norm_contour = mpl.colors.BoundaryNorm(stationary_levels, cmap_stationary.N)
-    cmap_occluded = cm.get_cmap('Purples', 12)
-    occluded_norm_contour = mpl.colors.BoundaryNorm(occluded_levels, cmap_occluded.N)
-    cmap_front = cm.get_cmap('Reds', 12)
-    front_norm_contour = mpl.colors.BoundaryNorm(front_levels, cmap_front.N)
+    prob_norm = mpl.colors.Normalize(vmin=0, vmax=1)
+    levels = np.arange(0,1.1,0.1)
+    cbar_ticks = np.arange(probability_mask,1.1,0.1)
+    cbar_tick_labels = [None, "10% ≤ P(front) < 20%", "20% ≤ P(front) < 30%", "30% ≤ P(front) < 40%", "40% ≤ P(front) < 50%",
+                        "50% ≤ P(front) < 60%", "60% ≤ P(front) < 70%", "70% ≤ P(front) < 80%", "80% ≤ P(front) < 90%",
+                        "P(front) ≥ 90%"]
+
+    probability_plot_title = "%s front probabilities (images=[%d,%d], trim=[%d,%d], mask=%d%s)" % (time,
+        domain_images[0], domain_images[1], domain_trim[0], domain_trim[1], int(probability_mask*100), "%")
 
     for expansion in range(pixel_expansion):
         fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
 
     if front_types == 'ALL_bin':
-        probs_ds = xr.where(probs_ds > 0.4, probs_ds, float("NaN"))
-        fronts = xr.where(fronts == 5, float("NaN"), fronts)  # Remove drylines from dataset
+        probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN"))
     else:
-        probs_ds = xr.where(probs_ds > 0.4, probs_ds, 0)
+        probs_ds = xr.where(probs_ds > probability_mask, probs_ds, 0)
 
     fronts = xr.where(fronts == 0, float("NaN"), fronts)
+    fronts = xr.where(fronts == 5, float("NaN"), fronts)
 
     if front_types == 'CFWF':
 
         # Create custom colorbar for the different front types of the 'truth' plot
-        cmap = mpl.colors.ListedColormap(['blue','red'], name='from_list', N=None)
-        norm = mpl.colors.Normalize(vmin=1,vmax=3)
+        cmap_identifier = mpl.colors.ListedColormap(['blue','red'], name='from_list', N=None)
+        norm_identifier = mpl.colors.Normalize(vmin=1,vmax=3)
 
         """ Create datasets for each front type and modify them so they do not overlap in the prediction plot """
         probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
@@ -1946,42 +1945,44 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         if same_map is True:
             fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
             fplot.plot_background(ax, extent)  # Plot background on main subplot containing fronts and probabilities
-            cold_ds.cold_probs.isel().plot.contourf(ax=ax, cmap=cmap_cold, norm=cold_norm_contour, x='longitude', y='latitude',
-                transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of a Cold Front',
-                                                                       'ticks': cold_levels,
-                                                                       'spacing': 'proportional'})
-            warm_ds.warm_probs.isel().plot.contourf(ax=ax, cmap=cmap_warm, norm=warm_norm_contour, x='longitude', y='latitude',
-                transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of a Warm Front',
-                                                                       'ticks': warm_levels,
-                                                                       'spacing': 'proportional'})
-            fronts.identifier.plot(ax=ax, cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            probability_plot_title = "%s fronts and probabilities (images=[%d,%d], trim=[%d,%d])" % (time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+            cold_ds.cold_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Blues",
+                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+            warm_ds.warm_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap='Reds',
+                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+            fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
             ax.title.set_text(probability_plot_title)
 
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+            cbar_cold = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_cold), ax=ax, pad=-0.165, boundaries=cbar_ticks, alpha=0.6)
+            cbar_cold.set_ticks([])
+            cbar_warm = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_warm), ax=ax, pad=-0.4, boundaries=cbar_ticks, alpha=0.6)
+            cbar_warm.set_ticks(cbar_ticks + 0.05)
+            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
             cbar.set_ticks(np.arange(1,5,1)+0.5)
             cbar.set_ticklabels(['Cold','Warm'])
             cbar.set_label('Front type')
 
         else:
-            fig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs}, gridspec_kw={'width_ratios': [1,1.3]})
+            fig, axarr = plt.subplots(2, 1, figsize=(20, 8), subplot_kw={'projection': crs})
+            plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
             axlist = axarr.flatten()
             for ax in axlist:
                 fplot.plot_background(ax, extent)
-            fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            axlist[0].title.set_text("%s Truth" % time)
-            cold_ds.cold_probs.isel().plot.contourf(ax=axlist[1], cmap=cmap_cold, norm=cold_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), cbar_kwargs={'label': 'Probability of a Cold Front',
-                                                                         'ticks': cold_levels,
-                                                                         'spacing': 'proportional'})
-            warm_ds.warm_probs.isel().plot.contourf(ax=axlist[1], cmap=cmap_warm, norm=warm_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), cbar_kwargs={'label': 'Probability of a Warm Front',
-                                                                         'ticks': warm_levels,
-                                                                         'spacing': 'proportional'})
-            probability_plot_title = "%s front probabilities (images=[%d,%d], trim=[%d,%d])" % (time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
-            axlist[1].title.set_text(probability_plot_title)
+            fronts.identifier.plot(ax=axlist[0], cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
+            axlist[0].title.set_text(probability_plot_title)
+            cold_ds.cold_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Blues",
+                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+            warm_ds.warm_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap='Reds',
+                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
 
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=axlist[0])
+            cbar_cold = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_cold), ax=axlist[1], pad=-0.168, boundaries=cbar_ticks, alpha=0.6)
+            cbar_cold.set_ticks([])
+            cbar_warm = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_warm), ax=axlist[1], boundaries=cbar_ticks, alpha=0.6)
+            cbar_warm.set_ticks(cbar_ticks + 0.05)
+            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[0], pad=0.1385, fraction=0.046)
             cbar.set_ticks(np.arange(1,5,1)+0.5)
             cbar.set_ticklabels(['Cold','Warm'])
             cbar.set_label('Front type')
@@ -1989,8 +1990,8 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     elif front_types == 'SFOF':
 
         # Create custom colorbar for the different front types of the 'truth' plot
-        cmap = mpl.colors.ListedColormap(['green','purple'], name='from_list', N=None)
-        norm = mpl.colors.Normalize(vmin=3,vmax=5)
+        cmap_identifier = mpl.colors.ListedColormap(['green','purple'], name='from_list', N=None)
+        norm_identifier = mpl.colors.Normalize(vmin=3,vmax=5)
 
         """ Create datasets for each front type and modify them so they do not overlap in the prediction plot """
         probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
@@ -2002,44 +2003,48 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
         occluded_ds = xr.where(probs_ds_occluded > probs_ds_stationary, probs_ds_occluded, float("NaN")).rename({"probs": "occluded_probs"})
 
+        # Create prediction plot
         if same_map is True:
             fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
             fplot.plot_background(ax, extent)  # Plot background on main subplot containing fronts and probabilities
-            stationary_ds.stationary_probs.isel().plot.contourf(ax=ax, cmap=cmap_stationary, norm=stationary_norm_contour,
-                x='longitude', y='latitude', transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of a Stationary Front',
-                                                                                                    'ticks': stationary_levels,
-                                                                                                    'spacing': 'proportional'})
-            occluded_ds.occluded_probs.isel().plot.contourf(ax=ax, cmap=cmap_occluded, norm=occluded_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of an Occluded Front',
-                                                                                     'ticks': occluded_levels,
-                                                                                     'spacing': 'proportional'})
-            fronts.identifier.plot(ax=ax, cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            probability_plot_title = "%s fronts and probabilities (images=[%d,%d], trim=[%d,%d])" % (time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+            stationary_ds.stationary_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Greens",
+                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+            occluded_ds.occluded_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Purples",
+                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+            fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
             ax.title.set_text(probability_plot_title)
 
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
-            cbar.set_ticks(np.arange(3,5,1)+0.5)
+            cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), ax=ax, pad=-0.165, boundaries=cbar_ticks, alpha=0.6)
+            cbar_stationary.set_ticks([])
+            cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), ax=ax, pad=-0.4, boundaries=cbar_ticks, alpha=0.6)
+            cbar_occluded.set_ticks(cbar_ticks + 0.05)
+            cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
+            cbar.set_ticks(np.arange(1,5,1)+0.5)
             cbar.set_ticklabels(['Stationary','Occluded'])
             cbar.set_label('Front type')
 
         else:
-            fig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs})
+            fig, axarr = plt.subplots(2, 1, figsize=(20, 8), subplot_kw={'projection': crs})
+            plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
             axlist = axarr.flatten()
             for ax in axlist:
                 fplot.plot_background(ax, extent)
-            fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], cmap=cmap_stationary, norm=stationary_norm_contour,
-                x='longitude', y='latitude', transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of a Stationary Front',
-                                                                                                    'ticks': stationary_levels,
-                                                                                                    'spacing': 'proportional'})
-            occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], cmap=cmap_occluded, norm=occluded_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of an Occluded Front',
-                                                                                     'ticks': occluded_levels,
-                                                                                     'spacing': 'proportional'})
-            probability_plot_title = "%s front probabilities (images=[%d,%d], trim=[%d,%d])" % (time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
-            axlist[1].title.set_text(probability_plot_title)
+            fronts.identifier.plot(ax=axlist[0], cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
+            axlist[0].title.set_text(probability_plot_title)
+            stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Greens",
+                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+            occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap='Purples',
+                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
 
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=axlist[0])
+            cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), ax=axlist[1], pad=-0.168, boundaries=cbar_ticks, alpha=0.6)
+            cbar_stationary.set_ticks([])
+            cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), ax=axlist[1], boundaries=cbar_ticks, alpha=0.6)
+            cbar_occluded.set_ticks(cbar_ticks + 0.05)
+            cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[0], pad=0.1385, fraction=0.046)
             cbar.set_ticks(np.arange(3,5,1)+0.5)
             cbar.set_ticklabels(['Stationary','Occluded'])
             cbar.set_label('Front type')
@@ -2047,84 +2052,94 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     elif front_types == 'ALL':
 
         # Create custom colorbar for the different front types of the 'truth' plot
-        cmap = mpl.colors.ListedColormap(["blue","red",'green','purple'], name='from_list', N=None)
-        norm = mpl.colors.Normalize(vmin=1,vmax=5)
+        cmap_subplot1 = mpl.colors.ListedColormap(["blue","red"], name='from_list', N=None)
+        norm_subplot1 = mpl.colors.Normalize(vmin=1,vmax=3)
+        cmap_subplot2 = mpl.colors.ListedColormap(["green","purple"], name='from_list', N=None)
+        norm_subplot2 = mpl.colors.Normalize(vmin=3,vmax=5)
+        cmap_identifier = mpl.colors.ListedColormap(["blue","red",'green','purple'], name='from_list', N=None)
+        norm_identifier = mpl.colors.Normalize(vmin=1,vmax=5)
 
-        if same_map is True:
-            fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
+        fronts_subplot1 = fronts
+        fronts_subplot2 = fronts
+
+        fronts_subplot1 = xr.where(fronts_subplot1 > 2, float("NaN"), fronts_subplot1)
+        fronts_subplot2 = xr.where(fronts_subplot2 < 3, float("NaN"), fronts_subplot2)
+
+        """ Create datasets for each front type and modify them so they do not overlap in the prediction plot """
+        probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
+        probs_ds_cold = probs_ds_copy_cold.drop(labels="warm_probs").rename({"cold_probs": "probs"})
+        probs_ds_warm = probs_ds_copy_warm.drop(labels="cold_probs").rename({"warm_probs": "probs"})
+        cold_ds = xr.where(probs_ds_cold > probs_ds_warm, probs_ds_cold, float("NaN")).rename({"probs": "cold_probs"})
+        probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
+        probs_ds_cold = probs_ds_copy_cold.drop(labels="warm_probs").rename({"cold_probs": "probs"})
+        probs_ds_warm = probs_ds_copy_warm.drop(labels="cold_probs").rename({"warm_probs": "probs"})
+        warm_ds = xr.where(probs_ds_warm > probs_ds_cold, probs_ds_warm, float("NaN")).rename({"probs": "warm_probs"})
+
+        probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
+        probs_ds_stationary = probs_ds_copy_stationary.drop(labels="occluded_probs").rename({"stationary_probs": "probs"})
+        probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
+        stationary_ds = xr.where(probs_ds_stationary > probs_ds_occluded, probs_ds_stationary, float("NaN")).rename({"probs": "stationary_probs"})
+        probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
+        probs_ds_stationary = probs_ds_copy_stationary.drop(labels="occluded_probs").rename({"stationary_probs": "probs"})
+        probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
+        occluded_ds = xr.where(probs_ds_occluded > probs_ds_stationary, probs_ds_occluded, float("NaN")).rename({"probs": "occluded_probs"})
+
+        fig, axarr = plt.subplots(2, 1, figsize=(20, 8), subplot_kw={'projection': crs}, gridspec_kw={'height_ratios': [1,1.245]})
+        plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
+        axlist = axarr.flatten()
+        for ax in axlist:
             fplot.plot_background(ax, extent)
-            probs_ds.cold_probs.plot.contourf(ax=ax, cmap=cmap_cold, norm=cold_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), cbar_kwargs={'label': 'Probability of a Cold Front',
-                                                                         'ticks': cold_levels,
-                                                                         'spacing': 'proportional'})
-            probs_ds.warm_probs.plot.contourf(ax=ax, cmap=cmap_warm, norm=warm_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), cbar_kwargs={'label': 'Probability of a Warm Front',
-                                                                         'ticks': warm_levels,
-                                                                         'spacing': 'proportional'})
-            probs_ds.stationary_probs.plot.contourf(ax=ax, cmap=cmap_stationary, norm=stationary_norm_contour,
-                x='longitude', y='latitude', transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of a Stationary Front',
-                                                                                                    'ticks': stationary_levels,
-                                                                                                    'spacing': 'proportional'})
-            probs_ds.occluded_probs.plot.contourf(ax=ax, cmap=cmap_occluded, norm=occluded_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of an Occluded Front',
-                                                                                     'ticks': occluded_levels,
-                                                                                     'spacing': 'proportional'})
-            fronts.identifier.plot(ax=ax, cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            probability_plot_title = "%s fronts and probabilities (images=[%d,%d], trim=[%d,%d])" % (time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
-            ax.title.set_text(probability_plot_title)
+        cold_ds.cold_probs.isel().plot.contourf(ax=axlist[0], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Blues",
+            transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+        warm_ds.warm_probs.isel().plot.contourf(ax=axlist[0], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap='Reds',
+            transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+        stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Greens",
+            transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+        occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Purples",
+            transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
+        fronts_subplot1.identifier.plot(ax=axlist[0], cmap=cmap_subplot1, norm=norm_subplot1, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
+        fronts_subplot2.identifier.plot(ax=axlist[1], cmap=cmap_subplot2, norm=norm_subplot2, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
+        axlist[0].title.set_text(probability_plot_title)
+        axlist[1].title.set_text("")
 
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
-            cbar.set_ticks(np.arange(1,5,1)+0.5)
-            cbar.set_ticklabels(['Cold','Warm','Stationary','Occluded'])
-            cbar.set_label('Front type')
-        else:
-            fig, axarr = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': crs})
-            axlist = axarr.flatten()
-            for ax in axlist:
-                fplot.plot_background(ax, extent)
-            fronts.identifier.plot(ax=axlist[0], cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            axlist[0].title.set_text("%s Truth" % time)
-            probs_ds.cold_probs.plot.contourf(ax=axlist[1], cmap=cmap_cold, norm=cold_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), cbar_kwargs={'label': 'Probability of a Cold Front',
-                                                                         'ticks': cold_levels,
-                                                                         'spacing': 'proportional'})
-            probs_ds.warm_probs.plot.contourf(ax=axlist[1], cmap=cmap_warm, norm=warm_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), cbar_kwargs={'label': 'Probability of a Warm Front',
-                                                                         'ticks': warm_levels,
-                                                                         'spacing': 'proportional'})
-            probs_ds.stationary_probs.plot.contourf(ax=axlist[1], cmap=cmap_stationary, norm=stationary_norm_contour,
-                x='longitude', y='latitude', transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of a Stationary Front',
-                                                                                                    'ticks': stationary_levels,
-                                                                                                    'spacing': 'proportional'})
-            probs_ds.occluded_probs.plot.contourf(ax=axlist[1], cmap=cmap_occluded, norm=occluded_norm_contour, x='longitude',
-                y='latitude', transform=ccrs.PlateCarree(), alpha=0.60, cbar_kwargs={'label': 'Probability of an Occluded Front',
-                                                                                     'ticks': occluded_levels,
-                                                                                     'spacing': 'proportional'})
-            probability_plot_title = "%s front probabilities (images=[%d,%d], trim=[%d,%d])" % (time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
-            axlist[1].title.set_text(probability_plot_title)
+        cbar_cold_ax = fig.add_axes([0.5065, 0.1913, 0.015, 0.688])
+        cbar_warm_ax = fig.add_axes([0.521, 0.1913, 0.015, 0.688])
+        cbar_stationary_ax = fig.add_axes([0.5355, 0.1913, 0.015, 0.688])
+        cbar_occluded_ax = fig.add_axes([0.55, 0.1913, 0.015, 0.688])
 
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=axlist[0])
-            cbar.set_ticks(np.arange(1,5,1)+0.5)
-            cbar.set_ticklabels(['Cold','Warm','Stationary','Occluded'])
-            cbar.set_label('Front type')
+        cbar_cold = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_cold), cax=cbar_cold_ax, pad=0, boundaries=cbar_ticks, alpha=0.6)
+        cbar_cold.set_ticks([])
+        cbar_warm = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_warm), cax=cbar_warm_ax, pad=0, boundaries=cbar_ticks, alpha=0.6)
+        cbar_warm.set_ticks([])
+        cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), cax=cbar_stationary_ax, pad=0, boundaries=cbar_ticks, alpha=0.6)
+        cbar_stationary.set_ticks([])
+        cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), cax=cbar_occluded_ax, pad=-0.2, boundaries=cbar_ticks, alpha=0.6)
+        cbar_occluded.set_ticks(cbar_ticks + 0.05)
+        cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+
+        cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[1], orientation='horizontal', fraction=0.046)
+        cbar.set_ticks(np.arange(1,5,1)+0.5)
+        cbar.set_ticklabels(['Cold','Warm','Stationary','Occluded'])
+        cbar.set_label('Front type')
 
     elif front_types == 'ALL_bin':
 
         # Create custom colorbar for the different front types of the 'truth' plot
-        cmap = mpl.colors.ListedColormap(["blue","red",'green','purple'], name='from_list', N=None)
-        norm = mpl.colors.Normalize(vmin=1,vmax=5)
+        cmap_identifier = mpl.colors.ListedColormap(["blue","red",'green','purple'], name='from_list', N=None)
+        norm_identifier = mpl.colors.Normalize(vmin=1,vmax=5)
 
         fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
         fplot.plot_background(ax, extent)
-        probs_ds.front_probs.plot.contourf(ax=ax, cmap=cmap_front, norm=front_norm_contour, x='longitude', y='latitude', transform=ccrs.PlateCarree(),
-            alpha=0.60, cbar_kwargs={'label': 'Probability of a front',
-                                     'ticks': front_levels,
-                                     'spacing': 'proportional'})
-        fronts.identifier.plot(ax=ax, cmap=cmap, norm=norm, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-        probability_plot_title = "%s fronts and probabilities (images=[%d,%d], trim=[%d,%d])" % (time, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        probs_ds.front_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap=cmap_front,
+            transform=ccrs.PlateCarree(), alpha=0.9, add_colorbar=False)
+        fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
         ax.title.set_text(probability_plot_title)
 
-        cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+        cbar_front = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_front), ax=ax, pad=-0.41, boundaries=cbar_ticks, alpha=0.9)
+        cbar_front.set_ticks(cbar_ticks + 0.05)
+        cbar_front.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+
+        cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
         cbar.set_ticks(np.arange(1,5,1)+0.5)
         cbar.set_ticklabels(['Cold','Warm','Stationary','Occluded'])
         cbar.set_label('Front type')
@@ -2425,12 +2440,9 @@ if __name__ == '__main__':
         print("Checking arguments for 'generate_predictions'....", end='')
         check_arguments(provided_arguments, required_arguments)
 
-        if args.domain_images[0] == 1 or args.domain_images[1] == 1:
-            print("WARNING: At least one dimension was only given 1 image, therefore compatibility cannot be checked. This may result in errors within the predictions.")
-        else:
-            print("Checking compatibility of image stitching arguments....", end='')
-            find_matches_for_domain(args.domain_lengths, args.model_lengths, compatibility_mode=True, compat_images=args.domain_images)
-            print("done")
+        print("Checking compatibility of image stitching arguments....", end='')
+        find_matches_for_domain(args.domain_lengths, args.model_lengths, compatibility_mode=True, compat_images=args.domain_images)
+        print("done")
 
         print("Checking compatibility of prediction arguments....",end='')
         if args.predictions is not None:
