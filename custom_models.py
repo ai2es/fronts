@@ -2,7 +2,7 @@
 Custom U-Net Models
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 12/27/2021 5:39 PM CST
+Last updated: 12/29/2021 10:41 AM CST
 """
 
 import keras
@@ -10,12 +10,13 @@ from keras.layers import Conv2D, Conv3D, BatchNormalization, MaxPooling2D, MaxPo
     UpSampling2D, UpSampling3D, Softmax, ReLU
 
 
-def UNet_3plus_2D(map_dim_x, map_dim_y, num_classes):
+def UNet_3plus_2D(map_dim_x, map_dim_y, num_classes, kernel_size=3):
     """
     Creates a 2-dimensional U-Net 3+.
 
     Parameters
     ----------
+    kernel_size: Size of the kernel in the convolution layers.
     map_dim_x: Integer that determines the X dimension of the image (map) to be fed into the Unet.
     map_dim_y: Integer that determines the Y dimension of the image (map) to be fed into the Unet.
     num_classes: Number of classes/labels that the U-Net will try to predict.
@@ -24,17 +25,15 @@ def UNet_3plus_2D(map_dim_x, map_dim_y, num_classes):
     -------
     model: 2D U-Net 3+
     """
-    # U-Net 3+ #
     filter_num_down = [64, 128, 256, 512, 1024, 2048]
     filter_num_skip = 64
     filter_num_aggregate = 384
-    kernel_size = 3
 
-    print("\n2D U-Net 3+")
+    print("\nmodel: 2D U-Net 3+")
     print("filter_num_down:", filter_num_down)
-    print("filter_num_skip: %d" % filter_num_skip)
-    print("filter_num_aggregate: %d" % filter_num_aggregate)
-    print("kernel size: %d" % kernel_size)
+    print("filter_num_skip:", filter_num_skip)
+    print("filter_num_aggregate:", filter_num_aggregate)
+    print("kernel size:", kernel_size)
 
     inputs = Input(shape=(map_dim_x, map_dim_y, 60))
 
@@ -371,12 +370,13 @@ def UNet_3plus_2D(map_dim_x, map_dim_y, num_classes):
     return model
 
 
-def UNet_3plus_3D(map_dim_x, map_dim_y, num_classes):
+def UNet_3plus_3D(map_dim_x, map_dim_y, num_classes, kernel_size=3):
     """
     Creates a 3-dimensional U-Net 3+.
 
     Parameters
     ----------
+    kernel_size: Size of the kernel in the convolution layers.
     map_dim_x: Integer that determines the X dimension of the image (map) to be fed into the Unet.
     map_dim_y: Integer that determines the Y dimension of the image (map) to be fed into the Unet.
     num_classes: Number of classes/labels that the U-Net will try to predict.
@@ -385,17 +385,15 @@ def UNet_3plus_3D(map_dim_x, map_dim_y, num_classes):
     -------
     model: 3D U-Net 3+
     """
-
     filter_num_down = [16, 32, 64, 128, 256, 512]
     filter_num_skip = 16
     filter_num_aggregate = 96
-    kernel_size = 3
 
-    print("\n3D U-Net 3+")
+    print("\nmodel: 3D U-Net 3+")
     print("filter_num_down:", filter_num_down)
-    print("filter_num_skip: %d" % filter_num_skip)
-    print("filter_num_aggregate: %d" % filter_num_aggregate)
-    print("kernel size:",kernel_size)
+    print("filter_num_skip:", filter_num_skip)
+    print("filter_num_aggregate:", filter_num_aggregate)
+    print("kernel size:", kernel_size)
 
     inputs = Input(shape=(map_dim_x, map_dim_y, 5, 12), name='Input')
 
