@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 11/29/2021 10:44 PM CST
+Last updated: 12/29/2021 10:39 AM CST
 """
 
 import random
@@ -294,19 +294,17 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
             filter_num_skip='auto', filter_num_aggregate='auto', n_labels=num_classes, stack_num_down=5, stack_num_up=5,
             activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='unet',
             deep_supervision=True)
+        model = custom_models.UNet_3plus_2D(map_dim_x, map_dim_y, num_classes)
         
         === U-Net 3+ (3D) ===
-        model = custom_models.UNet_3plus_3d(map_dim_x, map_dim_y, num_classes)
+        model = custom_models.UNet_3plus_3D(map_dim_x, map_dim_y, num_classes)
         """
         if num_dimensions == 2:
             print("Creating 2D U-Net....",end='')
-            model = models.unet_3plus_2d((map_dim_x, map_dim_y, num_variables), filter_num_down=[64, 128, 256, 512, 1024, 2048],
-                filter_num_skip='auto', filter_num_aggregate='auto', n_labels=num_classes, stack_num_down=5, stack_num_up=5,
-                activation='PReLU', output_activation='Softmax', batch_norm=True, pool=True, unpool=True, name='U-Net',
-                deep_supervision=True)
+            model = custom_models.UNet_3plus_2D(map_dim_x, map_dim_y, num_classes, kernel_size=3)
         elif num_dimensions == 3:
             print("Creating 3D U-Net....",end='')
-            model = custom_models.UNet_3plus_3D(map_dim_x, map_dim_y, num_classes)
+            model = custom_models.UNet_3plus_3D(map_dim_x, map_dim_y, num_classes, kernel_size=5)
         print('done')
 
         if loss == 'dice':
