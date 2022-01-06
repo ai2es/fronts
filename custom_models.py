@@ -2,7 +2,7 @@
 Custom U-Net Models
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 1/3/2021 8:11 PM CST
+Last updated: 1/6/2021 12:39 PM CST
 """
 
 import keras
@@ -12,7 +12,7 @@ from keras.layers import Conv2D, Conv3D, BatchNormalization, MaxPooling2D, MaxPo
 
 def UNet_3plus_2D(map_dim_x, map_dim_y, num_classes, kernel_size=3):
     """
-    Creates a 3-dimensional U-Net 3+.
+    Creates a 2-dimensional U-Net 3+.
 
     Parameters
     ----------
