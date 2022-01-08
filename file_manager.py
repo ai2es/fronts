@@ -2,7 +2,7 @@
 Functions in this code manage data files and directories.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 11/29/2021 10:03 PM CST
+Last updated: 1/3/2022 11:24 AM CST
 """
 
 from glob import glob
@@ -10,7 +10,7 @@ import pickle
 import argparse
 import numpy as np
 import os
-import tensorflow as tf
+from tensorflow.keras.models import load_model as lm
 import custom_losses
 import itertools
 from errors import check_arguments
@@ -197,27 +197,96 @@ def load_files(pickle_indir, num_variables, front_types, domain):
     return front_files, variable_files
 
 
-def load_file_lists(num_variables, front_types, domain):
+def load_file_lists(num_variables, front_types, domain, dataset=None, test_years=None, validation_years=None):
     """
     Opens files containing lists of filenames for fronts and variable data.
 
     Parameters
     ----------
+    dataset: Dataset to load. Available options are 'training', 'validation', or 'test'. Leaving this as None will load
+        the file lists without any filtering.
     domain: Domain which the front and variable files cover.
     front_types: Fronts in the frontobject datasets.
     num_variables: Number of variables in the variable datasets.
+    test_years: Years for the test set (will not be used in training or validation).
+    validation_years: Years for the validation set.
 
     Returns
     -------
-    front_files_list: List of filenames that contain front data.
-    variable_files_list: List of filenames that contain variable data.
+    front_files_<dataset>: List of filenames that contain front data.
+    variable_files_<dataset>: List of filenames that contain variable data.
     """
+
+    if domain == 'full':
+        timestep_6hr = True
+    else:
+        timestep_6hr = False
+
     with open('%dvar_%s_%s_front_files_list.pkl' % (num_variables, front_types, domain), 'rb') as f:
         front_files_list = pickle.load(f)
     with open('%dvar_%s_%s_variable_files_list.pkl' % (num_variables, front_types, domain), 'rb') as f:
         variable_files_list = pickle.load(f)
 
-    return front_files_list, variable_files_list
+    if timestep_6hr is True:
+        hours_to_remove = [3,9,15,21]
+        for hour in hours_to_remove:
+            string = '%02d_' % hour
+            front_files_list = list(filter(lambda hour: string not in hour, front_files_list))
+            variable_files_list = list(filter(lambda hour: string not in hour, variable_files_list))
+
+    separators = ['/','\\']
+    loop_counter = 0
+
+    if dataset == 'training':
+        front_files_training = front_files_list
+        variable_files_training = variable_files_list
+        while len(front_files_training) == len(front_files_list) and len(variable_files_training) == len(variable_files_list) and loop_counter < 2:
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
+                variable_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, variable_files_training))
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                front_files_training = list(filter(lambda test_year: test_year_string not in test_year, front_files_training))
+                variable_files_training = list(filter(lambda test_year: test_year_string not in test_year, variable_files_training))
+            loop_counter += 1
+
+        print("Training file pairs:", len(front_files_training))
+        return front_files_training, variable_files_training
+
+    elif dataset == 'validation':
+        front_files_validation = []
+        variable_files_validation = []
+        while len(front_files_validation) == 0 and len(variable_files_validation) == 0 and loop_counter < 2:
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files_list)))
+                variable_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, variable_files_list)))
+            front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
+            variable_files_validation = list(sorted(itertools.chain(*variable_files_validation)))
+            loop_counter += 1
+
+        print(f"Validation file pairs {validation_years}:", len(front_files_validation))
+        return front_files_validation, variable_files_validation
+
+    elif dataset == 'test':
+        front_files_test = []
+        variable_files_test = []
+        while len(front_files_test) == 0 and len(variable_files_test) == 0 and loop_counter < 2:
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files_list)))
+                variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files_list)))
+            front_files_test = list(sorted(itertools.chain(*front_files_test)))
+            variable_files_test = list(sorted(itertools.chain(*variable_files_test)))
+            loop_counter += 1
+
+        print(f"Test file pairs {test_years}:", len(front_files_test))
+        return front_files_test, variable_files_test
+
+    else:
+        print("Total file pairs:", len(front_files_list))
+        return front_files_list, variable_files_list
 
 
 def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions):
@@ -235,7 +304,7 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
     num_dimensions: Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     """
     if loss == 'cce' and metric == 'auc':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
     else:
         if loss == 'fss':
             if num_dimensions == 2:
@@ -244,9 +313,6 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
             if num_dimensions == 3:
                 loss_string = 'FSS_loss_3D'
                 loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-        elif loss == 'cce':
-            loss_string = None
-            loss_function = None
         elif loss == 'dice':
             loss_string = 'dice'
             loss_function = custom_losses.dice
@@ -256,6 +322,9 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
         elif loss == 'bss':
             loss_string = 'brier_skill_score'
             loss_function = custom_losses.brier_skill_score
+        else:
+            loss_string = None
+            loss_function = None
 
         if metric == 'fss':
             if num_dimensions == 2:
@@ -264,9 +333,6 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
             if num_dimensions == 3:
                 metric_string = 'FSS_loss_3D'
                 metric_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-        elif metric == 'auc':
-            metric_string = None
-            metric_function = None
         elif metric == 'dice':
             metric_string = 'dice'
             metric_function = custom_losses.dice
@@ -276,12 +342,15 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
         elif metric == 'bss':
             metric_string = 'brier_skill_score'
             metric_function = custom_losses.brier_skill_score
+        else:
+            metric_string = None
+            metric_function = None
 
         print("Loading model....", end='')
         if loss_string is not None:
             if metric_string is not None:
                 try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                    model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                         custom_objects={loss_string: loss_function, metric_string: metric_function})
                 except ValueError:
                     print("failed")
@@ -289,11 +358,11 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
                         print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
                         loss_string = 'FSS_loss'
                         print("Loading model....",end='')
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number,
                             model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
             else:
                 try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                    model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                         custom_objects={loss_string: loss_function})
                 except ValueError:
                     print("failed")
@@ -301,107 +370,14 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
                         print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
                         loss_string = 'FSS_loss'
                         print("Loading model....",end='')
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number,
+                        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number,
                             model_number), custom_objects={loss_string: loss_function})
         else:
-            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+            model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                 custom_objects={metric_string: metric_function})
         print("done")
 
     return model
-
-
-def load_test_files(num_variables, front_types, domain, test_years):
-    """
-    Splits front and variable data files into training and validation sets.
-
-    Parameters
-    ----------
-    domain: Domain which the front and variable files cover.
-    front_types: Fronts in the frontobject datasets.
-    num_variables: Number of variables in the variable datasets.
-    test_years: Years for the test set (will not be used in training or validation).
-
-    Returns
-    -------
-    front_files_test: List of files containing front data for the test dataset.
-    variable_files_test: List of files containing variable data for the test dataset.
-    """
-    front_files, variable_files = load_file_lists(num_variables, front_types, domain)
-
-    print("Test years:", test_years)
-
-    front_files_test = []
-    variable_files_test = []
-
-    for test_year in test_years:
-        test_year_string = "/" + str(test_year) + "/"
-        front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
-        variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files)))
-    front_files_test = list(sorted(itertools.chain(*front_files_test)))
-    variable_files_test = list(sorted(itertools.chain(*variable_files_test)))
-
-    print("Test file pairs:", len(variable_files_test), "(%.1f%s)" % (100*len(variable_files_test)/len(variable_files),"%"))
-
-    return front_files_test, variable_files_test
-
-
-def split_file_lists(front_files, variable_files, validation_years, test_years):
-    """
-    Splits front and variable data files into training and validation sets.
-
-    Parameters
-    ----------
-    front_files: List of files containing front data.
-    test_years: Years for the test set (will not be used in training or validation).
-    variable_files: List of files containing variable data.
-    validation_years: Year for the validation set.
-
-    Returns
-    -------
-    front_files_training:  List of files containing front data for the training dataset.
-    front_files_validation: List of files containing front data for the validation dataset.
-    variable_files_training: List of files containing variable data for the training dataset.
-    variable_files_validation: List of files containing variable data for the validation dataset.
-    """
-
-    print("Validation years:", validation_years)
-    print("Test years:", test_years)
-
-    front_files_test = []
-    variable_files_test = []
-    front_files_validation = []
-    variable_files_validation = []
-    front_files_training_temp = front_files
-    variable_files_training_temp = variable_files
-
-    for test_year in test_years:
-        test_year_string = "/" + str(test_year) + "/"
-        front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
-        variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files)))
-        front_files_training_temp = list(filter(lambda test_year: test_year_string not in test_year, front_files_training_temp))
-        variable_files_training_temp = list(filter(lambda test_year: test_year_string not in test_year, variable_files_training_temp))
-    front_files_test = list(sorted(itertools.chain(*front_files_test)))
-    variable_files_test = list(sorted(itertools.chain(*variable_files_test)))
-
-    for validation_year in validation_years:
-        validation_year_string = "/" + str(validation_year) + "/"
-        front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
-        variable_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, variable_files)))
-        front_files_training_temp = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training_temp))
-        variable_files_training_temp = list(filter(lambda validation_year: validation_year_string not in validation_year, variable_files_training_temp))
-    front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
-    variable_files_validation = list(sorted(itertools.chain(*variable_files_validation)))
-
-    front_files_training = front_files_training_temp
-    variable_files_training = variable_files_training_temp
-
-    print("Training file pairs:", len(variable_files_training), "(%.1f%s)" % (100*len(variable_files_training)/len(variable_files),"%"))
-    print("Validation file pairs:", len(variable_files_validation), "(%.1f%s)" % (100*len(variable_files_validation)/len(variable_files),"%"))
-    print("Test file pairs:", len(variable_files_test), "(%.1f%s)" % (100*len(variable_files_test)/len(variable_files),"%"))
-    print("NOTE: Test files will NOT be used in model training nor validation.")
-
-    return front_files_training, front_files_validation, variable_files_training, variable_files_validation
 
 
 if __name__ == '__main__':

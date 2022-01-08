@@ -2,7 +2,7 @@
 Function that trains a new or imported U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 12/29/2021 10:39 AM CST
+Last updated: 1/7/2022 7:12 PM CST
 """
 
 import random
@@ -81,8 +81,11 @@ class DataGenerator_2D(tf.keras.utils.Sequence):
             fronts = front_ds.sel(longitude=lons, latitude=lats).to_array().T.values
             if self.front_types == b'SFOF':
                 fronts = np.where(np.where(fronts == 3, 1, fronts) == 4, 2, np.where(fronts == 3, 1, fronts))  # Prevents generator from making 5 classes
-            elif self.front_types == b'DL':
-                fronts = np.where(np.where(fronts == 5, 1, fronts))  # Prevents generator from making 6 classes
+            elif self.front_types == b'ALL_bin':
+                fronts = np.where(fronts == 5, 0, fronts)  # Remove drylines
+                fronts = np.where(fronts > 0, 1, 0)
+            elif self.front_types == b'ALL':
+                fronts = np.where(fronts == 5, 0, fronts)  # Remove drylines
             """
             tensorflow.keras.utils.to_categorical: binarizes identifier (front label) values
             Example: [0, 2, 3, 4] ---> [[1, 0, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 1]] 
@@ -167,8 +170,11 @@ class DataGenerator_3D(tf.keras.utils.Sequence):
             fronts = front_ds.identifier.sel(longitude=lons, latitude=lats)  # Turn dataset into array
             if self.front_types == b'SFOF':
                 fronts = np.where(np.where(fronts == 3, 1, fronts) == 4, 2, np.where(fronts == 3, 1, fronts))  # Prevents generator from making 5 classes
-            elif self.front_types == b'DL':
-                fronts = np.where(np.where(fronts == 5, 1, fronts))  # Prevents generator from making 6 classes
+            elif self.front_types == b'ALL_bin':
+                fronts = np.where(fronts == 5, 0, fronts)  # Remove drylines
+                fronts = np.where(fronts > 0, 1, 0)
+            elif self.front_types == b'ALL':
+                fronts = np.where(fronts == 5, 0, fronts)  # Remove drylines
             """
             tensorflow.keras.utils.to_categorical: binarizes identifier (front label) values
             Example: [0, 2, 3, 4] ---> [[1, 0, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 1]] 
@@ -183,7 +189,7 @@ class DataGenerator_3D(tf.keras.utils.Sequence):
         return variable_dss, front_dss
 
 
-def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
+def train_new_unet(train_domain, valid_domain, map_dim_x, map_dim_y, learning_rate, train_epochs, train_steps,
                    train_batch_size, train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss,
                    workers, job_number, model_dir, front_types, normalization_method, fss_mask_size, fss_c,
                    pixel_expansion, num_variables, validation_years, test_years, num_dimensions, metric):
@@ -192,7 +198,6 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 
     Parameters
     ----------
-    front_files: List of all files containing fronts. Includes files with no fronts present in their respective domains.
     front_types: Fronts in the data.
     fss_c: C hyperparameter for the FSS loss' sigmoid function.
     fss_mask_size: Size of the mask for the FSS loss function.
@@ -209,6 +214,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     pixel_expansion: Number of pixels to expand the fronts by in all directions.
     test_years: Years for the test dataset.
     train_batch_size: Number of images/datasets to process for each step of each epoch in the training generator.
+    train_domain: Domain of the training data.
     train_epochs: Number of times that the U-Net will cycle over the data, or in this case, the number of times that the model will
         run the training generator.
     train_fronts: Minimum number of pixels containing fronts that must be present in an image for it to be used for training the
@@ -216,22 +222,37 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
     train_steps: Number of steps per epoch for the training generator. This is the number of times that a batch will be generated
         before the generator moves onto the next epoch.
     valid_batch_size: Number of images/datasets to process for each step of each epoch in the validation generator.
+    valid_domain: Domain of the validation data.
     valid_freq: This integer represents how often the model will be validated, or having its hyperparameters automatically
         tuned. For example, setting this to 4 means that the model will be validated every 4 epochs.
     valid_fronts: Minimum number of pixels containing fronts that must be present in an image for it to be used in U-Net
         validation.
     valid_steps: Number of steps for each epoch in the validation generator.
     validation_years: Years for the validation dataset.
-    variable_files: List of all files containing variable data.
     workers: Number of threads that will be generating batches in parallel.
     """
 
+    if test_years is not None and validation_years is not None:
+        if front_types == 'ALL_bin':
+            front_files_training, variable_files_training = fm.load_file_lists(num_variables, 'ALL', train_domain, dataset='training', test_years=test_years, validation_years=validation_years)
+            front_files_validation, variable_files_validation = fm.load_file_lists(num_variables, 'ALL', valid_domain, dataset='validation', validation_years=validation_years)
+        else:
+            front_files_training, variable_files_training = fm.load_file_lists(num_variables, front_types, train_domain, dataset='training', test_years=test_years, validation_years=validation_years)
+            front_files_validation, variable_files_validation = fm.load_file_lists(num_variables, front_types, valid_domain, dataset='validation', validation_years=validation_years)
+    else:
+        if front_types == 'ALL_bin':
+            front_files_training, variable_files_training = fm.load_file_lists(num_variables, 'ALL', train_domain)
+            front_files_validation, variable_files_validation = fm.load_file_lists(num_variables, 'ALL', valid_domain)
+        else:
+            front_files_training, variable_files_training = fm.load_file_lists(num_variables, front_types, train_domain)
+            front_files_validation, variable_files_validation = fm.load_file_lists(num_variables, front_types, valid_domain)
+
     if front_types == 'CFWF' or front_types == 'SFOF':
         num_classes = 3
-    elif front_types == 'DL':
+    elif front_types == 'ALL_bin':
         num_classes = 2
     else:
-        num_classes = 6
+        num_classes = 5
 
     """
     Splitting a new model across multiple GPUs using tf.distribute.MultiWorkerMirroredStrategy()
@@ -300,12 +321,9 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         model = custom_models.UNet_3plus_3D(map_dim_x, map_dim_y, num_classes)
         """
         if num_dimensions == 2:
-            print("Creating 2D U-Net....",end='')
             model = custom_models.UNet_3plus_2D(map_dim_x, map_dim_y, num_classes, kernel_size=3)
         elif num_dimensions == 3:
-            print("Creating 3D U-Net....",end='')
-            model = custom_models.UNet_3plus_3D(map_dim_x, map_dim_y, num_classes, kernel_size=5)
-        print('done')
+            model = custom_models.UNet_3plus_3D(map_dim_x, map_dim_y, num_classes, kernel_size=3)
 
         if loss == 'dice':
             loss_function = losses.dice
@@ -331,42 +349,20 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 
     model.summary()
 
-    # If validation year and test year are provided, split data into training and validation sets
-    if validation_years is not None and test_years is not None:
-        front_files_training, front_files_validation, variable_files_training, variable_files_validation = \
-            fm.split_file_lists(front_files, variable_files, validation_years, test_years)
-
-        if num_dimensions == 2:
-            train_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_training, variable_files_training,
-                map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-            validation_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_validation, variable_files_validation,
-                map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-
-        elif num_dimensions == 3:
-            train_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files_training, variable_files_training,
-                map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-            validation_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files_validation, variable_files_validation,
-                map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
+    if num_dimensions == 2:
+        train_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_training, variable_files_training,
+            map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+            num_variables], output_types=(tf.float16, tf.float16))
+        validation_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_validation, variable_files_validation,
+            map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+            num_variables], output_types=(tf.float16, tf.float16))
     else:
-        if num_dimensions == 2:
-            train_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files, variable_files, map_dim_x,
-                map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-            validation_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files, variable_files, map_dim_x,
-                map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-
-        elif num_dimensions == 3:
-            train_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files, variable_files, map_dim_x,
-                map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-            validation_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files, variable_files, map_dim_x,
-                map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
+        train_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files_training, variable_files_training,
+            map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+            num_variables], output_types=(tf.float16, tf.float16))
+        validation_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files_validation, variable_files_validation,
+            map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+            num_variables], output_types=(tf.float16, tf.float16))
 
     os.mkdir('%s/model_%d' % (model_dir, job_number))  # Make folder for model
     os.mkdir('%s/model_%d/predictions' % (model_dir, job_number))  # Make folder for model predictions
@@ -375,7 +371,7 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')  # ModelCheckpoint: saves model at a specified interval
-    early_stopping = EarlyStopping('val_loss', patience=500, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
+    early_stopping = EarlyStopping('val_loss', patience=1000, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
@@ -383,15 +379,15 @@ def train_new_unet(front_files, variable_files, map_dim_x, map_dim_y, learning_r
         checkpoint, history_logger], verbose=2, workers=workers, use_multiprocessing=True, max_queue_size=10000)
 
 
-def train_imported_unet(front_files, variable_files, learning_rate, train_epochs, train_steps, train_batch_size,
+def train_imported_unet(train_domain, valid_domain, learning_rate, train_epochs, train_steps, train_batch_size,
     train_fronts, valid_steps, valid_batch_size, valid_freq, valid_fronts, loss, workers, model_number, model_dir,
     front_types, normalization_method, fss_mask_size, fss_c, pixel_expansion, num_variables, validation_years,
     test_years, num_dimensions, metric):
     """
     Function that trains the U-Net model and saves the model along with its weights.
+
     Parameters
     ----------
-    front_files: List of all files containing fronts. Includes files with no fronts present in their respective domains.
     front_types: Fronts in the data.
     fss_c: C hyperparameter for the FSS loss' sigmoid function.
     fss_mask_size: Size of the mask for the FSS loss function.
@@ -406,6 +402,7 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     pixel_expansion: Number of pixels to expand the fronts by in all directions.
     test_years: Years for the test dataset.
     train_batch_size: Number of images/datasets to process for each step of each epoch in the training generator.
+    train_domain: Domain of the training data.
     train_epochs: Number of times that the U-Net will cycle over the data, or in this case, the number of times that the model will
         run the training generator.
     train_fronts: Minimum number of pixels containing fronts that must be present in an image for it to be used for training the
@@ -413,22 +410,37 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     train_steps: Number of steps per epoch for the training generator. This is the number of times that a batch will be generated
         before the generator moves onto the next epoch.
     valid_batch_size: Number of images/datasets to process for each step of each epoch in the validation generator.
+    valid_domain: Domain of the validation data.
     valid_freq: This integer represents how often the model will be validated, or having its hyperparameters automatically
         tuned. For example, setting this to 4 means that the model will be validated every 4 epochs.
     valid_fronts: Minimum number of pixels containing fronts that must be present in an image for it to be used in U-Net
         validation.
     valid_steps: Number of steps for each epoch in the validation generator.
     validation_years: Years for the validation dataset.
-    variable_files: List of all files containing variable data.
     workers: Number of threads that will be generating batches in parallel.
     """
 
+    if test_years is not None and validation_years is not None:
+        if front_types == 'ALL_bin':
+            front_files_training, variable_files_training = fm.load_file_lists(num_variables, 'ALL', train_domain, dataset='training', test_years=test_years, validation_years=validation_years)
+            front_files_validation, variable_files_validation = fm.load_file_lists(num_variables, 'ALL', valid_domain, dataset='validation', validation_years=validation_years)
+        else:
+            front_files_training, variable_files_training = fm.load_file_lists(num_variables, front_types, train_domain, dataset='training', test_years=test_years, validation_years=validation_years)
+            front_files_validation, variable_files_validation = fm.load_file_lists(num_variables, front_types, valid_domain, dataset='validation', validation_years=validation_years)
+    else:
+        if front_types == 'ALL_bin':
+            front_files_training, variable_files_training = fm.load_file_lists(num_variables, 'ALL', train_domain)
+            front_files_validation, variable_files_validation = fm.load_file_lists(num_variables, 'ALL', valid_domain)
+        else:
+            front_files_training, variable_files_training = fm.load_file_lists(num_variables, front_types, train_domain)
+            front_files_validation, variable_files_validation = fm.load_file_lists(num_variables, front_types, valid_domain)
+
     if front_types == 'CFWF' or front_types == 'SFOF':
         num_classes = 3
-    elif front_types == 'DL':
+    elif front_types == 'ALL_bin':
         num_classes = 2
     else:
-        num_classes = 6
+        num_classes = 5
 
     """
     Splitting an imported model across multiple GPUs using tf.distribute.MultiWorkerMirroredStrategy()
@@ -494,7 +506,7 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
 
         print('Compiling unet....', end='')
         adam = Adam(learning_rate=learning_rate)
-        model.compile(loss=loss_function, optimizer=adam, metrics=metric_function)
+        model.compile(loss=loss_function, optimizer=adam, metrics=metric_function, sample_weight_mode='temporal')
         print('done')
 
     model.summary()
@@ -502,49 +514,34 @@ def train_imported_unet(front_files, variable_files, learning_rate, train_epochs
     map_dim_x = model.layers[0].input_shape[0][1]  # Longitudinal dimension of the U-Net
     map_dim_y = model.layers[0].input_shape[0][2]  # Latitudinal dimension of the U-Net
 
-    # If validation years and test years are provided, split data into training and validation sets
-    if validation_years is not None and test_years is not None:
-        front_files_training, front_files_validation, variable_files_training, variable_files_validation = \
-            fm.split_file_lists(front_files, variable_files, validation_years, test_years)
-
-        if num_dimensions == 2:
-            train_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_training, variable_files_training,
-                map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-            validation_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_validation, variable_files_validation,
-                map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-
-        elif num_dimensions == 3:
-            train_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files_training, variable_files_training,
-                map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-            validation_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files_validation, variable_files_validation,
-                map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
+    if num_dimensions == 2:
+        train_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_training, variable_files_training,
+            map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+            num_variables], output_types=(tf.float16, tf.float16))
+        validation_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files_validation, variable_files_validation,
+            map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+            num_variables], output_types=(tf.float16, tf.float16))
     else:
-        if num_dimensions == 2:
-            train_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files, variable_files, map_dim_x,
-                map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-            validation_dataset = tf.data.Dataset.from_generator(DataGenerator_2D, args=[front_files, variable_files, map_dim_x,
-                map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
+        train_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files_training, variable_files_training,
+            map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+            num_variables], output_types=(tf.float16, tf.float16))
+        validation_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files_validation, variable_files_validation,
+            map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+            num_variables], output_types=(tf.float16, tf.float16))
 
-        elif num_dimensions == 3:
-            train_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files, variable_files, map_dim_x,
-                map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
-            validation_dataset = tf.data.Dataset.from_generator(DataGenerator_3D, args=[front_files, variable_files, map_dim_x,
-                map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
-                num_variables], output_types=(tf.float16, tf.float16))
+    train_dataset = tf.data.Dataset.from_generator(train_dataset, args=[front_files_training, variable_files_training,
+        map_dim_x, map_dim_y, train_batch_size, train_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+        num_variables, train_domain], output_types=(tf.float16, tf.float16))
+    validation_dataset = tf.data.Dataset.from_generator(validation_dataset, args=[front_files_validation, variable_files_validation,
+        map_dim_x, map_dim_y, valid_batch_size, valid_fronts, front_types, normalization_method, num_classes, pixel_expansion,
+        num_variables, valid_domain], output_types=(tf.float16, tf.float16))
 
     model_filepath = '%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number)
     history_filepath = '%s/model_%d/model_%d_history.csv' % (model_dir, model_number, model_number)
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')  # ModelCheckpoint: saves model at a specified interval
-    early_stopping = EarlyStopping('val_loss', patience=500, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
+    early_stopping = EarlyStopping('val_loss', patience=1000, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     model.fit(train_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
@@ -557,7 +554,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--domain', type=str, required=False, help='Domain of the data.')
     parser.add_argument('--epochs', type=int, required=False, help='Number of epochs for the U-Net training.')
-    parser.add_argument('--front_types', type=str, required=False, 
+    parser.add_argument('--front_types', type=str, required=False,
                         help='Front format of the file. If your files contain warm and cold fronts, pass this argument '
                              'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
                              'contain all fronts, pass this argument as ALL.')
@@ -580,6 +577,7 @@ if __name__ == "__main__":
     parser.add_argument('--pixel_expansion', type=int, required=False, help='Number of pixels to expand the fronts by.')
     parser.add_argument('--test_years', type=int, nargs="+", required=False, help='Years for the test set.')
     parser.add_argument('--train_valid_batch_size', type=int, required=False, nargs=2, help='Batch sizes for the U-Net.')
+    parser.add_argument('--train_valid_domains', type=str, required=False, nargs=2, help='Domains for training and validation')
     parser.add_argument('--train_valid_fronts', type=int, required=False, nargs=2,
                         help='How many pixels with fronts an image must have for it to be passed through the generator.')
     parser.add_argument('--train_valid_steps', type=int, required=False, nargs=2, help='Number of steps for each epoch.')
@@ -604,30 +602,28 @@ if __name__ == "__main__":
 
     if args.import_model_number is not None:
         if args.map_dim_x_y is not None:
-            raise errors.ExtraArgumentError('import_model_number is not None but the following argument was passed: map_dim_x_y')
-        required_arguments = ['domain', 'epochs', 'front_types', 'learning_rate', 'loss', 'metric', 'model_dir',
+            raise errors.ArgumentConflictError('import_model_number is not None but the following argument was passed: map_dim_x_y')
+        required_arguments = ['epochs', 'front_types', 'learning_rate', 'loss', 'metric', 'model_dir',
                               'normalization_method', 'num_dimensions', 'num_variables', 'pixel_expansion',
-                              'train_valid_batch_size', 'train_valid_fronts', 'train_valid_steps', 'valid_freq',
-                              'workers']
+                              'train_valid_batch_size', 'train_valid_domains', 'train_valid_fronts', 'train_valid_steps',
+                              'valid_freq', 'workers']
         print("Checking arguments for 'train_imported_unet'....", end='')
         check_arguments(provided_arguments, required_arguments)
         print("WARNING: You have imported model %d for training." % args.import_model_number)
-        front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain)
-        train_imported_unet(front_files, variable_files, args.learning_rate, args.epochs, args.train_valid_steps[0], args.train_valid_batch_size[0],
-            args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1], args.valid_freq, args.train_valid_fronts[1],
-            args.loss, args.workers, args.import_model_number, args.model_dir, args.front_types, args.normalization_method, args.fss_mask_size,
-            args.fss_c, args.pixel_expansion, args.num_variables, args.validation_years, args.test_years, args.num_dimensions,
-            args.metric)
+        train_imported_unet(args.train_valid_domains[0], args.train_valid_domains[1], args.learning_rate, args.epochs, args.train_valid_steps[0],
+            args.train_valid_batch_size[0], args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1],
+            args.valid_freq, args.train_valid_fronts[1], args.loss, args.workers, args.import_model_number, args.model_dir,
+            args.front_types, args.normalization_method, args.fss_mask_size, args.fss_c, args.pixel_expansion, args.num_variables,
+            args.validation_years, args.test_years, args.num_dimensions, args.metric)
 
     if args.job_number is not None:
-        required_arguments = ['domain', 'epochs', 'front_types', 'learning_rate', 'loss', 'map_dim_x_y', 'metric',
+        required_arguments = ['epochs', 'front_types', 'learning_rate', 'loss', 'map_dim_x_y', 'metric',
                               'model_dir', 'normalization_method', 'num_dimensions', 'num_variables', 'pixel_expansion',
-                              'train_valid_batch_size', 'train_valid_fronts', 'train_valid_steps', 'valid_freq',
-                              'workers']
+                              'train_valid_batch_size', 'train_valid_domains', 'train_valid_fronts', 'train_valid_steps',
+                              'valid_freq', 'workers']
         print("Checking arguments for 'train_new_unet'....", end='')
         check_arguments(provided_arguments, required_arguments)
-        front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain)
-        train_new_unet(front_files, variable_files, args.map_dim_x_y[0], args.map_dim_x_y[1], args.learning_rate, args.epochs,
+        train_new_unet(args.train_valid_domains[0], args.train_valid_domains[1], args.map_dim_x_y[0], args.map_dim_x_y[1], args.learning_rate, args.epochs,
             args.train_valid_steps[0], args.train_valid_batch_size[0], args.train_valid_fronts[0], args.train_valid_steps[1], args.train_valid_batch_size[1],
             args.valid_freq, args.train_valid_fronts[1], args.loss, args.workers, args.job_number, args.model_dir, args.front_types,
             args.normalization_method, args.fss_mask_size, args.fss_c, args.pixel_expansion, args.num_variables,

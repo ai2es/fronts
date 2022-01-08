@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 12/11/2021 8:02 PM CST
+Last updated: 1/7/2022 12:32 PM CST
 """
 
 import random
@@ -214,17 +214,16 @@ def calculate_performance_stats(model_number, model_dir, num_variables, num_dime
     # If test_years is provided, load files corresponding to those years, otherwise just load all files
     if test_years is not None:
         if front_types == 'ALL_bin':
-            front_files, variable_files = fm.load_test_files(num_variables, 'ALL', domain, test_years)
+            front_files, variable_files = fm.load_file_lists(num_variables, 'ALL', domain, dataset='test', test_years=test_years)
         else:
-            front_files, variable_files = fm.load_test_files(num_variables, front_types, domain, test_years)
+            front_files, variable_files = fm.load_file_lists(num_variables, front_types, domain, dataset='test', test_years=test_years)
     else:
         if front_types == 'ALL_bin':
             front_files, variable_files = fm.load_file_lists(num_variables, 'ALL', domain)
         else:
             front_files, variable_files = fm.load_file_lists(num_variables, front_types, domain)
+
         front_files, variable_files = list(front_files), list(variable_files)
-        print("Front file count:", len(front_files))
-        print("Variable file count:", len(variable_files))
 
     model = fm.load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions)  #
 
@@ -970,7 +969,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                         probs_ds = xr.Dataset(
                             {"cold_probs": (("longitude", "latitude"), stitched_map_cold_probs),
                              "warm_probs": (("longitude", "latitude"), stitched_map_warm_probs)}, coords={"latitude": image_lats, "longitude": image_lons}).transpose()
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim)
+                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, num_dimensions, pixel_expansion, domain_images, domain_trim)
                         if save_probabilities is True:
                             outfile = '%s/model_%d/predictions/model_%d_%s_probabilities.pkl' % (model_dir, model_number, model_number, time)
                             with open(outfile,'wb') as f:
@@ -999,7 +998,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                         probs_ds = xr.Dataset(
                             {"stationary_probs": (("longitude", "latitude"), stitched_map_stationary_probs),
                              "occluded_probs": (("longitude", "latitude"), stitched_map_occluded_probs)}, coords={"latitude": image_lats, "longitude": image_lons}).transpose()
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim)
+                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, num_dimensions, pixel_expansion, domain_images, domain_trim)
                         if save_probabilities is True:
                             outfile = '%s/model_%d/predictions/model_%d_%s_probabilities.pkl' % (model_dir, model_number, model_number, time)
                             with open(outfile,'wb') as f:
@@ -1038,7 +1037,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                              "warm_probs": (("longitude", "latitude"), stitched_map_warm_probs), "stationary_probs": (("longitude", "latitude"), stitched_map_stationary_probs),
                              "occluded_probs": (("longitude", "latitude"), stitched_map_occluded_probs)},
                             coords={"latitude": image_lats, "longitude": image_lons})
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim)
+                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, num_dimensions, pixel_expansion, domain_images, domain_trim)
                         if save_probabilities is True:
                             outfile = '%s/model_%d/predictions/model_%d_%s_probabilities.pkl' % (model_dir, model_number, model_number, time)
                             with open(outfile,'wb') as f:
@@ -1062,7 +1061,7 @@ def generate_predictions(model_number, model_dir, front_files, variable_files, p
                         print("%s....%d/%d" % (time, int(domain_images_lon*domain_images_lat), int(domain_images_lon*domain_images_lat)))
                         probs_ds = xr.Dataset({"front_probs": (("longitude","latitude"), stitched_map_front_probs)},
                                               coords={"latitude": image_lats, "longitude": image_lons}).transpose()
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim)
+                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, num_dimensions, pixel_expansion, domain_images, domain_trim)
                         if save_probabilities is True:
                             outfile = '%s/model_%d/predictions/model_%d_%s_probabilities.pkl' % (model_dir, model_number, model_number, time)
                             with open(outfile,'wb') as f:
@@ -1876,8 +1875,8 @@ def plot_performance_diagrams(model_dir, model_number, front_types, domain_image
         plt.close()
 
 
-def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, pixel_expansion, domain_images, domain_trim,
-                    same_map=True, probability_mask=0.10):
+def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types, num_dimensions, pixel_expansion, domain_images, 
+                    domain_trim, same_map=True, probability_mask_2D=0.05, probability_mask_3D=0.10):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
     subplots.
@@ -1890,9 +1889,12 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     fronts: Xarray DataArray containing the 'true' front data.
     model_number: Slurm job number for the model. This is the number in the model's filename.
     model_dir: Main directory for the models.
+    num_dimensions: Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
     pixel_expansion: Number of pixels to expand the fronts by in all directions.
-    probability_mask: Mask for front probabilities. Any probabilities smaller than this number will not be plotted.
-        (Must be a multiple of 0.1, greater than 0, and no greater than 0.9)
+    probability_mask_2D: Mask for front probabilities with 2D models. Any probabilities smaller than this number will not be plotted.
+        - Must be a multiple of 0.05, greater than 0, and no greater than 0.45
+    probability_mask_3D: Mask for front probabilities with 3D models. Any probabilities smaller than this number will not be plotted.
+        - Must be a multiple of 0.1, greater than 0, and no greater than 0.9.
     probs_ds: Xarray dataset containing prediction (probability) data for fronts.
     same_map: Setting this to true will plot the probabilities and the ground truth on the same plot.
     time: Timestring for the prediction plot title.
@@ -1901,15 +1903,26 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
     extent = np.array([120, 380, 0, 80])  # Extent for full domain
     crs = ccrs.LambertConformal(central_longitude=250)
 
-    cmap_cold, cmap_warm, cmap_stationary, cmap_occluded, cmap_front = cm.get_cmap('Blues', 10), cm.get_cmap('Reds', 10), \
-        cm.get_cmap('Greens', 10), cm.get_cmap('Purples', 10), cm.get_cmap('Greys', 10)
+    if num_dimensions == 2:
+        probability_mask = probability_mask_2D
+        vmax, cbar_tick_adjust, cbar_label_adjust, colors = 0.55, 0.025, 20, 11
+        levels = np.arange(0,0.6,0.05)
+        cbar_ticks = np.arange(probability_mask,0.6,0.05)
+        cbar_tick_labels = [None, "5% ≤ P(front) < 10%", "10% ≤ P(front) < 15%", "15% ≤ P(front) < 20%", "20% ≤ P(front) < 25%",
+                            "25% ≤ P(front) < 30%", "30% ≤ P(front) < 35%", "35% ≤ P(front) < 40%", "40% ≤ P(front) < 45%",
+                            "45% ≤ P(front) < 50%", "P(front) ≥ 50%"]
+    else:
+        probability_mask = probability_mask_3D
+        vmax, cbar_tick_adjust, cbar_label_adjust, colors = 1, 0.05, 10, 10
+        levels = np.arange(0,1.1,0.1)
+        cbar_ticks = np.arange(probability_mask,1.1,0.1)
+        cbar_tick_labels = [None, "10% ≤ P(front) < 20%", "20% ≤ P(front) < 30%", "30% ≤ P(front) < 40%", "40% ≤ P(front) < 50%",
+                            "50% ≤ P(front) < 60%", "60% ≤ P(front) < 70%", "70% ≤ P(front) < 80%", "80% ≤ P(front) < 90%",
+                            "P(front) ≥ 90%"]
 
-    prob_norm = mpl.colors.Normalize(vmin=0, vmax=1)
-    levels = np.arange(0,1.1,0.1)
-    cbar_ticks = np.arange(probability_mask,1.1,0.1)
-    cbar_tick_labels = [None, "10% ≤ P(front) < 20%", "20% ≤ P(front) < 30%", "30% ≤ P(front) < 40%", "40% ≤ P(front) < 50%",
-                        "50% ≤ P(front) < 60%", "60% ≤ P(front) < 70%", "70% ≤ P(front) < 80%", "80% ≤ P(front) < 90%",
-                        "P(front) ≥ 90%"]
+    cmap_cold, cmap_warm, cmap_stationary, cmap_occluded, cmap_front = cm.get_cmap('Blues', colors), cm.get_cmap('Reds', colors), \
+        cm.get_cmap('Greens', colors), cm.get_cmap('Purples', colors), cm.get_cmap('Greys', colors)
+    prob_norm = mpl.colors.Normalize(vmin=0, vmax=vmax)
 
     probability_plot_title = "%s front probabilities (images=[%d,%d], trim=[%d,%d], mask=%d%s)" % (time,
         domain_images[0], domain_images[1], domain_trim[0], domain_trim[1], int(probability_mask*100), "%")
@@ -1955,8 +1968,8 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
             cbar_cold = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_cold), ax=ax, pad=-0.165, boundaries=cbar_ticks, alpha=0.6)
             cbar_cold.set_ticks([])
             cbar_warm = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_warm), ax=ax, pad=-0.4, boundaries=cbar_ticks, alpha=0.6)
-            cbar_warm.set_ticks(cbar_ticks + 0.05)
-            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+            cbar_warm.set_ticks(cbar_ticks + cbar_tick_adjust)
+            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
             cbar.set_ticks(np.arange(1,5,1)+0.5)
@@ -1979,8 +1992,8 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
             cbar_cold = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_cold), ax=axlist[1], pad=-0.168, boundaries=cbar_ticks, alpha=0.6)
             cbar_cold.set_ticks([])
             cbar_warm = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_warm), ax=axlist[1], boundaries=cbar_ticks, alpha=0.6)
-            cbar_warm.set_ticks(cbar_ticks + 0.05)
-            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+            cbar_warm.set_ticks(cbar_ticks + cbar_tick_adjust)
+            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[0], pad=0.1385, fraction=0.046)
             cbar.set_ticks(np.arange(1,5,1)+0.5)
@@ -2017,11 +2030,11 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
             cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), ax=ax, pad=-0.165, boundaries=cbar_ticks, alpha=0.6)
             cbar_stationary.set_ticks([])
             cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), ax=ax, pad=-0.4, boundaries=cbar_ticks, alpha=0.6)
-            cbar_occluded.set_ticks(cbar_ticks + 0.05)
-            cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+            cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
+            cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
-            cbar.set_ticks(np.arange(1,5,1)+0.5)
+            cbar.set_ticks(np.arange(3,5,1)+0.5)
             cbar.set_ticklabels(['Stationary','Occluded'])
             cbar.set_label('Front type')
 
@@ -2041,8 +2054,8 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
             cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), ax=axlist[1], pad=-0.168, boundaries=cbar_ticks, alpha=0.6)
             cbar_stationary.set_ticks([])
             cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), ax=axlist[1], boundaries=cbar_ticks, alpha=0.6)
-            cbar_occluded.set_ticks(cbar_ticks + 0.05)
-            cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+            cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
+            cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[0], pad=0.1385, fraction=0.046)
             cbar.set_ticks(np.arange(3,5,1)+0.5)
@@ -2114,8 +2127,8 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), cax=cbar_stationary_ax, pad=0, boundaries=cbar_ticks, alpha=0.6)
         cbar_stationary.set_ticks([])
         cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), cax=cbar_occluded_ax, pad=-0.2, boundaries=cbar_ticks, alpha=0.6)
-        cbar_occluded.set_ticks(cbar_ticks + 0.05)
-        cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+        cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
+        cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
         cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[1], orientation='horizontal', fraction=0.046)
         cbar.set_ticks(np.arange(1,5,1)+0.5)
@@ -2136,8 +2149,8 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, front_types
         ax.title.set_text(probability_plot_title)
 
         cbar_front = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_front), ax=ax, pad=-0.41, boundaries=cbar_ticks, alpha=0.9)
-        cbar_front.set_ticks(cbar_ticks + 0.05)
-        cbar_front.set_ticklabels(cbar_tick_labels[int(probability_mask*10):])
+        cbar_front.set_ticks(cbar_ticks + cbar_tick_adjust)
+        cbar_front.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
         cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
         cbar.set_ticks(np.arange(1,5,1)+0.5)
@@ -2269,12 +2282,12 @@ def learning_curve(model_number, model_dir, loss, fss_mask_size, fss_c, metric, 
     plt.title("Training metric: %s" % metric_title)
     plt.grid()
 
-    if 'final_Softmax_loss' in history:
-        plt.plot(history['sup4_Softmax_%s' % metric_string], label='Encoder 6')
-        plt.plot(history['sup3_Softmax_%s' % metric_string], label='Decoder 5')
-        plt.plot(history['sup2_Softmax_%s' % metric_string], label='Decoder 4')
-        plt.plot(history['sup1_Softmax_%s' % metric_string], label='Decoder 3')
-        plt.plot(history['sup0_Softmax_%s' % metric_string], label='Decoder 2')
+    if 'softmax_loss' in history:
+        plt.plot(history['softmax_%s' % metric_string], label='Encoder 6')
+        plt.plot(history['softmax_%s' % metric_string], label='Decoder 5')
+        plt.plot(history['softmax_%s' % metric_string], label='Decoder 4')
+        plt.plot(history['softmax_%s' % metric_string], label='Decoder 3')
+        plt.plot(history['softmax_%s' % metric_string], label='Decoder 2')
         plt.plot(history['final_Softmax_%s' % metric_string], label='Decoder 1 (final)', color='black')
     elif 'unet_output_final_activation_loss' in history:
         plt.plot(history['unet_output_sup0_activation_%s' % metric_string], label='sup0')
@@ -2464,9 +2477,9 @@ if __name__ == '__main__':
 
         if args.test_years is not None:
             if args.front_types == 'ALL_bin':
-                front_files, variable_files = fm.load_test_files(args.num_variables, 'ALL', args.domain, args.test_years)
+                front_files, variable_files = fm.load_file_lists(args.num_variables, 'ALL', args.domain, dataset='test', test_years=args.test_years)
             else:
-                front_files, variable_files = fm.load_test_files(args.num_variables, args.front_types, args.domain, args.test_years)
+                front_files, variable_files = fm.load_file_lists(args.num_variables, args.front_types, args.domain, dataset='test', test_years=args.test_years)
         else:
             if args.front_types == 'ALL_bin':
                 front_files, variable_files = fm.load_file_lists(args.num_variables, 'ALL', args.domain)
