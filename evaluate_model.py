@@ -1,25 +1,30 @@
 """
 Functions used for evaluating a U-Net model.
-Code written by: Andrew Justin (andrewjustin@ou.edu)
+Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 3/12/2022 9:12 PM CST
+Last updated: 4/10/2022 2:07 PM CDT
+
+Known bugs:
+- none
+
+Please report any bugs to Andrew Justin: andrewjustinwx@gmail.com
 """
 
-import os.path
+import os
 import random
-import pandas as pd
 import argparse
+import pandas as pd
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import errors
 import file_manager as fm
-import Fronts_Aggregate_Plot as fplot
 import xarray as xr
 from errors import check_arguments
 import pickle
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
-from expand_fronts import one_pixel_expansion as ope
+from utils.data_utils import expand_fronts
+from utils.plotting_utils import plot_background
 from variables import normalize
 from glob import glob
 import py3nvml
@@ -33,43 +38,43 @@ def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images
 
     Parameters
     ----------
-    domain_images_lat: int
-        Number of images along the latitude dimension of the domain.
-    domain_images_lon: int
-        Number of images along the longitude dimension of the domain.
-    domain_trim_lat: int
-        Number of pixels by which the images will be trimmed along the latitude dimension before taking the maximum of overlapping pixels.
-    domain_trim_lon: int
-        Number of pixels by which the images will be trimmed along the longitude dimension before taking the maximum of overlapping pixels.
-    image_probs: array
-        Array of front probabilities for the current prediction/image.
-    image_size_lat: int
-        Number of pixels along the latitude dimension of the model predictions.
-    image_size_lon: int
-        Number of pixels along the longitude dimension of the model predictions.
-    lat_image: int
-        Current image number along the latitude dimension.
-    lat_image_spacing: int
-        Number of pixels between each image along the latitude dimension.
-    lat_pixels_per_image: int
-        Number of pixels along the latitude dimension of each image.
-    lon_image: int
-        Current image number along the longitude dimension.
-    lon_image_spacing: int
-        Number of pixels between each image along the longitude dimension.
-    lon_pixels_per_image: int
-        Number of pixels along the longitude dimension of each image.
+    stitched_map_probs: Numpy array
+        - Array of front probabilities for the final map.
+    image_probs: Numpy array
+        - Array of front probabilities for the current prediction/image.
     map_created: bool
-        Boolean flag that declares whether or not the final map has been completed.
-    stitched_map_probs: array
-        Array of front probabilities for the final map.
+        - Boolean flag that declares whether or not the final map has been completed.
+    domain_images_lon: int
+        - Number of images along the longitude dimension of the domain.
+    domain_images_lat: int
+        - Number of images along the latitude dimension of the domain.
+    lon_image: int
+        - Current image number along the longitude dimension.
+    lat_image: int
+        - Current image number along the latitude dimension.
+    image_size_lon: int
+        - Number of pixels along the longitude dimension of the model predictions.
+    image_size_lat: int
+        - Number of pixels along the latitude dimension of the model predictions.
+    domain_trim_lon: int
+        - Number of pixels by which the images will be trimmed along the longitude dimension before taking the maximum of overlapping pixels.
+    domain_trim_lat: int
+        - Number of pixels by which the images will be trimmed along the latitude dimension before taking the maximum of overlapping pixels.
+    lon_image_spacing: int
+        - Number of pixels between each image along the longitude dimension.
+    lat_image_spacing: int
+        - Number of pixels between each image along the latitude dimension.
+    lon_pixels_per_image: int
+        - Number of pixels along the longitude dimension of each image.
+    lat_pixels_per_image: int
+        - Number of pixels along the latitude dimension of each image.
 
     Returns
     -------
     map_created: bool
-        Boolean flag that declares whether or not the final map has been completed.
+        - Boolean flag that declares whether or not the final map has been completed.
     stitched_map_probs: array
-        Array of front probabilities for the final map.
+        - Array of front probabilities for the final map.
     """
     if lon_image == 0:  # If the image is on the western edge of the domain
         if lat_image == 0:  # If the image is on the northern edge of the domain
@@ -210,17 +215,17 @@ def calculate_performance_stats(probs_ds, front_types, fronts_filename):
 
     Parameters
     ----------
-    fronts_filename: string
-        Filename for the file containing the front objects.
-    front_types: string
-        Special code representing the front types.
     probs_ds: xarray Dataset
-        Dataset containing the model's predictions.
+        - Dataset containing the model's predictions.
+    front_types: str
+        - Special code representing the front types.
+    fronts_filename: str
+        - Filename for the file containing the front objects.
 
     Returns
     -------
     performance_ds: xarray Dataset
-        Performance statistics for the model prediction.
+        - Performance statistics for the model prediction.
     """
 
     """
@@ -258,7 +263,7 @@ def calculate_performance_stats(probs_ds, front_types, fronts_filename):
         for boundary in range(4):
             fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
             for y in range(int(2*(boundary+1))):
-                fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
+                fronts = expand_fronts(fronts)
             """
             t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
             f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
@@ -306,7 +311,7 @@ def calculate_performance_stats(probs_ds, front_types, fronts_filename):
         for boundary in range(4):
             fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
             for y in range(int(2*(boundary+1))):
-                fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
+                fronts = expand_fronts(fronts)
             """
             t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
             f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
@@ -354,7 +359,7 @@ def calculate_performance_stats(probs_ds, front_types, fronts_filename):
         for boundary in range(4):
             fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
             for y in range(int(2*(boundary+1))):
-                fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
+                fronts = expand_fronts(fronts)
 
             """
             t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
@@ -429,7 +434,7 @@ def calculate_performance_stats(probs_ds, front_types, fronts_filename):
         for boundary in range(4):
             fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
             for y in range(int(2*(boundary+1))):
-                fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
+                fronts = expand_fronts(fronts)
             """
             t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
             f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
@@ -477,14 +482,14 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
 
     Parameters
     ----------
-    compat_images: iterable object with 2 integers
-        Number of images declared for the stitched map in each dimension (lon lat). (Compatibility mode only)
-    compatibility_mode: bool
-        Boolean flag that declares whether or not the function is being used to check compatibility of given parameters. (Compatibility mode only)
     domain_size: iterable object with 2 integers
-        Number of pixels along each dimension of the final stitched map (lon lat).
+        - Number of pixels along each dimension of the final stitched map (lon lat).
     image_size: iterable object with 2 integers
-        Number of pixels along each dimension of the model's output (lon lat).
+        - Number of pixels along each dimension of the model's output (lon lat).
+    compatibility_mode: bool
+        - Boolean flag that declares whether or not the function is being used to check compatibility of given parameters.
+    compat_images: iterable object with 2 integers
+        - Number of images declared for the stitched map in each dimension (lon lat). (Compatibility mode only)
     """
     if compatibility_mode is True:
         """ These parameters are used when checking the compatibility of image stitching arguments. """
@@ -514,7 +519,7 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
                 if compat_images_lon == lon_images:  # If the number of images for the compatibility check equals the match
                     lon_images_are_compatible = True
         elif lon_spacing == 0 and domain_size[0] - image_size[0] == 0:
-            lon_image_matches.append(lon_images)  # Add lonitude image match to list
+            lon_image_matches.append(lon_images)  # Add longitude image match to list
             num_matches[0] += 1
             if compatibility_mode is True:
                 if compat_images_lon == lon_images:  # If the number of images for the compatibility check equals the match
@@ -561,7 +566,7 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
         print(f"Compatible latitude images: {lat_image_matches}")
 
 
-def generate_predictions(model_number, model_dir, domain, domain_images, domain_size, domain_trim,
+def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_images, domain_size, domain_trim,
     prediction_method, datetime, dataset=None, num_rand_predictions=None, random_variables=None, save_map=True,
     save_probabilities=False, save_statistics=False):
     """
@@ -569,52 +574,37 @@ def generate_predictions(model_number, model_dir, domain, domain_images, domain_
 
     Parameters
     ----------
-    dataset: str
-        Dataset for which to make predictions if prediction_method is 'random' or 'all'.
-    datetime: iterable object with 4 integers
-        4 values for the date and time: year, month, day, hour
-    domain: str
-        Domain of the datasets.
-    domain_images: iterable object with 2 integers
-        Number of images along each dimension of the final stitched map (lon lat).
-    domain_size: iterable object with 2 integers
-        Number of pixels along each dimension of the final stitched map (lon lat).
-    domain_trim: iterable object with 2 integers
-        Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels.
-    model_dir: string
-        Main directory for the models.
     model_number: int
-        Slurm job number for the model. This is the number in the model's filename.
-    num_rand_predictions: int
-        Number of random predictions to make.
+        - Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        - Main directory for the models.
+    pickle_dir: str
+        - Directory where the created pickle files containing the domain data will be stored.
+    domain: str
+        - Domain of the datasets.
+    domain_images: iterable object with 2 ints
+        - Number of images along each dimension of the final stitched map (lon lat).
+    domain_size: iterable object with 2 ints
+        - Number of pixels along each dimension of the final stitched map (lon lat).
+    domain_trim: iterable object with 2 ints
+        - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
     prediction_method: str
-        Prediction method. Options are: 'datetime', 'random', 'all'
+        - Prediction method. Options are: 'datetime', 'random', 'all'
+    datetime: iterable object with 4 integers
+        - 4 values for the date and time: year, month, day, hour
+    dataset: str
+        - Dataset for which to make predictions if prediction_method is 'random' or 'all'.
+    num_rand_predictions: int
+        - Number of random predictions to make.
     random_variables: str, or iterable of strings
-        Variables to randomize.
+        - Variables to randomize.
     save_map: bool
-        Setting this to true will save the prediction maps.
+        - Setting this to true will save the prediction maps.
     save_probabilities: bool
-        Setting this to true will save front probability data to a pickle file.
+        - Setting this to true will save front probability data to a pickle file.
     save_statistics: bool
-        Setting this to true will save performance statistics data to a pickle file.
+        - Setting this to true will save performance statistics data to a pickle file.
     """
-
-    subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
-    if random_variables is not None:
-        subdir_base += '_' + '-'.join(sorted(random_variables))
-
-    # Check if the necessary subdirectories for data exist, and make them if they do not exist
-    if not os.path.isdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base)):
-        os.mkdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
-        print("New subdirectory made:", '%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
-    if not os.path.isdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base)):
-        os.mkdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
-        print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
-    if not os.path.isdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base)):
-        os.mkdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
-        print("New subdirectory made:", '%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
-
-    model = fm.load_model(model_number, model_dir)
 
     # Model properties
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
@@ -625,19 +615,6 @@ def generate_predictions(model_number, model_dir, domain, domain_images, domain_
     num_dimensions = len(image_size)
     num_variables = model_properties['num_variables']
     test_years, valid_years = model_properties['test_years'], model_properties['validation_years']
-
-    n = 0  # Counter for the number of down layers in the model
-    if num_dimensions == 2:
-        for layer in model.layers:
-            if layer.__class__.__name__ == 'MaxPooling2D':
-                n += 1
-    elif num_dimensions == 3:
-        for layer in model.layers:
-            if layer.__class__.__name__ == 'MaxPooling3D':
-                n += 1
-    else:
-        raise ValueError("Invalid dimensions value: %d" % num_dimensions)
-    n = int((n - 1)/2)
 
     # Properties of the final map made from stitched images
     domain_images_lon, domain_images_lat = domain_images[0], domain_images[1]
@@ -659,9 +636,10 @@ def generate_predictions(model_number, model_dir, domain, domain_images, domain_
     else:
         lat_image_spacing = 0
 
+    front_files, variable_files = fm.load_files(pickle_dir, num_variables, domain)
+
     # Find files with provided date and time to make a prediction (if applicable)
     if prediction_method == 'datetime':
-        front_files, variable_files = fm.load_file_lists(domain, num_variables)
         year, month, day, hour = datetime[0], datetime[1], datetime[2], datetime[3]
         front_filename_no_dir = 'FrontObjects_%d%02d%02d%02d_%s.pkl' % (year, month, day, hour, domain)
         variable_filename_no_dir = 'Data_%dvar_%d%02d%02d%02d_%s.pkl' % (60, year, month, day, hour, domain)
@@ -669,15 +647,33 @@ def generate_predictions(model_number, model_dir, domain, domain_images, domain_
         variable_files = [[variable_filename for variable_filename in variable_files if variable_filename_no_dir in variable_filename][0], ]
 
     elif prediction_method == 'random' or prediction_method == 'all':
-        front_files, variable_files = fm.load_file_lists(domain, num_variables, dataset=dataset, test_years=test_years, validation_years=valid_years)
+        front_files, variable_files = fm.select_dataset(front_files, variable_files, dataset=dataset, test_years=test_years, validation_years=valid_years)
         if prediction_method == 'random':  # Select a random set of files for which to generate predictions
             indices = random.choices(range(len(front_files) - 1), k=num_rand_predictions)
             if num_rand_predictions > 1:
-                front_files, variable_files = front_files[indices], variable_files[indices]
+                front_files, variable_files = list(front_files[index] for index in indices), list(variable_files[index] for index in indices)
             else:
-                front_files, variable_files = [front_files, ], [variable_files, ]
+                front_files, variable_files = [front_files,], [variable_files,]
     else:
         raise ValueError(f"'{prediction_method}' is not a valid prediction method. Options are: 'datetime', 'random', 'all'")
+
+    subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])  #
+    if random_variables is not None:
+        subdir_base += '_' + '-'.join(sorted(random_variables))
+
+    model = fm.load_model(model_number, model_dir)
+    n = 0  # Counter for the number of down layers in the model
+    if num_dimensions == 2:
+        for layer in model.layers:
+            if layer.__class__.__name__ == 'MaxPooling2D':
+                n += 1
+    elif num_dimensions == 3:
+        for layer in model.layers:
+            if layer.__class__.__name__ == 'MaxPooling3D':
+                n += 1
+    else:
+        raise ValueError("Invalid dimensions value: %d" % num_dimensions)
+    n = int((n - 1)/2)
 
     for file_index in range(len(front_files)):
         fronts_filename = front_files[file_index]
@@ -798,14 +794,29 @@ def generate_predictions(model_number, model_dir, domain, domain_images, domain_
                         filename_base += '_' + '-'.join(sorted(random_variables))
 
                     if save_map:
+                        # Check that the necessary subdirectory exists and make it if it doesn't exist
+                        if not os.path.isdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base)):
+                            os.mkdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
+                            print("New subdirectory made:", '%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
                         prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, domain_images, domain_trim, subdir_base, filename_base)  # Generate prediction plot
 
                     if save_probabilities:
+
+                        # Check that the necessary subdirectory exists and make it if it doesn't exist
+                        if not os.path.isdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base)):
+                            os.mkdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
+                            print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
                         outfile = '%s/model_%d/probabilities/%s/%s_probabilities.pkl' % (model_dir, model_number, subdir_base, filename_base)
                         with open(outfile, 'wb') as f:
-                            pickle.dump(probs_ds, f)
+                            pickle.dump(probs_ds, f)  # Save probabilities dataset
 
                     if save_statistics:
+
+                        # Check that the necessary subdirectory exists and make it if it doesn't exist
+                        if not os.path.isdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base)):
+                            os.mkdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
+                            print("New subdirectory made:", '%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
+
                         performance_ds = calculate_performance_stats(probs_ds, front_types, fronts_filename)
                         outfile = '%s/model_%d/statistics/%s/%s_statistics.pkl' % (model_dir, model_number, subdir_base, filename_base)
                         with open(outfile, 'wb') as f:
@@ -819,27 +830,41 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
 
     Parameters
     ----------
-    bootstrap: Setting this to true will plot confidence intervals onto the performance diagrams.
-    domain: Domain of the data.
-    domain_images: Number of images along each dimension of the final stitched map (lon lat).
-    domain_trim: Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
-    model_dir: Main directory for the models.
-    model_number: Slurm job number for the model. This is the number in the model's filename.
-    num_iterations: Number of iterations when bootstrapping the data.
-    random_variables: Variable(s) that were randomized when performance statistics were calculated.
+    model_dir: str
+        - Main directory for the models.
+    model_number: int
+        - Slurm job number for the model. This is the number in the model's filename.
+    domain: str
+        - Domain of the data.
+    domain_images: iterable object with 2 ints
+        - Number of images along each dimension of the final stitched map (lon lat).
+    domain_trim: iterable object with 2 ints
+        - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
+    bootstrap: bool
+        - Setting this to true will plot confidence intervals onto the performance diagrams.
+    random_variables: str or list of strs
+        - Variable(s) that were randomized when performance statistics were calculated.
+    num_iterations: int
+        - Number of iterations when bootstrapping the data.
     """
 
     model_properties = pd.read_pickle(f"{model_dir}\\model_{model_number}\\model_{model_number}_properties.pkl")
     front_types = model_properties['front_types']
 
     subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
-    stats_filenames_base = 'model_%d_*_%s_%dx%dimages_%dx%dtrim' % (model_number, domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
     stats_plot_base = 'model_%d_%s_%dx%dimages_%dx%dtrim' % (model_number, domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
     if random_variables is not None:
-        stats_filenames_base += '_' + '-'.join(sorted(random_variables))
         subdir_base += '_' + '-'.join(sorted(random_variables))
 
-    files = sorted(glob('%s\\model_%d\\statistics\\%s\\%s_statistics.pkl' % (model_dir, model_number, subdir_base, stats_filenames_base)))
+    files = sorted(glob('%s\\model_%d\\statistics\\%s\\*statistics.pkl' % (model_dir, model_number, subdir_base)))
+
+    # If evaluating over the full domain, remove non-synoptic hours (3z, 9z, 15z, 21z)
+    if domain == 'full':
+        hours_to_remove = [3, 9, 15, 21]
+        for hour in hours_to_remove:
+            string = '%02dz_' % hour
+            files = list(filter(lambda hour: string not in hour, files))
+
     stats = pd.read_pickle(files[0])  # Open the first dataset so information on variables can be retrieved
     ds_keys = list(stats.keys())  # List of the names of the variables in the stats datasets.
     num_keys = len(ds_keys)  # Number of data variables
@@ -1005,7 +1030,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         SR_warm_150km = np.nan_to_num(stats_150km['tp_warm']/(stats_150km['tp_warm'] + stats_150km['fp_warm']))
         SR_warm_200km = np.nan_to_num(stats_200km['tp_warm']/(stats_200km['tp_warm'] + stats_200km['fp_warm']))
 
-        # Maximum CSI values for each front type and boundary
+        # SR and POD values where CSI is maximized for each front type and boundary
         SR_cold_50km_CSI = SR_cold_50km[np.where(CSI_cold_50km == np.max(CSI_cold_50km))]
         POD_cold_50km_CSI = POD_cold_50km[np.where(CSI_cold_50km == np.max(CSI_cold_50km))]
         SR_cold_100km_CSI = SR_cold_100km[np.where(CSI_cold_100km == np.max(CSI_cold_100km))]
@@ -1102,7 +1127,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("2D CF/WF model performance (3x3 kernel): Cold fronts")
+        plt.title("3D CF/WF model performance (5x5x5 kernel): Cold fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
         plt.savefig("%s/model_%d/%s_performance_cold.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
@@ -1178,7 +1203,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("2D CF/WF model performance (3x3 kernel): Warm fronts")
+        plt.title("3D CF/WF model performance (5x5x5 kernel): Warm fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
         plt.savefig("%s/model_%d/%s_performance_warm.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
@@ -1214,7 +1239,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         SR_occluded_150km = stats_150km['tp_occluded']/(stats_150km['tp_occluded'] + stats_150km['fp_occluded'])
         SR_occluded_200km = stats_200km['tp_occluded']/(stats_200km['tp_occluded'] + stats_200km['fp_occluded'])
 
-        # Maximum CSI values for each front type and boundary
+        # SR and POD values where CSI is maximized for each front type and boundary
         SR_stationary_50km_CSI = SR_stationary_50km[np.where(CSI_stationary_50km == np.max(CSI_stationary_50km))].values[0]
         POD_stationary_50km_CSI = POD_stationary_50km[np.where(CSI_stationary_50km == np.max(CSI_stationary_50km))].values[0]
         SR_stationary_100km_CSI = SR_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))].values[0]
@@ -1306,7 +1331,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("2D SF/OF model performance (3x3 kernel): Stationary fronts")
+        plt.title("3D SF/OF model performance (5x5x5 kernel): Stationary fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
         plt.savefig("%s/model_%d/%s_performance_stationary.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
@@ -1386,7 +1411,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("2D SF/OF model performance (3x3 kernel): Occluded fronts")
+        plt.title("3D SF/OF model performance (5x5x5 kernel): Occluded fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
         plt.savefig("%s/model_%d/%s_performance_occluded.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
@@ -1410,7 +1435,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         SR_front_150km = stats_150km['tp_front']/(stats_150km['tp_front'] + stats_150km['fp_front'])
         SR_front_200km = stats_200km['tp_front']/(stats_200km['tp_front'] + stats_200km['fp_front'])
 
-        # Maximum CSI values for each front type and boundary
+        # SR and POD values where CSI is maximized for each boundary
         SR_front_50km_CSI = SR_front_50km[np.where(CSI_front_50km == np.max(CSI_front_50km))].values[0]
         POD_front_50km_CSI = POD_front_50km[np.where(CSI_front_50km == np.max(CSI_front_50km))].values[0]
         SR_front_100km_CSI = SR_front_100km[np.where(CSI_front_100km == np.max(CSI_front_100km))].values[0]
@@ -1490,35 +1515,49 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("2D F/NF model performance (3x3 kernel)")
+        plt.title("3D F/NF model performance (5x5x5 kernel)")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
         plt.savefig("%s/model_%d/%s_performance_fronts.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
         plt.close()
 
 
-def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, domain_images, domain_trim, subdir_base, filename_base, same_map=True, probability_mask_2D=0.05, probability_mask_3D=0.10):
+def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, domain_images, domain_trim, subdir_base, filename_base,
+    same_map=False, probability_mask_2D=0.05, probability_mask_3D=0.10):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
     subplots.
 
     Parameters
     ----------
-    domain: Domain of the data.
-    domain_images: Number of images along each dimension of the final stitched map (lon lat).
-    domain_trim: Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
-    filename_base: Base of the map filename.
-    fronts: Xarray DataArray containing the 'true' front data.
-    model_number: Slurm job number for the model. This is the number in the model's filename.
-    model_dir: Main directory for the models.
-    probability_mask_2D: Mask for front probabilities with 2D models. Any probabilities smaller than this number will not be plotted.
-        - Must be a multiple of 0.05, greater than 0, and no greater than 0.45
-    probability_mask_3D: Mask for front probabilities with 3D models. Any probabilities smaller than this number will not be plotted.
+    fronts: Xarray DataArray
+        - DataArray containing the 'true' front data.
+    probs_ds: Xarray Dataset
+        - Dataset containing prediction (probability) data for fronts.
+    time: str
+        - Timestring for the prediction plot title.
+    model_number: int
+        - Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        - Main directory for the models.
+    domain: str
+        - Domain of the data.
+    domain_images: iterable object with 2 ints
+        - Number of images along each dimension of the final stitched map (lon lat).
+    domain_trim: iterable object with 2 ints
+        - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
+    subdir_base: str
+        - Name for the map subdirectory.
+    filename_base: str
+        - Base of the map filename.
+    same_map: bool
+        - Setting this to true will plot the probabilities and the ground truth on the same plot.
+    probability_mask_2D: float
+        - Mask for front probabilities with 2D models. Any probabilities smaller than this number will not be plotted.
+        - Must be a multiple of 0.05, greater than 0, and no greater than 0.45.
+    probability_mask_3D: float
+        - Mask for front probabilities with 3D models. Any probabilities smaller than this number will not be plotted.
         - Must be a multiple of 0.1, greater than 0, and no greater than 0.9.
-    probs_ds: Xarray dataset containing prediction (probability) data for fronts.
-    same_map: Setting this to true will plot the probabilities and the ground truth on the same plot.
-    subdir_base: Name for the map subdirectory.
-    time: Timestring for the prediction plot title.
     """
     if domain == 'conus':
         extent = np.array([220, 300, 25, 52])  # Extent for CONUS
@@ -1544,29 +1583,29 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
                             "45% ≤ P(front) < 50%", "P(front) ≥ 50%"]
     else:
         probability_mask = probability_mask_3D
-        vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1, 0.05, 10, 10
+        vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1, 0.05, 10, 11
         levels = np.arange(0, 1.1, 0.1)
-        cbar_ticks = np.arange(probability_mask, 1.1, 0.1)
+        cbar_ticks = np.arange(probability_mask, 1, 0.1)
         cbar_tick_labels = [None, "10% ≤ P(front) < 20%", "20% ≤ P(front) < 30%", "30% ≤ P(front) < 40%", "40% ≤ P(front) < 50%",
                             "50% ≤ P(front) < 60%", "60% ≤ P(front) < 70%", "70% ≤ P(front) < 80%", "80% ≤ P(front) < 90%",
                             "P(front) ≥ 90%"]
 
     cmap_cold, cmap_warm, cmap_stationary, cmap_occluded, cmap_front = cm.get_cmap('Blues', n_colors), cm.get_cmap('Reds', n_colors), \
         cm.get_cmap('Greens', n_colors), cm.get_cmap('Purples', n_colors), cm.get_cmap('Greys', n_colors)
-    prob_norm = colors.Normalize(vmin=0, vmax=vmax)
+    norm_cold, norm_warm, norm_stationary, norm_occluded, norm_front = \
+        colors.Normalize(vmin=0, vmax=vmax), colors.Normalize(vmin=0, vmax=vmax), colors.Normalize(vmin=0, vmax=vmax), \
+        colors.Normalize(vmin=0, vmax=vmax), colors.Normalize(vmin=0, vmax=vmax)
 
     probability_plot_title = "%s front probabilities (images=[%d,%d], trim=[%d,%d], mask=%d%s)" % (time,
         domain_images[0], domain_images[1], domain_trim[0], domain_trim[1], int(probability_mask*100), "%")
 
     for expansion in range(pixel_expansion):
-        fronts = ope(fronts)  # ope: one_pixel_expansion function in expand_fronts.py
+        fronts = expand_fronts(fronts)
 
     if front_types == 'CFWFSFOF_binary':
         probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN"))
     else:
         probs_ds = xr.where(probs_ds > probability_mask, probs_ds, 0)
-
-    # fronts = xr.where(fronts > 4, float("NaN"), fronts)
 
     if front_types == 'CFWF':
 
@@ -1590,22 +1629,23 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
         # Create prediction plot
         if same_map is True:
             fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
-            fplot.plot_background(ax, extent)  # Plot background on main subplot containing fronts and probabilities
-            cold_ds.cold_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Blues",
+            plot_background(extent, ax=ax)  # Plot background on main subplot containing fronts and probabilities
+            cold_ds.cold_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_cold, levels=levels, cmap="Blues",
                 transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            warm_ds.warm_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap='Reds',
+            warm_ds.warm_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_warm, levels=levels, cmap='Reds',
                 transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
+            fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot ground truth fronts on top of probability contours
             ax.title.set_text(probability_plot_title)
 
-            cbar_cold = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_cold), ax=ax, pad=-0.165, boundaries=cbar_ticks, alpha=0.6)
-            cbar_cold.set_ticks([])
-            cbar_warm = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_warm), ax=ax, pad=-0.4, boundaries=cbar_ticks, alpha=0.6)
-            cbar_warm.set_ticks(cbar_ticks + cbar_tick_adjust)
-            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
+            """ Create colorbars for cold and warm fronts """
+            cbar_cold = plt.colorbar(cm.ScalarMappable(norm=norm_cold, cmap=cmap_cold), ax=ax, pad=-0.165, boundaries=levels[1:], alpha=0.6)  # Create cold front colorbar
+            cbar_cold.set_ticks([])  # Remove labels from cold front colorbar
+            cbar_warm = plt.colorbar(cm.ScalarMappable(norm=norm_warm, cmap=cmap_warm), ax=ax, pad=-0.4, boundaries=levels[1:], alpha=0.6)  # Create warm front colorbar
+            cbar_warm.set_ticks(cbar_ticks + cbar_tick_adjust)  # Place labels in the middle of the colored sections
+            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])  # Only want labels on warm front colorbar as it is furthest to the right on the plot
 
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
-            cbar.set_ticks(np.arange(1, 5, 1)+0.5)
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)  # Create colorbar for the ground truth fronts
+            cbar.set_ticks(np.arange(1, 3, 1) + 0.5)  # Set location of labels in the middle of the colored sections on the horizontal colorbar
             cbar.set_ticklabels(['Cold', 'Warm'])
             cbar.set_label('Front type')
 
@@ -1614,22 +1654,22 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
             plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
             axlist = axarr.flatten()
             for ax in axlist:
-                fplot.plot_background(ax, extent)
+                plot_background(extent, ax=ax)
             fronts.identifier.plot(ax=axlist[0], cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
             axlist[0].title.set_text(probability_plot_title)
-            cold_ds.cold_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Blues",
+            cold_ds.cold_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_cold, levels=levels, cmap="Blues",
                 transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            warm_ds.warm_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap='Reds',
+            warm_ds.warm_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_warm, levels=levels, cmap='Reds',
                 transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
 
-            cbar_cold = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_cold), ax=axlist[1], pad=-0.168, boundaries=cbar_ticks, alpha=0.6)
+            cbar_cold = plt.colorbar(cm.ScalarMappable(norm=norm_cold, cmap=cmap_cold), ax=axlist[1], pad=-0.168, boundaries=levels[1:], alpha=0.6)
             cbar_cold.set_ticks([])
-            cbar_warm = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_warm), ax=axlist[1], boundaries=cbar_ticks, alpha=0.6)
+            cbar_warm = plt.colorbar(cm.ScalarMappable(norm=norm_warm, cmap=cmap_warm), ax=axlist[1], boundaries=levels[1:], alpha=0.6)
             cbar_warm.set_ticks(cbar_ticks + cbar_tick_adjust)
             cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[0], pad=0.1385, fraction=0.046)
-            cbar.set_ticks(np.arange(1, 5, 1)+0.5)
+            cbar.set_ticks(np.arange(1, 3, 1)+0.5)
             cbar.set_ticklabels(['Cold', 'Warm'])
             cbar.set_label('Front type')
 
@@ -1657,17 +1697,17 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
         # Create prediction plot
         if same_map is True:
             fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
-            fplot.plot_background(ax, extent)  # Plot background on main subplot containing fronts and probabilities
-            stationary_ds.stationary_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Greens",
+            plot_background(extent, ax=ax)  # Plot background on main subplot containing fronts and probabilities
+            stationary_ds.stationary_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_stationary, levels=levels, cmap="Greens",
                 transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            occluded_ds.occluded_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Purples",
+            occluded_ds.occluded_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_occluded, levels=levels, cmap="Purples",
                 transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
             fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
             ax.title.set_text(probability_plot_title)
 
-            cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), ax=ax, pad=-0.165, boundaries=cbar_ticks, alpha=0.6)
+            cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=norm_stationary, cmap=cmap_stationary), ax=ax, pad=-0.165, boundaries=levels[1:], alpha=0.6)
             cbar_stationary.set_ticks([])
-            cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), ax=ax, pad=-0.4, boundaries=cbar_ticks, alpha=0.6)
+            cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=norm_occluded, cmap=cmap_occluded), ax=ax, pad=-0.4, boundaries=levels[1:], alpha=0.6)
             cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
             cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
@@ -1681,17 +1721,17 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
             plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
             axlist = axarr.flatten()
             for ax in axlist:
-                fplot.plot_background(ax, extent)
+                plot_background(extent, ax=ax)
             fronts.identifier.plot(ax=axlist[0], cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
             axlist[0].title.set_text(probability_plot_title)
-            stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Greens",
+            stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_stationary, levels=levels, cmap="Greens",
                 transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap='Purples',
+            occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_occluded, levels=levels, cmap='Purples',
                 transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
 
-            cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), ax=axlist[1], pad=-0.168, boundaries=cbar_ticks, alpha=0.6)
+            cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=norm_stationary, cmap=cmap_stationary), ax=axlist[1], pad=-0.168, boundaries=levels[1:], alpha=0.6)
             cbar_stationary.set_ticks([])
-            cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), ax=axlist[1], boundaries=cbar_ticks, alpha=0.6)
+            cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=norm_occluded, cmap=cmap_occluded), ax=axlist[1], boundaries=levels[1:], alpha=0.6)
             cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
             cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
@@ -1739,14 +1779,14 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
         plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
         axlist = axarr.flatten()
         for ax in axlist:
-            fplot.plot_background(ax, extent)
-        cold_ds.cold_probs.isel().plot.contourf(ax=axlist[0], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Blues",
+            plot_background(extent, ax=ax)
+        cold_ds.cold_probs.isel().plot.contourf(ax=axlist[0], x='longitude', y='latitude', norm=norm_cold, levels=levels, cmap="Blues",
             transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-        warm_ds.warm_probs.isel().plot.contourf(ax=axlist[0], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap='Reds',
+        warm_ds.warm_probs.isel().plot.contourf(ax=axlist[0], x='longitude', y='latitude', norm=norm_warm, levels=levels, cmap='Reds',
             transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-        stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Greens",
+        stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_stationary, levels=levels, cmap="Greens",
             transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-        occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap="Purples",
+        occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_occluded, levels=levels, cmap="Purples",
             transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
         fronts_subplot1.identifier.plot(ax=axlist[0], cmap=cmap_subplot1, norm=norm_subplot1, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
         fronts_subplot2.identifier.plot(ax=axlist[1], cmap=cmap_subplot2, norm=norm_subplot2, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
@@ -1758,13 +1798,13 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
         cbar_stationary_ax = fig.add_axes([0.5355, 0.1913, 0.015, 0.688])
         cbar_occluded_ax = fig.add_axes([0.55, 0.1913, 0.015, 0.688])
 
-        cbar_cold = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_cold), cax=cbar_cold_ax, pad=0, boundaries=cbar_ticks, alpha=0.6)
+        cbar_cold = plt.colorbar(cm.ScalarMappable(norm=norm_cold, cmap=cmap_cold), cax=cbar_cold_ax, pad=0, boundaries=levels[1:], alpha=0.6)
         cbar_cold.set_ticks([])
-        cbar_warm = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_warm), cax=cbar_warm_ax, pad=0, boundaries=cbar_ticks, alpha=0.6)
+        cbar_warm = plt.colorbar(cm.ScalarMappable(norm=norm_warm, cmap=cmap_warm), cax=cbar_warm_ax, pad=0, boundaries=levels[1:], alpha=0.6)
         cbar_warm.set_ticks([])
-        cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_stationary), cax=cbar_stationary_ax, pad=0, boundaries=cbar_ticks, alpha=0.6)
+        cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=norm_stationary, cmap=cmap_stationary), cax=cbar_stationary_ax, pad=0, boundaries=levels[1:], alpha=0.6)
         cbar_stationary.set_ticks([])
-        cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_occluded), cax=cbar_occluded_ax, pad=-0.2, boundaries=cbar_ticks, alpha=0.6)
+        cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=norm_occluded, cmap=cmap_occluded), cax=cbar_occluded_ax, pad=-0.2, boundaries=levels[1:], alpha=0.6)
         cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
         cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
@@ -1783,13 +1823,13 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
         norm_identifier = colors.Normalize(vmin=1, vmax=5)
 
         fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
-        fplot.plot_background(ax, extent)
-        probs_ds.front_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=prob_norm, levels=levels, cmap=cmap_front,
+        plot_background(extent, ax=ax)
+        probs_ds.front_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_front, levels=levels, cmap=cmap_front,
             transform=ccrs.PlateCarree(), alpha=0.9, add_colorbar=False)
         fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
         ax.title.set_text(probability_plot_title)
 
-        cbar_front = plt.colorbar(cm.ScalarMappable(norm=prob_norm, cmap=cmap_front), ax=ax, pad=-0.41, boundaries=cbar_ticks, alpha=0.9)
+        cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, pad=-0.41, boundaries=levels[1:], alpha=0.9)
         cbar_front.set_ticks(cbar_ticks + cbar_tick_adjust)
         cbar_front.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
 
@@ -1805,11 +1845,15 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
 def learning_curve(model_number, model_dir, include_validation_plots=True):
     """
     Function that plots learning curves for the specified model.
+
     Parameters
     ----------
-    include_validation_plots: Setting this to True will plot validation data in addition to training data.
-    model_number: Slurm job number for the model. This is the number in the model's filename.
-    model_dir: Main directory for the models.
+    model_number: int
+        - Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        - Main directory for the models.
+    include_validation_plots: bool
+        - Setting this to True will plot validation data in addition to training data.
     """
 
     """
@@ -1831,10 +1875,6 @@ def learning_curve(model_number, model_dir, include_validation_plots=True):
         loss_title = 'Brier Skill Score'
     elif loss == 'cce':
         loss_title = 'Categorical Cross-Entropy'
-    elif loss == 'dice':
-        loss_title = 'Dice coefficient'
-    elif loss == 'tversky':
-        loss_title = 'Tversky coefficient'
     else:
         loss_title = None
 
@@ -1852,12 +1892,6 @@ def learning_curve(model_number, model_dir, include_validation_plots=True):
     elif metric == 'auc':
         metric_title = 'Area Under the Curve'
         metric_string = 'auc'
-    elif metric == 'dice':
-        metric_title = 'Dice coefficient'
-        metric_string = 'dice'
-    elif metric == 'tversky':
-        metric_title = 'Tversky coefficient'
-        metric_string = 'tversky'
     else:
         metric_title = None
         metric_string = None
@@ -2023,10 +2057,11 @@ if __name__ == '__main__':
     Generating model predictions:
         ==========================================================================================================================
         python evaluate_model.py --generate_predictions --save_probabilities --save_statistics --save_map --prediction_method all 
-        --domain conus --model_dir /home/my_model_folder --model_number 6846496 --domain_images 3 1 --domain_size 288 128 
-        --dataset test
+        --domain conus --model_dir /home/my_model_folder --pickle_dir /home/pickle_files --model_number 6846496 --domain_images 3 1
+        --domain_size 288 128 --dataset test
         =========================================================================================================================
-        Required arguments: --generate_predictions, --model_number, --model_dir, --domain, --domain_images, --domain_size, --prediction_method
+        Required arguments: --generate_predictions, --model_number, --model_dir, --domain, --domain_images, --domain_size, 
+                            --prediction_method, --pickle_dir
         Optional arguments: --domain_trim, --save_probabilities, --save_statistics, --save_map, --random_variables, --dataset
         Conditional arguments: --datetime - must be passed if --prediction_method == 'datetime'.
                                --num_rand_predictions - can be passed if --prediction_method == 'random'. Defaults to 10.
@@ -2065,6 +2100,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_number', type=int, help='Model number.')
     parser.add_argument('--num_iterations', type=int, default=10000, help='Number of iterations to perform when bootstrapping the data.')
     parser.add_argument('--num_rand_predictions', type=int, default=10, help='Number of random predictions to make.')
+    parser.add_argument('--pickle_dir', type=str, default='/ourdisk/hpc/ai2es/fronts/raw_front_data/pickle_files', help='Main directory for the pickle files.')
     parser.add_argument('--plot_performance_diagrams', action='store_true', help='Plot performance diagrams for a model?')
     parser.add_argument('--prediction_method', type=str, help="Prediction method. Options are: 'datetime', 'random', 'all'")
     parser.add_argument('--random_variables', type=str, nargs="+", default=None, help="Variables to randomize when generating predictions.")
@@ -2104,7 +2140,7 @@ if __name__ == '__main__':
         learning_curve(args.model_number, args.model_dir)
 
     if args.generate_predictions:
-        required_arguments = ['domain', 'model_number', 'model_dir', 'domain_images', 'domain_size', 'prediction_method']
+        required_arguments = ['domain', 'model_number', 'model_dir', 'domain_images', 'domain_size', 'prediction_method', 'pickle_dir']
         check_arguments(provided_arguments, required_arguments)
 
         if args.prediction_method == 'datetime' and args.datetime is None:
@@ -2116,7 +2152,7 @@ if __name__ == '__main__':
         # Verify the compatibility of image stitching arguments
         find_matches_for_domain(args.domain_size, image_size, compatibility_mode=True, compat_images=args.domain_images)
 
-        generate_predictions(args.model_number, args.model_dir, args.domain, args.domain_images, args.domain_size,
+        generate_predictions(args.model_number, args.model_dir, args.pickle_dir, args.domain, args.domain_images, args.domain_size,
             args.domain_trim, args.prediction_method, args.datetime, dataset=args.dataset, num_rand_predictions=args.num_rand_predictions,
             random_variables=args.random_variables, save_map=args.save_map, save_probabilities=args.save_probabilities,
             save_statistics=args.save_statistics)
