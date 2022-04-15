@@ -2,29 +2,34 @@
 Custom activation functions
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/15/2022 12:26 PM CDT
+Last updated: 4/15/2022 4:35 PM CDT
 
 Known bugs:
 - none
 
 Please report any bugs to Andrew Justin: andrewjustinwx@gmail.com
 """
+from tensorflow.keras.layers import Layer
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
 
 
-@tf.function()
-def smelu(x):
+class SmeLU(Layer):
     """
-    SmeLU (Smooth ReLU) activation function for deep learning models.
+    SmeLU (Smooth ReLU) activation function layer for deep learning models.
     https://arxiv.org/pdf/2202.06499.pdf
     """
+    def __init__(self, name=None):
+        super(SmeLU, self).__init__(name=name)
 
-    beta = tf.Variable(1.0, trainable=True)  # Learnable parameter (see Eq. (7) in the linked paper above)
+    def build(self, input_shape):
+        """ Build the SmeLU layer """
+        self.beta = self.add_weight(name='beta', dtype='float32', shape=input_shape[1:])  # Learning parameter (see Eq. 7 in the linked paper above)
 
-    y = tf.where(x <= -beta, 0.0,  # Condition 1
-        tf.where(tf.abs(x) <= beta, tf.math.divide(tf.math.pow(x + beta, 2.0), tf.math.multiply(4.0, beta)),  # Condition 2
-        x))  # Condition 3 (if x >= beta)
+    def call(self, inputs, **kwargs):
+        """ Call the SmeLU activation function """
+        inputs = tf.cast(inputs, 'float32')
+        y = tf.where(inputs <= -self.beta, 0.0,  # Condition 1
+            tf.where(tf.abs(inputs) <= self.beta, tf.math.divide(tf.math.pow(inputs + self.beta, 2.0), tf.math.multiply(4.0, self.beta)),  # Condition 2
+            inputs))  # Condition 3 (if x >= beta)
 
-    return y
-
+        return y
