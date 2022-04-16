@@ -2,7 +2,7 @@
 Models for front detection
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/13/2022 3:50 PM CDT
+Last updated: 4/16/2022 6:47 PM CDT
 
 Known bugs:
 - none
@@ -15,15 +15,17 @@ from tensorflow.keras.layers import Concatenate, Input
 from utils.unet_utils import *
 
 
-def unet(input_size, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 64, 128, 256, 512), modules_per_node=5, batch_normalization=False,
-    activation='relu', padding='same', use_bias=False, preserve_third_dimension=False, pool_size=2, upsample_size=2):
+def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 64, 128, 256, 512), modules_per_node=5, batch_normalization=False,
+    activation='relu', padding='same', use_bias=False, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
+    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False,
+    pool_size=2, upsample_size=2):
     """
     Builds a U-Net model.
 
     Parameters
     ----------
-    input_size: tuple of 4 ints
-        - Size of the inputs. The shape of the tuple should be: (image_size_x, image_size_y, image_size_z, number of predictors)
+    input_shape: tuple
+        - Shape of the inputs.
     num_classes: int
         - Number of classes/labels that the U-Net will try to predict.
     kernel_size: int or tuple
@@ -38,10 +40,25 @@ def unet(input_size, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 6
         - Setting this to True will add a batch normalization layer after every convolution in the modules.
     activation: str
         - Activation function to use in the modules.
+        - Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
     padding: str
         - Padding to use in the convolution layers.
     use_bias: bool
         - Setting this to True will implement a bias vector in the convolution layers used in the modules.
+    kernel_initializer: str or tf.keras.initializers object
+        - Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
+    bias_initializer: str or tf.keras.initializers object
+        - Initializer for the bias vector in the Conv2D/Conv3D layers.
+    kernel_regularizer: str or tf.keras.regularizers object
+        - Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
+    bias_regularizer: str or tf.keras.regularizers object
+        - Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
+    activity_regularizer: str or tf.keras.regularizers object
+        - Regularizer function applied to the output of the Conv2D/Conv3D layers.
+    kernel_constraint: str or tf.keras.constraints object
+        - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
+    bias_constraint: str or tf.keras.constrains object
+        - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
     preserve_third_dimension: bool
         - Setting this to True will preserve the third dimension of the U-Net so that it is not modified by the MaxPooling and UpSampling layers.
     pool_size: int
@@ -55,16 +72,16 @@ def unet(input_size, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 6
         - U-Net model.
     """
 
-    ndims = len(input_size) - 1  # Number of dimensions in the input image (excluding the last dimension reserved for channels)
+    ndims = len(input_shape) - 1  # Number of dimensions in the input image (excluding the last dimension reserved for channels)
 
     if levels < 2:
         raise ValueError(f"levels must be greater than 1. Received value: {levels}")
 
-    if len(input_size) > 4 or len(input_size) < 3:
-        raise ValueError(f"input_size can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_size)}")
+    if len(input_shape) > 4 or len(input_shape) < 3:
+        raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
 
-    if preserve_third_dimension is True and len(input_size) != 4:
-        raise ValueError(f"preserve_third_dimension is True but input_size does not have 4 dimensions (3D image + 1 dimension for channels). Received shape: {np.shape(input_size)}")
+    if preserve_third_dimension is True and len(input_shape) != 4:
+        raise ValueError(f"preserve_third_dimension is True but input_shape does not have 4 dimensions (3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
 
     if len(filter_num) != levels:
         raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
@@ -78,6 +95,13 @@ def unet(input_size, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 6
     module_kwargs['num_modules'] = modules_per_node
     module_kwargs['padding'] = padding
     module_kwargs['use_bias'] = use_bias
+    module_kwargs['kernel_initializer'] = kernel_initializer
+    module_kwargs['bias_initializer'] = bias_initializer
+    module_kwargs['kernel_regularizer'] = kernel_regularizer
+    module_kwargs['bias_regularizer'] = bias_regularizer
+    module_kwargs['activity_regularizer'] = activity_regularizer
+    module_kwargs['kernel_constraint'] = kernel_constraint
+    module_kwargs['bias_constraint'] = bias_constraint
 
     # MaxPooling keyword arguments
     pool_kwargs = dict({})
@@ -90,6 +114,13 @@ def unet(input_size, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 6
     upsample_kwargs['activation'] = activation
     upsample_kwargs['batch_normalization'] = batch_normalization
     upsample_kwargs['padding'] = padding
+    upsample_kwargs['kernel_initializer'] = kernel_initializer
+    upsample_kwargs['bias_initializer'] = bias_initializer
+    upsample_kwargs['kernel_regularizer'] = kernel_regularizer
+    upsample_kwargs['bias_regularizer'] = bias_regularizer
+    upsample_kwargs['activity_regularizer'] = activity_regularizer
+    upsample_kwargs['kernel_constraint'] = kernel_constraint
+    upsample_kwargs['bias_constraint'] = bias_constraint
     if ndims == 3:
         upsample_kwargs['preserve_third_dimension'] = preserve_third_dimension
     upsample_kwargs['upsample_size'] = upsample_size
@@ -101,19 +132,33 @@ def unet(input_size, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 6
     conventional_kwargs['batch_normalization'] = batch_normalization
     conventional_kwargs['padding'] = padding
     conventional_kwargs['use_bias'] = use_bias
+    conventional_kwargs['kernel_initializer'] = kernel_initializer
+    conventional_kwargs['bias_initializer'] = bias_initializer
+    conventional_kwargs['kernel_regularizer'] = kernel_regularizer
+    conventional_kwargs['bias_regularizer'] = bias_regularizer
+    conventional_kwargs['activity_regularizer'] = activity_regularizer
+    conventional_kwargs['kernel_constraint'] = kernel_constraint
+    conventional_kwargs['bias_constraint'] = bias_constraint
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
     supervision_kwargs['upsample_size'] = upsample_size
     supervision_kwargs['use_bias'] = True
     supervision_kwargs['padding'] = padding
+    supervision_kwargs['kernel_initializer'] = kernel_initializer
+    supervision_kwargs['bias_initializer'] = bias_initializer
+    supervision_kwargs['kernel_regularizer'] = kernel_regularizer
+    supervision_kwargs['bias_regularizer'] = bias_regularizer
+    supervision_kwargs['activity_regularizer'] = activity_regularizer
+    supervision_kwargs['kernel_constraint'] = kernel_constraint
+    supervision_kwargs['bias_constraint'] = bias_constraint
     if ndims == 3:
         supervision_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
     tensors = dict({})  # Tensors associated with each node and skip connections
 
     """ Setup the first encoder node with an input layer and a convolution module """
-    tensors['input'] = Input(shape=input_size, name='Input')
+    tensors['input'] = Input(shape=input_shape, name='Input')
     tensors['En1'] = convolution_module(tensors['input'], filters=filter_num[0], kernel_size=kernel_size, name='En1', **module_kwargs)
 
     """ The rest of the encoder nodes are handled here. Each encoder node is connected with a MaxPooling layer and contains convolution modules """
@@ -129,7 +174,7 @@ def unet(input_size, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 6
     tensors[f'De{levels - 1}'] = convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'De{levels - 1}', **module_kwargs)  # Convolution module
     upsample_tensor = upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], kernel_size=kernel_size, name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
-    """ The rest of the decoder nodes (except the final node) are handled in this loop. Each node contains one concatenation of an upsampled tensor and a skip connection"""
+    """ The rest of the decoder nodes (except the final node) are handled in this loop. Each node contains one concatenation of an upsampled tensor and a skip connection """
     for decoder in np.arange(2, levels-1)[::-1]:
         tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')([upsample_tensor, tensors[f'En{decoder}']])  # Concatenate the upsampled tensor and skip connection
         tensors[f'De{decoder}'] = convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'De{decoder}', **module_kwargs)  # Convolution module
@@ -146,7 +191,7 @@ def unet(input_size, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 6
     return model
 
 
-def unet_3plus(input_size, num_classes, kernel_size=3, filter_levels=(16, 32, 64, 128, 256, 512), filter_num_skip=None,
+def unet_3plus(input_shape, num_classes, kernel_size=3, filter_levels=(16, 32, 64, 128, 256, 512), filter_num_skip=None,
     filter_num_aggregate=None, modules_per_node=5, batch_normalization=True, activation='relu', padding='same', use_bias=False,
     preserve_third_dimension=False, pool_size=2, upsample_size=2):
     """
@@ -154,8 +199,8 @@ def unet_3plus(input_size, num_classes, kernel_size=3, filter_levels=(16, 32, 64
 
     Parameters
     ----------
-    input_size: tuple of 4 ints
-        - Size of the inputs. The shape of the tuple should be: (image_size_x, image_size_y, image_size_z, number of predictors)
+    input_shape: tuple
+        - Shape of the inputs.
     num_classes: int
         - Number of classes/labels that the U-Net will try to predict.
     kernel_size: int or tuple
@@ -174,6 +219,7 @@ def unet_3plus(input_size, num_classes, kernel_size=3, filter_levels=(16, 32, 64
         - Setting this to True will add a batch normalization layer after every convolution in the modules.
     activation: str
         - Activation function to use in the modules.
+        - Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
     padding: str
         - Padding to use in the convolution layers.
     use_bias: bool
@@ -191,10 +237,10 @@ def unet_3plus(input_size, num_classes, kernel_size=3, filter_levels=(16, 32, 64
         - U-Net 3+ model.
     """
 
-    ndims = len(input_size) - 1  # Number of dimensions in the input image (excluding the last dimension reserved for channels)
+    ndims = len(input_shape) - 1  # Number of dimensions in the input image (excluding the last dimension reserved for channels)
 
-    if preserve_third_dimension is True and len(input_size) != 4:
-        raise ValueError(f"preserve_third_dimension is True but the input size does not have 4 dimensions (3D image + 1 dimension for channels). Received shape: {np.shape(input_size)}")
+    if preserve_third_dimension is True and len(input_shape) != 4:
+        raise ValueError(f"preserve_third_dimension is True but the input size does not have 4 dimensions (3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
 
     if filter_num_skip is None:
         filter_num_skip = filter_levels[0]
@@ -255,7 +301,7 @@ def unet_3plus(input_size, num_classes, kernel_size=3, filter_levels=(16, 32, 64
     if ndims == 3:
         supervision_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
-    input_tensor = Input(shape=input_size, name='Input')
+    input_tensor = Input(shape=input_shape, name='Input')
 
     """ Encoder 1 """
     tensor_En1 = convolution_module(input_tensor, filters=filter_levels[0], kernel_size=kernel_size, name='En1', **module_kwargs)
