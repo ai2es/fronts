@@ -2,7 +2,7 @@
 Custom activation functions
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/15/2022 4:35 PM CDT
+Last updated: 4/16/2022 6:53 PM CDT
 
 Known bugs:
 - none
@@ -23,7 +23,7 @@ class SmeLU(Layer):
 
     def build(self, input_shape):
         """ Build the SmeLU layer """
-        self.beta = self.add_weight(name='beta', dtype='float32', shape=input_shape[1:])  # Learning parameter (see Eq. 7 in the linked paper above)
+        self.beta = self.add_weight(name='beta', dtype='float32', shape=input_shape[1:])  # Learnable parameter (see Eq. 7 in the linked paper above)
 
     def call(self, inputs, **kwargs):
         """ Call the SmeLU activation function """
