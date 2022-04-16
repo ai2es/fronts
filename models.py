@@ -15,7 +15,7 @@ from tensorflow.keras.layers import Concatenate, Input
 from utils.unet_utils import *
 
 
-def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 64, 128, 256, 512), modules_per_node=5, batch_normalization=False,
+def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 64, 128, 256), modules_per_node=5, batch_normalization=False,
     activation='relu', padding='same', use_bias=False, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
     bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False,
     pool_size=2, upsample_size=2):
