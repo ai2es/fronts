@@ -4,7 +4,7 @@ Functions for building U-Net models:
 - U-Net 3+
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/15/2022 4:42 PM CDT
+Last updated: 4/19/2022 12:10 PM CDT
 
 Known bugs:
 - none
@@ -104,7 +104,7 @@ def convolution_module(tensor, filters, kernel_size, num_modules=1, padding='sam
     activation_kwargs = dict({})
 
     if activation_layer == layers.Activation:
-        if activation_str != 'smelu':
+        if activation_str == 'smelu':
             activation_kwargs['activation'] = custom_activations.SmeLU  # SmeLU is a custom activation function, so the function itself must be passed into the Activation layer
         else:
             activation_kwargs['activation'] = activation
