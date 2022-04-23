@@ -2,7 +2,7 @@
 Models for front detection
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/16/2022 6:47 PM CDT
+Last updated: 4/22/2022 8:31 PM CDT
 
 Known bugs:
 - none
@@ -15,8 +15,8 @@ from tensorflow.keras.layers import Concatenate, Input
 from utils.unet_utils import *
 
 
-def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 64, 128, 256), modules_per_node=5, batch_normalization=False,
-    activation='relu', padding='same', use_bias=False, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
+def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 64, 128, 256), modules_per_node=5, batch_normalization=True,
+    activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
     bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False,
     pool_size=2, upsample_size=2):
     """
@@ -70,6 +70,14 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
     -------
     model: tf.keras.models.Model object
         - U-Net model.
+
+    Raises
+    ------
+    ValueError
+        - If levels < 2
+        - If input_shape does not have 3 nor 4 dimensions
+        - If preserve_third_dimension is True but input_shape does not have 4 dimensions
+        - If the length of filter_num does not match the number of levels
     """
 
     ndims = len(input_shape) - 1  # Number of dimensions in the input image (excluding the last dimension reserved for channels)
@@ -191,9 +199,11 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
     return model
 
 
-def unet_3plus(input_shape, num_classes, kernel_size=3, filter_levels=(16, 32, 64, 128, 256, 512), filter_num_skip=None,
-    filter_num_aggregate=None, modules_per_node=5, batch_normalization=True, activation='relu', padding='same', use_bias=False,
-    preserve_third_dimension=False, pool_size=2, upsample_size=2):
+def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16, 32, 64, 128, 256, 512), filter_num_skip=None,
+    filter_num_aggregate=None, first_encoder_connections=True, modules_per_node=5, batch_normalization=True, activation='relu',
+    padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
+    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False,
+    pool_size=2, upsample_size=2):
     """
     Creates a U-Net 3+.
 
@@ -202,17 +212,21 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, filter_levels=(16, 32, 6
     input_shape: tuple
         - Shape of the inputs.
     num_classes: int
-        - Number of classes/labels that the U-Net will try to predict.
+        - Number of classes/labels that the U-Net 3+ will try to predict.
     kernel_size: int or tuple
         - Size of the kernel in the convolution layers.
-    filter_levels: iterable of ints
-        - Number of convolution filters in each encoder of the U-Net.
+    levels: int
+        - Number of levels in the U-Net 3+. Must be greater than 1.
+    filter_num: iterable of ints
+        - Number of convolution filters in each encoder of the U-Net 3+.
     filter_num_skip: int or None
         - Number of convolution filters in the conventional skip connections, full-scale skip connections, and aggregated feature maps.
-        - NOTE: When left as None, this will default to the first value in the 'filter_levels' iterable.
+        - NOTE: When left as None, this will default to the first value in the 'filter_num' iterable.
     filter_num_aggregate: int or None
         - Number of convolution filters in the decoder nodes after images are concatenated.
-        - When left as None, this will be equal to the product of filter_num_skip and the length of the filter_levels iterable.
+        - When left as None, this will be equal to the product of filter_num_skip and the length of the filter_num iterable.
+    first_encoder_connections: bool
+        - Setting this to True will create full-scale skip connections attached to the first encoder node.
     modules_per_node: int
         - Number of modules in each node of the U-Net 3+.
     batch_normalization: bool
@@ -224,6 +238,20 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, filter_levels=(16, 32, 6
         - Padding to use in the convolution layers.
     use_bias: bool
         - Setting this to True will implement a bias vector in the convolution layers used in the modules.
+    kernel_initializer: str or tf.keras.initializers object
+        - Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
+    bias_initializer: str or tf.keras.initializers object
+        - Initializer for the bias vector in the Conv2D/Conv3D layers.
+    kernel_regularizer: str or tf.keras.regularizers object
+        - Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
+    bias_regularizer: str or tf.keras.regularizers object
+        - Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
+    activity_regularizer: str or tf.keras.regularizers object
+        - Regularizer function applied to the output of the Conv2D/Conv3D layers.
+    kernel_constraint: str or tf.keras.constraints object
+        - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
+    bias_constraint: str or tf.keras.constrains object
+        - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
     preserve_third_dimension: bool
         - Setting this to True will preserve the third dimension of the U-Net so that it is not modified by the MaxPooling and UpSampling layers.
     pool_size: int
@@ -235,27 +263,49 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, filter_levels=(16, 32, 6
     -------
     model: tf.keras.models.Model object
         - U-Net 3+ model.
+
+    Raises
+    ------
+    ValueError
+        - If preserve_third_dimension is True but input_shape does not have 4 dimensions
     """
 
     ndims = len(input_shape) - 1  # Number of dimensions in the input image (excluding the last dimension reserved for channels)
 
+    if levels < 3:
+        raise ValueError(f"levels must be greater than 2. Received value: {levels}")
+
+    if len(input_shape) > 4 or len(input_shape) < 3:
+        raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
+
     if preserve_third_dimension is True and len(input_shape) != 4:
-        raise ValueError(f"preserve_third_dimension is True but the input size does not have 4 dimensions (3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
+        raise ValueError(f"preserve_third_dimension is True but input_shape does not have 4 dimensions (3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
+
+    if len(filter_num) != levels:
+        raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
 
     if filter_num_skip is None:
-        filter_num_skip = filter_levels[0]
+        filter_num_skip = filter_num[0]
 
     if filter_num_aggregate is None:
-        filter_num_aggregate = len(filter_levels) * filter_num_skip
+        filter_num_aggregate = len(filter_num) * filter_num_skip
 
     print(f"\nCreating model: {ndims}D U-Net 3+")
 
     module_kwargs = dict({})
+    module_kwargs['kernel_size'] = kernel_size
     module_kwargs['activation'] = activation
     module_kwargs['batch_normalization'] = batch_normalization
     module_kwargs['num_modules'] = modules_per_node
     module_kwargs['padding'] = padding
     module_kwargs['use_bias'] = use_bias
+    module_kwargs['kernel_initializer'] = kernel_initializer
+    module_kwargs['bias_initializer'] = bias_initializer
+    module_kwargs['kernel_regularizer'] = kernel_regularizer
+    module_kwargs['bias_regularizer'] = bias_regularizer
+    module_kwargs['activity_regularizer'] = activity_regularizer
+    module_kwargs['kernel_constraint'] = kernel_constraint
+    module_kwargs['bias_constraint'] = bias_constraint
 
     pool_kwargs = dict({})
     pool_kwargs['pool_size'] = pool_size
@@ -265,135 +315,152 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, filter_levels=(16, 32, 6
     upsample_kwargs = dict({})
     upsample_kwargs['activation'] = activation
     upsample_kwargs['batch_normalization'] = batch_normalization
+    upsample_kwargs['kernel_size'] = kernel_size
+    upsample_kwargs['filters'] = filter_num_skip
     upsample_kwargs['padding'] = padding
+    upsample_kwargs['kernel_initializer'] = kernel_initializer
+    upsample_kwargs['bias_initializer'] = bias_initializer
+    upsample_kwargs['kernel_regularizer'] = kernel_regularizer
+    upsample_kwargs['bias_regularizer'] = bias_regularizer
+    upsample_kwargs['activity_regularizer'] = activity_regularizer
+    upsample_kwargs['kernel_constraint'] = kernel_constraint
+    upsample_kwargs['bias_constraint'] = bias_constraint
     if ndims == 3:
         upsample_kwargs['preserve_third_dimension'] = preserve_third_dimension
     upsample_kwargs['upsample_size'] = upsample_size
     upsample_kwargs['use_bias'] = use_bias
 
     conventional_kwargs = dict({})
+    conventional_kwargs['filters'] = filter_num_skip
+    conventional_kwargs['kernel_size'] = kernel_size
     conventional_kwargs['activation'] = activation
     conventional_kwargs['batch_normalization'] = batch_normalization
     conventional_kwargs['padding'] = padding
     conventional_kwargs['use_bias'] = use_bias
+    conventional_kwargs['kernel_initializer'] = kernel_initializer
+    conventional_kwargs['bias_initializer'] = bias_initializer
+    conventional_kwargs['kernel_regularizer'] = kernel_regularizer
+    conventional_kwargs['bias_regularizer'] = bias_regularizer
+    conventional_kwargs['activity_regularizer'] = activity_regularizer
+    conventional_kwargs['kernel_constraint'] = kernel_constraint
+    conventional_kwargs['bias_constraint'] = bias_constraint
 
     full_scale_kwargs = dict({})
+    full_scale_kwargs['filters'] = filter_num_skip
+    full_scale_kwargs['kernel_size'] = kernel_size
     full_scale_kwargs['activation'] = activation
     full_scale_kwargs['batch_normalization'] = batch_normalization
+    full_scale_kwargs['use_bias'] = use_bias
     full_scale_kwargs['padding'] = padding
     full_scale_kwargs['pool_size'] = pool_size
+    full_scale_kwargs['kernel_initializer'] = kernel_initializer
+    full_scale_kwargs['bias_initializer'] = bias_initializer
+    full_scale_kwargs['kernel_regularizer'] = kernel_regularizer
+    full_scale_kwargs['bias_regularizer'] = bias_regularizer
+    full_scale_kwargs['activity_regularizer'] = activity_regularizer
+    full_scale_kwargs['kernel_constraint'] = kernel_constraint
+    full_scale_kwargs['bias_constraint'] = bias_constraint
     if ndims == 3:
         full_scale_kwargs['preserve_third_dimension'] = preserve_third_dimension
-    full_scale_kwargs['use_bias'] = use_bias
 
     aggregated_kwargs = dict({})
+    aggregated_kwargs['filters'] = filter_num_skip
+    aggregated_kwargs['kernel_size'] = kernel_size
     aggregated_kwargs['activation'] = activation
     aggregated_kwargs['batch_normalization'] = batch_normalization
     aggregated_kwargs['padding'] = padding
-    aggregated_kwargs['preserve_third_dimension'] = preserve_third_dimension
     aggregated_kwargs['upsample_size'] = upsample_size
     aggregated_kwargs['use_bias'] = use_bias
+    aggregated_kwargs['kernel_initializer'] = kernel_initializer
+    aggregated_kwargs['bias_initializer'] = bias_initializer
+    aggregated_kwargs['kernel_regularizer'] = kernel_regularizer
+    aggregated_kwargs['bias_regularizer'] = bias_regularizer
+    aggregated_kwargs['activity_regularizer'] = activity_regularizer
+    aggregated_kwargs['kernel_constraint'] = kernel_constraint
+    aggregated_kwargs['bias_constraint'] = bias_constraint
+    if ndims == 3:
+        aggregated_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
     supervision_kwargs = dict({})
     supervision_kwargs['upsample_size'] = upsample_size
+    supervision_kwargs['kernel_size'] = kernel_size
     supervision_kwargs['use_bias'] = True
     supervision_kwargs['padding'] = padding
+    supervision_kwargs['kernel_initializer'] = kernel_initializer
+    supervision_kwargs['bias_initializer'] = bias_initializer
+    supervision_kwargs['kernel_regularizer'] = kernel_regularizer
+    supervision_kwargs['bias_regularizer'] = bias_regularizer
+    supervision_kwargs['activity_regularizer'] = activity_regularizer
+    supervision_kwargs['kernel_constraint'] = kernel_constraint
+    supervision_kwargs['bias_constraint'] = bias_constraint
     if ndims == 3:
         supervision_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
-    input_tensor = Input(shape=input_shape, name='Input')
+    tensors = dict({})  # Tensors associated with each node and skip connections
 
-    """ Encoder 1 """
-    tensor_En1 = convolution_module(input_tensor, filters=filter_levels[0], kernel_size=kernel_size, name='En1', **module_kwargs)
+    """ Setup the first encoder node with an input layer and a convolution module (we are not using skip connections here) """
+    tensors['input'] = Input(shape=input_shape, name='Input')
+    tensors['En1'] = convolution_module(tensors['input'], filters=filter_num[0], name='En1', **module_kwargs)
 
-    """ Encoder 2 """
-    tensor_En2 = max_pool(tensor_En1, name='En1-En2', **pool_kwargs)
-    tensor_En2 = convolution_module(tensor_En2, filters=filter_levels[1], kernel_size=kernel_size, name='En2', **module_kwargs)
+    if first_encoder_connections is True:
+        for full_connection in range(2, levels):
+            tensors[f'1---{full_connection}_full-scale'] = full_scale_skip_connection(tensors[f'En1'], level1=1, level2=full_connection, name=f'1---{full_connection}_full-scale', **full_scale_kwargs)
 
-    # Skip connections
-    tensor_En2De2 = conventional_skip_connection(tensor_En2, filters=filter_num_skip, kernel_size=kernel_size, name='En2---De2', **conventional_kwargs)
-    tensor_En2De3 = full_scale_skip_connection(tensor_En2, filters=filter_num_skip, kernel_size=kernel_size, level1=2, level2=3, name='En2---De3', **full_scale_kwargs)
-    tensor_En2De4 = full_scale_skip_connection(tensor_En2, filters=filter_num_skip, kernel_size=kernel_size, level1=2, level2=4, name='En2---De4', **full_scale_kwargs)
-    tensor_En2De5 = full_scale_skip_connection(tensor_En2, filters=filter_num_skip, kernel_size=kernel_size, level1=2, level2=5, name='En2---De5', **full_scale_kwargs)
+    """ The rest of the encoder nodes are handled here. Each encoder node is connected with a MaxPooling layer and contains convolution modules """
+    for encoder in np.arange(2, levels):  # Iterate through the rest of the encoder nodes
+        pool_tensor = max_pool(tensors[f'En{encoder - 1}'], name=f'En{encoder - 1}-En{encoder}', **pool_kwargs)  # Connect the next encoder node with a MaxPooling layer
+        tensors[f'En{encoder}'] = convolution_module(pool_tensor, filters=filter_num[encoder - 1], name=f'En{encoder}', **module_kwargs)  # Convolution modules
+        tensors[f'{encoder}---{encoder}_skip'] = conventional_skip_connection(tensors[f'En{encoder}'], name=f'{encoder}---{encoder}_skip', **conventional_kwargs)
 
-    """ Encoder 3 """
-    tensor_En3 = max_pool(tensor_En2, name='En2-En3', **pool_kwargs)
-    tensor_En3 = convolution_module(tensor_En3, filters=filter_levels[2], kernel_size=kernel_size, name='En3', **module_kwargs)
+        # Create full-scale skip connections
+        for full_connection in range(encoder + 1, levels):
+            tensors[f'{encoder}---{full_connection}_full-scale'] = full_scale_skip_connection(tensors[f'En{encoder}'], level1=encoder, level2=full_connection, name=f'{encoder}---{full_connection}_full-scale', **full_scale_kwargs)
 
-    # Skip connections #
-    tensor_En3De3 = conventional_skip_connection(tensor_En3, filters=filter_num_skip, kernel_size=kernel_size, name='En3---De3', **conventional_kwargs)
-    tensor_En3De4 = full_scale_skip_connection(tensor_En3, filters=filter_num_skip, kernel_size=kernel_size, level1=3, level2=4, name='En3---De4', **full_scale_kwargs)
-    tensor_En3De5 = full_scale_skip_connection(tensor_En3, filters=filter_num_skip, kernel_size=kernel_size, level1=3, level2=5, name='En3---De5', **full_scale_kwargs)
+    # Bottom encoder node
+    tensors[f'En{levels}'] = max_pool(tensors[f'En{levels - 1}'], name=f'En{levels - 1}-En{levels}', **pool_kwargs)
+    tensors[f'En{levels}'] = convolution_module(tensors[f'En{levels}'], filters=filter_num[levels - 1], name=f'En{levels}', **module_kwargs)
+    tensors[f'sup{levels}_output'] = deep_supervision_side_output(tensors[f'En{levels}'], num_classes=num_classes, output_level=levels, name=f'sup{levels}', **supervision_kwargs)
 
-    """ Encoder 4 """
-    tensor_En4 = max_pool(tensor_En3, name='En3-En4', **pool_kwargs)
-    tensor_En4 = convolution_module(tensor_En4, filters=filter_levels[3], kernel_size=kernel_size, name='En4', **module_kwargs)
+    # Add aggregated feature maps using the bottom encoder node
+    for feature_map in range(1, levels - 1):
+        tensors[f'{levels}---{feature_map}_feature'] = aggregated_feature_map(tensors[f'En{levels}'], level1=levels, level2=feature_map, name=f'{levels}---{feature_map}_feature', **aggregated_kwargs)
 
-    # Skip connections #
-    tensor_En4De4 = conventional_skip_connection(tensor_En4, filters=filter_num_skip, kernel_size=kernel_size, name='En4---De4', **conventional_kwargs)
-    tensor_En4De5 = full_scale_skip_connection(tensor_En4, filters=filter_num_skip, kernel_size=kernel_size, level1=4, level2=5, name='En4---De5', **full_scale_kwargs)
+    """ Build the rest of the decoder nodes """
+    for decoder in np.arange(1, levels)[::-1]:
 
-    """ Encoder 5 """
-    tensor_En5 = max_pool(tensor_En4, name='En4-En5', **pool_kwargs)
-    tensor_En5 = convolution_module(tensor_En5, filters=filter_levels[4], kernel_size=kernel_size, name='En5', **module_kwargs)
+        """ The lowest decoder node (levels - 1) is attached to the bottom encoder node instead of a decoder node, so tensor names are slightly different """
+        if decoder == levels - 1:
+            tensors[f'De{decoder}'] = upsample(tensors[f'En{levels}'], name=f'En{levels}-De{decoder}', **upsample_kwargs)
 
-    # Skip connections #
-    tensor_En5De5 = conventional_skip_connection(tensor_En5, filters=filter_num_skip, kernel_size=kernel_size, name='En5---De5', **conventional_kwargs)
+            # Tensors to concatenate in the Concatenate layer
+            tensors_to_concatenate = [tensors[f'De{decoder}'], ]
+            connections_to_add = sorted([tensor for tensor in tensors if f'---{decoder}' in tensor])[::-1]
+            for connection in connections_to_add:
+                tensors_to_concatenate.append(tensors[connection])
+        else:
+            tensors[f'De{decoder}'] = upsample(tensors[f'De{decoder + 1}'], name=f'De{decoder + 1}-De{decoder}', **upsample_kwargs)
 
-    """ Encoder 6 (bottom layer) """
-    tensor_En6 = max_pool(tensor_En5, name='En5-En6', **pool_kwargs)
-    tensor_En6 = convolution_module(tensor_En6, filters=filter_levels[5], kernel_size=kernel_size, name='En6', **module_kwargs)
-    sup6_output = deep_supervision_side_output(tensor_En6, num_classes=num_classes, kernel_size=kernel_size, output_level=6, name='sup6', **supervision_kwargs)
+            # Tensors to concatenate in the Concatenate layer
+            tensors_to_concatenate = sorted([tensor for tensor in tensors if f'---{decoder}' in tensor])[::-1]
+            for index in range(len(tensors_to_concatenate)):
+                tensors_to_concatenate[index] = tensors[tensors_to_concatenate[index]]
+            tensors_to_concatenate.insert(levels - 1 - decoder, tensors[f'De{decoder}'])
 
-    # Skip connections #
-    tensor_En6De1 = aggregated_feature_map(tensor_En6, filters=filter_num_skip, kernel_size=kernel_size, level1=6, level2=1, name='En6---De1', **aggregated_kwargs)
-    tensor_En6De2 = aggregated_feature_map(tensor_En6, filters=filter_num_skip, kernel_size=kernel_size, level1=6, level2=2, name='En6---De2', **aggregated_kwargs)
-    tensor_En6De3 = aggregated_feature_map(tensor_En6, filters=filter_num_skip, kernel_size=kernel_size, level1=6, level2=3, name='En6---De3', **aggregated_kwargs)
-    tensor_En6De4 = aggregated_feature_map(tensor_En6, filters=filter_num_skip, kernel_size=kernel_size, level1=6, level2=4, name='En6---De4', **aggregated_kwargs)
+        # Concatenate tensors, pass through convolution modules, then use deep supervision to create a side output
+        tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')(tensors_to_concatenate)
+        tensors[f'De{decoder}'] = convolution_module(tensors[f'De{decoder}'], filters=filter_num_aggregate, name=f'De{decoder}', **module_kwargs)
+        tensors[f'sup{decoder}_output'] = deep_supervision_side_output(tensors[f'De{decoder}'], num_classes=num_classes, output_level=decoder, name=f'sup{decoder}', **supervision_kwargs)
 
-    """ Decoder 5 """
-    tensor_En6De5 = upsample(tensor_En6, filters=filter_num_skip, kernel_size=kernel_size, name='En6-De5', **upsample_kwargs)
-    tensor_De5 = Concatenate(name='De5_Concatenate')([tensor_En6De5, tensor_En5De5, tensor_En4De5, tensor_En3De5, tensor_En2De5])
-    tensor_De5 = convolution_module(tensor_De5, filters=filter_num_aggregate, kernel_size=kernel_size, name='De5', **module_kwargs)
-    sup5_output = deep_supervision_side_output(tensor_De5, num_classes=num_classes, kernel_size=kernel_size, output_level=5, name='sup5', **supervision_kwargs)
+        """ Add aggregated feature maps """
+        for feature_map in range(1, decoder - 1):
+            tensors[f'{decoder}---{feature_map}_feature'] = aggregated_feature_map(tensors[f'De{decoder}'], level1=decoder, level2=feature_map, name=f'{decoder}---{feature_map}_feature', **aggregated_kwargs)
 
-    # Skip connections #
-    tensor_De5De1 = aggregated_feature_map(tensor_De5, filters=filter_num_skip, kernel_size=kernel_size, level1=5, level2=1, name='De5---De1', **aggregated_kwargs)
-    tensor_De5De2 = aggregated_feature_map(tensor_De5, filters=filter_num_skip, kernel_size=kernel_size, level1=5, level2=2, name='De5---De2', **aggregated_kwargs)
-    tensor_De5De3 = aggregated_feature_map(tensor_De5, filters=filter_num_skip, kernel_size=kernel_size, level1=5, level2=3, name='De5---De3', **aggregated_kwargs)
+    # Create list of the tensors from the deep
+    outputs = [tensor for tensor in tensors if 'sup' in tensor]
+    for output in range(len(outputs)):
+        outputs[output] = tensors[outputs[output]]
 
-    """ Decoder 4 """
-    tensor_De5De4 = upsample(tensor_De5, filters=filter_num_skip, kernel_size=kernel_size, name='De5-De4', **upsample_kwargs)
-    tensor_De4 = Concatenate(name='De4_Concatenate')([tensor_En6De4, tensor_De5De4, tensor_En4De4, tensor_En3De4, tensor_En2De4])
-    tensor_De4 = convolution_module(tensor_De4, filters=filter_num_aggregate, kernel_size=kernel_size, name='De4', **module_kwargs)
-    sup4_output = deep_supervision_side_output(tensor_De4, num_classes=num_classes, kernel_size=kernel_size, output_level=4, name='sup4', **supervision_kwargs)
-
-    # Skip connections #
-    tensor_De4De1 = aggregated_feature_map(tensor_De4, filters=filter_num_skip, kernel_size=kernel_size, level1=4, level2=1, name='De4---De1', **aggregated_kwargs)
-    tensor_De4De2 = aggregated_feature_map(tensor_De4, filters=filter_num_skip, kernel_size=kernel_size, level1=4, level2=2, name='De4---De2', **aggregated_kwargs)
-
-    """ Decoder 3 """
-    tensor_De4De3 = upsample(tensor_De4, filters=filter_num_skip, kernel_size=kernel_size, name='De4-De3', **upsample_kwargs)
-    tensor_De3 = Concatenate(name='De3_Concatenate')([tensor_En6De3, tensor_De5De3, tensor_De4De3, tensor_En3De3, tensor_En2De3])
-    tensor_De3 = convolution_module(tensor_De3, filters=filter_num_aggregate, kernel_size=kernel_size, name='De3', **module_kwargs)
-    sup3_output = deep_supervision_side_output(tensor_De3, num_classes=num_classes, kernel_size=kernel_size, output_level=3, name='sup3', **supervision_kwargs)
-
-    # Skip connection #
-    tensor_De3De1 = aggregated_feature_map(tensor_De3, filters=filter_num_skip, kernel_size=kernel_size, level1=3, level2=1, name='De3---De1', **aggregated_kwargs)
-
-    """ Decoder 2 """
-    tensor_De3De2 = upsample(tensor_De3, filters=filter_num_skip, kernel_size=kernel_size, name='De3-De2', **upsample_kwargs)
-    tensor_De2 = Concatenate(name='De2_Concatenate')([tensor_En6De2, tensor_De5De2, tensor_De4De2, tensor_De3De2, tensor_En2De2])
-    tensor_De2 = convolution_module(tensor_De2, filters=filter_num_aggregate, kernel_size=kernel_size, name='De2', **module_kwargs)
-    sup2_output = deep_supervision_side_output(tensor_De2, num_classes=num_classes, kernel_size=kernel_size, output_level=2, name='sup2', **supervision_kwargs)
-
-    """ Decoder 1 """
-    tensor_De2De1 = upsample(tensor_De2, filters=filter_num_skip, kernel_size=kernel_size, name='De2-De1', **upsample_kwargs)
-    tensor_De1 = Concatenate(name='De1_Concatenate')([tensor_En6De1, tensor_De5De1, tensor_De4De1, tensor_De3De1, tensor_De2De1])
-    tensor_De1 = convolution_module(tensor_De1, filters=filter_num_aggregate, kernel_size=kernel_size, name='De1', **module_kwargs)
-    final_output = deep_supervision_side_output(tensor_De1, num_classes=num_classes, kernel_size=kernel_size, output_level=1, name='final', **supervision_kwargs)
-
-    model = Model(inputs=input_tensor, outputs=[final_output, sup2_output, sup3_output, sup4_output, sup5_output, sup6_output], name=f'3plus{ndims}D')
+    model = Model(inputs=tensors['input'], outputs=outputs, name=f'U-Net 3+ ({ndims}D)')
     model.summary()  # Prints summary of the model, contains information about the model's layers and structure
 
     return model
