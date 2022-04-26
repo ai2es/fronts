@@ -2,7 +2,7 @@
 Models for front detection
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/22/2022 8:31 PM CDT
+Last updated: 4/25/2022 7:39 PM CDT
 
 Known bugs:
 - none
@@ -25,7 +25,7 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
     Parameters
     ----------
     input_shape: tuple
-        - Shape of the inputs.
+        - Shape of the inputs. The last number in the tuple represents the number of channels/predictors.
     num_classes: int
         - Number of classes/labels that the U-Net will try to predict.
     kernel_size: int or tuple
@@ -193,7 +193,7 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
     tensor_De1 = convolution_module(tensor_De1, filters=filter_num[0], kernel_size=kernel_size, name='De1', **module_kwargs)  # Convolution module
     tensors['output'] = deep_supervision_side_output(tensor_De1, num_classes=num_classes, kernel_size=1, output_level=1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
 
-    model = Model(inputs=tensors['input'], outputs=tensors['output'], name=f'U-Net ({ndims}D)')
+    model = Model(inputs=tensors['input'], outputs=tensors['output'], name=f'unet_{ndims}D')
     model.summary()  # Prints summary of the model, contains information about the model's layers and structure
 
     return model
@@ -210,7 +210,7 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
     Parameters
     ----------
     input_shape: tuple
-        - Shape of the inputs.
+        - Shape of the inputs. The last number in the tuple represents the number of channels/predictors.
     num_classes: int
         - Number of classes/labels that the U-Net 3+ will try to predict.
     kernel_size: int or tuple
@@ -428,7 +428,7 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
     """ Build the rest of the decoder nodes """
     for decoder in np.arange(1, levels)[::-1]:
 
-        """ The lowest decoder node (levels - 1) is attached to the bottom encoder node instead of a decoder node, so tensor names are slightly different """
+        """ The lowest decoder node (levels - 1) is attached to the bottom encoder node via upsampling, so concatenation is slightly different """
         if decoder == levels - 1:
             tensors[f'De{decoder}'] = upsample(tensors[f'En{levels}'], name=f'En{levels}-De{decoder}', **upsample_kwargs)
 
@@ -460,7 +460,7 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
     for output in range(len(outputs)):
         outputs[output] = tensors[outputs[output]]
 
-    model = Model(inputs=tensors['input'], outputs=outputs, name=f'U-Net 3+ ({ndims}D)')
+    model = Model(inputs=tensors['input'], outputs=outputs, name=f'unet_3plus_{ndims}D')
     model.summary()  # Prints summary of the model, contains information about the model's layers and structure
 
     return model
