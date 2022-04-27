@@ -4,7 +4,7 @@ Functions for building U-Net models:
 - U-Net 3+
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/19/2022 12:10 PM CDT
+Last updated: 4/26/2022 10:16 PM CDT
 
 Known bugs:
 - none
@@ -129,10 +129,9 @@ def convolution_module(tensor, filters, kernel_size, num_modules=1, padding='sam
     return tensor
 
 
-def aggregated_feature_map(tensor, filters, kernel_size, level1, level2, upsample_size=2, padding='same', use_bias=False,
+def aggregated_feature_map(tensor, filters, kernel_size, level1, level2, upsample_size, padding='same', use_bias=False,
     batch_normalization=True, activation='relu', kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False,
-    name=None):
+    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, name=None):
     """
     Connect two nodes in the U-Net 3+ with an aggregated feature map (AFM).
 
@@ -152,9 +151,8 @@ def aggregated_feature_map(tensor, filters, kernel_size, level1, level2, upsampl
         - Level of the second node that is connected to the AFM. This node will receive the output of the AFM. Must be smaller
         than level1 (i.e. the second node must be on a higher level in the U-Net 3+ since we are up-sampling), otherwise
         a ValueError exception is raised.
-    upsample_size: int
-        - Upsampling factors for rows and columns in the UpSampling2D/UpSampling3D layer. Tuples are currently not supported
-        but will be supported in a future update.
+    upsample_size: tuple or list
+        - Upsampling size for rows and columns in the UpSampling2D/UpSampling3D layer.
     padding: str
         - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
@@ -179,9 +177,6 @@ def aggregated_feature_map(tensor, filters, kernel_size, level1, level2, upsampl
         - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
-    preserve_third_dimension: bool
-        - If True, the third dimension of the image will not be affected by the up-sampling. This is particularly useful if
-        the third dimension is small, as up-sampling can destroy features in images with a small vertical dimension.
     name: str or None
         - Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -217,18 +212,16 @@ def aggregated_feature_map(tensor, filters, kernel_size, level1, level2, upsampl
     # Keyword arguments for the UpSampling2D/UpSampling3D layers
     upsample_kwargs = dict({})
     upsample_kwargs['name'] = f'{name}_UpSampling{tensor_dims - 2}D'
+    upsample_kwargs['size'] = np.power(upsample_size, abs(level1 - level2))
 
     if tensor_dims == 4:  # If the image is 2D
         upsample_layer = UpSampling2D
-        upsample_kwargs['size'] = (np.power(upsample_size, abs(level1 - level2)), np.power(upsample_size, abs(level1 - level2)))
-        if preserve_third_dimension is True:
-            raise ValueError(f"preserve_third_dimension is True but the tensor is not 5D. Provided tensor shape: {tensor.shape}")
+        if len(upsample_size) != 2:
+            raise TypeError(f"For 2D up-sampling, the pool size must be a tuple or list with 2 integers. Received shape: {np.shape(upsample_size)}")
     elif tensor_dims == 5:  # If the image is 3D
         upsample_layer = UpSampling3D
-        if preserve_third_dimension is True:
-            upsample_kwargs['size'] = (np.power(upsample_size, abs(level1 - level2)), np.power(upsample_size, abs(level1 - level2)), 1)
-        else:
-            upsample_kwargs['size'] = (np.power(upsample_size, abs(level1 - level2)), np.power(upsample_size, abs(level1 - level2)), np.power(upsample_size, abs(level1 - level2)))
+        if len(upsample_size) != 3:
+            raise TypeError(f"For 3D up-sampling, the pool size must be a tuple or list with 3 integers. Received shape: {np.shape(upsample_size)}")
     else:
         raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
 
@@ -239,10 +232,9 @@ def aggregated_feature_map(tensor, filters, kernel_size, level1, level2, upsampl
     return tensor
 
 
-def full_scale_skip_connection(tensor, filters, kernel_size, level1, level2, pool_size=2, padding='same', use_bias=False,
+def full_scale_skip_connection(tensor, filters, kernel_size, level1, level2, pool_size=None, padding='same', use_bias=False,
     batch_normalization=True, activation='relu', kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False,
-    name=None):
+    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, name=None):
     """
     Connect two nodes in the U-Net 3+ with a full-scale skip connection (FSC).
 
@@ -262,9 +254,8 @@ def full_scale_skip_connection(tensor, filters, kernel_size, level1, level2, poo
         - Level of the second node that is connected to the FSC. This node will receive the output of the FSC. Must be greater
         than level1 (i.e. the second node must be on a lower level in the U-Net 3+ since we are max-pooling), otherwise
         a ValueError exception is raised.
-    pool_size: int
-        - Pool size for the MaxPooling2D/MaxPooling3D layer. Tuples are currently not supported but will be supported in a
-        future update.
+    pool_size: tuple or list
+        - Pool size for the MaxPooling2D/MaxPooling3D layer.
     padding: str
         - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
@@ -289,9 +280,6 @@ def full_scale_skip_connection(tensor, filters, kernel_size, level1, level2, poo
         - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
-    preserve_third_dimension: bool
-        - If True, the third dimension of the image will not be affected by the max-pooling. This is particularly useful if
-        the third dimension is small, as max-pooling can destroy features in images with a small vertical dimension.
     name: str or None
         - Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -327,18 +315,12 @@ def full_scale_skip_connection(tensor, filters, kernel_size, level1, level2, poo
     # Keyword arguments for the MaxPooling2D/MaxPooling3D layer
     pool_kwargs = dict({})
     pool_kwargs['name'] = f'{name}_MaxPool{tensor_dims - 2}D'
+    pool_kwargs['pool_size'] = np.power(pool_size, abs(level1 - level2))
 
     if tensor_dims == 4:  # If the image is 2D
         pool_layer = MaxPooling2D
-        pool_kwargs['pool_size'] = (np.power(pool_size, abs(level1 - level2)), np.power(pool_size, abs(level1 - level2)))
-        if preserve_third_dimension is True:
-            raise ValueError(f"preserve_third_dimension is True but the tensor is not 5D. Provided tensor shape: {tensor.shape}")
     elif tensor_dims == 5:  # If the image is 3D
         pool_layer = MaxPooling3D
-        if preserve_third_dimension is True:
-            pool_kwargs['pool_size'] = (np.power(pool_size, abs(level1 - level2)), np.power(pool_size, abs(level1 - level2)), 1)
-        else:
-            pool_kwargs['pool_size'] = (np.power(pool_size, abs(level1 - level2)), np.power(pool_size, abs(level1 - level2)), np.power(pool_size, abs(level1 - level2)))
     else:
         raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
 
@@ -419,7 +401,7 @@ def conventional_skip_connection(tensor, filters, kernel_size, padding='same', u
     return tensor
 
 
-def max_pool(tensor, pool_size=2, preserve_third_dimension=False, name=None):
+def max_pool(tensor, pool_size=None, name=None):
     """
     Connect two encoder nodes with a max-pooling operation.
 
@@ -427,12 +409,8 @@ def max_pool(tensor, pool_size=2, preserve_third_dimension=False, name=None):
     ----------
     tensor: tf.Tensor
         - Input tensor for the convolution module.
-    pool_size: int
-        - Pool size for the MaxPooling2D/MaxPooling3D layer. Tuples are currently not supported but will be supported in a
-        future update.
-    preserve_third_dimension: bool
-        - If True, the third dimension of the image will not be affected by the max-pooling. This is particularly useful if
-        the third dimension is small, as max-pooling can destroy features in images with a small vertical dimension.
+    pool_size: tuple or list
+        - Pool size for the MaxPooling2D/MaxPooling3D layer.
     name: str or None
         - Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -442,22 +420,23 @@ def max_pool(tensor, pool_size=2, preserve_third_dimension=False, name=None):
         - Output tensor.
     """
 
+    if type(pool_size) != tuple and type(pool_size) != list:
+        raise TypeError(f"pool_size can only be a tuple or list. Received type: {type(pool_size)}")
+
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
 
     pool_kwargs = dict({})  # Keyword arguments in the MaxPooling layer
     pool_kwargs['name'] = f'{name}_MaxPool{tensor_dims - 2}D'
+    pool_kwargs['pool_size'] = pool_size
 
     if tensor_dims == 4:  # If the image is 2D
         pool_layer = MaxPooling2D
-        pool_kwargs['pool_size'] = (pool_size, pool_size)
-        if preserve_third_dimension is True:
-            raise ValueError(f"preserve_third_dimension is True but the tensor is not 5D. Provided tensor shape: {tensor.shape}")
+        if len(pool_size) != 2:
+            raise TypeError(f"For 2D max-pooling, the pool size must be a tuple or list with 2 integers. Received shape: {np.shape(pool_size)}")
     elif tensor_dims == 5:  # If the image is 3D
         pool_layer = MaxPooling3D
-        if preserve_third_dimension is True:
-            pool_kwargs['pool_size'] = (pool_size, pool_size, 1)
-        else:
-            pool_kwargs['pool_size'] = (pool_size, pool_size, pool_size)
+        if len(pool_size) != 3:
+            raise TypeError(f"For 3D max-pooling, the pool size must be a tuple or list with 3 integers. Received shape: {np.shape(pool_size)}")
     else:
         raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
 
@@ -466,7 +445,7 @@ def max_pool(tensor, pool_size=2, preserve_third_dimension=False, name=None):
     return pool_tensor
 
 
-def upsample(tensor, filters, kernel_size, upsample_size=2, padding='same', use_bias=False, preserve_third_dimension=False, batch_normalization=True,
+def upsample(tensor, filters, kernel_size, upsample_size, padding='same', use_bias=False, batch_normalization=True,
     activation='relu', kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None,
     activity_regularizer=None, kernel_constraint=None, bias_constraint=None, name=None):
     """
@@ -480,9 +459,8 @@ def upsample(tensor, filters, kernel_size, upsample_size=2, padding='same', use_
         - Number of filters in the Conv2D/Conv3D layer.
     kernel_size: int or tuple
         - Size of the kernel in the Conv2D/Conv3D layer.
-    upsample_size: int
-        - Upsampling factors for rows and columns in the UpSampling2D/UpSampling3D layer. Tuples are currently not supported
-        but will be supported in a future update.
+    upsample_size: tuple or list
+        - Upsampling size in the UpSampling2D/UpSampling3D layer.
     padding: str
         - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
@@ -507,9 +485,6 @@ def upsample(tensor, filters, kernel_size, upsample_size=2, padding='same', use_
         - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
-    preserve_third_dimension: bool
-        - If True, the third dimension of the image will not be affected by the up-sampling. This is particularly useful if
-        the third dimension is small, as up-sampling can destroy features in images with a small vertical dimension.
     name: str or None
         - Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -520,6 +495,9 @@ def upsample(tensor, filters, kernel_size, upsample_size=2, padding='same', use_
     """
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
+
+    if type(upsample_size) != tuple and type(upsample_size) != list:
+        raise TypeError(f"upsample_size can only be a tuple or list. Received type: {type(upsample_size)}")
 
     # Arguments for the convolution module.
     module_kwargs = dict({})
@@ -542,20 +520,18 @@ def upsample(tensor, filters, kernel_size, upsample_size=2, padding='same', use_
     # Keyword arguments in the UpSampling layer
     upsample_kwargs = dict({})
     upsample_kwargs['name'] = f'{name}_UpSampling{tensor_dims - 2}D'
+    upsample_kwargs['size'] = upsample_size
 
     if tensor_dims == 4:  # If the image is 2D
         upsample_layer = UpSampling2D
-        upsample_kwargs['size'] = (upsample_size, upsample_size)
-        if preserve_third_dimension is True:
-            raise ValueError(f"preserve_third_dimension is True but the tensor is not 5D. Provided tensor shape: {tensor.shape}")
+        if len(upsample_size) != 2:
+            raise TypeError(f"For 2D up-sampling, the pool size must be a tuple or list with 2 integers. Received shape: {np.shape(upsample_size)}")
     elif tensor_dims == 5:  # If the image is 3D
         upsample_layer = UpSampling3D
-        if preserve_third_dimension is True:
-            upsample_kwargs['size'] = (upsample_size, upsample_size, 1)
-        else:
-            upsample_kwargs['size'] = (upsample_size, upsample_size, upsample_size)
+        if len(upsample_size) != 3:
+            raise TypeError(f"For 3D up-sampling, the pool size must be a tuple or list with 3 integers. Received shape: {np.shape(upsample_size)}")
     else:
-        raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor can only have 4 or 5 dimensions")
+        raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
 
     upsample_tensor = upsample_layer(**upsample_kwargs)(tensor)  # Pass the tensor through the UpSampling2D/UpSampling3D layer
 
@@ -600,9 +576,9 @@ def choose_activation_layer(activation: str):
     return activation_layer
 
 
-def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level, upsample_size=2, padding='same', use_bias=True,
+def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level, upsample_size, padding='same', use_bias=True,
     kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None,
-    kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False, name=None):
+    kernel_constraint=None, bias_constraint=None, name=None):
     """
     Deep supervision output. This is usually used on a decoder node in the U-Net 3+ or the final decoder node of a standard
     U-Net.
@@ -617,8 +593,8 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
         - Size of the kernel in the Conv2D/Conv3D layer.
     output_level: int
         - Level of the decoder node from which the deep supervision output is based.
-    upsample_size: int
-        - Upsampling factors for rows and columns in the UpSampling2D/UpSampling3D layer. Tuples are currently not supported
+    upsample_size: tuple or list
+        - Upsampling size for rows and columns in the UpSampling2D/UpSampling3D layer. Tuples are currently not supported
         but will be supported in a future update.
     padding: str
         - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
@@ -639,9 +615,6 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
         - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
-    preserve_third_dimension: bool
-        - If True, the third dimension of the image will not be affected by the up-sampling. This is particularly useful if
-        the third dimension is small, as up-sampling can destroy features in images with a small vertical dimension.
     name: str or None
         - Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -656,42 +629,29 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
     if tensor_dims == 4:  # If the image is 2D
         conv_layer = Conv2D
         upsample_layer = UpSampling2D
-        if preserve_third_dimension is True:
-            raise ValueError(f"preserve_third_dimension is True but the tensor is not 5D. Provided tensor shape: {tensor.shape}")
+        if output_level > 1:
+            upsample_size_1 = upsample_size
         else:
-            if output_level > 1:
-                upsample_size_1 = (upsample_size, upsample_size)
-            else:
-                upsample_size_1 = None
+            upsample_size_1 = None
 
-            if output_level > 2:
-                upsample_size_2 = (np.power(upsample_size, output_level - 2), np.power(upsample_size, output_level - 2))
-            else:
-                upsample_size_2 = None
+        if output_level > 2:
+            upsample_size_2 = np.power(upsample_size, output_level - 2)
+        else:
+            upsample_size_2 = None
 
     elif tensor_dims == 5:  # If the image is 3D
         conv_layer = Conv3D
         upsample_layer = UpSampling3D
-        if preserve_third_dimension is True:
-            if output_level > 1:
-                upsample_size_1 = (upsample_size, upsample_size, 1)
-            else:
-                upsample_size_1 = None
-
-            if output_level > 2:
-                upsample_size_2 = (np.power(upsample_size, output_level - 2), np.power(upsample_size, output_level - 2), 1)
-            else:
-                upsample_size_2 = None
+        if output_level > 1:
+            upsample_size_1 = upsample_size
         else:
-            if output_level > 1:
-                upsample_size_1 = (upsample_size, upsample_size, upsample_size)
-            else:
-                upsample_size_1 = None
+            upsample_size_1 = None
 
-            if output_level > 2:
-                upsample_size_2 = (np.power(upsample_size, output_level - 2), np.power(upsample_size, output_level - 2), np.power(upsample_size, output_level - 2))
-            else:
-                upsample_size_2 = None
+        if output_level > 2:
+            upsample_size_2 = np.power(upsample_size, output_level - 2)
+        else:
+            upsample_size_2 = None
+
     else:
         raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor can only have 4 or 5 dimensions")
 
