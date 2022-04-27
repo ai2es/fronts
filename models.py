@@ -2,7 +2,7 @@
 Models for front detection
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/25/2022 7:39 PM CDT
+Last updated: 4/26/2022 10:16 PM CDT
 
 Known bugs:
 - none
@@ -15,10 +15,9 @@ from tensorflow.keras.layers import Concatenate, Input
 from utils.unet_utils import *
 
 
-def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 64, 128, 256), modules_per_node=5, batch_normalization=True,
+def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, modules_per_node=5, batch_normalization=True,
     activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False,
-    pool_size=2, upsample_size=2):
+    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
     """
     Builds a U-Net model.
 
@@ -28,12 +27,16 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
         - Shape of the inputs. The last number in the tuple represents the number of channels/predictors.
     num_classes: int
         - Number of classes/labels that the U-Net will try to predict.
-    kernel_size: int or tuple
-        - Size of the kernel in the convolution layers.
+    pool_size: tuple or list
+        - Size of the mask in the MaxPooling layers.
+    upsample_size: tuple or list
+        - Size of the mask in the UpSampling layers.
     levels: int
         - Number of levels in the U-Net. Must be greater than 1.
     filter_num: iterable of ints
         - Number of convolution filters on each level of the U-Net.
+    kernel_size: int or tuple
+        - Size of the kernel in the convolution layers.
     modules_per_node: int
         - Number of modules in each node of the U-Net.
     batch_normalization: bool
@@ -59,12 +62,6 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
         - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
-    preserve_third_dimension: bool
-        - Setting this to True will preserve the third dimension of the U-Net so that it is not modified by the MaxPooling and UpSampling layers.
-    pool_size: int
-        - Size of the mask in the MaxPooling layers.
-    upsample_size: int
-        - Size of the mask in the UpSampling layers.
 
     Returns
     -------
@@ -87,9 +84,6 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
 
     if len(input_shape) > 4 or len(input_shape) < 3:
         raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
-
-    if preserve_third_dimension is True and len(input_shape) != 4:
-        raise ValueError(f"preserve_third_dimension is True but input_shape does not have 4 dimensions (3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
 
     if len(filter_num) != levels:
         raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
@@ -114,8 +108,6 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
     # MaxPooling keyword arguments
     pool_kwargs = dict({})
     pool_kwargs['pool_size'] = pool_size
-    if ndims == 3:
-        pool_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
     # Keyword arguments for upsampling
     upsample_kwargs = dict({})
@@ -129,24 +121,8 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
     upsample_kwargs['activity_regularizer'] = activity_regularizer
     upsample_kwargs['kernel_constraint'] = kernel_constraint
     upsample_kwargs['bias_constraint'] = bias_constraint
-    if ndims == 3:
-        upsample_kwargs['preserve_third_dimension'] = preserve_third_dimension
     upsample_kwargs['upsample_size'] = upsample_size
     upsample_kwargs['use_bias'] = use_bias
-
-    # Keyword arguments for the conventional skip connections
-    conventional_kwargs = dict({})
-    conventional_kwargs['activation'] = activation
-    conventional_kwargs['batch_normalization'] = batch_normalization
-    conventional_kwargs['padding'] = padding
-    conventional_kwargs['use_bias'] = use_bias
-    conventional_kwargs['kernel_initializer'] = kernel_initializer
-    conventional_kwargs['bias_initializer'] = bias_initializer
-    conventional_kwargs['kernel_regularizer'] = kernel_regularizer
-    conventional_kwargs['bias_regularizer'] = bias_regularizer
-    conventional_kwargs['activity_regularizer'] = activity_regularizer
-    conventional_kwargs['kernel_constraint'] = kernel_constraint
-    conventional_kwargs['bias_constraint'] = bias_constraint
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
@@ -160,8 +136,6 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
     supervision_kwargs['activity_regularizer'] = activity_regularizer
     supervision_kwargs['kernel_constraint'] = kernel_constraint
     supervision_kwargs['bias_constraint'] = bias_constraint
-    if ndims == 3:
-        supervision_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
     tensors = dict({})  # Tensors associated with each node and skip connections
 
@@ -199,11 +173,10 @@ def unet(input_shape, num_classes, kernel_size=3, levels=5, filter_num=(16, 32, 
     return model
 
 
-def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16, 32, 64, 128, 256, 512), filter_num_skip=None,
-    filter_num_aggregate=None, first_encoder_connections=True, modules_per_node=5, batch_normalization=True, activation='relu',
-    padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, preserve_third_dimension=False,
-    pool_size=2, upsample_size=2):
+def unet_3plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, filter_num_skip=None, filter_num_aggregate=None,
+    kernel_size=3, first_encoder_connections=True, modules_per_node=5, batch_normalization=True, activation='relu', padding='same',
+    use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None,
+    activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
     """
     Creates a U-Net 3+.
 
@@ -213,18 +186,22 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
         - Shape of the inputs. The last number in the tuple represents the number of channels/predictors.
     num_classes: int
         - Number of classes/labels that the U-Net 3+ will try to predict.
-    kernel_size: int or tuple
-        - Size of the kernel in the convolution layers.
+    pool_size: tuple or list
+        - Size of the mask in the MaxPooling layers.
+    upsample_size: tuple or list
+        - Size of the mask in the UpSampling layers.
     levels: int
-        - Number of levels in the U-Net 3+. Must be greater than 1.
+        - Number of levels in the U-Net 3+. Must be greater than 2.
     filter_num: iterable of ints
-        - Number of convolution filters in each encoder of the U-Net 3+.
+        - Number of convolution filters in each encoder of the U-Net 3+. The length must be equal to 'levels'.
     filter_num_skip: int or None
         - Number of convolution filters in the conventional skip connections, full-scale skip connections, and aggregated feature maps.
         - NOTE: When left as None, this will default to the first value in the 'filter_num' iterable.
     filter_num_aggregate: int or None
         - Number of convolution filters in the decoder nodes after images are concatenated.
         - When left as None, this will be equal to the product of filter_num_skip and the length of the filter_num iterable.
+    kernel_size: int or tuple
+        - Size of the kernel in the convolution layers.
     first_encoder_connections: bool
         - Setting this to True will create full-scale skip connections attached to the first encoder node.
     modules_per_node: int
@@ -252,11 +229,9 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
         - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
-    preserve_third_dimension: bool
-        - Setting this to True will preserve the third dimension of the U-Net so that it is not modified by the MaxPooling and UpSampling layers.
-    pool_size: int
+    pool_size: tuple or list
         - Size of the mask in the MaxPooling layers.
-    upsample_size: int
+    upsample_size: tuple or list
         - Size of the mask in the UpSampling layers.
 
     Returns
@@ -277,9 +252,6 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
 
     if len(input_shape) > 4 or len(input_shape) < 3:
         raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
-
-    if preserve_third_dimension is True and len(input_shape) != 4:
-        raise ValueError(f"preserve_third_dimension is True but input_shape does not have 4 dimensions (3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
 
     if len(filter_num) != levels:
         raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
@@ -309,8 +281,6 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
 
     pool_kwargs = dict({})
     pool_kwargs['pool_size'] = pool_size
-    if ndims == 3:
-        pool_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
     upsample_kwargs = dict({})
     upsample_kwargs['activation'] = activation
@@ -325,8 +295,6 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
     upsample_kwargs['activity_regularizer'] = activity_regularizer
     upsample_kwargs['kernel_constraint'] = kernel_constraint
     upsample_kwargs['bias_constraint'] = bias_constraint
-    if ndims == 3:
-        upsample_kwargs['preserve_third_dimension'] = preserve_third_dimension
     upsample_kwargs['upsample_size'] = upsample_size
     upsample_kwargs['use_bias'] = use_bias
 
@@ -360,8 +328,6 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
     full_scale_kwargs['activity_regularizer'] = activity_regularizer
     full_scale_kwargs['kernel_constraint'] = kernel_constraint
     full_scale_kwargs['bias_constraint'] = bias_constraint
-    if ndims == 3:
-        full_scale_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
     aggregated_kwargs = dict({})
     aggregated_kwargs['filters'] = filter_num_skip
@@ -378,8 +344,6 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
     aggregated_kwargs['activity_regularizer'] = activity_regularizer
     aggregated_kwargs['kernel_constraint'] = kernel_constraint
     aggregated_kwargs['bias_constraint'] = bias_constraint
-    if ndims == 3:
-        aggregated_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
     supervision_kwargs = dict({})
     supervision_kwargs['upsample_size'] = upsample_size
@@ -393,8 +357,6 @@ def unet_3plus(input_shape, num_classes, kernel_size=3, levels=6, filter_num=(16
     supervision_kwargs['activity_regularizer'] = activity_regularizer
     supervision_kwargs['kernel_constraint'] = kernel_constraint
     supervision_kwargs['bias_constraint'] = bias_constraint
-    if ndims == 3:
-        supervision_kwargs['preserve_third_dimension'] = preserve_third_dimension
 
     tensors = dict({})  # Tensors associated with each node and skip connections
 
