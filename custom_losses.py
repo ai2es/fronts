@@ -1,24 +1,26 @@
 """
 Custom loss functions for U-Net models.
+    - Brier Skill Score
+    - Fractions Skill Score
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/16/2022 7:07 PM CST
 
-Known bugs:
-- none
-
-Please report any bugs to Andrew Justin: andrewjustinwx@gmail.com
-
-NOTE: Throughout this script, common parameters for loss functions include 'y_true' and 'y_pred'.
-    - 'y_true' is the target that is trying to be predicted
-    - 'y_pred' is the actual prediction made
+Last updated: 6/28/2022 6:30 PM CDT
 """
 
 import tensorflow as tf
 
 
+@tf.function()
 def brier_skill_score(y_true, y_pred):
-    """ Brier skill score """
+    """
+    Brier skill score.
+
+    y_true: tf.Tensor
+        - The image that the model is trying to predict.
+    y_pred: tf.Tensor
+        - The model's actual prediction.
+    """
     losses = tf.subtract(y_true, y_pred)**2
     brier_score = tf.math.reduce_sum(losses)/tf.cast(tf.size(losses), tf.float32)
     return brier_score
@@ -27,7 +29,7 @@ def brier_skill_score(y_true, y_pred):
 # Fraction Skill Score (FSS) Loss Function - code taken from: https://github.com/CIRA-ML/custom_loss_functions
 # Fraction Skill Score original paper: N.M. Roberts and H.W. Lean, "Scale-Selective Verification of Rainfall
 #     Accumulation from High-Resolution Forecasts of Convective Events", Monthly Weather Review, 2008.
-def make_fractions_skill_score(mask_size, num_dimensions, c=1.0, cutoff=0.5, want_hard_discretization=False):
+def make_fractions_skill_score(mask_size, c=1.0, cutoff=0.5, want_hard_discretization=False):
     """
     Make fractions skill score loss function. Visit https://github.com/CIRA-ML/custom_loss_functions for documentation.
 
@@ -35,8 +37,6 @@ def make_fractions_skill_score(mask_size, num_dimensions, c=1.0, cutoff=0.5, wan
     ----------
     mask_size: int or tuple
         - Size of the mask/pool in the AveragePooling layers.
-    num_dimensions: int
-        - Number of dimensions in the mask/pool in the AveragePooling layers.
     c: int or float
         - C parameter in the sigmoid function. This will only be used if 'want_hard_discretization' is False.
     cutoff: float
@@ -52,18 +52,26 @@ def make_fractions_skill_score(mask_size, num_dimensions, c=1.0, cutoff=0.5, wan
     """
 
     pool_kwargs = {'pool_size': mask_size}
-    if num_dimensions == 2:
-        pool1 = tf.keras.layers.AveragePooling2D(**pool_kwargs)
-        pool2 = tf.keras.layers.AveragePooling2D(**pool_kwargs)
-    elif num_dimensions == 3:
-        pool1 = tf.keras.layers.AveragePooling3D(**pool_kwargs)
-        pool2 = tf.keras.layers.AveragePooling3D(**pool_kwargs)
-    else:
-        raise ValueError("Number of dimensions can only be 2 or 3")
+
+    pool1 = tf.keras.layers.AveragePooling2D(**pool_kwargs)
+    pool2 = tf.keras.layers.AveragePooling2D(**pool_kwargs)
 
     @tf.function()
     def fractions_skill_score(y_true, y_pred):
-        """ Fractions skill score loss function """
+        """
+        Fractions skill score (FSS) loss function.
+
+        y_true: tf.Tensor
+            - The image that the model is trying to predict.
+        y_pred: tf.Tensor
+            - The model's actual prediction.
+        """
+
+        # If the tensor represents a 3D image, turn it into a 2D image by taking the maximum along the vertical columns
+        if len(y_pred.shape) == 5:
+            y_true = tf.experimental.numpy.amax(y_true, axis=2)
+            y_pred = tf.experimental.numpy.amax(y_pred, axis=2)
+
         if want_hard_discretization:
             y_true_binary = tf.where(y_true > cutoff, 1.0, 0.0)
             y_pred_binary = tf.where(y_pred > cutoff, 1.0, 0.0)
