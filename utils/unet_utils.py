@@ -1,20 +1,20 @@
 """
 Functions for building U-Net models:
-- U-Net
-- U-Net 3+
+    - U-Net
+    - U-Net ensemble
+    - U-Net+
+    - U-Net++
+    - U-Net 3+
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/26/2022 10:16 PM CDT
 
-Known bugs:
-- none
-
-Please report any bugs to Andrew Justin: andrewjustinwx@gmail.com
+Last updated: 6/13/2022 12:53 AM CDT
 """
 
 import numpy as np
 from tensorflow.keras.layers import Conv2D, Conv3D, BatchNormalization, MaxPooling2D, MaxPooling3D, UpSampling2D, UpSampling3D, Softmax
 from tensorflow.keras import layers
+import tensorflow as tf
 import custom_activations
 
 
@@ -94,7 +94,6 @@ def convolution_module(tensor, filters, kernel_size, num_modules=1, padding='sam
     conv_kwargs['bias_constraint'] = bias_constraint
 
     activation_layer = choose_activation_layer(activation)  # Choose activation layer for the convolution modules.
-    activation_str = activation
 
     """ 
     Arguments for the Activation layer(s), if applicable. 
@@ -102,23 +101,19 @@ def convolution_module(tensor, filters, kernel_size, num_modules=1, padding='sam
       will have no effect.
     """
     activation_kwargs = dict({})
-
     if activation_layer == layers.Activation:
-        if activation_str == 'smelu':
-            activation_kwargs['activation'] = custom_activations.SmeLU  # SmeLU is a custom activation function, so the function itself must be passed into the Activation layer
-        else:
-            activation_kwargs['activation'] = activation
+        activation_kwargs['activation'] = activation
 
     # Insert convolution modules
     for module in range(num_modules):
 
         # Create names for the Conv2D/Conv3D layers and the activation layer.
         conv_kwargs['name'] = f'{name}_Conv{tensor_dims - 2}D_{module+1}'
-        activation_kwargs['name'] = f'{name}_{activation_str}_{module+1}'
+        activation_kwargs['name'] = f'{name}_{activation}_{module+1}'
 
         conv_tensor = conv_layer(**conv_kwargs)(tensor)  # Perform convolution on the input tensor
 
-        if batch_normalization is True:
+        if batch_normalization:
             batch_norm_tensor = BatchNormalization(name=f'{name}_BatchNorm_{module+1}')(conv_tensor)  # Insert layer for batch normalization
             activation_tensor = activation_layer(**activation_kwargs)(batch_norm_tensor)  # Pass output tensor from BatchNormalization into the activation layer
         else:
@@ -547,18 +542,18 @@ def choose_activation_layer(activation: str):
     Parameters
     ----------
     activation: str
-        - Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        - Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
 
     Returns
     -------
-    activation_layer: tf.keras.layers.Activation, tf.keras.layers.PReLU, or tf.keras.layers.LeakyReLU
+    activation_layer: tf.keras.layers.Activation, tf.keras.layers.PReLU, tf.keras.layers.LeakyReLU, or any layer from custom_activations
         - Activation layer.
     """
 
-    available_activations = ['elu', 'exponential', 'gelu', 'hard_sigmoid', 'leaky_relu', 'linear', 'prelu', 'relu', 'selu', 'sigmoid', 'softmax',
-                            'softplus', 'softsign', 'swish', 'tanh', 'smelu']
+    activation = activation.lower()
 
-    activation_kwargs = dict({})  # Keyword arguments that will be passed into the 'Activation' layer (if applicable)
+    available_activations = ['elu', 'exponential', 'gaussian', 'gcu', 'gelu', 'hard_sigmoid', 'leaky_relu', 'linear', 'prelu',
+        'relu', 'selu', 'sigmoid', 'smelu', 'snake', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
     # Choose the activation layer
     if activation == 'leaky_relu':
@@ -567,11 +562,16 @@ def choose_activation_layer(activation: str):
         activation_layer = getattr(layers, 'PReLU')
     elif activation == 'smelu':
         activation_layer = custom_activations.SmeLU
+    elif activation == 'gcu':
+        activation_layer = custom_activations.GCU
+    elif activation == 'gaussian':
+        activation_layer = custom_activations.Gaussian
+    elif activation == 'snake':
+        activation_layer = custom_activations.Snake
     elif activation in available_activations:
         activation_layer = getattr(layers, 'Activation')
-        activation_kwargs['activation'] = activation
     else:
-        raise TypeError(f"'{activation}' is not a valid loss function and/or is not available, options are: {', '.join(list(available_activations))}")
+        raise TypeError(f"'{activation}' is not a valid loss function and/or is not available, options are: {', '.join(sorted(list(available_activations)))}")
 
     return activation_layer
 
