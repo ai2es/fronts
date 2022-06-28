@@ -5,23 +5,24 @@ Code for generating various plots:
     - GDAS soundings
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
+
 Last updated: 6/25/2022 10:08 PM CDT
 """
 
 from matplotlib.colors import Normalize, ListedColormap
 from matplotlib.cm import ScalarMappable
-from metpy.units import units
 from metpy.plots import SkewT
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
 import xarray as xr
 from utils.plotting_utils import plot_background
 from utils.data_utils import reformat_fronts, expand_fronts
-import cartopy.crs as ccrs
 from glob import glob
 import argparse
 from errors import check_arguments
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+from metpy.units import units
+import numpy as np
+import pandas as pd
 
 
 def frequency_plots(fronts_pickle_indir, image_outdir):
@@ -139,6 +140,7 @@ def gdas_sounding(year, month, day, hour, lat, lon, gdas_pickle_indir, sounding_
         Output directory for the soundings.
     """
     available_files = sorted(glob(f'{gdas_pickle_indir}/{year}/%02d/%02d/gdas_*_{year}%02d%02d%02d_full.pkl' % (month, day, month, day, hour)))
+
     num_pressure_levels = len(available_files)
 
     P = np.empty(num_pressure_levels)
@@ -150,6 +152,7 @@ def gdas_sounding(year, month, day, hour, lat, lon, gdas_pickle_indir, sounding_
 
     for file in range(num_pressure_levels):
         current_dataset = pd.read_pickle(available_files[file]).sel(latitude=lat, longitude=lon)
+
         P[file] = current_dataset['pressure_level'].values
         T[file] = current_dataset['T'].values
         Td[file] = current_dataset['Td'].values
@@ -244,7 +247,7 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
     cbar.set_ticklabels(names)
 
     gdas_dataset.plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(),
-                               levels=10, cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})
+                               levels=20, cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})
     fronts_dataset['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)
     plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_%s_%d_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, variable, pressure_level, year, month, day, hour), dpi=300, bbox_inches='tight')
     plt.close()
@@ -279,7 +282,8 @@ def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts
     era5_file = '%s\\%d\\%02d\\%02d\\Data_60var_%d%02d%02d%02d_full.pkl' % (era5_pickle_indir, year, month, day, year, month, day, hour)
 
     fronts_dataset = pd.read_pickle(fronts_file).isel(latitude=slice(int((80-max_lat)*4), int((80-min_lat)*4)), longitude=slice(int((min_lon-130)*4), int((max_lon-130)*4)))
-    era5_dataset = pd.read_pickle(era5_file)[variable].isel(latitude=slice(int((80-max_lat)*4), int((80-min_lat)*4)), longitude=slice(int((min_lon-130)*4), int((max_lon-130)*4)))
+    era5_dataset = pd.read_pickle(era5_file).isel(latitude=slice(int((80-max_lat)*4), int((80-min_lat)*4)), longitude=slice(int((min_lon-130)*4), int((max_lon-130)*4)))
+    variable_dataset = era5_dataset[variable]
 
     fig = plt.figure(figsize=(12, 6))
     ax = plot_background(extent)
@@ -287,17 +291,19 @@ def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts
     fronts_dataset = expand_fronts(fronts_dataset)
     fronts_dataset = xr.where(fronts_dataset == 0, float("NaN"), fronts_dataset)
 
-    cbar_ax = fig.add_axes([0.7565, 0.11, 0.015, 0.77])
+    cbar_ax = fig.add_axes([0.7965, 0.11, 0.015, 0.77])
     cmap_fronts = ListedColormap(colors_types, name='from_list', N=len(names))
     norm_fronts = Normalize(vmin=1, vmax=len(names) + 1)
     cbar = plt.colorbar(ScalarMappable(norm=norm_fronts, cmap=cmap_fronts), cax=cbar_ax)
-    cbar.set_ticks(np.arange(1, len(names) + 1) + 0.5)
+    cbar.set_ticks((np.arange(1, len(names) + 1) + 0.5))
     cbar.set_ticklabels(names)
+    cbar.ax.invert_yaxis()
 
-    era5_dataset.plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(),
-                               levels=10, cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})
+    variable_dataset.plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(),
+                               levels=10, cmap='hot', cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})
     fronts_dataset['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)
-    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\era5_%s_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, variable, year, month, day, hour), dpi=300, bbox_inches='tight')
+    ax.set_title("Equivalent potential temperature and wind barbs (900 hPa) and forecasters' fronts: 2019-03-14-18z", fontsize=8)
+    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\era5_%s_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, variable, year, month, day, hour), dpi=500, bbox_inches='tight')
     plt.close()
 
 
@@ -314,6 +320,7 @@ if __name__ == '__main__':
     parser.add_argument('--fronts_pickle_indir', type=str, help='Input directory for the front object files.')
     parser.add_argument('--variable', type=str, help='Variable to plot')
     parser.add_argument('--extent', type=float, nargs=4, help='Extent of the plot. [MIN_LON, MAX_LON, MIN_LAT, MAX_LAT]')
+    parser.add_argument('--station_plot', action='store_true', help='Generate map of ASOS station plots across the CONUS.')
     parser.add_argument('--image_outdir', type=str, help='Output directory for images.')
 
     parser.add_argument('--year', type=int)

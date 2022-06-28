@@ -1,18 +1,19 @@
 """
 Deep learning models:
-    U-Net
-    U-Net ensemble
-    U-Net+
-    U-Net++
-    U-Net 3+
-
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/13/2022 10:28 PM CDT
+    - U-Net
+    - U-Net ensemble
+    - U-Net+
+    - U-Net++
+    - U-Net 3+
 
 TODO:
-Allow models to have a unique number of encoder and decoder levels (e.g. 3 encoder levels and 5 decoder levels)
-Add temporal U-Nets when Tensorflow 2.8 becomes available via conda
-Create help document with visualizations for in-code documentation
+    * Allow models to have a unique number of encoder and decoder levels (e.g. 3 encoder levels and 5 decoder levels)
+    * Add temporal U-Nets when Tensorflow 2.8 becomes available via conda
+    * Create help document with visualizations for in-code documentation
+
+Code written by: Andrew Justin (andrewjustinwx@gmail.com)
+
+Last updated: 6/27/2022 7:10 PM CDT
 """
 
 from tensorflow.keras.models import Model
@@ -25,7 +26,6 @@ def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num,
     bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
     """
     Builds a U-Net model.
-    https://arxiv.org/pdf/1505.04597.pdf
 
     Parameters
     ----------
@@ -80,6 +80,10 @@ def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num,
         If levels < 2
         If input_shape does not have 3 nor 4 dimensions
         If the length of filter_num does not match the number of levels
+
+    References
+    ----------
+    https://arxiv.org/pdf/1505.04597.pdf
     """
 
     ndims = len(input_shape) - 1  # Number of dimensions in the input image (excluding the last dimension reserved for channels)

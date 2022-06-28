@@ -1,87 +1,214 @@
 """
 Functions in this code manage data files and directories.
+    1. Create subdirectories organized by year, month, day, and/or hour to organize data files.
+    2. Compress a large set of files into a tarfile.
+    3. Extract the contents of an existing tarfile.
+    4. Create new ERA5, GDAS, and frontal object pickle files across a smaller domain.
+    5. Delete a large group of files using a common string in the filenames.
+    6. Load ERA5, ERA5/fronts, GDAS, GDAS/fronts, or frontal object pickle files.
+    7. Load a saved tensorflow model.
 
-Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 1/3/2022 11:24 AM CST
+TODO:
+    * Separate 'create_new_era5_domain_files' into three separate functions (one for each: ERA5, GDAS, fronts)
+    * Merge 'add_hourly_directories' into 'create_subdirectories'
+    * Add examples to the following functions:
+        - add_hourly_directories
+        - compress_files
+        - create_subdirectories
+        - delete_grouped_files
+        - extract_tarfile
+        - load_model
+
+Code written by: Andrew Justin (andrewjustinwx@gmail.com)
+
+Last updated: 6/27/2022 3:46 PM CST
 """
 
 from glob import glob
+import tarfile
 import pickle
 import argparse
 import numpy as np
 import os
+import pandas as pd
 from tensorflow.keras.models import load_model as lm
 import custom_losses
 import itertools
 from errors import check_arguments
 
 
-def add_hourly_directories(main_dir_subdir, year, month, day):
+def add_hourly_directories(main_dir, year, month, day):
     """
     Adds hourly subdirectories in daily subdirectories.
 
     Parameters
     ----------
-    main_dir_subdir: Main directory for the subdirectories.
-    year: year
-    month: month
-    day: day
+    main_dir: str
+        Main directory for the subdirectories.
+    year: int
+    month: int
+    day: int
+
+    Notes
+    -----
+    This function is called when passing '--hour_dirs' into the terminal command line. See Example 1b.
     """
-    for hour in range(0,24,3):
-        os.mkdir('%s/%d/%02d/%02d/%02d' % (main_dir_subdir, year, month, day, hour))
+    for hour in range(0, 24, 3):
+        os.mkdir('%s/%d/%02d/%02d/%02d' % (main_dir, year, month, day, hour))
 
 
-def create_subdirectories(main_dir_subdir, hour_dirs):
+def compress_files(main_dir, glob_file_string, tar_filename, remove_files=False, status_printout=True):
+    """
+    Compress files into a tar file.
+
+    Parameters
+    ----------
+    main_dir: str
+        - Main directory where the files are located and where the tar file will be saved.
+    glob_file_string: str
+        - String of the names of the files to compress.
+    tar_filename:
+        - Name of the compressed tar file that will be made.
+    remove_files: bool
+        - Setting this to true will remove the files after they have been compressed to a tar file.
+    status_printout: bool
+        - Setting this to true will provide printouts of the status of the compression.
+    """
+    uncompressed_size = 0  # MB
+
+    files = list(sorted(glob(f"{main_dir}/{glob_file_string}")))
+    if len(files) == 0:
+        raise OSError("No files found")
+    else:
+        print(f"{len(files)} files found")
+
+    num_files = len(files)
+
+    with tarfile.open(f"{main_dir}/{tar_filename}.tar.gz", "w:gz") as tarF:
+        for file in range(num_files):
+            tarF.add(files[file], arcname=files[file].replace(main_dir, ''))
+            tarF_size = os.path.getsize(f"{main_dir}/{tar_filename}.tar.gz")/1e6  # MB
+            uncompressed_size += os.path.getsize(files[file])/1e6
+            if status_printout:
+                print(f'({file+1}/{num_files})      {uncompressed_size:,.2f} MB ---> {tarF_size:,.2f} MB ({100*(1-(tarF_size/uncompressed_size)):.1f}% compression ratio)', end='\r')
+
+    print(f"Successfully compressed {len(files)} files: ",
+          f'{uncompressed_size:,.2f} MB ---> {tarF_size:,.2f} MB ({100*(1-(tarF_size/uncompressed_size)):.1f}% compression ratio)')
+
+    if remove_files is True:
+        for file in files:
+            os.remove(file)
+        print(f"Successfully deleted {len(files)} files")
+
+
+def create_new_era5_domain_files(pickle_dir, domain, num_variables, new_domain, new_extent):
+    """
+    Create new front object and variable files with a smaller domain.
+
+    Parameters
+    ----------
+    pickle_dir: str
+        - Directory where the pickle files are stored.
+    domain: str
+        - Domain of the files from which the new files will be made.
+    num_variables: int
+        - Number of variables in the variable datasets.
+    new_domain: str
+        - Name of the new domain.
+    new_extent: Iterable object with 4 ints
+        - 4 values for the new extent: min_lon, max_lon, min_lat, max_lat
+    """
+
+    raise TypeError("This function is not operational.")
+
+    front_files, variable_files = load_era5_pickle_files(pickle_dir, num_variables, domain)
+
+    for front_file, variable_file in zip(front_files, variable_files):
+        front_ds = pd.read_pickle(front_file)
+        variable_ds = pd.read_pickle(variable_file)
+
+        new_front_ds = front_ds.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
+        new_variable_ds = variable_ds.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
+
+        new_front_file = front_file.replace('full', new_domain)
+        new_variable_file = variable_file.replace('full', new_domain)
+
+        with open(new_front_file, "wb") as f:
+            pickle.dump(new_front_ds, f)
+        with open(new_variable_file, "wb") as f:
+            pickle.dump(new_variable_ds, f)
+
+    for front_file, variable_file in zip(front_files, variable_files):
+        front_ds = pd.read_pickle(front_file)
+        variable_ds = pd.read_pickle(variable_file)
+
+        new_front_ds = front_ds.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
+        new_variable_ds = variable_ds.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
+
+        new_front_file = front_file.replace('full', new_domain)
+        new_variable_file = variable_file.replace('full', new_domain)
+
+        with open(new_front_file, "wb") as f:
+            pickle.dump(new_front_ds, f)
+        with open(new_variable_file, "wb") as f:
+            pickle.dump(new_variable_ds, f)
+
+
+def create_subdirectories(main_dir, hour_dirs=False):
     """
     Creates subdirectories for files sorted by year, month, day, and hour (hour is optional).
 
     Parameters
     ----------
-    hour_dirs: Boolean flag that determines whether or not hourly subdirectories will be generated.
-    main_dir_subdir: Main directory for the subdirectories.
+    main_dir: str
+        - Main directory for the subdirectories.
+    hour_dirs: bool
+        - Boolean flag that determines whether or not hourly subdirectories will be generated.
     """
 
-    years = list(np.linspace(2006,2020,15))
+    years = list(np.arange(2008, 2023, 1))
 
-    month_1_days = np.linspace(1,31,31)
-    month_3_days = np.linspace(1,31,31)
-    month_4_days = np.linspace(1,30,30)
-    month_5_days = np.linspace(1,31,31)
-    month_6_days = np.linspace(1,30,30)
-    month_7_days = np.linspace(1,31,31)
-    month_8_days = np.linspace(1,31,31)
-    month_9_days = np.linspace(1,30,30)
-    month_10_days = np.linspace(1,31,31)
-    month_11_days = np.linspace(1,30,30)
-    month_12_days = np.linspace(1,31,31)
+    month_1_days = np.linspace(1, 31, 31)
+    month_3_days = np.linspace(1, 31, 31)
+    month_4_days = np.linspace(1, 30, 30)
+    month_5_days = np.linspace(1, 31, 31)
+    month_6_days = np.linspace(1, 30, 30)
+    month_7_days = np.linspace(1, 31, 31)
+    month_8_days = np.linspace(1, 31, 31)
+    month_9_days = np.linspace(1, 30, 30)
+    month_10_days = np.linspace(1, 31, 31)
+    month_11_days = np.linspace(1, 30, 30)
+    month_12_days = np.linspace(1, 31, 31)
 
-    print("Making directories....",end='')
     for year in years:
+        print(f"Making directories for year {year}")
         if year % 4 == 0:  # Check if the current year is a leap year
-            month_2_days = np.linspace(1,29,29)
+            month_2_days = np.linspace(1, 29, 29)
         else:
-            month_2_days = np.linspace(1,28,28)
-        month_days = [month_1_days,month_2_days,month_3_days,month_4_days,month_5_days,month_6_days,month_7_days,month_8_days,
-                      month_9_days,month_10_days,month_11_days,month_12_days]
-        os.mkdir('%s/%d' % (main_dir_subdir, year))
-        for month in range(1,13):
-            os.mkdir('%s/%d/%02d' % (main_dir_subdir, year, month))
+            month_2_days = np.linspace(1, 28, 28)
+        month_days = [month_1_days, month_2_days, month_3_days, month_4_days, month_5_days, month_6_days, month_7_days, month_8_days,
+                      month_9_days, month_10_days, month_11_days, month_12_days]
+        os.mkdir('%s/%d' % (main_dir,  year))
+        for month in range(1, 13):
+            os.mkdir('%s/%d/%02d' % (main_dir, year, month))
             for day in month_days[month-1]:
-                os.mkdir('%s/%d/%02d/%02d' % (main_dir_subdir, year, month, day))
+                os.mkdir('%s/%d/%02d/%02d' % (main_dir, year, month, day))
                 if hour_dirs is True:
-                    add_hourly_directories(main_dir_subdir, year, month, day)
-    print("done")
+                    add_hourly_directories(main_dir, year, month, day)
 
 
-def delete_grouped_files(main_dir_group, glob_file_string, num_subdir):
+def delete_grouped_files(main_dir, glob_file_string, num_subdir):
     """
     Deletes grouped files with names matching given strings.
 
     Parameters
     ----------
-    glob_file_string: String of the names of the files to delete.
-    main_dir_group: Main directory or directories where the grouped files are located.
-    num_subdir: Number of subdirectory layers in the main directory.
+    main_dir: str
+        - Main directory or directories where the grouped files are located.
+    glob_file_string: str
+        - String of the names of the files to delete.
+    num_subdir: int
+        - Number of subdirectory layers in the main directory.
     """
 
     subdir_string = ''
@@ -90,235 +217,769 @@ def delete_grouped_files(main_dir_group, glob_file_string, num_subdir):
         subdir_string += '/*'
     glob_file_string = subdir_string + glob_file_string
 
-    files_to_delete = list(sorted(glob("%s/%s" % (main_dir_group, glob_file_string))))
+    files_to_delete = list(sorted(glob("%s/%s" % (main_dir, glob_file_string))))
 
-    print("Deleting %d files...." % len(files_to_delete),end='')
+    print("Deleting %d files...." % len(files_to_delete), end='')
     for file in files_to_delete:
         os.remove(file)
     print("done")
 
 
-def generate_file_lists(front_files, variable_files, num_variables, front_types, domain):
+def extract_tarfile(main_dir, tar_filename):
     """
-    Generates lists of files containing front and variable data. Creating separate lists and loading them saves time as
-    opposed to just loading all of the files individually each time the code is ran.
+    Extract all the contents of a tar file.
+
+    main_dir: str
+        - Main directory where the tar file is located. This is also where the extracted files will be placed.
+    tar_filename: str
+        - Name of the compressed tar file.
+    """
+
+    with tarfile.open(f"{main_dir}/{tar_filename}", 'r') as tarF:
+        tarF.extractall(main_dir)
+    print(f"Successfully extracted {main_dir}/{tar_filename}")
+
+
+def load_era5_pickle_files(era5_pickle_indir, num_variables, domain, dataset=None, test_years=None, validation_years=None):
+    """
+    Function that loads and returns a list of ERA5 pickle files.
 
     Parameters
     ----------
-    domain: Domain which the front and variable files cover.
-    front_files: List of files containing front data.
-    front_types: Fronts in the frontobject datasets.
-    num_variables: Number of variables in the variable datasets.
-    variable_files: List of files containing variable data.
+    era5_pickle_indir: str
+        - Input directory for the ERA5 pickle files.
+    num_variables: int
+        - Number of variables in the ERA5 datasets.
+    domain: str
+        - Domain covered by the ERA5 datasets.
+    dataset: str or None
+        - Dataset to load. Available options are 'training', 'validation', or 'test'. Leaving this as None will load the file lists without any filtering.
+    test_years: list of ints or None
+        - Years for the test set (will not be used in training or validation).
+    validation_years: list of ints or None
+        - Years for the validation set.
+
+    Returns
+    -------
+    era5_files_<dataset>: list of strs
+        - List of all files containing ERA5 data.
+
+    Examples
+    --------
+    era5_files = fm.load_era5_pickle_files(era5_pickle_indir, num_variables=60, domain='full')  # Load all ERA5 pickle files containing 60 variables across the full domain
+        * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
+        * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
+        * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
     """
+    if dataset is not None:
+        print(f"Loading ERA5 files: {dataset} dataset")
+    else:
+        print("Loading ERA5 files")
+
+    era5_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s.pkl" % (era5_pickle_indir, num_variables, domain)))
+
+    if domain == 'full':  # Filter out non-synoptic hours
+        hours_to_remove = [3, 9, 15, 21]
+        for hour in hours_to_remove:
+            string = '%02d_' % hour
+            era5_files = list(filter(lambda hour: string not in hour, era5_files))  # Remove files that do not contain the given hourly string
+
+    separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
+    loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+
+    if dataset == 'training':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the training set")
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the training set")
+
+        era5_files_training = era5_files
+        while len(era5_files_training) == len(era5_files) and loop_counter < 2:  # While no ERA5 files in the training dataset are found
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                era5_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, era5_files_training))
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                era5_files_training = list(filter(lambda test_year: test_year_string not in test_year, era5_files_training))
+            loop_counter += 1
+
+        print("ERA5 files in training dataset:", len(era5_files_training))
+        return era5_files_training
+
+    elif dataset == 'validation':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the validation set")
+
+        era5_files_validation = []
+        while len(era5_files_validation) == 0 and loop_counter < 2:  # While no ERA5 files in the validation dataset are found
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                era5_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, era5_files)))
+            era5_files_validation = list(sorted(itertools.chain(*era5_files_validation)))
+            loop_counter += 1
+
+        print(f"ERA5 files in validation dataset {validation_years}:", len(era5_files_validation))
+        return era5_files_validation
+
+    elif dataset == 'test':
+
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the test set")
+
+        era5_files_test = []
+        while len(era5_files_test) == 0 and loop_counter < 2:  # While no ERA5 files in the testing dataset are found
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                era5_files_test.append(list(filter(lambda test_year: test_year_string in test_year, era5_files)))
+            era5_files_test = list(sorted(itertools.chain(*era5_files_test)))
+            loop_counter += 1
+
+        print(f"ERA5 files in testing dataset {test_years}:", len(era5_files_test))
+        return era5_files_test
+
+    elif dataset is None:
+        print("ERA5 files:", len(era5_files))
+        return era5_files
+
+    else:
+        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
+
+
+def load_fronts_pickle_files(fronts_pickle_indir, domain, dataset=None, test_years=None, validation_years=None):
+    """
+    Function that loads and returns front object files with matching dates.
+
+    Parameters
+    ----------
+    fronts_pickle_indir: str
+        - Input directory for the front object pickle files.
+    domain: str
+        - Domain which the front and variable files cover.
+    dataset: str or None
+        - Dataset to load. Available options are 'training', 'validation', or 'test'. Leaving this as None will load the file lists without any filtering.
+    test_years: list of ints or None
+        - Years for the test set (will not be used in training or validation).
+    validation_years: list of ints or None
+        - Years for the validation set.
+
+    Returns
+    -------
+    front_files_<dataset>: list of strs
+        - List of all files containing fronts. Includes files with no fronts present in their respective domains.
+
+    Examples
+    --------
+    front_files = fm.load_fronts_pickle_files(front_pickle_indir, domain='full')  # Load all frontal object pickle files
+        * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
+        * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
+        * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+    """
+    if dataset is not None:
+        print(f"Loading fronts files: {dataset} dataset")
+    else:
+        print("Loading fronts files")
+
+    front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
+
+    if domain == 'full':  # Filter out non-synoptic hours
+        hours_to_remove = [3, 9, 15, 21]
+        for hour in hours_to_remove:
+            string = '%02d_' % hour
+            front_files = list(filter(lambda hour: string not in hour, front_files))
+
+    separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
+    loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+
+    if dataset == 'training':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the training set")
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the training set")
+
+        front_files_training = front_files
+        while len(front_files_training) == len(front_files) and loop_counter < 2:
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                front_files_training = list(filter(lambda test_year: test_year_string not in test_year, front_files_training))
+            loop_counter += 1
+
+        print("Front files in training dataset:", len(front_files_training))
+        return front_files_training
+
+    elif dataset == 'validation':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the validation set")
+
+        front_files_validation = []
+        while len(front_files_validation) == 0 and loop_counter < 2:
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
+            front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
+            loop_counter += 1
+
+        print(f"Front files in validation dataset {validation_years}:", len(front_files_validation))
+        return front_files_validation
+
+    elif dataset == 'test':
+
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the test set")
+
+        front_files_test = []
+        while len(front_files_test) == 0 and loop_counter < 2:
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
+            front_files_test = list(sorted(itertools.chain(*front_files_test)))
+            loop_counter += 1
+
+        print(f"Front files in test dataset {test_years}:", len(front_files_test))
+        return front_files_test
+
+    elif dataset is None:
+        print(f"Front files:", len(front_files))
+        return front_files
+
+    else:
+        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
+
+
+def load_era5_and_fronts_pickle_files(era5_pickle_indir, fronts_pickle_indir, num_variables, domain, dataset=None, test_years=None, validation_years=None):
+    """
+    Function that loads and returns lists of ERA5 pickle files and front object files with matching dates.
+
+    Parameters
+    ----------
+    era5_pickle_indir: str
+        - Input directory for the ERA5 pickle files.
+    fronts_pickle_indir: str
+        - Input directory for the front object pickle files.
+    num_variables: int
+        - Number of variables in the variable datasets.
+    domain: str
+        - Domain which the front and variable files cover.
+    dataset: str or None
+        - Dataset to load. Available options are 'training', 'validation', or 'test'. Leaving this as None will load the file lists without any filtering.
+    test_years: list of ints
+        - Years for the test set (will not be used in training or validation).
+    validation_years: list of ints
+        - Years for the validation set.
+
+    Returns
+    -------
+    era5_files_<dataset>: list of strs
+        - List of all files containing ERA5 data.
+    front_files_<dataset>: list of strs
+        - List of all files containing fronts. Includes files with no fronts present in their respective domains.
+
+    Examples
+    --------
+    era5_files, front_files = fm.load_era5_and_fronts_pickle_files(era5_pickle_indir, front_pickle_indir, num_variables=60, domain='full')  # Load all pairs of ERA5/front files
+        * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
+        * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
+        * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+    """
+    if dataset is not None:
+        print(f"Loading ERA5/fronts {dataset} dataset")
+    else:
+        print("Loading ERA5/fronts files")
+
+    front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
+    era5_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s.pkl" % (era5_pickle_indir, num_variables, domain)))
+
     front_files_no_prefix = []
-    variable_files_no_prefix = []
+    era5_files_no_prefix = []
     front_files_list = []
-    variable_files_list = []
+    era5_files_list = []
 
-    print("Generating file lists....", end='')
     for i in range(len(front_files)):
-        front_files_no_prefix.append(front_files[i].replace('FrontObjects_%s_' % front_types, ''))
-    for j in range(len(variable_files)):
-        variable_files_no_prefix.append(variable_files[j].replace('Data_%dvar_' % num_variables, ''))
+        front_files_no_prefix.append(front_files[i].replace('FrontObjects_', ''))
+    for j in range(len(era5_files)):
+        era5_files_no_prefix.append(era5_files[j].replace('Data_%dvar_' % num_variables, ''))
 
-    if len(variable_files) > len(front_files):
-        total_variable_files = len(variable_files)
+    if len(era5_files) > len(front_files):
+        total_era5_files = len(era5_files)
         total_front_files = len(front_files)
-        for k in range(total_variable_files):
-            if variable_files_no_prefix[k] in front_files_no_prefix:
-                variable_files_list.append(variable_files[k])
-        for l in range(total_front_files):
-            if front_files_no_prefix[l] in variable_files_no_prefix:
-                front_files_list.append(front_files[l])
+        for era5_file_no in range(total_era5_files):
+            if era5_files_no_prefix[era5_file_no] in front_files_no_prefix:
+                era5_files_list.append(era5_files[era5_file_no])
+        for front_file_no in range(total_front_files):
+            if front_files_no_prefix[front_file_no] in era5_files_no_prefix:
+                front_files_list.append(front_files[front_file_no])
     else:
         total_front_files = len(front_files)
-        total_variable_files = len(variable_files)
-        for k in range(total_front_files):
-            if front_files_no_prefix[k] in variable_files_no_prefix:
-                front_files_list.append(front_files[k])
-        for l in range(total_variable_files):
-            if variable_files_no_prefix[l] in front_files_no_prefix:
-                variable_files_list.append(variable_files[l])
-    print("done")
+        total_era5_files = len(era5_files)
+        for front_file_no in range(total_front_files):
+            if front_files_no_prefix[front_file_no] in era5_files_no_prefix:
+                front_files_list.append(front_files[front_file_no])
+        for era5_file_no in range(total_era5_files):
+            if era5_files_no_prefix[era5_file_no] in front_files_no_prefix:
+                era5_files_list.append(era5_files[era5_file_no])
 
-    print("Front file list length: %d" % len(front_files_list))
-    print("Variable file list length: %d\n" % len(variable_files_list))
+    front_files, era5_files = front_files_list, era5_files_list
 
     matches = 0
     mismatches = 0
 
     # Check the end of the filenames to match up files together
     for i in range(len(front_files_list)):
-        if front_files_list[0][-15:] == variable_files_list[0][-15:]:
+        if front_files_list[i][-15:] == era5_files_list[i][-15:]:
             matches += 1
         else:
             mismatches += 1
 
-    print("Matched files: %d/%d" % (matches, len(front_files_list)))
-    print("Mismatched files: %d/%d" % (mismatches, len(front_files_list)))
+    if mismatches > 0:
+        raise ValueError("The dates in the file lists do not match up. Please report this bug to Andrew Justin (andrewjustinwx@gmail.com)")
 
-    if mismatches == 0:
-        print("No errors found!\n")
-    else:
-        print("ERROR: File lists do not have matching dates, check your data and remake the lists.\n")
-
-    print("Saving lists....", end='')
-    with open('%dvar_%s_%s_front_files_list.pkl' % (num_variables, front_types, domain), 'wb') as f:
-        pickle.dump(front_files_list, f)
-    with open('%dvar_%s_%s_variable_files_list.pkl' % (num_variables, front_types, domain), 'wb') as f:
-        pickle.dump(variable_files_list, f)
-    print("done")
-
-
-def load_files(pickle_indir, num_variables, front_types, domain):
-    """
-    Function that loads and returns lists of data files.
-
-    Parameters
-    ----------
-    domain: Domain which the front and variable files cover.
-    front_types: Fronts in the frontobject datasets.
-    num_variables: Number of variables in the variable datasets.
-    pickle_indir: Directory where the created pickle files containing the domain data will be stored.
-
-    Returns
-    -------
-    front_files: List of all files containing fronts. Includes files with no fronts present in their respective domains.
-    variable_files: List of all files containing variable data.
-    """
-    print("Collecting front object files....", end='')
-    front_files = sorted(glob("%s/*/*/*/FrontObjects_%s_*_%s.pkl" % (pickle_indir, front_types, domain)))
-    print("done, %d files found" % len(front_files))
-    print("Collecting variable data files....", end='')
-    variable_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s.pkl" % (pickle_indir, num_variables, domain)))
-    print("done, %d files found" % len(variable_files))
-
-    return front_files, variable_files
-
-
-def load_file_lists(num_variables, front_types, domain, dataset=None, test_years=None, validation_years=None):
-    """
-    Opens files containing lists of filenames for fronts and variable data.
-
-    Parameters
-    ----------
-    dataset: Dataset to load. Available options are 'training', 'validation', or 'test'. Leaving this as None will load
-        the file lists without any filtering.
-    domain: Domain which the front and variable files cover.
-    front_types: Fronts in the frontobject datasets.
-    num_variables: Number of variables in the variable datasets.
-    test_years: Years for the test set (will not be used in training or validation).
-    validation_years: Years for the validation set.
-
-    Returns
-    -------
-    front_files_<dataset>: List of filenames that contain front data.
-    variable_files_<dataset>: List of filenames that contain variable data.
-    """
-
-    if domain == 'full':
-        timestep_6hr = True
-    else:
-        timestep_6hr = False
-
-    with open('%dvar_%s_%s_front_files_list.pkl' % (num_variables, front_types, domain), 'rb') as f:
-        front_files_list = pickle.load(f)
-    with open('%dvar_%s_%s_variable_files_list.pkl' % (num_variables, front_types, domain), 'rb') as f:
-        variable_files_list = pickle.load(f)
-
-    if timestep_6hr is True:
-        hours_to_remove = [3,9,15,21]
+    if domain == 'full':  # Filter out non-synoptic hours
+        hours_to_remove = [3, 9, 15, 21]
         for hour in hours_to_remove:
             string = '%02d_' % hour
-            front_files_list = list(filter(lambda hour: string not in hour, front_files_list))
-            variable_files_list = list(filter(lambda hour: string not in hour, variable_files_list))
+            front_files = list(filter(lambda hour: string not in hour, front_files))
+            era5_files = list(filter(lambda hour: string not in hour, era5_files))
 
-    separators = ['/','\\']
-    loop_counter = 0
+    separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
+    loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
 
     if dataset == 'training':
-        front_files_training = front_files_list
-        variable_files_training = variable_files_list
-        while len(front_files_training) == len(front_files_list) and len(variable_files_training) == len(variable_files_list) and loop_counter < 2:
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the training set")
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the training set")
+
+        front_files_training = front_files
+        era5_files_training = era5_files
+        while len(front_files_training) == len(front_files) and len(era5_files_training) == len(era5_files) and loop_counter < 2:  # While no ERA5/front files in the training dataset are found
             for validation_year in validation_years:
                 validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
                 front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
-                variable_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, variable_files_training))
+                era5_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, era5_files_training))
             for test_year in test_years:
                 test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
                 front_files_training = list(filter(lambda test_year: test_year_string not in test_year, front_files_training))
-                variable_files_training = list(filter(lambda test_year: test_year_string not in test_year, variable_files_training))
+                era5_files_training = list(filter(lambda test_year: test_year_string not in test_year, era5_files_training))
             loop_counter += 1
 
-        print("Training file pairs:", len(front_files_training))
-        return front_files_training, variable_files_training
+        print("ERA5/fronts file pairs in training dataset:", len(front_files_training))
+        return era5_files_training, front_files_training
 
     elif dataset == 'validation':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the validation set")
+
         front_files_validation = []
-        variable_files_validation = []
-        while len(front_files_validation) == 0 and len(variable_files_validation) == 0 and loop_counter < 2:
+        era5_files_validation = []
+        while len(front_files_validation) == 0 and len(era5_files_validation) == 0 and loop_counter < 2:  # While no ERA5/front files in the validation dataset are found
             for validation_year in validation_years:
                 validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
-                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files_list)))
-                variable_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, variable_files_list)))
+                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
+                era5_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, era5_files)))
             front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
-            variable_files_validation = list(sorted(itertools.chain(*variable_files_validation)))
+            era5_files_validation = list(sorted(itertools.chain(*era5_files_validation)))
             loop_counter += 1
 
-        print(f"Validation file pairs {validation_years}:", len(front_files_validation))
-        return front_files_validation, variable_files_validation
+        print(f"ERA5/fronts file pairs in validation dataset {validation_years}:", len(front_files_validation))
+        return era5_files_validation, front_files_validation
 
     elif dataset == 'test':
+
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the test set")
+
         front_files_test = []
-        variable_files_test = []
-        while len(front_files_test) == 0 and len(variable_files_test) == 0 and loop_counter < 2:
+        era5_files_test = []
+        while len(front_files_test) == 0 and len(era5_files_test) == 0 and loop_counter < 2:  # While no ERA5/front files in the testing dataset are found
             for test_year in test_years:
                 test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
-                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files_list)))
-                variable_files_test.append(list(filter(lambda test_year: test_year_string in test_year, variable_files_list)))
+                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
+                era5_files_test.append(list(filter(lambda test_year: test_year_string in test_year, era5_files)))
             front_files_test = list(sorted(itertools.chain(*front_files_test)))
-            variable_files_test = list(sorted(itertools.chain(*variable_files_test)))
+            era5_files_test = list(sorted(itertools.chain(*era5_files_test)))
             loop_counter += 1
 
-        print(f"Test file pairs {test_years}:", len(front_files_test))
-        return front_files_test, variable_files_test
+        print(f"ERA5/fronts file pairs in testing dataset {test_years}:", len(front_files_test))
+        return era5_files_test, front_files_test
+
+    elif dataset is None:
+        print(f"ERA5/fronts file pairs:", len(front_files))
+        return era5_files, front_files
 
     else:
-        print("Total file pairs:", len(front_files_list))
-        return front_files_list, variable_files_list
+        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
 
 
-def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_dimensions):
+def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=None, validation_years=None):
+    """
+    Function that loads and returns lists of GDAS pickle files.
+
+    Parameters
+    ----------
+    gdas_pickle_indir: str
+        Input directory for the GDAS pickle files.
+    domain: str
+        Domain covered by the GDAS pickle files.
+    dataset: str or None
+        Dataset to load. Available options are 'training', 'validation', or 'test'. Leaving this as None will load the file lists without any filtering.
+    test_years: list of ints or None
+        Years for the test set (will not be used in training or validation).
+    validation_years: list of ints or None
+        Years for the validation set.
+
+    Returns
+    -------
+    gdas_files_<dataset>: list of strs
+        List of all files containing GDAS data.
+
+    Examples
+    --------
+    gdas_files = fm.load_gdas_pickle_files(gdas_pickle_indir, domain='full')  # Load all GDAS files
+        * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
+        * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
+        * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+    """
+    if dataset is not None:
+        print(f"Loading GDAS {dataset} dataset")
+    else:
+        print("Loading GDAS files")
+
+    gdas_files = sorted(glob("%s/*/*/*/gdas_*_%s.pkl" % (gdas_pickle_indir, domain)))
+
+    gdas_files_no_prefix = []
+    gdas_timesteps = []  # Timesteps of GDAS files
+    gdas_files_by_timestep = []  # List of GDAS files with each index representing a group of files with a common timestep
+    gdas_files_list = []
+
+    required_pressure_levels = ['_1000_', '_975_', '_950_', '_925_', '_900_', '_850_', '_800_', '_750_', '_700_', '_650_',
+                                '_600_', '_550_', '_500_', '_450_', '_400_', '_350_', '_300_', '_250_', '_200_', '_150_',
+                                '_100_']
+
+    # Find all timesteps in the GDAS files
+    for j in range(len(gdas_files)):
+        gdas_filename_start_index = gdas_files[j].find('gdas_')
+        gdas_filename_no_pressure_level_index = gdas_files[j][gdas_filename_start_index + 5:].find('_2') + 1
+        gdas_timesteps.append(gdas_files[j][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
+    unique_gdas_timesteps = np.unique(sorted(gdas_timesteps))
+
+    # Find all GDAS files for each timestep and order them by pressure level
+    for timestep in unique_gdas_timesteps:
+        files_for_timestep = sorted(filter(lambda filename: timestep in filename, gdas_files))
+
+        # Move 1000 mb file to the end of the list, then remove its duplicate at the beginning
+        files_for_timestep.append(files_for_timestep[0])
+        files_for_timestep.pop(0)
+
+        # Reverse list so that pressure levels are in descending order / increasing with altitude
+        files_for_timestep = files_for_timestep[::-1]
+
+        # Check all files for all pressure levels
+        pressure_levels_found = 0
+        for pressure_level, file in zip(required_pressure_levels, files_for_timestep):
+            if pressure_level in file:
+                pressure_levels_found += 1
+        if pressure_levels_found == 21:
+            gdas_files_no_prefix_temp = []  # Temporary holding folder for GDAS files before they are added to the list of filenames
+            for full_filename in range(21):
+                gdas_filename_start_index = files_for_timestep[full_filename].find('gdas_')
+                gdas_filename_no_pressure_level_index = files_for_timestep[full_filename][gdas_filename_start_index + 5:].find('_2') + 1
+                gdas_files_no_prefix_temp.append(gdas_files[full_filename][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
+            gdas_files_no_prefix.append(gdas_files_no_prefix_temp)
+            gdas_files_by_timestep.append(files_for_timestep)
+
+    total_gdas_files = len(gdas_files_no_prefix)
+    for gdas_file_no in range(total_gdas_files):
+        gdas_files_list.append(gdas_files_by_timestep[gdas_file_no])
+
+    if domain == 'full':  # Filter out non-synoptic hours
+        hours_to_remove = [3, 9, 15, 21]
+        for hour in hours_to_remove:
+            string = '%02d_' % hour
+            gdas_files = list(filter(lambda hour: string not in hour, gdas_files))
+
+    separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
+    loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+
+    if dataset == 'training':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the training set")
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the training set")
+
+        gdas_files_training = gdas_files
+        while len(gdas_files_training) == len(gdas_files) and loop_counter < 2:  # While no GDAS files in the training dataset are found
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                gdas_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, gdas_files_training))
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                gdas_files_training = list(filter(lambda test_year: test_year_string not in test_year, gdas_files_training))
+            loop_counter += 1
+
+        print("GDAS files in training dataset:", len(gdas_files_training))
+        return gdas_files_training
+
+    elif dataset == 'validation':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the validation set")
+
+        gdas_files_validation = []
+        while len(gdas_files_validation) == 0 and loop_counter < 2:  # While no GDAS files in the validation dataset are found
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                gdas_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, gdas_files)))
+            gdas_files_validation = list(sorted(itertools.chain(*gdas_files_validation)))
+            loop_counter += 1
+
+        print(f"GDAS files in validation dataset {validation_years}:", len(gdas_files_validation))
+        return gdas_files_validation
+
+    elif dataset == 'test':
+
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the test set")
+
+        gdas_files_test = []
+        while len(gdas_files_test) == 0 and loop_counter < 2:  # While no GDAS files in the testing dataset are found
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                gdas_files_test.append(list(filter(lambda test_year: test_year_string in test_year, gdas_files)))
+            gdas_files_test = list(sorted(itertools.chain(*gdas_files_test)))
+            loop_counter += 1
+
+        print(f"GDAS files in testing dataset {test_years}:", len(gdas_files_test))
+        return gdas_files_test
+
+    elif dataset is None:
+        print(f"GDAS files:", len(gdas_files))
+        return gdas_files
+
+    else:
+        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
+
+
+def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, domain, dataset=None, test_years=None, validation_years=None):
+    """
+    Function that loads and returns lists of GDAS pickle files and front object files with matching dates.
+
+    Parameters
+    ----------
+    gdas_pickle_indir: str
+        - Input directory for the GDAS pickle files.
+    fronts_pickle_indir: str
+        - Input directory for the front object pickle files.
+    domain: str
+        - Domain which the front and GDAS files cover.
+    dataset: str or None
+        - Dataset to load. Available options are 'training', 'validation', or 'test'. Leaving this as None will load the file lists without any filtering.
+    test_years: list of ints or None
+        - Years for the test set (will not be used in training or validation).
+    validation_years: list of ints or None
+        - Years for the validation set.
+
+    Returns
+    -------
+    gdas_files_<dataset>: list of strs
+        - List of all files containing gdas data.
+    front_files_<dataset>: list of strs
+        - List of all files containing fronts. Includes files with no fronts present in their respective domains.
+
+    Examples
+    --------
+    gdas_files, front_files = fm.load_gdas_and_fronts_pickle_files(gdas_pickle_indir, front_pickle_indir, domain='full')  # Load all paired sets of GDAS/front files
+        * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
+        * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
+        * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+    """
+    if dataset is not None:
+        print(f"Loading GDAS/fronts {dataset} dataset")
+    else:
+        print("Loading GDAS/fronts files")
+
+    front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
+    gdas_files = sorted(glob("%s/*/*/*/gdas_*_%s.pkl" % (gdas_pickle_indir, domain)))
+
+    front_files_no_prefix = []
+    gdas_files_no_prefix = []
+    gdas_timesteps = []  # Timesteps of GDAS files
+    gdas_files_by_timestep = []  # List of GDAS files with each index representing a group of files with a common timestep
+    front_files_list = []
+    gdas_files_list = []
+
+    required_pressure_levels = ['_1000_', '_975_', '_950_', '_925_', '_900_', '_850_', '_800_', '_750_', '_700_', '_650_',
+                                '_600_', '_550_', '_500_', '_450_', '_400_', '_350_', '_300_', '_250_', '_200_', '_150_',
+                                '_100_']
+
+    for i in range(len(front_files)):
+        front_filename_start_index = front_files[i].find('FrontObjects_')
+        front_files_no_prefix.append(front_files[i][front_filename_start_index + 13:])
+
+    # Find all timesteps in the GDAS files
+    for j in range(len(gdas_files)):
+        gdas_filename_start_index = gdas_files[j].find('gdas_')
+        gdas_filename_no_pressure_level_index = gdas_files[j][gdas_filename_start_index + 5:].find('_2') + 1
+        gdas_timesteps.append(gdas_files[j][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
+    unique_gdas_timesteps = np.unique(sorted(gdas_timesteps))
+
+    # Find all GDAS files for each timestep and order them by pressure level
+    for timestep in unique_gdas_timesteps:
+        files_for_timestep = sorted(filter(lambda filename: timestep in filename, gdas_files))
+
+        # Move 1000 mb file to the end of the list, then remove its duplicate at the beginning
+        files_for_timestep.append(files_for_timestep[0])
+        files_for_timestep.pop(0)
+
+        # Reverse list so that pressure levels are in descending order / increasing with altitude
+        files_for_timestep = files_for_timestep[::-1]
+
+        # Check all files for all pressure levels
+        pressure_levels_found = 0
+        for pressure_level, file in zip(required_pressure_levels, files_for_timestep):
+            if pressure_level in file:
+                pressure_levels_found += 1
+        if pressure_levels_found == 21:
+            gdas_files_no_prefix_temp = []  # Temporary holding folder for GDAS files before they are added to the list of filenames
+            for full_filename in range(21):
+                gdas_filename_start_index = files_for_timestep[full_filename].find('gdas_')
+                gdas_filename_no_pressure_level_index = files_for_timestep[full_filename][gdas_filename_start_index + 5:].find('_2') + 1
+                gdas_files_no_prefix_temp.append(gdas_files[full_filename][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
+            gdas_files_no_prefix.append(gdas_files_no_prefix_temp)
+            gdas_files_by_timestep.append(files_for_timestep)
+
+    if len(gdas_files) > len(front_files):
+        total_gdas_files = len(gdas_files_no_prefix)
+        total_front_files = len(front_files)
+        for gdas_file_no in range(total_gdas_files):
+            if gdas_files_no_prefix[gdas_file_no][0] in front_files_no_prefix:
+                gdas_files_list.append(gdas_files_by_timestep[gdas_file_no])
+        for front_file_no in range(total_front_files):
+            if front_files_no_prefix[front_file_no] in gdas_files_no_prefix:
+                front_files_list.append(front_files[front_file_no])
+    else:
+        total_front_files = len(front_files)
+        total_gdas_files = len(gdas_files_no_prefix)
+        for front_file_no in range(total_front_files):
+            if any(front_files_no_prefix[front_file_no] in gdas_timestep for gdas_timestep in gdas_files_no_prefix):
+                front_files_list.append(front_files[front_file_no])
+        for gdas_file_no in range(total_gdas_files):
+            if gdas_files_no_prefix[gdas_file_no][0] in front_files_no_prefix:
+                gdas_files_list.append(gdas_files_by_timestep[gdas_file_no])
+
+    front_files, gdas_files = front_files_list, gdas_files_list
+
+    if domain == 'full':  # Filter out non-synoptic hours
+        hours_to_remove = [3, 9, 15, 21]
+        for hour in hours_to_remove:
+            string = '%02d_' % hour
+            front_files = list(filter(lambda hour: string not in hour, front_files))
+            gdas_files = list(filter(lambda hour: string not in hour, gdas_files))
+
+    separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
+    loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+
+    if dataset == 'training':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the training set")
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the training set")
+
+        front_files_training = front_files
+        gdas_files_training = gdas_files
+        while len(front_files_training) == len(front_files) and len(gdas_files_training) == len(gdas_files) and loop_counter < 2:  # While no GDAS/front files in the training dataset are found
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
+                gdas_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, gdas_files_training))
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                front_files_training = list(filter(lambda test_year: test_year_string not in test_year, front_files_training))
+                gdas_files_training = list(filter(lambda test_year: test_year_string not in test_year, gdas_files_training))
+            loop_counter += 1
+
+        print("GDAS/fronts file pairs in training dataset:", len(front_files_training))
+        return gdas_files_training, front_files_training
+
+    elif dataset == 'validation':
+
+        if validation_years is None:
+            raise ValueError("Validation years must be declared to pull the validation set")
+
+        front_files_validation = []
+        gdas_files_validation = []
+        while len(front_files_validation) == 0 and len(gdas_files_validation) == 0 and loop_counter < 2:  # While no GDAS/front files in the validation dataset are found
+            for validation_year in validation_years:
+                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
+                gdas_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, gdas_files)))
+            front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
+            gdas_files_validation = list(sorted(itertools.chain(*gdas_files_validation)))
+            loop_counter += 1
+
+        print(f"GDAS/fronts file pairs in validation dataset {validation_years}:", len(front_files_validation))
+        return gdas_files_validation, front_files_validation
+
+    elif dataset == 'test':
+
+        if test_years is None:
+            raise ValueError("Test years must be declared to pull the test set")
+
+        front_files_test = []
+        gdas_files_test = []
+        while len(front_files_test) == 0 and len(gdas_files_test) == 0 and loop_counter < 2:  # While no GDAS/front files in the testing dataset are found
+            for test_year in test_years:
+                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
+                gdas_files_test.append(list(filter(lambda test_year: test_year_string in test_year, gdas_files)))
+            front_files_test = list(sorted(itertools.chain(*front_files_test)))
+            gdas_files_test = list(sorted(itertools.chain(*gdas_files_test)))
+            loop_counter += 1
+
+        print(f"GDAS/fronts file pairs in testing dataset {test_years}:", len(front_files_test))
+        return gdas_files_test, front_files_test
+
+    elif dataset is None:
+        print(f"GDAS/fronts file pairs:", len(front_files))
+        return gdas_files, front_files
+
+    else:
+        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
+
+
+def load_model(model_number, model_dir):
     """
     Load a saved model.
 
     Parameters
     ----------
-    fss_c: C hyperparameter for the FSS loss' sigmoid function.
-    fss_mask_size: Size of the mask for the FSS loss function.
-    loss: Loss function for the Unet.
-    metric: Metric used for evaluating the U-Net during training.
-    model_dir: Main directory for the models.
-    model_number: Slurm job number for the model. This is the number in the model's filename.
-    num_dimensions: Number of dimensions for the U-Net's convolutions, maxpooling, and upsampling.
+    model_number: int
+        - Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        - Main directory for the models.
     """
+
+    model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
+
+    loss = model_properties['loss_function']
+    metric = model_properties['metric']
+
     if loss == 'cce' and metric == 'auc':
         model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
     else:
         if loss == 'fss':
-            if num_dimensions == 2:
-                loss_string = 'FSS_loss_2D'
-                loss_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
-            if num_dimensions == 3:
-                loss_string = 'FSS_loss_3D'
-                loss_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
-        elif loss == 'dice':
-            loss_string = 'dice'
-            loss_function = custom_losses.dice
-        elif loss == 'tversky':
-            loss_string = 'tversky'
-            loss_function = custom_losses.tversky
+            fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
+            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, c=fss_c)
+            loss_string = 'FSS_loss_3D'
         elif loss == 'bss':
             loss_string = 'brier_skill_score'
             loss_function = custom_losses.brier_skill_score
@@ -327,12 +988,9 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
             loss_function = None
 
         if metric == 'fss':
-            if num_dimensions == 2:
-                metric_string = 'FSS_loss_2D'
-                metric_function = custom_losses.make_FSS_loss_2D(fss_mask_size, fss_c)
-            if num_dimensions == 3:
-                metric_string = 'FSS_loss_3D'
-                metric_function = custom_losses.make_FSS_loss_3D(fss_mask_size, fss_c)
+            fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
+            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, c=fss_c)
+            metric_string = 'FSS_loss_3D'
         elif metric == 'dice':
             metric_string = 'dice'
             metric_function = custom_losses.dice
@@ -346,32 +1004,16 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
             metric_string = None
             metric_function = None
 
+        print(loss_string, metric_string)
+
         print("Loading model....", end='')
         if loss_string is not None:
             if metric_string is not None:
-                try:
-                    model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                        custom_objects={loss_string: loss_function, metric_string: metric_function})
-                except ValueError:
-                    print("failed")
-                    if loss_string == 'FSS_loss_2D':
-                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
-                        loss_string = 'FSS_loss'
-                        print("Loading model....",end='')
-                        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number,
-                            model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                    custom_objects={loss_string: loss_function, metric_string: metric_function})
             else:
-                try:
-                    model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                        custom_objects={loss_string: loss_function})
-                except ValueError:
-                    print("failed")
-                    if loss_string == 'FSS_loss_2D':
-                        print("ERROR: FSS_loss_2D not a recognized loss function, will retry loading model with FSS_loss.")
-                        loss_string = 'FSS_loss'
-                        print("Loading model....",end='')
-                        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number,
-                            model_number), custom_objects={loss_string: loss_function})
+                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
+                    custom_objects={loss_string: loss_function})
         else:
             model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
                 custom_objects={metric_string: metric_function})
@@ -381,46 +1023,95 @@ def load_model(model_number, model_dir, loss, fss_mask_size, fss_c, metric, num_
 
 
 if __name__ == '__main__':
+    """
+    Warnings
+        - Do not use leading zeros when declaring the month, day, and hour in 'date'. (ex: if the day is 2, do not type 02)
+        - Longitude values in the 'new_extent' argument must in the 360-degree coordinate system.
+    
+    Examples
+        Example 1a. Create subdirectories organized by year, month, and day to organize data files.
+            > python file_manager.py --create_subdirectories --main_dir ./pickle_files
+        
+        Example 1b. Create subdirectories organized by year, month, day, and hour to organize data files.
+            > python file_manager.py --create_subdirectories --main_dir ./pickle_files --hour_dirs
+        
+        Example 2. Compress a large set of files into a tarfile.
+            > python file_manager.py --compress_files --main_dir ./file_directory --glob_file_string test_files_*_.pkl --tar_filename compressed_files.tar
+        
+        Example 3. Extract the contents of an existing tarfile.
+            > python file_manager.py --extract_tarfile --main_dir ./file_directory --tar_filename compressed_files.tar
+        
+        Example 4. Create new ERA5, GDAS, and frontal object pickle files across a smaller domain.
+            NOTE: This is currently not operational.
+        
+        Example 5. Delete a large group of files using a common string in the filenames.
+            > python file_manager.py --delete_grouped_files --main_dir ./file_directory --num_subdir 3 --glob_file_string test_files_*_.pkl
+            Using 3 for 'num_subdir' means that files will be returned from glob that match the following string:
+                ./file_directory/*/*/*/test_files_*_.pkl
+            - Using 5 for 'num_subdir':
+                ./file_directory/*/*/*/*/*/test_files_*_.pkl
+
+        Example 6a. Load ERA5 pickle files.
+            Refer to Examples in function 'load_era5_pickle_files'.
+        
+        Example 6b. Load ERA5/front pickle files.
+            Refer to Examples in function 'load_era5_and_fronts_pickle_files'.
+        
+        Example 6c. Load GDAS pickle files.
+            Refer to Examples in function 'load_gdas_pickle_files'.
+        
+        Example 6d. Load GDAS/front pickle_files.
+            Refer to Examples in function 'load_gdas_and_fronts_pickle_files.
+        
+        Example 6e. Load pickle files containing frontal objects.
+            Refer to Examples in function 'load_fronts_pickle_files'.
+        
+        Example 7. Load a saved tensorflow model.
+            Refer to Examples in function 'load_model'.
+    """
+
     parser = argparse.ArgumentParser()
-
-    parser.add_argument('--create_subdirectories', type=bool, required=False, help='Create new directories?')
-    parser.add_argument('--delete_grouped_files', type=bool, required=False, help='Delete a set of files?')
-    parser.add_argument('--domain', type=str, required=False, help='Domain of the data.')
-    parser.add_argument('--front_types', type=str, required=False,
-                        help='Front format of the file. If your files contain warm and cold fronts, pass this argument'
-                             'as CFWF. If your files contain only drylines, pass this argument as DL. If your files '
-                             'contain all fronts, pass this argument as ALL.')
-    parser.add_argument('--generate_lists', type=bool, required=False, help='Generate lists of new files?')
-    parser.add_argument('--glob_file_string', type=str, required=False, help='String of the names of the files to delete.')
-    parser.add_argument('--hour_dirs', type=bool, required=False, help='Create hourly subdirectories?')
-    parser.add_argument('--main_dir_group', type=str, required=False,
-                        help='Directory or directories where the grouped files are located.')
-    parser.add_argument('--main_dir_subdir', type=str, required=False,
-                        help='Main directory where the subdirectories will be made.')
-    parser.add_argument('--num_subdir', type=int, required=False,
-                        help='Number of subdirectory layers in the main directory.')
-    parser.add_argument('--num_variables', type=int, required=False, help='Number of variables in the variable datasets.')
-    parser.add_argument('--pickle_indir', type=str, required=False,
-                        help='Path of pickle files containing front object and variable data.')
-
+    parser.add_argument('--compress_files', action='store_true', help='Compress files')
+    parser.add_argument('--create_new_domain_files', action='store_true', help='Create files for a new domain')
+    parser.add_argument('--create_subdirectories', action='store_true', help='Create new directories')
+    parser.add_argument('--delete_grouped_files', action='store_true', help='Delete a set of files')
+    parser.add_argument('--domain', type=str, help='Domain of the data')
+    parser.add_argument('--extract_tarfile', action='store_true', help='Extract a tarfile')
+    parser.add_argument('--glob_file_string', type=str, help='String of the names of the files to compress or delete.')
+    parser.add_argument('--hour_dirs', action='store_true', help='Create hourly subdirectories?')
+    parser.add_argument('--main_dir', type=str, help='Main directory for subdirectory creation or where the files in question are located.')
+    parser.add_argument('--new_domain', type=str, help='Name of the new domain.')
+    parser.add_argument('--new_extent', type=float, nargs=4, help='Extent of the new domain. Pass 4 values in the following order:'
+                                                                  'min_lon, max_lon, min_lat, max_lat')
+    parser.add_argument('--num_subdir', type=int, help='Number of subdirectory layers in the main directory.')
+    parser.add_argument('--num_variables', type=int, help='Number of variables in the variable datasets.')
+    parser.add_argument('--era5_pickle_indir', type=str, help='Path of pickle files containing front object and variable data.')
+    parser.add_argument('--tar_filename', type=str, help='Name of the tar file.')
     args = parser.parse_args()
     provided_arguments = vars(args)
-
-    if args.create_subdirectories is True:
-        required_arguments = ['hour_dirs', 'main_dir_subdir']
-        print("Checking arguments for 'create_subdirectories'....", end='')
+    
+    if args.compress_files:
+        required_arguments = ['main_dir', 'glob_file_string', 'tar_filename']
         check_arguments(provided_arguments, required_arguments)
-        create_subdirectories(args.main_dir_subdir, args.hour_dirs)
+        compress_files(args.main_dir, args.glob_file_string, args.tar_filename)
 
-    if args.delete_grouped_files is True:
-        required_arguments = ['glob_file_string', 'main_dir_group', 'num_subdir']
-        print("Checking arguments for 'delete_grouped_files'....", end='')
+    if args.create_new_domain_files:
+        raise TypeError("This function is currently not operational. The ability to create new ERA5, GDAS, and frontal object files"
+                        " will be added in a future update.")
+        required_arguments = ['era5_pickle_indir', 'domain', 'num_variables', 'new_domain', 'new_extent']
         check_arguments(provided_arguments, required_arguments)
-        delete_grouped_files(args.main_dir_group, args.glob_file_string, args.num_subdir)
 
-    if args.generate_lists is True:
-        required_arguments = ['domain', 'front_types', 'num_variables', 'pickle_indir']
-        print("Checking arguments for 'generate_file_lists'....", end='')
+    if args.create_subdirectories:
+        required_arguments = ['main_dir']
         check_arguments(provided_arguments, required_arguments)
-        front_files, variable_files = load_files(args.pickle_indir, args.num_variables, args.front_types, args.domain)
-        generate_file_lists(front_files, variable_files, args.num_variables, args.front_types, args.domain)
+        create_subdirectories(args.main_dir, args.hour_dirs)
+
+    if args.delete_grouped_files:
+        required_arguments = ['glob_file_string', 'main_dir', 'num_subdir']
+        check_arguments(provided_arguments, required_arguments)
+        delete_grouped_files(args.main_dir, args.glob_file_string, args.num_subdir)
+
+    if args.extract_tarfile:
+        required_arguments = ['main_dir', 'tar_filename']
+        check_arguments(provided_arguments, required_arguments)
+        extract_tarfile(args.main_dir, args.tar_filename)

@@ -1,13 +1,9 @@
 """
 Functions used for evaluating a U-Net model.
+
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 4/10/2022 2:07 PM CDT
-
-Known bugs:
-- none
-
-Please report any bugs to Andrew Justin: andrewjustinwx@gmail.com
+Last updated: 5/10/2022 7:30 PM CDT
 """
 
 import os
@@ -22,12 +18,12 @@ import file_manager as fm
 import xarray as xr
 from errors import check_arguments
 import pickle
+import tensorflow as tf
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
-from utils.data_utils import expand_fronts
+from utils.data_utils import expand_fronts, reformat_fronts
 from utils.plotting_utils import plot_background
 from variables import normalize
 from glob import glob
-import py3nvml
 
 
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
@@ -235,128 +231,112 @@ def calculate_performance_stats(probs_ds, front_types, fronts_filename):
     fp_<front>: Array for the numbers of false positives of the given front and threshold
     fn_<front>: Array for the numbers of false negatives of the given front and threshold
     """
-    tp_cold = np.zeros(shape=[4, 100])
-    fp_cold = np.zeros(shape=[4, 100])
-    tn_cold = np.zeros(shape=[4, 100])
-    fn_cold = np.zeros(shape=[4, 100])
-    tp_warm = np.zeros(shape=[4, 100])
-    fp_warm = np.zeros(shape=[4, 100])
-    tn_warm = np.zeros(shape=[4, 100])
-    fn_warm = np.zeros(shape=[4, 100])
-    tp_stationary = np.zeros(shape=[4, 100])
-    fp_stationary = np.zeros(shape=[4, 100])
-    tn_stationary = np.zeros(shape=[4, 100])
-    fn_stationary = np.zeros(shape=[4, 100])
-    tp_occluded = np.zeros(shape=[4, 100])
-    fp_occluded = np.zeros(shape=[4, 100])
-    tn_occluded = np.zeros(shape=[4, 100])
-    fn_occluded = np.zeros(shape=[4, 100])
-    tp_front = np.zeros(shape=[4, 100])
-    fp_front = np.zeros(shape=[4, 100])
-    tn_front = np.zeros(shape=[4, 100])
-    fn_front = np.zeros(shape=[4, 100])
+    tp_cold = np.zeros(shape=[5, 100])
+    fp_cold = np.zeros(shape=[5, 100])
+    tn_cold = np.zeros(shape=[5, 100])
+    fn_cold = np.zeros(shape=[5, 100])
+    tp_warm = np.zeros(shape=[5, 100])
+    fp_warm = np.zeros(shape=[5, 100])
+    tn_warm = np.zeros(shape=[5, 100])
+    fn_warm = np.zeros(shape=[5, 100])
+    tp_stationary = np.zeros(shape=[5, 100])
+    fp_stationary = np.zeros(shape=[5, 100])
+    tn_stationary = np.zeros(shape=[5, 100])
+    fn_stationary = np.zeros(shape=[5, 100])
+    tp_occluded = np.zeros(shape=[5, 100])
+    fp_occluded = np.zeros(shape=[5, 100])
+    tn_occluded = np.zeros(shape=[5, 100])
+    fn_occluded = np.zeros(shape=[5, 100])
+    tp_front = np.zeros(shape=[5, 100])
+    fp_front = np.zeros(shape=[5, 100])
+    tn_front = np.zeros(shape=[5, 100])
+    fn_front = np.zeros(shape=[5, 100])
 
     thresholds = np.linspace(0.01, 1, 100)  # Probability thresholds for calculating performance statistics
-    boundaries = np.array([50, 100, 150, 200])  # Boundaries for checking whether or not a front is present (kilometers)
+    boundaries = np.array([50, 100, 150, 200, 250])  # Boundaries for checking whether or not a front is present (kilometers)
 
-    if front_types == 'CFWF':
-        for boundary in range(4):
-            fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
+    front_identifier = pd.read_pickle(fronts_filename)
+
+    if front_types == ['CF', 'WF']:
+
+        """ Calculate initial true negatives and false negatives """
+        cf_bool = xr.where(front_identifier == 1, 1, 0)['identifier']  # 1 = cold front, 0 = not a cold front
+        wf_bool = xr.where(front_identifier == 2, 1, 0)['identifier']  # 1 = warm front, 0 = no warm front
+        probs_cf = probs_ds['CF']  # Model predictions for cold fronts
+        probs_wf = probs_ds['WF']  # Model predictions for warm fronts
+        for i in range(100):
+            """ 
+            True negative ==> model correctly predicts the lack of a front at a given point 
+            False negative ==> model does not predict a front, but a front exists
+            """
+            tn_cold[:, i] += len(np.where((probs_cf < thresholds[i]) & (cf_bool == 0))[0])
+            fn_cold[:, i] += len(np.where((probs_cf < thresholds[i]) & (cf_bool == 1))[0])
+            tn_warm[:, i] += len(np.where((probs_wf < thresholds[i]) & (wf_bool == 0))[0])
+            fn_warm[:, i] += len(np.where((probs_wf < thresholds[i]) & (wf_bool == 1))[0])
+
+        """ Calculate true positives and false positives """
+        for boundary in range(5):
+            front_identifier = pd.read_pickle(fronts_filename)
             for y in range(int(2*(boundary+1))):
-                fronts = expand_fronts(fronts)
-            """
-            t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
-            f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
-            
-            'new_fronts' dataset is kept separate from the 'fronts' dataset to so it can be repeatedly modified and reset
-            new_fronts = fronts  <---- this line resets the front dataset after it is modified by xr.where()
-            """
-            new_fronts = fronts
-            t_cold_ds = xr.where(new_fronts == 1, 1, 0)
-            t_cold_probs = t_cold_ds.identifier * probs_ds.cold_probs
-            new_fronts = fronts
-            f_cold_ds = xr.where(new_fronts == 1, 0, 1)
-            f_cold_probs = f_cold_ds.identifier * probs_ds.cold_probs
-
-            new_fronts = fronts
-            t_warm_ds = xr.where(new_fronts == 2, 1, 0)
-            t_warm_probs = t_warm_ds.identifier * probs_ds.warm_probs
-            new_fronts = fronts
-            f_warm_ds = xr.where(new_fronts == 2, 0, 1)
-            f_warm_probs = f_warm_ds.identifier * probs_ds.warm_probs
-
-            """
-            Performance stats
-            tp_<front>: Number of true positives of the given front
-            tn_<front>: Number of true negatives of the given front
-            fp_<front>: Number of false positives of the given front
-            fn_<front>: Number of false negatives of the given front
-            """
+                front_identifier = expand_fronts(front_identifier)  # Expand fronts
+            cf_bool = xr.where(front_identifier == 1, 1, 0)['identifier']  # 1 = cold front, 0 = not a cold front
+            wf_bool = xr.where(front_identifier == 2, 1, 0)['identifier']  # 1 = warm front, 0 = no warm front
             for i in range(100):
-                tp_cold[boundary, i] += len(np.where(t_cold_probs > thresholds[i])[0])
-                tn_cold[boundary, i] += len(np.where((f_cold_probs < thresholds[i]) & (f_cold_probs != 0))[0])
-                fp_cold[boundary, i] += len(np.where(f_cold_probs > thresholds[i])[0])
-                fn_cold[boundary, i] += len(np.where((t_cold_probs < thresholds[i]) & (t_cold_probs != 0))[0])
-                tp_warm[boundary, i] += len(np.where(t_warm_probs > thresholds[i])[0])
-                tn_warm[boundary, i] += len(np.where((f_warm_probs < thresholds[i]) & (f_warm_probs != 0))[0])
-                fp_warm[boundary, i] += len(np.where(f_warm_probs > thresholds[i])[0])
-                fn_warm[boundary, i] += len(np.where((t_warm_probs < thresholds[i]) & (t_warm_probs != 0))[0])
+                """
+                True positive ==> model correctly identifies a front
+                False positive ==> model predicts a front, but it does not exist
+                """
+                tp_cold[boundary, i] += len(np.where((probs_cf > thresholds[i]) & (cf_bool == 1))[0])
+                fp_cold[boundary, i] += len(np.where((probs_cf > thresholds[i]) & (cf_bool == 0))[0])
+                tp_warm[boundary, i] += len(np.where((probs_wf > thresholds[i]) & (wf_bool == 1))[0])
+                fp_warm[boundary, i] += len(np.where((probs_wf > thresholds[i]) & (wf_bool == 0))[0])
 
         performance_ds = xr.Dataset({"tp_cold": (["boundary", "threshold"], tp_cold), "tp_warm": (["boundary", "threshold"], tp_warm),
                                      "fp_cold": (["boundary", "threshold"], fp_cold), "fp_warm": (["boundary", "threshold"], fp_warm),
                                      "tn_cold": (["boundary", "threshold"], tn_cold), "tn_warm": (["boundary", "threshold"], tn_warm),
                                      "fn_cold": (["boundary", "threshold"], fn_cold), "fn_warm": (["boundary", "threshold"], fn_warm)}, coords={"boundary": boundaries, "threshold": thresholds})
 
-    elif front_types == 'SFOF':
-        for boundary in range(4):
-            fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
+    elif front_types == ['SF', 'OF']:
+
+        """ Calculate initial true negatives and false negatives """
+        sf_bool = xr.where(front_identifier == 3, 1, 0)['identifier']  # 1 = stationary front, 0 = not a stationary front
+        of_bool = xr.where(front_identifier == 4, 1, 0)['identifier']  # 1 = occluded front, 0 = no occluded front
+        probs_sf = probs_ds['SF']  # Model predictions for stationary fronts
+        probs_of = probs_ds['OF']  # Model predictions for occluded fronts
+        for i in range(100):
+            """ 
+            True negative ==> model correctly predicts the lack of a front at a given point 
+            False negative ==> model does not predict a front, but a front exists
+            """
+            tn_stationary[:, i] += len(np.where((probs_sf < thresholds[i]) & (sf_bool == 0))[0])
+            fn_stationary[:, i] += len(np.where((probs_sf < thresholds[i]) & (sf_bool == 1))[0])
+            tn_occluded[:, i] += len(np.where((probs_of < thresholds[i]) & (of_bool == 0))[0])
+            fn_occluded[:, i] += len(np.where((probs_of < thresholds[i]) & (of_bool == 1))[0])
+
+        """ Calculate true positives and false positives """
+        for boundary in range(5):
+            front_identifier = pd.read_pickle(fronts_filename)
             for y in range(int(2*(boundary+1))):
-                fronts = expand_fronts(fronts)
-            """
-            t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
-            f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
-            
-            'new_fronts' dataset is kept separate from the 'fronts' dataset to so it can be repeatedly modified and reset
-            new_fronts = fronts  <---- this line resets the front dataset after it is modified by xr.where()
-            """
-            new_fronts = fronts
-            t_stationary_ds = xr.where(new_fronts == 3, 1, 0)
-            t_stationary_probs = t_stationary_ds.identifier * probs_ds.stationary_probs
-            new_fronts = fronts
-            f_stationary_ds = xr.where(new_fronts == 3, 0, 1)
-            f_stationary_probs = f_stationary_ds.identifier * probs_ds.stationary_probs
-
-            new_fronts = fronts
-            t_occluded_ds = xr.where(new_fronts == 4, 1, 0)
-            t_occluded_probs = t_occluded_ds.identifier * probs_ds.occluded_probs
-            new_fronts = fronts
-            f_occluded_ds = xr.where(new_fronts == 4, 0, 1)
-            f_occluded_probs = f_occluded_ds.identifier * probs_ds.occluded_probs
-
-            """
-            Performance stats
-            tp_<front>: Number of true positives of the given front
-            tn_<front>: Number of true negatives of the given front
-            fp_<front>: Number of false positives of the given front
-            fn_<front>: Number of false negatives of the given front
-            """
+                front_identifier = expand_fronts(front_identifier)  # Expand fronts
+            sf_bool = xr.where(front_identifier == 3, 1, 0)['identifier']  # 1 = stationary front, 0 = not a stationary front
+            of_bool = xr.where(front_identifier == 4, 1, 0)['identifier']  # 1 = occluded front, 0 = no occluded front
             for i in range(100):
-                tp_stationary[boundary, i] += len(np.where(t_stationary_probs > thresholds[i])[0])
-                tn_stationary[boundary, i] += len(np.where((f_stationary_probs < thresholds[i]) & (f_stationary_probs != 0))[0])
-                fp_stationary[boundary, i] += len(np.where(f_stationary_probs > thresholds[i])[0])
-                fn_stationary[boundary, i] += len(np.where((t_stationary_probs < thresholds[i]) & (t_stationary_probs != 0))[0])
-                tp_occluded[boundary, i] += len(np.where(t_occluded_probs > thresholds[i])[0])
-                tn_occluded[boundary, i] += len(np.where((f_occluded_probs < thresholds[i]) & (f_occluded_probs != 0))[0])
-                fp_occluded[boundary, i] += len(np.where(f_occluded_probs > thresholds[i])[0])
-                fn_occluded[boundary, i] += len(np.where((t_occluded_probs < thresholds[i]) & (t_occluded_probs != 0))[0])
+                """
+                True positive ==> model correctly identifies a front
+                False positive ==> model predicts a front, but it does not exist
+                """
+                tp_stationary[boundary, i] += len(np.where((probs_sf > thresholds[i]) & (sf_bool == 1))[0])
+                fp_stationary[boundary, i] += len(np.where((probs_sf > thresholds[i]) & (sf_bool == 0))[0])
+                tp_occluded[boundary, i] += len(np.where((probs_of > thresholds[i]) & (of_bool == 1))[0])
+                fp_occluded[boundary, i] += len(np.where((probs_of > thresholds[i]) & (of_bool == 0))[0])
 
         performance_ds = xr.Dataset({"tp_stationary": (["boundary", "threshold"], tp_stationary), "tp_occluded": (["boundary", "threshold"], tp_occluded),
                                      "fp_stationary": (["boundary", "threshold"], fp_stationary), "fp_occluded": (["boundary", "threshold"], fp_occluded),
                                      "tn_stationary": (["boundary", "threshold"], tn_stationary), "tn_occluded": (["boundary", "threshold"], tn_occluded),
                                      "fn_stationary": (["boundary", "threshold"], fn_stationary), "fn_occluded": (["boundary", "threshold"], fn_occluded)}, coords={"boundary": boundaries, "threshold": thresholds})
 
-    elif front_types == 'CFWFSFOF':
-        for boundary in range(4):
+    elif front_types == ['CF', 'WF', 'SF', 'OF']:
+        for boundary in range(5):
             fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
             for y in range(int(2*(boundary+1))):
                 fronts = expand_fronts(fronts)
@@ -430,39 +410,33 @@ def calculate_performance_stats(probs_ds, front_types, fronts_filename):
                  "fn_cold": (["boundary", "threshold"], fn_cold), "fn_warm": (["boundary", "threshold"], fn_warm),
                  "fn_stationary": (["boundary", "threshold"], fn_stationary), "fn_occluded": (["boundary", "threshold"], fn_occluded)}, coords={"boundary": boundaries, "threshold": thresholds})
 
-    elif front_types == 'CFWFSFOF_binary':
-        for boundary in range(4):
-            fronts = pd.read_pickle(fronts_filename)  # This is the "backup" dataset that can be used to reset the 'new_fronts' dataset
-            for y in range(int(2*(boundary+1))):
-                fronts = expand_fronts(fronts)
-            """
-            t_<front>_ds: Pixels where the specific front type is present are set to 1, and 0 otherwise.
-            f_<front>_ds: Pixels where the specific front type is NOT present are set to 1, and 0 otherwise.
-            
-            'new_fronts' dataset is kept separate from the 'fronts' dataset to so it can be repeatedly modified and reset
-            new_fronts = fronts  <---- this line resets the front dataset after it is modified by xr.where()
-            """
-            new_fronts = fronts
-            t_front_ds = xr.where(new_fronts == 5, 0, new_fronts)
-            t_front_ds = xr.where(t_front_ds > 0, 1, 0)
-            t_image_probs = t_front_ds.identifier * probs_ds.front_probs
-            new_fronts = fronts
-            f_front_ds = xr.where(new_fronts == 5, 0, new_fronts)
-            f_front_ds = xr.where(f_front_ds > 0, 0, 1)
-            f_image_probs = f_front_ds.identifier * probs_ds.front_probs
+    elif front_types == 'F_BIN':
 
+        """ Calculate initial true negatives and false negatives """
+        front_bin_bool = reformat_fronts(pd.read_pickle(fronts_filename), front_types)['identifier']  # 1 = front exists, 0 = front does not exist
+        probs_front_bin = probs_ds['F_BIN']  # Model predictions for binary fronts
+        for i in range(100):
+            """ 
+            True negative ==> model correctly predicts the lack of a front at a given point 
+            False negative ==> model does not predict a front, but a front exists
             """
-            Performance stats
-            tp_<front>: Number of true positives of the given front
-            tn_<front>: Number of true negatives of the given front
-            fp_<front>: Number of false positives of the given front
-            fn_<front>: Number of false negatives of the given front
-            """
+            tn_front[:, i] += len(np.where((probs_front_bin < thresholds[i]) & (front_bin_bool == 0))[0])
+            fn_front[:, i] += len(np.where((probs_front_bin < thresholds[i]) & (front_bin_bool == 1))[0])
+
+        """ Calculate true positives and false positives """
+        for boundary in range(5):
+            fronts_bin_bool = reformat_fronts(pd.read_pickle(fronts_filename), front_types)  # 1 = front exists, 0 = front does not exist
+            for y in range(int(2*(boundary+1))):
+                fronts_bin_bool = expand_fronts(fronts_bin_bool)
+
+            fronts_bin_bool = fronts_bin_bool['identifier']
             for i in range(100):
-                tp_front[boundary, i] += len(np.where(t_image_probs > thresholds[i])[0])
-                tn_front[boundary, i] += len(np.where((f_image_probs < thresholds[i]) & (f_image_probs != 0))[0])
-                fp_front[boundary, i] += len(np.where(f_image_probs > thresholds[i])[0])
-                fn_front[boundary, i] += len(np.where((t_image_probs < thresholds[i]) & (t_image_probs != 0))[0])
+                """
+                True positive ==> model correctly identifies a front
+                False positive ==> model predicts a front, but it does not exist
+                """
+                tp_front[boundary, i] += len(np.where((probs_front_bin > thresholds[i]) & (fronts_bin_bool == 1))[0])
+                fp_front[boundary, i] += len(np.where((probs_front_bin > thresholds[i]) & (fronts_bin_bool == 0))[0])
 
         performance_ds = xr.Dataset({"tp_front": (["boundary", "threshold"], tp_front), "fp_front": (["boundary", "threshold"], fp_front),
                                      "tn_front": (["boundary", "threshold"], tn_front), "fn_front": (["boundary", "threshold"], fn_front)},
@@ -636,7 +610,7 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
     else:
         lat_image_spacing = 0
 
-    front_files, variable_files = fm.load_files(pickle_dir, num_variables, domain)
+    front_files, variable_files = fm.load_files(pickle_dir, num_variables, domain, dataset=dataset, test_years=test_years, validation_years=valid_years)
 
     # Find files with provided date and time to make a prediction (if applicable)
     if prediction_method == 'datetime':
@@ -646,15 +620,14 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
         front_files = [[front_filename for front_filename in front_files if front_filename_no_dir in front_filename][0], ]
         variable_files = [[variable_filename for variable_filename in variable_files if variable_filename_no_dir in variable_filename][0], ]
 
-    elif prediction_method == 'random' or prediction_method == 'all':
-        front_files, variable_files = fm.select_dataset(front_files, variable_files, dataset=dataset, test_years=test_years, validation_years=valid_years)
+    elif prediction_method == 'random':
         if prediction_method == 'random':  # Select a random set of files for which to generate predictions
             indices = random.choices(range(len(front_files) - 1), k=num_rand_predictions)
             if num_rand_predictions > 1:
                 front_files, variable_files = list(front_files[index] for index in indices), list(variable_files[index] for index in indices)
             else:
                 front_files, variable_files = [front_files,], [variable_files,]
-    else:
+    elif prediction_method != 'all':
         raise ValueError(f"'{prediction_method}' is not a valid prediction method. Options are: 'datetime', 'random', 'all'")
 
     subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])  #
@@ -740,23 +713,10 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
 
                 prediction = model.predict(variable_ds_new)
 
-                """ 
-                Create array that contains all probabilities in the current image domain for every front type that the model 
-                is predicting. The first dimension is 1 unit less than the number of classes because we are not concerned 
-                about the 'no front' front type in the model.
-                """
-                image_probs = np.zeros([classes-1, image_size[0], image_size[1]])
-
                 if num_dimensions == 2:
-                    for front in range(classes-1):
-                        for i in range(image_size[0]):
-                            for j in range(image_size[1]):
-                                image_probs[front][i][j] = prediction[n][0][i][j][front+1]  # Final index is front+1 because we skip over the 'no front' type
+                    image_probs = np.transpose(prediction[0][0][:, :, 1:], (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
                 else:
-                    for front in range(classes-1):
-                        for i in range(image_size[0]):
-                            for j in range(image_size[1]):
-                                image_probs[front][i][j] = np.amax(prediction[0][0][i][j][:, front+1])  # Final index is front+1 because we skip over the 'no front' type
+                    image_probs = np.transpose(np.amax(prediction[0][0][:, :, :, 1:], axis=2), (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
 
                 # Add predictions to the map
                 stitched_map_probs, map_created = add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
@@ -764,27 +724,34 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
 
                 if map_created is True:
                     print("%s....%d/%d" % (time, int(domain_images_lon*domain_images_lat), int(domain_images_lon*domain_images_lat)))
-                    if front_types == 'CFWF':
+                    if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
                         probs_ds = xr.Dataset(
-                            {"cold_probs": (("longitude", "latitude"), stitched_map_probs[0]),
-                             "warm_probs": (("longitude", "latitude"), stitched_map_probs[1])},
-                            coords={"latitude": image_lats, "longitude": image_lons})
-                    elif front_types == 'SFOF':
+                            {front_types: (('longitude', 'latitude'), stitched_map_probs[0])},
+                            coords={'latitude': image_lats, 'longitude': image_lons})
+                    elif front_types == 'MERGED-F':
                         probs_ds = xr.Dataset(
-                            {"stationary_probs": (("longitude", "latitude"), stitched_map_probs[0]),
-                             "occluded_probs": (("longitude", "latitude"), stitched_map_probs[1])},
-                            coords={"latitude": image_lats, "longitude": image_lons})
-                    elif front_types == 'CFWFSFOF':
+                            {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
+                             'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
+                             'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
+                             'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3])},
+                            coords={'latitude': image_lats, 'longitude': image_lons})
+                    elif front_types == 'MERGED-ALL':
                         probs_ds = xr.Dataset(
-                            {"cold_probs": (("longitude", "latitude"), stitched_map_probs[0]),
-                             "warm_probs": (("longitude", "latitude"), stitched_map_probs[1]),
-                             "stationary_probs": (("longitude", "latitude"), stitched_map_probs[2]),
-                             "occluded_probs": (("longitude", "latitude"), stitched_map_probs[3])},
-                            coords={"latitude": image_lats, "longitude": image_lons})
-                    elif front_types == 'CFWFSFOF_binary':
-                        probs_ds = xr.Dataset(
-                            {"front_probs": (("longitude", "latitude"), stitched_map_probs[0])},
-                            coords={"latitude": image_lats, "longitude": image_lons})
+                            {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
+                             'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
+                             'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
+                             'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3]),
+                             'TROF_merged': (('longitude', 'latitude'), stitched_map_probs[4]),
+                             'INST': (('longitude', 'latitude'), stitched_map_probs[5]),
+                             'DL': (('longitude', 'latitude'), stitched_map_probs[6])},
+                            coords={'latitude': image_lats, 'longitude': image_lons})
+                    elif type(front_types) == list:
+                        probs_ds_dict = dict({})
+                        probs_ds_index = 0
+                        for front_type in front_types:
+                            probs_ds_dict[front_type] = (('longitude', 'latitude'), stitched_map_probs[probs_ds_index])
+                            probs_ds_index += 1
+                        probs_ds = xr.Dataset(probs_ds_dict, coords={'latitude': image_lats, 'longitude': image_lons})
                     else:
                         raise ValueError(f"'{front_types}' is not a valid set of front types.")
 
@@ -798,15 +765,15 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
                         if not os.path.isdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base)):
                             os.mkdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
                             print("New subdirectory made:", '%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, domain_images, domain_trim, subdir_base, filename_base)  # Generate prediction plot
+                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, subdir_base, filename_base)  # Generate prediction plot
 
                     if save_probabilities:
-
                         # Check that the necessary subdirectory exists and make it if it doesn't exist
                         if not os.path.isdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base)):
                             os.mkdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
                             print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
                         outfile = '%s/model_%d/probabilities/%s/%s_probabilities.pkl' % (model_dir, model_number, subdir_base, filename_base)
+
                         with open(outfile, 'wb') as f:
                             pickle.dump(probs_ds, f)  # Save probabilities dataset
 
@@ -902,6 +869,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     stats_100km = total_stats.sel(boundary=100)
     stats_150km = total_stats.sel(boundary=150)
     stats_200km = total_stats.sel(boundary=200)
+    stats_250km = total_stats.sel(boundary=250)
 
     num_front_types = model_properties['classes'] - 1  # model_properties['classes'] - 1 ===> number of front types (we ignore the 'no front' type)
 
@@ -1000,15 +968,19 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     cmap = 'Blues'
     axis_ticks = np.arange(0, 1.1, 0.1)
 
-    if front_types == 'CFWF' or front_types == 'CFWFSFOF':
+    if front_types == ['CF', 'WF'] or front_types == 'CFWFSFOF':
         CSI_cold_50km = np.nan_to_num(stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fp_cold'] + stats_50km['fn_cold']))
         CSI_cold_100km = np.nan_to_num(stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fp_cold'] + stats_100km['fn_cold']))
         CSI_cold_150km = np.nan_to_num(stats_150km['tp_cold']/(stats_150km['tp_cold'] + stats_150km['fp_cold'] + stats_150km['fn_cold']))
         CSI_cold_200km = np.nan_to_num(stats_200km['tp_cold']/(stats_200km['tp_cold'] + stats_200km['fp_cold'] + stats_200km['fn_cold']))
+        CSI_cold_250km = np.nan_to_num(stats_250km['tp_cold']/(stats_250km['tp_cold'] + stats_250km['fp_cold'] + stats_250km['fn_cold']))
         CSI_warm_50km = np.nan_to_num(stats_50km['tp_warm']/(stats_50km['tp_warm'] + stats_50km['fp_warm'] + stats_50km['fn_warm']))
         CSI_warm_100km = np.nan_to_num(stats_100km['tp_warm']/(stats_100km['tp_warm'] + stats_100km['fp_warm'] + stats_100km['fn_warm']))
         CSI_warm_150km = np.nan_to_num(stats_150km['tp_warm']/(stats_150km['tp_warm'] + stats_150km['fp_warm'] + stats_150km['fn_warm']))
         CSI_warm_200km = np.nan_to_num(stats_200km['tp_warm']/(stats_200km['tp_warm'] + stats_200km['fp_warm'] + stats_200km['fn_warm']))
+        CSI_warm_250km = np.nan_to_num(stats_250km['tp_warm']/(stats_250km['tp_warm'] + stats_250km['fp_warm'] + stats_250km['fn_warm']))
+        print((stats_200km['tp_cold'] + stats_200km['tp_warm'])/(stats_200km['tp_warm'] + stats_200km['fp_warm'] + stats_200km['fn_warm'] + stats_200km['tp_cold'] + stats_200km['fp_cold'] + stats_200km['fn_cold']).values)
+        print(stop)
 
         # Probability of detection for each front type and boundary
         POD_cold_50km = np.nan_to_num(stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fn_cold']))
@@ -1127,10 +1099,10 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("3D CF/WF model performance (5x5x5 kernel): Cold fronts")
+        plt.title("3D CF/WF model performance (3x3x3 kernel): Cold fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
-        plt.savefig("%s/model_%d/%s_performance_cold.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
+        # plt.savefig("%s/model_%d/%s_performance_cold.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
         plt.close()
 
         ###############################################################################################################
@@ -1203,31 +1175,33 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("3D CF/WF model performance (5x5x5 kernel): Warm fronts")
+        plt.title("3D CF/WF model performance (3x3x3 kernel): Warm fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
         plt.savefig("%s/model_%d/%s_performance_warm.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
         plt.close()
 
-    if front_types == 'SFOF' or front_types == 'CFWFSFOF':
-        CSI_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'] + stats_50km['fn_stationary'])
-        CSI_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fp_stationary'] + stats_100km['fn_stationary'])
-        CSI_stationary_150km = stats_150km['tp_stationary']/(stats_150km['tp_stationary'] + stats_150km['fp_stationary'] + stats_150km['fn_stationary'])
-        CSI_stationary_200km = stats_200km['tp_stationary']/(stats_200km['tp_stationary'] + stats_200km['fp_stationary'] + stats_200km['fn_stationary'])
-        CSI_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fp_occluded'] + stats_50km['fn_occluded'])
-        CSI_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'] + stats_100km['fn_occluded'])
-        CSI_occluded_150km = stats_150km['tp_occluded']/(stats_150km['tp_occluded'] + stats_150km['fp_occluded'] + stats_150km['fn_occluded'])
-        CSI_occluded_200km = stats_200km['tp_occluded']/(stats_200km['tp_occluded'] + stats_200km['fp_occluded'] + stats_200km['fn_occluded'])
+    if front_types == ['SF', 'OF'] or front_types == 'CFWFSFOF':
+        CSI_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'] + stats_50km['fn_stationary']).values
+        CSI_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fp_stationary'] + stats_50km['fn_stationary']).values
+        CSI_stationary_150km = stats_150km['tp_stationary']/(stats_150km['tp_stationary'] + stats_150km['fp_stationary'] + stats_50km['fn_stationary']).values
+        CSI_stationary_200km = stats_200km['tp_stationary']/(stats_200km['tp_stationary'] + stats_200km['fp_stationary'] + stats_50km['fn_stationary']).values
+        CSI_stationary_250km = stats_250km['tp_stationary']/(stats_250km['tp_stationary'] + stats_250km['fp_stationary'] + stats_50km['fn_stationary']).values
+        CSI_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fp_occluded'] + stats_50km['fn_occluded']).values
+        CSI_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'] + stats_50km['fn_occluded']).values
+        CSI_occluded_150km = stats_150km['tp_occluded']/(stats_150km['tp_occluded'] + stats_150km['fp_occluded'] + stats_50km['fn_occluded']).values
+        CSI_occluded_200km = stats_200km['tp_occluded']/(stats_200km['tp_occluded'] + stats_200km['fp_occluded'] + stats_50km['fn_occluded']).values
+        CSI_occluded_250km = stats_250km['tp_occluded']/(stats_250km['tp_occluded'] + stats_250km['fp_occluded'] + stats_50km['fn_occluded']).values
 
         # Probability of detection for each front type and boundary
         POD_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fn_stationary'])
-        POD_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fn_stationary'])
-        POD_stationary_150km = stats_150km['tp_stationary']/(stats_150km['tp_stationary'] + stats_150km['fn_stationary'])
-        POD_stationary_200km = stats_200km['tp_stationary']/(stats_200km['tp_stationary'] + stats_200km['fn_stationary'])
+        POD_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_50km['fn_stationary'])
+        POD_stationary_150km = stats_150km['tp_stationary']/(stats_150km['tp_stationary'] + stats_50km['fn_stationary'])
+        POD_stationary_200km = stats_200km['tp_stationary']/(stats_200km['tp_stationary'] + stats_50km['fn_stationary'])
         POD_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fn_occluded'])
-        POD_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fn_occluded'])
-        POD_occluded_150km = stats_150km['tp_occluded']/(stats_150km['tp_occluded'] + stats_150km['fn_occluded'])
-        POD_occluded_200km = stats_200km['tp_occluded']/(stats_200km['tp_occluded'] + stats_200km['fn_occluded'])
+        POD_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_50km['fn_occluded'])
+        POD_occluded_150km = stats_150km['tp_occluded']/(stats_150km['tp_occluded'] + stats_50km['fn_occluded'])
+        POD_occluded_200km = stats_200km['tp_occluded']/(stats_200km['tp_occluded'] + stats_50km['fn_occluded'])
 
         # Success ratio for each front type and boundary
         SR_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'])
@@ -1331,10 +1305,10 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("3D SF/OF model performance (5x5x5 kernel): Stationary fronts")
+        plt.title("3D SF/OF model performance (3x3x3 kernel): Stationary fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
-        plt.savefig("%s/model_%d/%s_performance_stationary.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
+        # plt.savefig("%s/model_%d/%s_performance_stationary.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
         plt.close()
 
         ###############################################################################################################
@@ -1411,17 +1385,18 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("3D SF/OF model performance (5x5x5 kernel): Occluded fronts")
+        plt.title("3D SF/OF model performance (3x3x3 kernel): Occluded fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
-        plt.savefig("%s/model_%d/%s_performance_occluded.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
+        # plt.savefig("%s/model_%d/%s_performance_occluded.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
         plt.close()
 
-    if front_types == 'CFWFSFOF_binary':
-        CSI_front_50km = stats_50km['tp_front']/(stats_50km['tp_front'] + stats_50km['fp_front'] + stats_50km['fn_front'])
-        CSI_front_100km = stats_100km['tp_front']/(stats_100km['tp_front'] + stats_100km['fp_front'] + stats_100km['fn_front'])
-        CSI_front_150km = stats_150km['tp_front']/(stats_150km['tp_front'] + stats_150km['fp_front'] + stats_150km['fn_front'])
-        CSI_front_200km = stats_200km['tp_front']/(stats_200km['tp_front'] + stats_200km['fp_front'] + stats_200km['fn_front'])
+    if front_types == 'F_BIN':
+        CSI_front_50km = stats_50km['tp_front']/(stats_50km['tp_front'] + stats_50km['fp_front'] + stats_50km['fn_front']).values
+        CSI_front_100km = stats_100km['tp_front']/(stats_100km['tp_front'] + stats_100km['fp_front'] + stats_100km['fn_front']).values
+        CSI_front_150km = stats_150km['tp_front']/(stats_150km['tp_front'] + stats_150km['fp_front'] + stats_150km['fn_front']).values
+        CSI_front_200km = stats_200km['tp_front']/(stats_200km['tp_front'] + stats_200km['fp_front'] + stats_200km['fn_front']).values
+        CSI_front_250km = stats_250km['tp_front']/(stats_250km['tp_front'] + stats_250km['fp_front'] + stats_250km['fn_front']).values
 
         # Probability of detection
         POD_front_50km = stats_50km['tp_front']/(stats_50km['tp_front'] + stats_50km['fn_front'])
@@ -1515,15 +1490,14 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("3D F/NF model performance (5x5x5 kernel)")
+        plt.title("3D F/NF model performance (3x3x3 kernel)")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
         plt.savefig("%s/model_%d/%s_performance_fronts.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
         plt.close()
 
 
-def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, domain_images, domain_trim, subdir_base, filename_base,
-    same_map=False, probability_mask_2D=0.05, probability_mask_3D=0.10):
+def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, subdir_base, filename_base, probability_mask_2D=0.05, probability_mask_3D=0.10):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
     subplots.
@@ -1542,16 +1516,10 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
         - Main directory for the models.
     domain: str
         - Domain of the data.
-    domain_images: iterable object with 2 ints
-        - Number of images along each dimension of the final stitched map (lon lat).
-    domain_trim: iterable object with 2 ints
-        - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
     subdir_base: str
         - Name for the map subdirectory.
     filename_base: str
         - Base of the map filename.
-    same_map: bool
-        - Setting this to true will plot the probabilities and the ground truth on the same plot.
     probability_mask_2D: float
         - Mask for front probabilities with 2D models. Any probabilities smaller than this number will not be plotted.
         - Must be a multiple of 0.05, greater than 0, and no greater than 0.45.
@@ -1569,7 +1537,6 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
 
     # Model properties
     image_size = model_properties['input_size'][:-1]  # The image size does not include the last dimension of the input size as it only represents the number of channels
-    pixel_expansion = model_properties['pixel_expansion']
     front_types = model_properties['front_types']
     num_dimensions = len(image_size)
 
@@ -1578,268 +1545,39 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, dom
         vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 0.55, 0.025, 20, 11
         levels = np.arange(0, 0.6, 0.05)
         cbar_ticks = np.arange(probability_mask, 0.6, 0.05)
-        cbar_tick_labels = [None, "5% ≤ P(front) < 10%", "10% ≤ P(front) < 15%", "15% ≤ P(front) < 20%", "20% ≤ P(front) < 25%",
-                            "25% ≤ P(front) < 30%", "30% ≤ P(front) < 35%", "35% ≤ P(front) < 40%", "40% ≤ P(front) < 45%",
-                            "45% ≤ P(front) < 50%", "P(front) ≥ 50%"]
+        cbar_tick_labels = [None, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55]
     else:
         probability_mask = probability_mask_3D
         vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1, 0.05, 10, 11
         levels = np.arange(0, 1.1, 0.1)
-        cbar_ticks = np.arange(probability_mask, 1, 0.1)
-        cbar_tick_labels = [None, "10% ≤ P(front) < 20%", "20% ≤ P(front) < 30%", "30% ≤ P(front) < 40%", "40% ≤ P(front) < 50%",
-                            "50% ≤ P(front) < 60%", "60% ≤ P(front) < 70%", "70% ≤ P(front) < 80%", "80% ≤ P(front) < 90%",
-                            "P(front) ≥ 90%"]
+        cbar_ticks = np.arange(probability_mask, 1.1, 0.1)
+        cbar_tick_labels = [None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
-    cmap_cold, cmap_warm, cmap_stationary, cmap_occluded, cmap_front = cm.get_cmap('Blues', n_colors), cm.get_cmap('Reds', n_colors), \
-        cm.get_cmap('Greens', n_colors), cm.get_cmap('Purples', n_colors), cm.get_cmap('Greys', n_colors)
-    norm_cold, norm_warm, norm_stationary, norm_occluded, norm_front = \
-        colors.Normalize(vmin=0, vmax=vmax), colors.Normalize(vmin=0, vmax=vmax), colors.Normalize(vmin=0, vmax=vmax), \
-        colors.Normalize(vmin=0, vmax=vmax), colors.Normalize(vmin=0, vmax=vmax)
+    fronts, names, labels, colors_types, colors_probs = reformat_fronts(fronts, front_types, return_names=True, return_colors=True)
+    fronts = xr.where(fronts == 0, float('NaN'), fronts)
 
-    probability_plot_title = "%s front probabilities (images=[%d,%d], trim=[%d,%d], mask=%d%s)" % (time,
-        domain_images[0], domain_images[1], domain_trim[0], domain_trim[1], int(probability_mask*100), "%")
+    probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN"))
 
-    for expansion in range(pixel_expansion):
-        fronts = expand_fronts(fronts)
+    cmap_front = colors.ListedColormap(colors_types, name='from_list', N=len(names))
+    norm_front = colors.Normalize(vmin=1, vmax=len(names) + 1)
 
-    if front_types == 'CFWFSFOF_binary':
-        probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN"))
-    else:
-        probs_ds = xr.where(probs_ds > probability_mask, probs_ds, 0)
-
-    if front_types == 'CFWF':
-
-        fronts = xr.where(fronts > 2, 0, fronts)
-        fronts = xr.where(fronts == 0, float("NaN"), fronts)
-
-        # Create custom colorbar for the different front types of the 'truth' plot
-        cmap_identifier = colors.ListedColormap(['blue', 'red'], name='from_list', N=None)
-        norm_identifier = colors.Normalize(vmin=1, vmax=3)
-
-        """ Create datasets for each front type and modify them so they do not overlap in the prediction plot """
-        probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
-        probs_ds_cold = probs_ds_copy_cold.drop(labels="warm_probs").rename({"cold_probs": "probs"})
-        probs_ds_warm = probs_ds_copy_warm.drop(labels="cold_probs").rename({"warm_probs": "probs"})
-        cold_ds = xr.where(probs_ds_cold > probs_ds_warm, probs_ds_cold, float("NaN")).rename({"probs": "cold_probs"})
-        probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
-        probs_ds_cold = probs_ds_copy_cold.drop(labels="warm_probs").rename({"cold_probs": "probs"})
-        probs_ds_warm = probs_ds_copy_warm.drop(labels="cold_probs").rename({"warm_probs": "probs"})
-        warm_ds = xr.where(probs_ds_warm > probs_ds_cold, probs_ds_warm, float("NaN")).rename({"probs": "warm_probs"})
-
-        # Create prediction plot
-        if same_map is True:
-            fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
-            plot_background(extent, ax=ax)  # Plot background on main subplot containing fronts and probabilities
-            cold_ds.cold_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_cold, levels=levels, cmap="Blues",
-                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            warm_ds.warm_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_warm, levels=levels, cmap='Reds',
-                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot ground truth fronts on top of probability contours
-            ax.title.set_text(probability_plot_title)
-
-            """ Create colorbars for cold and warm fronts """
-            cbar_cold = plt.colorbar(cm.ScalarMappable(norm=norm_cold, cmap=cmap_cold), ax=ax, pad=-0.165, boundaries=levels[1:], alpha=0.6)  # Create cold front colorbar
-            cbar_cold.set_ticks([])  # Remove labels from cold front colorbar
-            cbar_warm = plt.colorbar(cm.ScalarMappable(norm=norm_warm, cmap=cmap_warm), ax=ax, pad=-0.4, boundaries=levels[1:], alpha=0.6)  # Create warm front colorbar
-            cbar_warm.set_ticks(cbar_ticks + cbar_tick_adjust)  # Place labels in the middle of the colored sections
-            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])  # Only want labels on warm front colorbar as it is furthest to the right on the plot
-
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)  # Create colorbar for the ground truth fronts
-            cbar.set_ticks(np.arange(1, 3, 1) + 0.5)  # Set location of labels in the middle of the colored sections on the horizontal colorbar
-            cbar.set_ticklabels(['Cold', 'Warm'])
-            cbar.set_label('Front type')
-
-        else:
-            fig, axarr = plt.subplots(2, 1, figsize=(20, 8), subplot_kw={'projection': crs})
-            plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
-            axlist = axarr.flatten()
-            for ax in axlist:
-                plot_background(extent, ax=ax)
-            fronts.identifier.plot(ax=axlist[0], cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            axlist[0].title.set_text(probability_plot_title)
-            cold_ds.cold_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_cold, levels=levels, cmap="Blues",
-                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            warm_ds.warm_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_warm, levels=levels, cmap='Reds',
-                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-
-            cbar_cold = plt.colorbar(cm.ScalarMappable(norm=norm_cold, cmap=cmap_cold), ax=axlist[1], pad=-0.168, boundaries=levels[1:], alpha=0.6)
-            cbar_cold.set_ticks([])
-            cbar_warm = plt.colorbar(cm.ScalarMappable(norm=norm_warm, cmap=cmap_warm), ax=axlist[1], boundaries=levels[1:], alpha=0.6)
-            cbar_warm.set_ticks(cbar_ticks + cbar_tick_adjust)
-            cbar_warm.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[0], pad=0.1385, fraction=0.046)
-            cbar.set_ticks(np.arange(1, 3, 1)+0.5)
-            cbar.set_ticklabels(['Cold', 'Warm'])
-            cbar.set_label('Front type')
-
-    elif front_types == 'SFOF':
-
-        fronts = xr.where(fronts > 4, 0, fronts)
-        fronts = xr.where(fronts < 3, 0, fronts)
-
-        fronts = xr.where(fronts == 0, float("NaN"), fronts)
-
-        # Create custom colorbar for the different front types of the 'truth' plot
-        cmap_identifier = colors.ListedColormap(['green', 'purple'], name='from_list', N=None)
-        norm_identifier = colors.Normalize(vmin=3, vmax=5)
-
-        """ Create datasets for each front type and modify them so they do not overlap in the prediction plot """
-        probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
-        probs_ds_stationary = probs_ds_copy_stationary.drop(labels="occluded_probs").rename({"stationary_probs": "probs"})
-        probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
-        stationary_ds = xr.where(probs_ds_stationary > probs_ds_occluded, probs_ds_stationary, float("NaN")).rename({"probs": "stationary_probs"})
-        probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
-        probs_ds_stationary = probs_ds_copy_stationary.drop(labels="occluded_probs").rename({"stationary_probs": "probs"})
-        probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
-        occluded_ds = xr.where(probs_ds_occluded > probs_ds_stationary, probs_ds_occluded, float("NaN")).rename({"probs": "occluded_probs"})
-
-        # Create prediction plot
-        if same_map is True:
-            fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
-            plot_background(extent, ax=ax)  # Plot background on main subplot containing fronts and probabilities
-            stationary_ds.stationary_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_stationary, levels=levels, cmap="Greens",
-                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            occluded_ds.occluded_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_occluded, levels=levels, cmap="Purples",
-                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            ax.title.set_text(probability_plot_title)
-
-            cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=norm_stationary, cmap=cmap_stationary), ax=ax, pad=-0.165, boundaries=levels[1:], alpha=0.6)
-            cbar_stationary.set_ticks([])
-            cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=norm_occluded, cmap=cmap_occluded), ax=ax, pad=-0.4, boundaries=levels[1:], alpha=0.6)
-            cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
-            cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
-            cbar.set_ticks(np.arange(3, 5, 1)+0.5)
-            cbar.set_ticklabels(['Stationary', 'Occluded'])
-            cbar.set_label('Front type')
-
-        else:
-            fig, axarr = plt.subplots(2, 1, figsize=(20, 8), subplot_kw={'projection': crs})
-            plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
-            axlist = axarr.flatten()
-            for ax in axlist:
-                plot_background(extent, ax=ax)
-            fronts.identifier.plot(ax=axlist[0], cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-            axlist[0].title.set_text(probability_plot_title)
-            stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_stationary, levels=levels, cmap="Greens",
-                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-            occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_occluded, levels=levels, cmap='Purples',
-                transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-
-            cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=norm_stationary, cmap=cmap_stationary), ax=axlist[1], pad=-0.168, boundaries=levels[1:], alpha=0.6)
-            cbar_stationary.set_ticks([])
-            cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=norm_occluded, cmap=cmap_occluded), ax=axlist[1], boundaries=levels[1:], alpha=0.6)
-            cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
-            cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[0], pad=0.1385, fraction=0.046)
-            cbar.set_ticks(np.arange(3, 5, 1)+0.5)
-            cbar.set_ticklabels(['Stationary', 'Occluded'])
-            cbar.set_label('Front type')
-
-    elif front_types == 'CFWFSFOF':
-
-        # Create custom colorbar for the different front types of the 'truth' plot
-        cmap_subplot1 = colors.ListedColormap(["blue", "red"], name='from_list', N=None)
-        norm_subplot1 = colors.Normalize(vmin=1, vmax=3)
-        cmap_subplot2 = colors.ListedColormap(["green", "purple"], name='from_list', N=None)
-        norm_subplot2 = colors.Normalize(vmin=3, vmax=5)
-        cmap_identifier = colors.ListedColormap(["blue", "red", 'green', 'purple'], name='from_list', N=None)
-        norm_identifier = colors.Normalize(vmin=1, vmax=5)
-
-        fronts_subplot1 = fronts
-        fronts_subplot2 = fronts
-
-        fronts_subplot1 = xr.where(fronts_subplot1 > 2, float("NaN"), fronts_subplot1)
-        fronts_subplot2 = xr.where(fronts_subplot2 < 3, float("NaN"), fronts_subplot2)
-
-        """ Create datasets for each front type and modify them so they do not overlap in the prediction plot """
-        probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
-        probs_ds_cold = probs_ds_copy_cold.drop(labels="warm_probs").rename({"cold_probs": "probs"})
-        probs_ds_warm = probs_ds_copy_warm.drop(labels="cold_probs").rename({"warm_probs": "probs"})
-        cold_ds = xr.where(probs_ds_cold > probs_ds_warm, probs_ds_cold, float("NaN")).rename({"probs": "cold_probs"})
-        probs_ds_copy_cold, probs_ds_copy_warm = probs_ds, probs_ds
-        probs_ds_cold = probs_ds_copy_cold.drop(labels="warm_probs").rename({"cold_probs": "probs"})
-        probs_ds_warm = probs_ds_copy_warm.drop(labels="cold_probs").rename({"warm_probs": "probs"})
-        warm_ds = xr.where(probs_ds_warm > probs_ds_cold, probs_ds_warm, float("NaN")).rename({"probs": "warm_probs"})
-
-        probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
-        probs_ds_stationary = probs_ds_copy_stationary.drop(labels="occluded_probs").rename({"stationary_probs": "probs"})
-        probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
-        stationary_ds = xr.where(probs_ds_stationary > probs_ds_occluded, probs_ds_stationary, float("NaN")).rename({"probs": "stationary_probs"})
-        probs_ds_copy_stationary, probs_ds_copy_occluded = probs_ds, probs_ds
-        probs_ds_stationary = probs_ds_copy_stationary.drop(labels="occluded_probs").rename({"stationary_probs": "probs"})
-        probs_ds_occluded = probs_ds_copy_occluded.drop(labels="stationary_probs").rename({"occluded_probs": "probs"})
-        occluded_ds = xr.where(probs_ds_occluded > probs_ds_stationary, probs_ds_occluded, float("NaN")).rename({"probs": "occluded_probs"})
-
-        fig, axarr = plt.subplots(2, 1, figsize=(20, 8), subplot_kw={'projection': crs}, gridspec_kw={'height_ratios': [1, 1.245]})
-        plt.subplots_adjust(left=None, bottom=None, right=0.6, top=None, wspace=None, hspace=0.04)
-        axlist = axarr.flatten()
-        for ax in axlist:
-            plot_background(extent, ax=ax)
-        cold_ds.cold_probs.isel().plot.contourf(ax=axlist[0], x='longitude', y='latitude', norm=norm_cold, levels=levels, cmap="Blues",
-            transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-        warm_ds.warm_probs.isel().plot.contourf(ax=axlist[0], x='longitude', y='latitude', norm=norm_warm, levels=levels, cmap='Reds',
-            transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-        stationary_ds.stationary_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_stationary, levels=levels, cmap="Greens",
-            transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-        occluded_ds.occluded_probs.isel().plot.contourf(ax=axlist[1], x='longitude', y='latitude', norm=norm_occluded, levels=levels, cmap="Purples",
-            transform=ccrs.PlateCarree(), alpha=0.60, add_colorbar=False)
-        fronts_subplot1.identifier.plot(ax=axlist[0], cmap=cmap_subplot1, norm=norm_subplot1, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-        fronts_subplot2.identifier.plot(ax=axlist[1], cmap=cmap_subplot2, norm=norm_subplot2, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-        axlist[0].title.set_text(probability_plot_title)
-        axlist[1].title.set_text("")
-
-        cbar_cold_ax = fig.add_axes([0.5065, 0.1913, 0.015, 0.688])
-        cbar_warm_ax = fig.add_axes([0.521, 0.1913, 0.015, 0.688])
-        cbar_stationary_ax = fig.add_axes([0.5355, 0.1913, 0.015, 0.688])
-        cbar_occluded_ax = fig.add_axes([0.55, 0.1913, 0.015, 0.688])
-
-        cbar_cold = plt.colorbar(cm.ScalarMappable(norm=norm_cold, cmap=cmap_cold), cax=cbar_cold_ax, pad=0, boundaries=levels[1:], alpha=0.6)
-        cbar_cold.set_ticks([])
-        cbar_warm = plt.colorbar(cm.ScalarMappable(norm=norm_warm, cmap=cmap_warm), cax=cbar_warm_ax, pad=0, boundaries=levels[1:], alpha=0.6)
-        cbar_warm.set_ticks([])
-        cbar_stationary = plt.colorbar(cm.ScalarMappable(norm=norm_stationary, cmap=cmap_stationary), cax=cbar_stationary_ax, pad=0, boundaries=levels[1:], alpha=0.6)
-        cbar_stationary.set_ticks([])
-        cbar_occluded = plt.colorbar(cm.ScalarMappable(norm=norm_occluded, cmap=cmap_occluded), cax=cbar_occluded_ax, pad=-0.2, boundaries=levels[1:], alpha=0.6)
-        cbar_occluded.set_ticks(cbar_ticks + cbar_tick_adjust)
-        cbar_occluded.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-
-        cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=axlist[1], orientation='horizontal', fraction=0.046)
-        cbar.set_ticks(np.arange(1, 5, 1)+0.5)
-        cbar.set_ticklabels(['Cold', 'Warm', 'Stationary', 'Occluded'])
-        cbar.set_label('Front type')
-
-    elif front_types == 'CFWFSFOF_binary':
-
-        fronts = xr.where(fronts > 4, 0, fronts)
-        fronts = xr.where(fronts == 0, float('NaN'), fronts)
-
-        # Create custom colorbar for the different front types of the 'truth' plot
-        cmap_identifier = colors.ListedColormap(['blue', 'red', 'green', 'purple'], name='from_list', N=None)
-        norm_identifier = colors.Normalize(vmin=1, vmax=5)
-
-        fig, ax = plt.subplots(1, 1, figsize=(20, 5), subplot_kw={'projection': crs})
-        plot_background(extent, ax=ax)
-        probs_ds.front_probs.isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_front, levels=levels, cmap=cmap_front,
-            transform=ccrs.PlateCarree(), alpha=0.9, add_colorbar=False)
-        fronts.identifier.plot(ax=ax, cmap=cmap_identifier, norm=norm_identifier, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
-        ax.title.set_text(probability_plot_title)
-
-        cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, pad=-0.41, boundaries=levels[1:], alpha=0.9)
-        cbar_front.set_ticks(cbar_ticks + cbar_tick_adjust)
-        cbar_front.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-
-        cbar = plt.colorbar(cm.ScalarMappable(norm=norm_identifier, cmap=cmap_identifier), ax=ax, orientation='horizontal', fraction=0.046)
-        cbar.set_ticks(np.arange(1, 5, 1)+0.5)
-        cbar.set_ticklabels(['Cold', 'Warm', 'Stationary', 'Occluded'])
-        cbar.set_label('Front type')
-
-    plt.savefig('%s/model_%d/maps/%s/%s.png' % (model_dir, model_number, subdir_base, filename_base), bbox_inches='tight', dpi=1000)
-    plt.close()
+    for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(names) + 1), list(probs_ds.keys()), names, labels, colors_probs):
+        current_fronts = fronts
+        current_fronts = xr.where(current_fronts != front_no, float("NaN"), front_no)
+        fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
+        plot_background(extent, ax=ax, linewidth=0.5)
+        cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
+        probs_ds[front_key].isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs,
+            transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
+        current_fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
+        ax.set_title(f'{front_name} predictions and ground truth: {time}')
+        cbar_ax = fig.add_axes([0.8365, 0.11, 0.015, 0.77])
+        cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
+        cbar.set_label('Probability', rotation=90)
+        cbar.set_ticks(cbar_ticks)
+        cbar.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
+        plt.savefig('%s/model_%d/maps/%s/%s-%s.png' % (model_dir, model_number, subdir_base, filename_base, front_label), bbox_inches='tight', dpi=300)
+        plt.close()
 
 
 def learning_curve(model_number, model_dir, include_validation_plots=True):
@@ -2039,7 +1777,7 @@ def learning_curve(model_number, model_dir, include_validation_plots=True):
         plt.ylim(ymin=1e-3, ymax=1e-1)  # Limits of the metric graph, adjust as needed
         plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions or metrics appear as very sharp curves.
 
-    plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
+    # plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
 
 
 if __name__ == '__main__':
@@ -2093,14 +1831,15 @@ if __name__ == '__main__':
                              'maximum across overlapping pixels.')
     parser.add_argument('--find_matches', action='store_true', help='Find matches for stitching predictions?')
     parser.add_argument('--generate_predictions', action='store_true', help='Generate prediction plots?')
-    parser.add_argument('--gpu_devices', type=int, nargs="+", help='GPU device numbers.')
+    parser.add_argument('--gpu_device', type=int, help='GPU device number.')
     parser.add_argument('--image_size', type=int, nargs=2, help="Number of pixels along each dimension of the model's output: lon, lat")
-    parser.add_argument('--learning_curve', action='store_true', help='Plot learning curve?')
+    parser.add_argument('--learning_curve', action='store_true', help='Plot learning curve')
+    parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU')
     parser.add_argument('--model_dir', type=str, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, help='Model number.')
     parser.add_argument('--num_iterations', type=int, default=10000, help='Number of iterations to perform when bootstrapping the data.')
     parser.add_argument('--num_rand_predictions', type=int, default=10, help='Number of random predictions to make.')
-    parser.add_argument('--pickle_dir', type=str, default='/ourdisk/hpc/ai2es/fronts/raw_front_data/pickle_files', help='Main directory for the pickle files.')
+    parser.add_argument('--pickle_dir', type=str, help='Main directory for the pickle files.')
     parser.add_argument('--plot_performance_diagrams', action='store_true', help='Plot performance diagrams for a model?')
     parser.add_argument('--prediction_method', type=str, help="Prediction method. Options are: 'datetime', 'random', 'all'")
     parser.add_argument('--random_variables', type=str, nargs="+", default=None, help="Variables to randomize when generating predictions.")
@@ -2111,23 +1850,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
     provided_arguments = vars(args)
 
-    if args.gpu_devices is not None:
-        n_gpus = len(args.gpu_devices)  # Number of GPUs to use
-        gpus = args.gpu_devices  # Device IDs
-        free_gpus = py3nvml.get_free_gpus()
-        print("Free gpus:", free_gpus)
+    if args.gpu_device is not None:
+        gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
+        tf.config.experimental.set_visible_devices(devices=gpus[args.gpu_device], device_type='GPU')
 
-        # count how many are free
-        avail_gpu_ids = np.where(free_gpus)[0]
-
-        # if there arent enough print it out
-        if len(avail_gpu_ids) < n_gpus:
-            print('WARNING: Not enough GPUs, your job might fail')
-        else:
-            # if there are enough, the select the ones you need
-            print(f"Grabbing {n_gpus} GPUs")
-            print("Using device(s)", args.gpu_devices)
-            print(py3nvml.grab_gpus(num_gpus=n_gpus, gpu_select=args.gpu_devices))
+        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
+        if args.memory_growth:
+            tf.config.experimental.set_memory_growth(device=gpus[args.gpu_device], enable=True)
 
     if args.find_matches:
         required_arguments = ['domain_size', 'image_size']
