@@ -2,7 +2,8 @@
 Script that contains custom errors.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/18/2021 2:02 PM CDT
+
+Last updated: 6/28/2021 8:18 PM CDT
 """
 
 
@@ -27,7 +28,7 @@ def check_arguments(provided_arguments, required_arguments):
 
     Parameters
     ----------
-    provided_arguments: list
+    provided_arguments: dict
     required_arguments: list
     """
     missing_arguments = []
