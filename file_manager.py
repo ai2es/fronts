@@ -9,10 +9,7 @@ Functions in this code manage data files and directories.
     7. Load a saved tensorflow model.
 
 TODO:
-    * Separate 'create_new_era5_domain_files' into three separate functions (one for each: ERA5, GDAS, fronts)
-    * Merge 'add_hourly_directories' into 'create_subdirectories'
     * Add examples to the following functions:
-        - add_hourly_directories
         - compress_files
         - create_subdirectories
         - delete_grouped_files
