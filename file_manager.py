@@ -21,7 +21,7 @@ TODO:
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 6/27/2022 3:46 PM CST
+Last updated: 6/28/2022 8:24 PM CDT
 """
 
 from glob import glob
@@ -35,26 +35,6 @@ from tensorflow.keras.models import load_model as lm
 import custom_losses
 import itertools
 from errors import check_arguments
-
-
-def add_hourly_directories(main_dir, year, month, day):
-    """
-    Adds hourly subdirectories in daily subdirectories.
-
-    Parameters
-    ----------
-    main_dir: str
-        Main directory for the subdirectories.
-    year: int
-    month: int
-    day: int
-
-    Notes
-    -----
-    This function is called when passing '--hour_dirs' into the terminal command line. See Example 1b.
-    """
-    for hour in range(0, 24, 3):
-        os.mkdir('%s/%d/%02d/%02d/%02d' % (main_dir, year, month, day, hour))
 
 
 def compress_files(main_dir, glob_file_string, tar_filename, remove_files=False, status_printout=True):
@@ -95,63 +75,36 @@ def compress_files(main_dir, glob_file_string, tar_filename, remove_files=False,
     print(f"Successfully compressed {len(files)} files: ",
           f'{uncompressed_size:,.2f} MB ---> {tarF_size:,.2f} MB ({100*(1-(tarF_size/uncompressed_size)):.1f}% compression ratio)')
 
-    if remove_files is True:
+    if remove_files:
         for file in files:
             os.remove(file)
         print(f"Successfully deleted {len(files)} files")
 
 
-def create_new_era5_domain_files(pickle_dir, domain, num_variables, new_domain, new_extent):
+def create_new_domain_files(current_domain_files, domain, new_domain, new_extent):
     """
-    Create new front object and variable files with a smaller domain.
+    Function that takes files encompassing the specific domain and creates new files with a smaller domain.
 
     Parameters
     ----------
-    pickle_dir: str
-        - Directory where the pickle files are stored.
+    current_domain_files: list
+        - List of pickle files over the original domain.
     domain: str
         - Domain of the files from which the new files will be made.
-    num_variables: int
-        - Number of variables in the variable datasets.
     new_domain: str
         - Name of the new domain.
     new_extent: Iterable object with 4 ints
         - 4 values for the new extent: min_lon, max_lon, min_lat, max_lat
     """
 
-    raise TypeError("This function is not operational.")
+    print("Create new files for the following domain:", new_domain)
 
-    front_files, variable_files = load_era5_pickle_files(pickle_dir, num_variables, domain)
-
-    for front_file, variable_file in zip(front_files, variable_files):
-        front_ds = pd.read_pickle(front_file)
-        variable_ds = pd.read_pickle(variable_file)
-
-        new_front_ds = front_ds.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
-        new_variable_ds = variable_ds.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
-
-        new_front_file = front_file.replace('full', new_domain)
-        new_variable_file = variable_file.replace('full', new_domain)
-
-        with open(new_front_file, "wb") as f:
-            pickle.dump(new_front_ds, f)
-        with open(new_variable_file, "wb") as f:
-            pickle.dump(new_variable_ds, f)
-
-    for front_file, variable_file in zip(front_files, variable_files):
-        front_ds = pd.read_pickle(front_file)
-        variable_ds = pd.read_pickle(variable_file)
-
-        new_front_ds = front_ds.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
-        new_variable_ds = variable_ds.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
-
-        new_front_file = front_file.replace('full', new_domain)
-        new_variable_file = variable_file.replace('full', new_domain)
-
-        with open(new_front_file, "wb") as f:
-            pickle.dump(new_front_ds, f)
-        with open(new_variable_file, "wb") as f:
-            pickle.dump(new_variable_ds, f)
+    for file in current_domain_files:
+        full_dataset = pd.read_pickle(file)
+        new_domain_dataset = full_dataset.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
+        new_domain_file = file.replace(domain, new_domain)
+        with open(new_domain_file, "wb") as f:
+            pickle.dump(new_domain_dataset, f)
 
 
 def create_subdirectories(main_dir, hour_dirs=False):
@@ -163,7 +116,7 @@ def create_subdirectories(main_dir, hour_dirs=False):
     main_dir: str
         - Main directory for the subdirectories.
     hour_dirs: bool
-        - Boolean flag that determines whether or not hourly subdirectories will be generated.
+        - Boolean flag that determines whether hourly subdirectories will be generated.
     """
 
     years = list(np.arange(2008, 2023, 1))
@@ -193,8 +146,9 @@ def create_subdirectories(main_dir, hour_dirs=False):
             os.mkdir('%s/%d/%02d' % (main_dir, year, month))
             for day in month_days[month-1]:
                 os.mkdir('%s/%d/%02d/%02d' % (main_dir, year, month, day))
-                if hour_dirs is True:
-                    add_hourly_directories(main_dir, year, month, day)
+                if hour_dirs:
+                    for hour in range(0, 24, 3):
+                        os.mkdir('%s/%d/%02d/%02d/%02d' % (main_dir, year, month, day, hour))
 
 
 def delete_grouped_files(main_dir, glob_file_string, num_subdir):
@@ -1009,14 +963,11 @@ def load_model(model_number, model_dir):
         print("Loading model....", end='')
         if loss_string is not None:
             if metric_string is not None:
-                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                    custom_objects={loss_string: loss_function, metric_string: metric_function})
+                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
             else:
-                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                    custom_objects={loss_string: loss_function})
+                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
         else:
-            model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number),
-                custom_objects={metric_string: metric_function})
+            model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
         print("done")
 
     return model
@@ -1072,7 +1023,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--compress_files', action='store_true', help='Compress files')
-    parser.add_argument('--create_new_domain_files', action='store_true', help='Create files for a new domain')
+    parser.add_argument('--create_new_era5_files', action='store_true', help='Create ERA5 files for a new domain')
+    parser.add_argument('--create_new_front_files', action='store_true', help='Create front files for a new domain')
+    parser.add_argument('--create_new_gdas_files', action='store_true', help='Create GDAS files for a new domain')
     parser.add_argument('--create_subdirectories', action='store_true', help='Create new directories')
     parser.add_argument('--delete_grouped_files', action='store_true', help='Delete a set of files')
     parser.add_argument('--domain', type=str, help='Domain of the data')
@@ -1085,7 +1038,9 @@ if __name__ == '__main__':
                                                                   'min_lon, max_lon, min_lat, max_lat')
     parser.add_argument('--num_subdir', type=int, help='Number of subdirectory layers in the main directory.')
     parser.add_argument('--num_variables', type=int, help='Number of variables in the variable datasets.')
-    parser.add_argument('--era5_pickle_indir', type=str, help='Path of pickle files containing front object and variable data.')
+    parser.add_argument('--gdas_pickle_indir', type=str, help='Input directory for the GDAS pickle files.')
+    parser.add_argument('--era5_pickle_indir', type=str, help='Input directory for the ERA5 pickle files.')
+    parser.add_argument('--fronts_pickle_indir', type=str, help='Input directory for the front object files.')
     parser.add_argument('--tar_filename', type=str, help='Name of the tar file.')
     args = parser.parse_args()
     provided_arguments = vars(args)
@@ -1095,11 +1050,23 @@ if __name__ == '__main__':
         check_arguments(provided_arguments, required_arguments)
         compress_files(args.main_dir, args.glob_file_string, args.tar_filename)
 
-    if args.create_new_domain_files:
-        raise TypeError("This function is currently not operational. The ability to create new ERA5, GDAS, and frontal object files"
-                        " will be added in a future update.")
+    if args.create_new_era5_files:
         required_arguments = ['era5_pickle_indir', 'domain', 'num_variables', 'new_domain', 'new_extent']
         check_arguments(provided_arguments, required_arguments)
+        era5_domain_files = load_era5_pickle_files(args.era5_pickle_indir, args.num_variables, args.domain)
+        create_new_domain_files(era5_domain_files, args.domain, args.new_domain, args.new_extent)
+
+    if args.create_new_front_files:
+        required_arguments = ['fronts_pickle_indir', 'domain', 'new_domain', 'new_extent']
+        check_arguments(provided_arguments, required_arguments)
+        front_domain_files = load_fronts_pickle_files(args.fronts_pickle_indir, args.domain)
+        create_new_domain_files(front_domain_files, args.domain, args.new_domain, args.new_extent)
+
+    if args.create_new_gdas_files:
+        required_arguments = ['gdas_pickle_indir', 'domain', 'new_domain', 'new_extent']
+        check_arguments(provided_arguments, required_arguments)
+        gdas_domain_files = load_gdas_pickle_files(args.gdas_pickle_indir, args.domain)
+        create_new_domain_files(gdas_domain_files, args.domain, args.new_domain, args.new_extent)
 
     if args.create_subdirectories:
         required_arguments = ['main_dir']
