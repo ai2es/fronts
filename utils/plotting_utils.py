@@ -2,17 +2,15 @@
 Plotting tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/14/2022 8:54 PM CDT
 
-Known bugs:
-- none
-
-Please report any bugs to Andrew Justin: andrewjustinwx@gmail.com
+Last updated: 7/1/2022 2:35 PM CDT
 """
 
 import cartopy.feature as cfeature
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
+from matplotlib.cm import ScalarMappable
+import numpy as np
 
 
 def plot_background(extent, ax=None, linewidth=0.5):
@@ -42,3 +40,25 @@ def plot_background(extent, ax=None, linewidth=0.5):
         ax.add_feature(cfeature.STATES, linewidth=linewidth)
         ax.set_extent(extent, crs=ccrs.PlateCarree())
     return ax
+
+
+def create_colorbar_for_fronts(names, cmap, norm, axis_loc=(0.7765, 0.11, 0.015, 0.77)):
+    """
+    Create colorbar for given front types.
+
+    Parameters
+    ----------
+    names: list of strs
+        Names of the front types.
+    axis_loc: tuple or list of 4 floats
+        Location of the new axis for the colorbar: xmin, xmax, ymin, ymax
+    cmap: matplotlib.colors.Colormap object
+        Colormap for the fronts.
+    norm: matplotlib.colors.Normalize
+        Colorbar normalization.
+    """
+    number_of_front_types = len(names)
+    cbar_ax = plt.axes(axis_loc)  # Create an axis for the colorbar to the right of the plot
+    cbar = plt.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax)  # Create the colorbar
+    cbar.set_ticks(np.arange(1, number_of_front_types + 1) + 0.5)  # Place ticks in the middle of each color
+    cbar.set_ticklabels(names)  # Label each tick with its respective front type
