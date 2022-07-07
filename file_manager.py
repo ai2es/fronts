@@ -18,7 +18,7 @@ TODO:
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 6/28/2022 8:24 PM CDT
+Last updated: 7/6/2022 8:27 PM CDT
 """
 
 from glob import glob
@@ -191,7 +191,7 @@ def extract_tarfile(main_dir, tar_filename):
     print(f"Successfully extracted {main_dir}/{tar_filename}")
 
 
-def load_era5_pickle_files(era5_pickle_indir, num_variables, domain, dataset=None, test_years=None, validation_years=None):
+def load_era5_pickle_files(era5_pickle_indir, num_variables, domain, dataset=None, test_years=None, validation_years=None, timestep_tuple=None):
     """
     Function that loads and returns a list of ERA5 pickle files.
 
@@ -209,6 +209,8 @@ def load_era5_pickle_files(era5_pickle_indir, num_variables, domain, dataset=Non
         - Years for the test set (will not be used in training or validation).
     validation_years: list of ints or None
         - Years for the validation set.
+    timestep_tuple: tuple with 4 ints
+        Timestep of the GDAS pickle files to load. This can only be passed if dataset='timestep'.
 
     Returns
     -------
@@ -221,84 +223,97 @@ def load_era5_pickle_files(era5_pickle_indir, num_variables, domain, dataset=Non
         * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
         * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
         * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+        * add the following parameters to load an ERA5 file for a given timestep: dataset='timestep', timestep_tuple=(year, month, day, hour)
     """
     if dataset is not None:
         print(f"Loading ERA5 files: {dataset} dataset")
     else:
         print("Loading ERA5 files")
 
-    era5_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s.pkl" % (era5_pickle_indir, num_variables, domain)))
+    if dataset == 'timestep':
+        era5_files = sorted(glob("%s/%d/%02d/%02d/Data_%dvar_%d%02d%02d%02d_%s.pkl" % (era5_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2],
+                                                                                       num_variables, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], domain)))
 
-    if domain == 'full':  # Filter out non-synoptic hours
-        hours_to_remove = [3, 9, 15, 21]
-        for hour in hours_to_remove:
-            string = '%02d_' % hour
-            era5_files = list(filter(lambda hour: string not in hour, era5_files))  # Remove files that do not contain the given hourly string
+        if len(era5_files) == 0:
+            raise OSError("No ERA5 pickle file found")
 
-    separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
-    loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+        print("Loaded ERA5 pickle file for %d-%02d-%02d-%02dz" % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3]))
 
-    if dataset == 'training':
-
-        if validation_years is None:
-            raise ValueError("Validation years must be declared to pull the training set")
-        if test_years is None:
-            raise ValueError("Test years must be declared to pull the training set")
-
-        era5_files_training = era5_files
-        while len(era5_files_training) == len(era5_files) and loop_counter < 2:  # While no ERA5 files in the training dataset are found
-            for validation_year in validation_years:
-                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
-                era5_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, era5_files_training))
-            for test_year in test_years:
-                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
-                era5_files_training = list(filter(lambda test_year: test_year_string not in test_year, era5_files_training))
-            loop_counter += 1
-
-        print("ERA5 files in training dataset:", len(era5_files_training))
-        return era5_files_training
-
-    elif dataset == 'validation':
-
-        if validation_years is None:
-            raise ValueError("Validation years must be declared to pull the validation set")
-
-        era5_files_validation = []
-        while len(era5_files_validation) == 0 and loop_counter < 2:  # While no ERA5 files in the validation dataset are found
-            for validation_year in validation_years:
-                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
-                era5_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, era5_files)))
-            era5_files_validation = list(sorted(itertools.chain(*era5_files_validation)))
-            loop_counter += 1
-
-        print(f"ERA5 files in validation dataset {validation_years}:", len(era5_files_validation))
-        return era5_files_validation
-
-    elif dataset == 'test':
-
-        if test_years is None:
-            raise ValueError("Test years must be declared to pull the test set")
-
-        era5_files_test = []
-        while len(era5_files_test) == 0 and loop_counter < 2:  # While no ERA5 files in the testing dataset are found
-            for test_year in test_years:
-                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
-                era5_files_test.append(list(filter(lambda test_year: test_year_string in test_year, era5_files)))
-            era5_files_test = list(sorted(itertools.chain(*era5_files_test)))
-            loop_counter += 1
-
-        print(f"ERA5 files in testing dataset {test_years}:", len(era5_files_test))
-        return era5_files_test
-
-    elif dataset is None:
-        print("ERA5 files:", len(era5_files))
         return era5_files
 
     else:
-        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
+        era5_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s.pkl" % (era5_pickle_indir, num_variables, domain)))
+
+        if domain == 'full':  # Filter out non-synoptic hours
+            hours_to_remove = [3, 9, 15, 21]
+            for hour in hours_to_remove:
+                string = '%02d_' % hour
+                era5_files = list(filter(lambda hour: string not in hour, era5_files))  # Remove files that do not contain the given hourly string
+
+        separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
+        loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+
+        if dataset == 'training':
+
+            if validation_years is None:
+                raise ValueError("Validation years must be declared to pull the training set")
+            if test_years is None:
+                raise ValueError("Test years must be declared to pull the training set")
+
+            era5_files_training = era5_files
+            while len(era5_files_training) == len(era5_files) and loop_counter < 2:  # While no ERA5 files in the training dataset are found
+                for validation_year in validation_years:
+                    validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                    era5_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, era5_files_training))
+                for test_year in test_years:
+                    test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                    era5_files_training = list(filter(lambda test_year: test_year_string not in test_year, era5_files_training))
+                loop_counter += 1
+
+            print("ERA5 files in training dataset:", len(era5_files_training))
+            return era5_files_training
+
+        elif dataset == 'validation':
+
+            if validation_years is None:
+                raise ValueError("Validation years must be declared to pull the validation set")
+
+            era5_files_validation = []
+            while len(era5_files_validation) == 0 and loop_counter < 2:  # While no ERA5 files in the validation dataset are found
+                for validation_year in validation_years:
+                    validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                    era5_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, era5_files)))
+                era5_files_validation = list(sorted(itertools.chain(*era5_files_validation)))
+                loop_counter += 1
+
+            print(f"ERA5 files in validation dataset {validation_years}:", len(era5_files_validation))
+            return era5_files_validation
+
+        elif dataset == 'test':
+
+            if test_years is None:
+                raise ValueError("Test years must be declared to pull the test set")
+
+            era5_files_test = []
+            while len(era5_files_test) == 0 and loop_counter < 2:  # While no ERA5 files in the testing dataset are found
+                for test_year in test_years:
+                    test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                    era5_files_test.append(list(filter(lambda test_year: test_year_string in test_year, era5_files)))
+                era5_files_test = list(sorted(itertools.chain(*era5_files_test)))
+                loop_counter += 1
+
+            print(f"ERA5 files in testing dataset {test_years}:", len(era5_files_test))
+            return era5_files_test
+
+        elif dataset is None:
+            print("ERA5 files:", len(era5_files))
+            return era5_files
+
+        else:
+            raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
 
 
-def load_fronts_pickle_files(fronts_pickle_indir, domain, dataset=None, test_years=None, validation_years=None):
+def load_fronts_pickle_files(fronts_pickle_indir, domain, dataset=None, test_years=None, validation_years=None, timestep_tuple=None):
     """
     Function that loads and returns front object files with matching dates.
 
@@ -314,6 +329,8 @@ def load_fronts_pickle_files(fronts_pickle_indir, domain, dataset=None, test_yea
         - Years for the test set (will not be used in training or validation).
     validation_years: list of ints or None
         - Years for the validation set.
+    timestep_tuple: tuple with 4 ints
+        Timestep of the GDAS pickle files to load. This can only be passed if dataset='timestep'.
 
     Returns
     -------
@@ -326,84 +343,97 @@ def load_fronts_pickle_files(fronts_pickle_indir, domain, dataset=None, test_yea
         * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
         * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
         * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+        * add the following parameters to load a frontal object file for a given timestep: dataset='timestep', timestep_tuple=(year, month, day, hour)
     """
     if dataset is not None:
         print(f"Loading fronts files: {dataset} dataset")
     else:
         print("Loading fronts files")
 
-    front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
+    if dataset == 'timestep':
+        front_files = sorted(glob("%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_%s.pkl" % (fronts_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2],
+                                                                                          timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], domain)))
 
-    if domain == 'full':  # Filter out non-synoptic hours
-        hours_to_remove = [3, 9, 15, 21]
-        for hour in hours_to_remove:
-            string = '%02d_' % hour
-            front_files = list(filter(lambda hour: string not in hour, front_files))
+        if len(front_files) == 0:
+            raise OSError("No fronts file found")
 
-    separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
-    loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+        print("Loaded frontal object pickle file for %d-%02d-%02d-%02dz" % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3]))
 
-    if dataset == 'training':
-
-        if validation_years is None:
-            raise ValueError("Validation years must be declared to pull the training set")
-        if test_years is None:
-            raise ValueError("Test years must be declared to pull the training set")
-
-        front_files_training = front_files
-        while len(front_files_training) == len(front_files) and loop_counter < 2:
-            for validation_year in validation_years:
-                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
-                front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
-            for test_year in test_years:
-                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
-                front_files_training = list(filter(lambda test_year: test_year_string not in test_year, front_files_training))
-            loop_counter += 1
-
-        print("Front files in training dataset:", len(front_files_training))
-        return front_files_training
-
-    elif dataset == 'validation':
-
-        if validation_years is None:
-            raise ValueError("Validation years must be declared to pull the validation set")
-
-        front_files_validation = []
-        while len(front_files_validation) == 0 and loop_counter < 2:
-            for validation_year in validation_years:
-                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
-                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
-            front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
-            loop_counter += 1
-
-        print(f"Front files in validation dataset {validation_years}:", len(front_files_validation))
-        return front_files_validation
-
-    elif dataset == 'test':
-
-        if test_years is None:
-            raise ValueError("Test years must be declared to pull the test set")
-
-        front_files_test = []
-        while len(front_files_test) == 0 and loop_counter < 2:
-            for test_year in test_years:
-                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
-                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
-            front_files_test = list(sorted(itertools.chain(*front_files_test)))
-            loop_counter += 1
-
-        print(f"Front files in test dataset {test_years}:", len(front_files_test))
-        return front_files_test
-
-    elif dataset is None:
-        print(f"Front files:", len(front_files))
         return front_files
 
     else:
-        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
+        front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
+
+        if domain == 'full':  # Filter out non-synoptic hours
+            hours_to_remove = [3, 9, 15, 21]
+            for hour in hours_to_remove:
+                string = '%02d_' % hour
+                front_files = list(filter(lambda hour: string not in hour, front_files))
+
+        separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
+        loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+
+        if dataset == 'training':
+
+            if validation_years is None:
+                raise ValueError("Validation years must be declared to pull the training set")
+            if test_years is None:
+                raise ValueError("Test years must be declared to pull the training set")
+
+            front_files_training = front_files
+            while len(front_files_training) == len(front_files) and loop_counter < 2:
+                for validation_year in validation_years:
+                    validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                    front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
+                for test_year in test_years:
+                    test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                    front_files_training = list(filter(lambda test_year: test_year_string not in test_year, front_files_training))
+                loop_counter += 1
+
+            print("Front files in training dataset:", len(front_files_training))
+            return front_files_training
+
+        elif dataset == 'validation':
+
+            if validation_years is None:
+                raise ValueError("Validation years must be declared to pull the validation set")
+
+            front_files_validation = []
+            while len(front_files_validation) == 0 and loop_counter < 2:
+                for validation_year in validation_years:
+                    validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                    front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
+                front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
+                loop_counter += 1
+
+            print(f"Front files in validation dataset {validation_years}:", len(front_files_validation))
+            return front_files_validation
+
+        elif dataset == 'test':
+
+            if test_years is None:
+                raise ValueError("Test years must be declared to pull the test set")
+
+            front_files_test = []
+            while len(front_files_test) == 0 and loop_counter < 2:
+                for test_year in test_years:
+                    test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                    front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
+                front_files_test = list(sorted(itertools.chain(*front_files_test)))
+                loop_counter += 1
+
+            print(f"Front files in test dataset {test_years}:", len(front_files_test))
+            return front_files_test
+
+        elif dataset is None:
+            print(f"Front files:", len(front_files))
+            return front_files
+
+        else:
+            raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
 
 
-def load_era5_and_fronts_pickle_files(era5_pickle_indir, fronts_pickle_indir, num_variables, domain, dataset=None, test_years=None, validation_years=None):
+def load_era5_and_fronts_pickle_files(era5_pickle_indir, fronts_pickle_indir, num_variables, domain, dataset=None, test_years=None, validation_years=None, timestep_tuple=None):
     """
     Function that loads and returns lists of ERA5 pickle files and front object files with matching dates.
 
@@ -423,6 +453,8 @@ def load_era5_and_fronts_pickle_files(era5_pickle_indir, fronts_pickle_indir, nu
         - Years for the test set (will not be used in training or validation).
     validation_years: list of ints
         - Years for the validation set.
+    timestep_tuple: tuple with 4 ints
+        Timestep of the GDAS pickle files to load. This can only be passed if dataset='timestep'.
 
     Returns
     -------
@@ -437,139 +469,158 @@ def load_era5_and_fronts_pickle_files(era5_pickle_indir, fronts_pickle_indir, nu
         * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
         * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
         * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+        * add the following parameters to load a set of ERA5 files for a given timestep: dataset='timestep', timestep_tuple=(year, month, day, hour)
     """
     if dataset is not None:
         print(f"Loading ERA5/fronts {dataset} dataset")
     else:
         print("Loading ERA5/fronts files")
 
-    front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
-    era5_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s.pkl" % (era5_pickle_indir, num_variables, domain)))
-
-    front_files_no_prefix = []
-    era5_files_no_prefix = []
-    front_files_list = []
-    era5_files_list = []
-
-    for i in range(len(front_files)):
-        front_files_no_prefix.append(front_files[i].replace('FrontObjects_', ''))
-    for j in range(len(era5_files)):
-        era5_files_no_prefix.append(era5_files[j].replace('Data_%dvar_' % num_variables, ''))
-
-    if len(era5_files) > len(front_files):
-        total_era5_files = len(era5_files)
-        total_front_files = len(front_files)
-        for era5_file_no in range(total_era5_files):
-            if era5_files_no_prefix[era5_file_no] in front_files_no_prefix:
-                era5_files_list.append(era5_files[era5_file_no])
-        for front_file_no in range(total_front_files):
-            if front_files_no_prefix[front_file_no] in era5_files_no_prefix:
-                front_files_list.append(front_files[front_file_no])
-    else:
-        total_front_files = len(front_files)
-        total_era5_files = len(era5_files)
-        for front_file_no in range(total_front_files):
-            if front_files_no_prefix[front_file_no] in era5_files_no_prefix:
-                front_files_list.append(front_files[front_file_no])
-        for era5_file_no in range(total_era5_files):
-            if era5_files_no_prefix[era5_file_no] in front_files_no_prefix:
-                era5_files_list.append(era5_files[era5_file_no])
-
-    front_files, era5_files = front_files_list, era5_files_list
-
-    matches = 0
-    mismatches = 0
-
-    # Check the end of the filenames to match up files together
-    for i in range(len(front_files_list)):
-        if front_files_list[i][-15:] == era5_files_list[i][-15:]:
-            matches += 1
+    if timestep_tuple is not None:
+        if dataset != 'timestep':
+            raise ValueError("dataset must be set to 'timestep' when loading GDAS/fronts files for a specific timestep")
         else:
-            mismatches += 1
+            front_files = sorted(glob("%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_%s.pkl" % (fronts_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2],
+                                                                                              timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], domain)))
+            era5_files = sorted(glob("%s/%d/%02d/%02d/Data_%dvar_%d%02d%02d%02d_%s.pkl" % (era5_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2],
+                                                                                           num_variables, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], domain)))
 
-    if mismatches > 0:
-        raise ValueError("The dates in the file lists do not match up. Please report this bug to Andrew Justin (andrewjustinwx@gmail.com)")
+            assert len(front_files) == 1
+            assert len(era5_files) == 1
 
-    if domain == 'full':  # Filter out non-synoptic hours
-        hours_to_remove = [3, 9, 15, 21]
-        for hour in hours_to_remove:
-            string = '%02d_' % hour
-            front_files = list(filter(lambda hour: string not in hour, front_files))
-            era5_files = list(filter(lambda hour: string not in hour, era5_files))
+            print("Successfully loaded ERA5/front file pair for %d-%02d-%02d-%02dz" % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3]))
 
-    separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
-    loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
-
-    if dataset == 'training':
-
-        if validation_years is None:
-            raise ValueError("Validation years must be declared to pull the training set")
-        if test_years is None:
-            raise ValueError("Test years must be declared to pull the training set")
-
-        front_files_training = front_files
-        era5_files_training = era5_files
-        while len(front_files_training) == len(front_files) and len(era5_files_training) == len(era5_files) and loop_counter < 2:  # While no ERA5/front files in the training dataset are found
-            for validation_year in validation_years:
-                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
-                front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
-                era5_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, era5_files_training))
-            for test_year in test_years:
-                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
-                front_files_training = list(filter(lambda test_year: test_year_string not in test_year, front_files_training))
-                era5_files_training = list(filter(lambda test_year: test_year_string not in test_year, era5_files_training))
-            loop_counter += 1
-
-        print("ERA5/fronts file pairs in training dataset:", len(front_files_training))
-        return era5_files_training, front_files_training
-
-    elif dataset == 'validation':
-
-        if validation_years is None:
-            raise ValueError("Validation years must be declared to pull the validation set")
-
-        front_files_validation = []
-        era5_files_validation = []
-        while len(front_files_validation) == 0 and len(era5_files_validation) == 0 and loop_counter < 2:  # While no ERA5/front files in the validation dataset are found
-            for validation_year in validation_years:
-                validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
-                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
-                era5_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, era5_files)))
-            front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
-            era5_files_validation = list(sorted(itertools.chain(*era5_files_validation)))
-            loop_counter += 1
-
-        print(f"ERA5/fronts file pairs in validation dataset {validation_years}:", len(front_files_validation))
-        return era5_files_validation, front_files_validation
-
-    elif dataset == 'test':
-
-        if test_years is None:
-            raise ValueError("Test years must be declared to pull the test set")
-
-        front_files_test = []
-        era5_files_test = []
-        while len(front_files_test) == 0 and len(era5_files_test) == 0 and loop_counter < 2:  # While no ERA5/front files in the testing dataset are found
-            for test_year in test_years:
-                test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
-                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
-                era5_files_test.append(list(filter(lambda test_year: test_year_string in test_year, era5_files)))
-            front_files_test = list(sorted(itertools.chain(*front_files_test)))
-            era5_files_test = list(sorted(itertools.chain(*era5_files_test)))
-            loop_counter += 1
-
-        print(f"ERA5/fronts file pairs in testing dataset {test_years}:", len(front_files_test))
-        return era5_files_test, front_files_test
-
-    elif dataset is None:
-        print(f"ERA5/fronts file pairs:", len(front_files))
-        return era5_files, front_files
+            return era5_files, front_files
 
     else:
-        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
+
+        front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
+        era5_files = sorted(glob("%s/*/*/*/Data_%dvar_*_%s.pkl" % (era5_pickle_indir, num_variables, domain)))
+
+        front_files_no_prefix = []
+        era5_files_no_prefix = []
+        front_files_list = []
+        era5_files_list = []
+
+        for i in range(len(front_files)):
+            front_files_no_prefix.append(front_files[i].replace('FrontObjects_', ''))
+        for j in range(len(era5_files)):
+            era5_files_no_prefix.append(era5_files[j].replace('Data_%dvar_' % num_variables, ''))
+
+        if len(era5_files) > len(front_files):
+            total_era5_files = len(era5_files)
+            total_front_files = len(front_files)
+            for era5_file_no in range(total_era5_files):
+                if era5_files_no_prefix[era5_file_no] in front_files_no_prefix:
+                    era5_files_list.append(era5_files[era5_file_no])
+            for front_file_no in range(total_front_files):
+                if front_files_no_prefix[front_file_no] in era5_files_no_prefix:
+                    front_files_list.append(front_files[front_file_no])
+        else:
+            total_front_files = len(front_files)
+            total_era5_files = len(era5_files)
+            for front_file_no in range(total_front_files):
+                if front_files_no_prefix[front_file_no] in era5_files_no_prefix:
+                    front_files_list.append(front_files[front_file_no])
+            for era5_file_no in range(total_era5_files):
+                if era5_files_no_prefix[era5_file_no] in front_files_no_prefix:
+                    era5_files_list.append(era5_files[era5_file_no])
+
+        front_files, era5_files = front_files_list, era5_files_list
+
+        matches = 0
+        mismatches = 0
+
+        # Check the end of the filenames to match up files together
+        for i in range(len(front_files_list)):
+            if front_files_list[i][-15:] == era5_files_list[i][-15:]:
+                matches += 1
+            else:
+                mismatches += 1
+
+        if mismatches > 0:
+            raise ValueError("The dates in the file lists do not match up. Please report this bug to Andrew Justin (andrewjustinwx@gmail.com)")
+
+        if domain == 'full':  # Filter out non-synoptic hours
+            hours_to_remove = [3, 9, 15, 21]
+            for hour in hours_to_remove:
+                string = '%02d_' % hour
+                front_files = list(filter(lambda hour: string not in hour, front_files))
+                era5_files = list(filter(lambda hour: string not in hour, era5_files))
+
+        separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
+        loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
+
+        if dataset == 'training':
+
+            if validation_years is None:
+                raise ValueError("Validation years must be declared to pull the training set")
+            if test_years is None:
+                raise ValueError("Test years must be declared to pull the training set")
+
+            front_files_training = front_files
+            era5_files_training = era5_files
+            while len(front_files_training) == len(front_files) and len(era5_files_training) == len(era5_files) and loop_counter < 2:  # While no ERA5/front files in the training dataset are found
+                for validation_year in validation_years:
+                    validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                    front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
+                    era5_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, era5_files_training))
+                for test_year in test_years:
+                    test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                    front_files_training = list(filter(lambda test_year: test_year_string not in test_year, front_files_training))
+                    era5_files_training = list(filter(lambda test_year: test_year_string not in test_year, era5_files_training))
+                loop_counter += 1
+
+            print("ERA5/fronts file pairs in training dataset:", len(front_files_training))
+            return era5_files_training, front_files_training
+
+        elif dataset == 'validation':
+
+            if validation_years is None:
+                raise ValueError("Validation years must be declared to pull the validation set")
+
+            front_files_validation = []
+            era5_files_validation = []
+            while len(front_files_validation) == 0 and len(era5_files_validation) == 0 and loop_counter < 2:  # While no ERA5/front files in the validation dataset are found
+                for validation_year in validation_years:
+                    validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
+                    front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
+                    era5_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, era5_files)))
+                front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
+                era5_files_validation = list(sorted(itertools.chain(*era5_files_validation)))
+                loop_counter += 1
+
+            print(f"ERA5/fronts file pairs in validation dataset {validation_years}:", len(front_files_validation))
+            return era5_files_validation, front_files_validation
+
+        elif dataset == 'test':
+
+            if test_years is None:
+                raise ValueError("Test years must be declared to pull the test set")
+
+            front_files_test = []
+            era5_files_test = []
+            while len(front_files_test) == 0 and len(era5_files_test) == 0 and loop_counter < 2:  # While no ERA5/front files in the testing dataset are found
+                for test_year in test_years:
+                    test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
+                    front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
+                    era5_files_test.append(list(filter(lambda test_year: test_year_string in test_year, era5_files)))
+                front_files_test = list(sorted(itertools.chain(*front_files_test)))
+                era5_files_test = list(sorted(itertools.chain(*era5_files_test)))
+                loop_counter += 1
+
+            print(f"ERA5/fronts file pairs in testing dataset {test_years}:", len(front_files_test))
+            return era5_files_test, front_files_test
+
+        elif dataset is None:
+            print(f"ERA5/fronts file pairs:", len(front_files))
+            return era5_files, front_files
+
+        else:
+            raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
 
 
-def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=None, validation_years=None):
+def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=None, validation_years=None, timestep_tuple=None):
     """
     Function that loads and returns lists of GDAS pickle files.
 
@@ -580,11 +631,13 @@ def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=N
     domain: str
         Domain covered by the GDAS pickle files.
     dataset: str or None
-        Dataset to load. Available options are 'training', 'validation', or 'test'. Leaving this as None will load the file lists without any filtering.
+        Dataset to load. Available options are 'training', 'validation', 'test', or 'timestep'. Leaving this as None will load the file lists without any filtering.
     test_years: list of ints or None
         Years for the test set (will not be used in training or validation).
     validation_years: list of ints or None
         Years for the validation set.
+    timestep_tuple: tuple with 4 ints
+        Timestep of the GDAS pickle files to load. This can only be passed if dataset='timestep'.
 
     Returns
     -------
@@ -597,29 +650,40 @@ def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=N
         * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
         * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
         * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+        * add the following parameters to load a set of GDAS files for a given timestep: dataset='timestep', timestep_tuple=(year, month, day, hour)
     """
     if dataset is not None:
         print(f"Loading GDAS {dataset} dataset")
     else:
         print("Loading GDAS files")
 
-    gdas_files = sorted(glob("%s/*/*/*/gdas_*_%s.pkl" % (gdas_pickle_indir, domain)))
-
     gdas_files_no_prefix = []
     gdas_timesteps = []  # Timesteps of GDAS files
     gdas_files_by_timestep = []  # List of GDAS files with each index representing a group of files with a common timestep
     gdas_files_list = []
 
-    required_pressure_levels = ['_1000_', '_975_', '_950_', '_925_', '_900_', '_850_', '_800_', '_750_', '_700_', '_650_',
-                                '_600_', '_550_', '_500_', '_450_', '_400_', '_350_', '_300_', '_250_', '_200_', '_150_',
-                                '_100_']
+    required_pressure_levels = ['_surface_', '_1000_', '_975_', '_950_', '_925_', '_900_', '_850_', '_800_', '_750_', '_700_',
+                                '_650_', '_600_', '_550_', '_500_', '_450_', '_400_', '_350_', '_300_', '_250_', '_200_',
+                                '_150_', '_100_']
 
-    # Find all timesteps in the GDAS files
-    for j in range(len(gdas_files)):
-        gdas_filename_start_index = gdas_files[j].find('gdas_')
-        gdas_filename_no_pressure_level_index = gdas_files[j][gdas_filename_start_index + 5:].find('_2') + 1
-        gdas_timesteps.append(gdas_files[j][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
-    unique_gdas_timesteps = np.unique(sorted(gdas_timesteps))
+    if timestep_tuple is not None:
+        if dataset != 'timestep':
+            raise ValueError("dataset must be set to 'timestep' when loading GDAS files for a specific timestep")
+        timestep_string = '%d%02d%02d%02d' % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3])
+
+        gdas_files = sorted(glob("%s/%d/%02d/%02d/gdas_*_%d%02d%02d%02d_%s.pkl" % (gdas_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2],
+                                                                                   timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], domain)))
+
+        unique_gdas_timesteps = [timestep_string, ]
+    else:
+
+        gdas_files = sorted(glob("%s/*/*/*/gdas_*_%s.pkl" % (gdas_pickle_indir, domain)))
+
+        for j in range(len(gdas_files)):
+            gdas_filename_start_index = gdas_files[j].find('gdas_')
+            gdas_filename_no_pressure_level_index = gdas_files[j][gdas_filename_start_index + 5:].find('_2') + 1
+            gdas_timesteps.append(gdas_files[j][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
+        unique_gdas_timesteps = np.unique(sorted(gdas_timesteps))
 
     # Find all GDAS files for each timestep and order them by pressure level
     for timestep in unique_gdas_timesteps:
@@ -629,6 +693,10 @@ def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=N
         files_for_timestep.append(files_for_timestep[0])
         files_for_timestep.pop(0)
 
+        # Move surface file to the end of the list and remove its duplicate
+        files_for_timestep.append(files_for_timestep[-2])
+        files_for_timestep.pop(-3)
+
         # Reverse list so that pressure levels are in descending order / increasing with altitude
         files_for_timestep = files_for_timestep[::-1]
 
@@ -637,9 +705,9 @@ def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=N
         for pressure_level, file in zip(required_pressure_levels, files_for_timestep):
             if pressure_level in file:
                 pressure_levels_found += 1
-        if pressure_levels_found == 21:
+        if pressure_levels_found == 22:
             gdas_files_no_prefix_temp = []  # Temporary holding folder for GDAS files before they are added to the list of filenames
-            for full_filename in range(21):
+            for full_filename in range(22):
                 gdas_filename_start_index = files_for_timestep[full_filename].find('gdas_')
                 gdas_filename_no_pressure_level_index = files_for_timestep[full_filename][gdas_filename_start_index + 5:].find('_2') + 1
                 gdas_files_no_prefix_temp.append(gdas_files[full_filename][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
@@ -654,7 +722,8 @@ def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=N
         hours_to_remove = [3, 9, 15, 21]
         for hour in hours_to_remove:
             string = '%02d_' % hour
-            gdas_files = list(filter(lambda hour: string not in hour, gdas_files))
+            for gdas_file_set in range(len(gdas_files_list)):
+                gdas_files_list[gdas_file_set] = list(filter(lambda hour: string not in hour, gdas_files_list[gdas_file_set]))
 
     separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
     loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
@@ -711,6 +780,14 @@ def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=N
         print(f"GDAS files in testing dataset {test_years}:", len(gdas_files_test))
         return gdas_files_test
 
+    elif dataset == 'timestep':
+
+        if timestep_tuple is None:
+            raise ValueError("Missing timestep parameter")
+
+        print(f"GDAS files for %d-%02d-%02d-%02dz: %d" % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], len(gdas_files_list[0])))
+        return gdas_files_list[0]  # GDAS file list is automatically filtered when using a timestep, so we can just load the list as is
+
     elif dataset is None:
         print(f"GDAS files:", len(gdas_files))
         return gdas_files
@@ -719,7 +796,7 @@ def load_gdas_pickle_files(gdas_pickle_indir, domain, dataset=None, test_years=N
         raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
 
 
-def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, domain, dataset=None, test_years=None, validation_years=None):
+def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, domain, dataset=None, test_years=None, validation_years=None, timestep_tuple=None):
     """
     Function that loads and returns lists of GDAS pickle files and front object files with matching dates.
 
@@ -737,6 +814,8 @@ def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, do
         - Years for the test set (will not be used in training or validation).
     validation_years: list of ints or None
         - Years for the validation set.
+    timestep_tuple: tuple with 4 ints
+        Timestep of the GDAS pickle files to load. This can only be passed if dataset='timestep'.
 
     Returns
     -------
@@ -751,14 +830,12 @@ def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, do
         * add the following parameters to load the TRAINING dataset: dataset='training', test_years=[list of ints], validation_years=[list of ints]
         * add the following parameters to load the VALIDATION dataset: dataset='validation', validation_years=[list of ints]
         * add the following parameters to load the TEST dataset: dataset='test', test_years=[list of ints]
+        * add the following parameters to load a set of GDAS/front files for a given timestep: dataset='timestep', timestep_tuple=(year, month, day, hour)
     """
     if dataset is not None:
         print(f"Loading GDAS/fronts {dataset} dataset")
     else:
         print("Loading GDAS/fronts files")
-
-    front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
-    gdas_files = sorted(glob("%s/*/*/*/gdas_*_%s.pkl" % (gdas_pickle_indir, domain)))
 
     front_files_no_prefix = []
     gdas_files_no_prefix = []
@@ -767,28 +844,49 @@ def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, do
     front_files_list = []
     gdas_files_list = []
 
-    required_pressure_levels = ['_1000_', '_975_', '_950_', '_925_', '_900_', '_850_', '_800_', '_750_', '_700_', '_650_',
-                                '_600_', '_550_', '_500_', '_450_', '_400_', '_350_', '_300_', '_250_', '_200_', '_150_',
-                                '_100_']
+    required_pressure_levels = ['_surface_', '_1000_', '_975_', '_950_', '_925_', '_900_', '_850_', '_800_', '_750_', '_700_',
+                                '_650_', '_600_', '_550_', '_500_', '_450_', '_400_', '_350_', '_300_', '_250_', '_200_',
+                                '_150_', '_100_']
 
-    for i in range(len(front_files)):
-        front_filename_start_index = front_files[i].find('FrontObjects_')
-        front_files_no_prefix.append(front_files[i][front_filename_start_index + 13:])
+    if timestep_tuple is not None:
+        if dataset != 'timestep':
+            raise ValueError("dataset must be set to 'timestep' when loading GDAS/fronts files for a specific timestep")
+        timestep_string = '%d%02d%02d%02d' % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3])
 
-    # Find all timesteps in the GDAS files
-    for j in range(len(gdas_files)):
-        gdas_filename_start_index = gdas_files[j].find('gdas_')
-        gdas_filename_no_pressure_level_index = gdas_files[j][gdas_filename_start_index + 5:].find('_2') + 1
-        gdas_timesteps.append(gdas_files[j][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
-    unique_gdas_timesteps = np.unique(sorted(gdas_timesteps))
+        front_files = sorted(glob("%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_%s.pkl" % (fronts_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2],
+                                                                                          timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], domain)))
+        gdas_files = sorted(glob("%s/%d/%02d/%02d/gdas_*_%d%02d%02d%02d_%s.pkl" % (gdas_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2],
+                                                                                   timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], domain)))
+
+        unique_gdas_fronts_timesteps = [timestep_string, ]
+
+    else:
+
+        front_files = sorted(glob("%s/*/*/*/FrontObjects_*_%s.pkl" % (fronts_pickle_indir, domain)))
+        gdas_files = sorted(glob("%s/*/*/*/gdas_*_%s.pkl" % (gdas_pickle_indir, domain)))
+
+        for i in range(len(front_files)):
+            front_filename_start_index = front_files[i].find('FrontObjects_')
+            front_files_no_prefix.append(front_files[i][front_filename_start_index + 13:])
+
+        # Find all timesteps in the GDAS files
+        for j in range(len(gdas_files)):
+            gdas_filename_start_index = gdas_files[j].find('gdas_')
+            gdas_filename_no_pressure_level_index = gdas_files[j][gdas_filename_start_index + 5:].find('_2') + 1
+            gdas_timesteps.append(gdas_files[j][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
+        unique_gdas_fronts_timesteps = np.unique(sorted(gdas_timesteps))
 
     # Find all GDAS files for each timestep and order them by pressure level
-    for timestep in unique_gdas_timesteps:
+    for timestep in unique_gdas_fronts_timesteps:
         files_for_timestep = sorted(filter(lambda filename: timestep in filename, gdas_files))
 
         # Move 1000 mb file to the end of the list, then remove its duplicate at the beginning
         files_for_timestep.append(files_for_timestep[0])
         files_for_timestep.pop(0)
+
+        # Move surface file to the end of the list and remove its duplicate
+        files_for_timestep.append(files_for_timestep[-2])
+        files_for_timestep.pop(-3)
 
         # Reverse list so that pressure levels are in descending order / increasing with altitude
         files_for_timestep = files_for_timestep[::-1]
@@ -798,42 +896,53 @@ def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, do
         for pressure_level, file in zip(required_pressure_levels, files_for_timestep):
             if pressure_level in file:
                 pressure_levels_found += 1
-        if pressure_levels_found == 21:
+        if pressure_levels_found == 22:
             gdas_files_no_prefix_temp = []  # Temporary holding folder for GDAS files before they are added to the list of filenames
-            for full_filename in range(21):
+            for full_filename in range(22):
                 gdas_filename_start_index = files_for_timestep[full_filename].find('gdas_')
                 gdas_filename_no_pressure_level_index = files_for_timestep[full_filename][gdas_filename_start_index + 5:].find('_2') + 1
-                gdas_files_no_prefix_temp.append(gdas_files[full_filename][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
+                gdas_files_no_prefix_temp.append(files_for_timestep[full_filename][gdas_filename_start_index + gdas_filename_no_pressure_level_index + 5:])
             gdas_files_no_prefix.append(gdas_files_no_prefix_temp)
             gdas_files_by_timestep.append(files_for_timestep)
 
-    if len(gdas_files) > len(front_files):
-        total_gdas_files = len(gdas_files_no_prefix)
-        total_front_files = len(front_files)
-        for gdas_file_no in range(total_gdas_files):
-            if gdas_files_no_prefix[gdas_file_no][0] in front_files_no_prefix:
-                gdas_files_list.append(gdas_files_by_timestep[gdas_file_no])
-        for front_file_no in range(total_front_files):
-            if front_files_no_prefix[front_file_no] in gdas_files_no_prefix:
-                front_files_list.append(front_files[front_file_no])
+    if dataset == 'timestep':
+
+        gdas_files_list = gdas_files_by_timestep[0]
+        front_files_list = [front_files, ]
+
+        if timestep_tuple is None:
+            raise ValueError("Missing timestep parameter")
+
     else:
-        total_front_files = len(front_files)
-        total_gdas_files = len(gdas_files_no_prefix)
-        for front_file_no in range(total_front_files):
-            if any(front_files_no_prefix[front_file_no] in gdas_timestep for gdas_timestep in gdas_files_no_prefix):
-                front_files_list.append(front_files[front_file_no])
-        for gdas_file_no in range(total_gdas_files):
-            if gdas_files_no_prefix[gdas_file_no][0] in front_files_no_prefix:
-                gdas_files_list.append(gdas_files_by_timestep[gdas_file_no])
 
-    front_files, gdas_files = front_files_list, gdas_files_list
+        if len(gdas_files) > len(front_files):
+            total_gdas_files = len(gdas_files_no_prefix)
+            total_front_files = len(front_files)
+            for gdas_file_no in range(total_gdas_files):
+                if gdas_files_no_prefix[gdas_file_no][0] in front_files_no_prefix:
+                    gdas_files_list.append(gdas_files_by_timestep[gdas_file_no])
+            for front_file_no in range(total_front_files):
+                if front_files_no_prefix[front_file_no] in gdas_files_no_prefix:
+                    front_files_list.append(front_files[front_file_no])
+        else:
+            total_front_files = len(front_files)
+            total_gdas_files = len(gdas_files_no_prefix)
 
-    if domain == 'full':  # Filter out non-synoptic hours
-        hours_to_remove = [3, 9, 15, 21]
-        for hour in hours_to_remove:
-            string = '%02d_' % hour
-            front_files = list(filter(lambda hour: string not in hour, front_files))
-            gdas_files = list(filter(lambda hour: string not in hour, gdas_files))
+            for front_file_no in range(total_front_files):
+                if any(front_files_no_prefix[front_file_no] in gdas_timestep for gdas_timestep in gdas_files_no_prefix):
+                    front_files_list.append(front_files[front_file_no])
+
+            for gdas_file_no in range(total_gdas_files):
+                if gdas_files_no_prefix[gdas_file_no][0] in front_files_no_prefix:
+                    gdas_files_list.append(gdas_files_by_timestep[gdas_file_no])
+
+        if domain == 'full':  # Filter out non-synoptic hours
+            hours_to_remove = [3, 9, 15, 21]
+            for hour in hours_to_remove:
+                string = '%02d_' % hour
+                front_files_list = list(filter(lambda hour: string not in hour, front_files_list))
+                for gdas_file_set in range(len(gdas_files_list)):
+                    gdas_files_list[gdas_file_set] = list(filter(lambda hour: string not in hour, gdas_files_list[gdas_file_set]))
 
     separators = ['/', '\\']  # The subdirectory separator is different depending on your operating system, so we will iterate through both of these separators to make sure we grab the files
     loop_counter = 0  # Counter that increases by 1 if no files are found as we iterate through each of the file separators
@@ -845,9 +954,9 @@ def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, do
         if test_years is None:
             raise ValueError("Test years must be declared to pull the training set")
 
-        front_files_training = front_files
-        gdas_files_training = gdas_files
-        while len(front_files_training) == len(front_files) and len(gdas_files_training) == len(gdas_files) and loop_counter < 2:  # While no GDAS/front files in the training dataset are found
+        front_files_training = front_files_list
+        gdas_files_training = gdas_files_list
+        while len(front_files_training) == len(front_files_list) and len(gdas_files_training) == len(gdas_files_list) and loop_counter < 2:  # While no GDAS/front files in the training dataset are found
             for validation_year in validation_years:
                 validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
                 front_files_training = list(filter(lambda validation_year: validation_year_string not in validation_year, front_files_training))
@@ -871,8 +980,8 @@ def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, do
         while len(front_files_validation) == 0 and len(gdas_files_validation) == 0 and loop_counter < 2:  # While no GDAS/front files in the validation dataset are found
             for validation_year in validation_years:
                 validation_year_string = separators[loop_counter] + str(validation_year) + separators[loop_counter]
-                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files)))
-                gdas_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, gdas_files)))
+                front_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, front_files_list)))
+                gdas_files_validation.append(list(filter(lambda validation_year: validation_year_string in validation_year, gdas_files_list)))
             front_files_validation = list(sorted(itertools.chain(*front_files_validation)))
             gdas_files_validation = list(sorted(itertools.chain(*gdas_files_validation)))
             loop_counter += 1
@@ -890,8 +999,8 @@ def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, do
         while len(front_files_test) == 0 and len(gdas_files_test) == 0 and loop_counter < 2:  # While no GDAS/front files in the testing dataset are found
             for test_year in test_years:
                 test_year_string = separators[loop_counter] + str(test_year) + separators[loop_counter]
-                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files)))
-                gdas_files_test.append(list(filter(lambda test_year: test_year_string in test_year, gdas_files)))
+                front_files_test.append(list(filter(lambda test_year: test_year_string in test_year, front_files_list)))
+                gdas_files_test.append(list(filter(lambda test_year: test_year_string in test_year, gdas_files_list)))
             front_files_test = list(sorted(itertools.chain(*front_files_test)))
             gdas_files_test = list(sorted(itertools.chain(*gdas_files_test)))
             loop_counter += 1
@@ -899,12 +1008,17 @@ def load_gdas_and_fronts_pickle_files(gdas_pickle_indir, fronts_pickle_indir, do
         print(f"GDAS/fronts file pairs in testing dataset {test_years}:", len(front_files_test))
         return gdas_files_test, front_files_test
 
+    elif dataset == 'timestep':
+
+        print(f"GDAS/fronts files for %d-%02d-%02d-%02dz: %d/%d" % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], len(gdas_files_list), len(front_files_list)))
+        return gdas_files_list, front_files_list  # GDAS/fronts file lists are automatically filtered when using a timestep, so we can just load the lists
+
     elif dataset is None:
-        print(f"GDAS/fronts file pairs:", len(front_files))
-        return gdas_files, front_files
+        print(f"GDAS/fronts file pairs:", len(front_files_list))
+        return gdas_files_list, front_files_list
 
     else:
-        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test")
+        raise ValueError(f"{dataset} is not a valid dataset, options are: None, training, validation, test, timestep")
 
 
 def load_model(model_number, model_dir):
