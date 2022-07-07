@@ -4,9 +4,12 @@ Code for generating various plots:
     - Frequency plots
     - GDAS soundings
 
+TODO:
+    * Update file loading functions
+
 Code written by: Andrew Justin (andrewjustin@ou.edu)
 
-Last updated: 7/1/2022 2:35 PM CDT
+Last updated: 7/6/2022 8:30 PM CDT
 """
 
 from matplotlib.colors import Normalize, ListedColormap
@@ -24,19 +27,23 @@ import numpy as np
 import pandas as pd
 
 # Default contour levels for geopotential height of a given pressure level ----> {pressure level: geopotential heights (meters)}
+# If at the surface, isobars will be plotted instead ----> {'surface': pressure (hectopascals)}
 # A single integer (e.g. 10) implies that 10 contour levels will automatically be calculated
-ANALYSIS_HEIGHT_CONTOURS = {925: np.arange(300, 1230, 30), 850: np.arange(900, 1930, 30), 700: np.arange(2400, 3630, 30),
-                            500: np.arange(4800, 6360, 60), 300: np.arange(7800, 10320, 120), 200: np.arange(9600, 14520, 120)}
+ANALYSIS_PRESSURE_CONTOURS = {'surface': np.arange(880, 1100, 4), 925: np.arange(300, 1230, 30), 850: np.arange(900, 1930, 30),
+                              700: np.arange(2400, 3630, 30), 500: np.arange(4800, 6360, 60), 300: np.arange(7800, 10320, 120),
+                              200: np.arange(9600, 14520, 120)}
 
 # Default contour levels for wind speed at a given pressure level ----> {pressure level: wind speed (knots)}
 ANALYSIS_WIND_SPEED_CONTOURS = {925: np.arange(30, 75, 5), 850: np.arange(40, 85, 5), 700: np.arange(40, 85, 5),
                                 500: np.arange(50, 200, 25), 300: np.arange(50, 225, 25), 200: np.arange(50, 225, 25)}
 
 # Default contour values for temperature (celsius) at all pressure levels
-ANALYSIS_TEMPERATURE_CONTOURS = np.arange(-80, 80, 2)
+ANALYSIS_TEMPERATURE_CONTOURS = {'surface': np.arange(-100, 55, 5), 925: np.arange(-80, 80, 2), 850: np.arange(-80, 80, 2),
+                                 700: np.arange(-80, 80, 2), 500: np.arange(-80, 80, 2), 300: np.arange(-80, 80, 2),
+                                 200: np.arange(-80, 80, 2)}
 
 # Default contour values for temperature at a given pressure level ----> {pressure level: temperature (celsius)}
-ANALYSIS_DEWPOINT_CONTOURS = {925: np.arange(12, 80, 2), 850: np.arange(8, 80, 2), 700: np.arange(4, 80, 2)}
+ANALYSIS_DEWPOINT_CONTOURS = {'surface': np.arange(0, 40, 2), 925: np.arange(12, 80, 2), 850: np.arange(8, 80, 2), 700: np.arange(4, 80, 2)}
 
 
 def frequency_plots(fronts_pickle_indir, image_outdir):
@@ -286,7 +293,7 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
 
         ax.barbs(lons_barbs, lats_barbs, u_wind, v_wind, color='black', length=4, linewidth=0.3, sizes={'height': 0.5, 'width': 0}, transform=ccrs.PlateCarree())
 
-    height_contours = ANALYSIS_HEIGHT_CONTOURS[pressure_level]  # Select height contours for the given pressure level
+    height_contours = ANALYSIS_PRESSURE_CONTOURS[pressure_level]  # Select height contours for the given pressure level
 
     gdas_dataset['z'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.6, levels=height_contours, colors='black')  # Plot height contours
     gdas_dataset[variable].plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(), cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})  # Plot GDAS variable contours
@@ -322,7 +329,7 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
     """
 
     fronts_file = '%s\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.pkl' % (fronts_pickle_indir, year, month, day, year, month, day, hour)
-    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%d_%d%02d%02d%02d_full.pkl' % (gdas_pickle_indir, year, month, day, pressure_level, year, month, day, hour)
+    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_full.pkl' % (gdas_pickle_indir, year, month, day, pressure_level, year, month, day, hour)
 
     fronts_dataset = pd.read_pickle(fronts_file)
     gdas_dataset = pd.read_pickle(gdas_file)
@@ -336,7 +343,6 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
     """ Add colorbar for fronts """
     cmap_fronts = ListedColormap(colors_types, name='from_list', N=len(names))  # Colormap for fronts
     norm_fronts = Normalize(vmin=1, vmax=len(names) + 1)  # Colorbar normalization
-    plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts)  # Create the colorbar
 
     # Interval at which to plot the wind barbs. This value divided by 4 equals the spatial grid on which the barbs are plotted.
     # ex: if step equals 8, the barbs are plotted on an 8/4 degree x 8/4 degree (2 degree x 2 degree) grid.
@@ -352,37 +358,55 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
     lats_barbs = gdas_dataset['latitude'].values[::step]
 
     # Select height and wind contours for the given pressure level
-    height_contours = ANALYSIS_HEIGHT_CONTOURS[pressure_level]
-    wind_contours = ANALYSIS_WIND_SPEED_CONTOURS[pressure_level]
+    pressure_contours = ANALYSIS_PRESSURE_CONTOURS[pressure_level]
 
-    gdas_dataset['wind_speed'].plot.contourf(ax=ax, x='longitude', y='latitude', extend='neither', transform=ccrs.PlateCarree(),
-                                             levels=wind_contours, cmap='brg', alpha=0.5, cbar_kwargs={'orientation': 'horizontal',
-                                                                                                       'shrink': 0.5,
-                                                                                                       'label': 'Wind Speed (knots)'})
     # Convert temperature and dewpoint from kelvin to celsius
     gdas_dataset['T'] -= 273.15
     gdas_dataset['Td'] -= 273.15
 
-    if pressure_level == 925 or pressure_level == 850 or pressure_level == 700:
+    if pressure_level == 925 or pressure_level == 850 or pressure_level == 700 or pressure_level == 'surface':
         # Plot temperature contours
-        cs_T = gdas_dataset['T'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.4, linestyles='--', levels=ANALYSIS_TEMPERATURE_CONTOURS, colors='red')
+        cs_T = gdas_dataset['T'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.4, linestyles='--', levels=ANALYSIS_TEMPERATURE_CONTOURS[pressure_level], colors='red')
         plt.clabel(cs_T, fontsize=3)
 
         # Plot dewpoint contours
         cs_Td = gdas_dataset['Td'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.4, linestyles='--', levels=ANALYSIS_DEWPOINT_CONTOURS[pressure_level], colors='green')
         plt.clabel(cs_Td, fontsize=3)
 
-    # Plot height contours
-    cs_z = gdas_dataset['z'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.6, levels=height_contours, colors='black')
-    plt.clabel(cs_z, fontsize=3)
+    if pressure_level == 'surface':
 
-    fronts_dataset['identifier'].plot(ax=ax, x='longitude', y='latitude', extend='neither', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
+        title = "GDAS analysis: surface"
+
+        plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts, axis_loc=(0.8265, 0.11, 0.015, 0.77))  # Create the colorbar
+
+        # Plot isobars
+        cs_mslp = gdas_dataset['mslp'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=1, levels=pressure_contours, colors='black')
+        plt.clabel(cs_mslp, fontsize=3)
+
+    else:
+
+        title = f"GDAS analysis: {pressure_level} hPa"
+
+        plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts)  # Create the colorbar
+
+        wind_contours = ANALYSIS_WIND_SPEED_CONTOURS[pressure_level]
+
+        # Plot height contours
+        cs_z = gdas_dataset['z'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.4, levels=pressure_contours, colors='black')
+        plt.clabel(cs_z, fontsize=3)
+
+        gdas_dataset['wind_speed'].plot.contourf(ax=ax, x='longitude', y='latitude', extend='neither', transform=ccrs.PlateCarree(),
+                                                 levels=wind_contours, cmap='brg', alpha=0.5, cbar_kwargs={'orientation': 'horizontal',
+                                                                                                           'shrink': 0.5,
+                                                                                                           'label': 'Wind Speed (knots)'})
+
+    fronts_dataset.plot(ax=ax, x='longitude', y='latitude', extend='neither', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
     ax.barbs(lons_barbs, lats_barbs, u_wind, v_wind, color='black', length=4, linewidth=0.4, sizes={'height': 0.65, 'width': 0.2}, transform=ccrs.PlateCarree())  # Add wind barbs
 
     ax.set_title('', loc='center')
-    ax.set_title(f"GDAS analysis: {pressure_level} hPa", loc='left', fontsize=6, pad=3)
+    ax.set_title(title, loc='left', fontsize=6, pad=3)
     ax.set_title(f"Valid: {year}-%02d-%02d-%02dz" % (month, day, hour), loc='right', fontsize=6, pad=3)
-    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_analysis_%d_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, pressure_level, year, month, day, hour), dpi=500, bbox_inches='tight')
+    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_analysis_%s_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, pressure_level, year, month, day, hour), dpi=500, bbox_inches='tight')
     plt.close()
 
 
@@ -467,7 +491,7 @@ if __name__ == '__main__':
     parser.add_argument('--frequency_plots', action='store_true', help='Generate frequency plots')
     parser.add_argument('--gdas_map', action='store_true', help='Plot GDAS data over a domain')
     parser.add_argument('--gdas_analysis', action='store_true', help='GDAS analysis over a domain')
-    parser.add_argument('--pressure_level', type=int, help='Pressure level (hPa) of the variable for the GDAS map.')
+    parser.add_argument('--pressure_level', help="Pressure level (hPa) or 'surface'.")
     parser.add_argument('--gdas_sounding', action='store_true', help='Plot GDAS sounding at a given point.')
     parser.add_argument('--gdas_pickle_indir', type=str, help='Input directory for the GDAS pickle files.')
     parser.add_argument('--sounding_coords', type=float, nargs=2, help='Coordinates for the GDAS sounding. [Lat, Lon]')
