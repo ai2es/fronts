@@ -3,7 +3,7 @@ Functions in this script create pickle files containing ERA5, GDAS, or frontal o
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
 
-Last updated: 7/6/2022 8:30 PM CDT
+Last updated: 7/16/2022 11:29 AM CDT
 """
 
 import argparse
