@@ -3,7 +3,7 @@ Functions in this script create pickle files containing ERA5, GDAS, or frontal o
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
 
-Last updated: 7/16/2022 11:29 AM CDT
+Last updated: 7/16/2022 7:42 PM CDT
 """
 
 import argparse
@@ -16,7 +16,8 @@ import glob
 import numpy as np
 import xml.etree.ElementTree as ET
 import variables
-import tarfile
+import requests
+import os
 
 
 def front_xmls_to_pickle(year, month, day, xml_dir, pickle_outdir):
@@ -35,7 +36,7 @@ def front_xmls_to_pickle(year, month, day, xml_dir, pickle_outdir):
     """
     files = sorted(glob.glob("%s/*%04d%02d%02d*.xml" % (xml_dir, year, month, day)))
 
-    print("reading front xmls for", '%d-%02d-%02d' % (year, month, day))
+    print("reading front xmls for ", '%d-%02d-%02d' % (year, month, day))
 
     dss = []  # Dataset with front data organized by front type.
     for filename in files:
@@ -380,10 +381,10 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, pickle_outdir):
     virt_temp_900 = variables.virtual_temperature_from_dewpoint(t_900, d_900, 90000)
     virt_temp_950 = variables.virtual_temperature_from_dewpoint(t_950, d_950, 95000)
     virt_temp_1000 = variables.virtual_temperature_from_dewpoint(t_1000, d_1000, 100000)
-    wet_bulb_850 = variables.wet_bulb_temperature_from_dewpoint(t_850, d_850)
-    wet_bulb_900 = variables.wet_bulb_temperature_from_dewpoint(t_900, d_900)
-    wet_bulb_950 = variables.wet_bulb_temperature_from_dewpoint(t_950, d_950)
-    wet_bulb_1000 = variables.wet_bulb_temperature_from_dewpoint(t_1000, d_1000)
+    wet_bulb_850 = variables.wet_bulb_temperature(t_850, d_850)
+    wet_bulb_900 = variables.wet_bulb_temperature(t_900, d_900)
+    wet_bulb_950 = variables.wet_bulb_temperature(t_950, d_950)
+    wet_bulb_1000 = variables.wet_bulb_temperature(t_1000, d_1000)
 
     new_850 = xr.Dataset(data_vars=dict(q_850=(['time', 'latitude', 'longitude'], q_850*1000),
                                         t_850=(['time', 'latitude', 'longitude'], t_850),
@@ -428,19 +429,19 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, pickle_outdir):
                                         wet_bulb_950=(['time', 'latitude', 'longitude'], wet_bulb_950)),
                          coords=dict(latitude=full_lats, longitude=full_lons, time=time))
     new_1000 = xr.Dataset(data_vars=dict(q_1000=(['time', 'latitude', 'longitude'], q_1000*1000),
-                                        t_1000=(['time', 'latitude', 'longitude'], t_1000),
-                                        u_1000=(['time', 'latitude', 'longitude'], u_1000),
-                                        v_1000=(['time', 'latitude', 'longitude'], v_1000),
-                                        z_1000=(['time', 'latitude', 'longitude'], z_1000/98.0665),
-                                        d_1000=(['time', 'latitude', 'longitude'], d_1000),
-                                        mix_ratio_1000=(['time', 'latitude', 'longitude'], mix_ratio_1000*1000),
-                                        rel_humid_1000=(['time', 'latitude', 'longitude'], rel_humid_1000),
-                                        theta_e_1000=(['time', 'latitude', 'longitude'], theta_e_1000),
-                                        theta_v_1000=(['time', 'latitude', 'longitude'], theta_v_1000),
-                                        theta_w_1000=(['time', 'latitude', 'longitude'], theta_w_1000),
-                                        virt_temp_1000=(['time', 'latitude', 'longitude'], virt_temp_1000),
-                                        wet_bulb_1000=(['time', 'latitude', 'longitude'], wet_bulb_1000)),
-                         coords=dict(latitude=full_lats, longitude=full_lons, time=time))
+                                         t_1000=(['time', 'latitude', 'longitude'], t_1000),
+                                         u_1000=(['time', 'latitude', 'longitude'], u_1000),
+                                         v_1000=(['time', 'latitude', 'longitude'], v_1000),
+                                         z_1000=(['time', 'latitude', 'longitude'], z_1000/98.0665),
+                                         d_1000=(['time', 'latitude', 'longitude'], d_1000),
+                                         mix_ratio_1000=(['time', 'latitude', 'longitude'], mix_ratio_1000*1000),
+                                         rel_humid_1000=(['time', 'latitude', 'longitude'], rel_humid_1000),
+                                         theta_e_1000=(['time', 'latitude', 'longitude'], theta_e_1000),
+                                         theta_v_1000=(['time', 'latitude', 'longitude'], theta_v_1000),
+                                         theta_w_1000=(['time', 'latitude', 'longitude'], theta_w_1000),
+                                         virt_temp_1000=(['time', 'latitude', 'longitude'], virt_temp_1000),
+                                         wet_bulb_1000=(['time', 'latitude', 'longitude'], wet_bulb_1000)),
+                          coords=dict(latitude=full_lats, longitude=full_lons, time=time))
 
     ds_pickle = [ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_theta_w, ds_mixing_ratio, ds_RH, ds_Tv, ds_Tw, ds_theta_e,
                  ds_theta_v, ds_q, new_850, new_900, new_950, new_1000]
@@ -619,18 +620,58 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, pickle_outdir):
         outfile.close()
 
 
-def create_gdas_datasets(year, month, day, gdas_dir, pickle_outdir):
+def download_gdas_or_gfs_file(year, month, day, hour, forecast_hour, file_outdir, gdas_or_gfs='gdas'):
     """
-    Create GDAS datasets
+    Download a GDAS or GFS grib file from the NCEP website.
+
+    year: year
+    month: month
+    day: day
+    hour: hour
+    forecast_hour: forecast hour
+    file_outdir: Directory where the GDAS or GFS file will be saved to.
+    gdas_or_gfs: str
+        Can be 'gdas' or 'gfs' (case-insensitive).
+    """
+
+    gdas_or_gfs = gdas_or_gfs.lower()
+
+    base_url = 'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod'
+    folder_for_given_timsetep = '%s.%d%02d%02d/%02d/atmos' % (gdas_or_gfs, year, month, day, hour)
+    filename_remote = '%s.t%02dz.pgrb2.0p25.f%03d' % (gdas_or_gfs, hour, forecast_hour)
+    file_url = f'{base_url}/{folder_for_given_timsetep}/{filename_remote}'
+
+    print(f"Downloading {gdas_or_gfs.upper()} data ====>   Run: {year}-%02d-%02d-%02dz   Forecast hour: {forecast_hour}" % (month, day, hour))
+
+    data = requests.get(file_url, stream=True)
+    data.raise_for_status()
+
+    filename_local = '%s_%d%02d%02d%02d_f%03d.grib' % (gdas_or_gfs, year, month, day, hour, forecast_hour)
+
+    with open(f'{file_outdir}/{year}/%02d/%02d/{filename_local}' % (month, day), 'wb') as f:
+        for chunk in data.iter_content(chunk_size=8196):
+            f.write(chunk)
+            f.flush()
+            os.fsync(f.fileno())
+
+
+def gdas_or_gfs_grib_to_pickle(year, month, day, grib_indir, pickle_outdir, forecast_hour=6, gdas_or_gfs='gdas'):
+    """
+    Create GDAS or GFS pickle files from the grib files.
 
     Parameters
     ----------
     year: year
     month: month
     day: day
-    gdas_dir: Directory where the GDAS files are contained.
-    pickle_outdir: Directory where the created pickle files will be stored.
+    grib_indir: Directory where the GDAS or GFS grib files are stored.
+    pickle_outdir: Directory where the created GDAS or GFS pickle files will be stored.
+    forecast_hour: forecast hour
+    gdas_or_gfs: str
+        Can be 'gdas' or 'gfs' (case-insensitive).
     """
+
+    gdas_or_gfs = gdas_or_gfs.lower()
 
     # all lon/lat values in degrees
     start_lon, end_lon = 130, 370  # western boundary, eastern boundary
@@ -642,22 +683,15 @@ def create_gdas_datasets(year, month, day, gdas_dir, pickle_outdir):
 
     for hour in range(0, 24, 6):
 
-        tarfile_path = '%s/ncep_global_ssi.%d%02d%02d%02d.tar' % (gdas_dir, year, month, day, hour)
-        gdas_output_folder = '%s/%d/%02d/%02d' % (gdas_dir, year, month, day)
-        pickle_output_folder = '%s/%d/%02d/%02d' % (pickle_outdir, year, month, day)
-
-        member_to_extract = 'gdas.t%02dz.pgrb2.0p25.f000' % hour
-        sample_tarfile = tarfile.open(name=tarfile_path, mode='r')
-        sample_tarfile.extract(member_to_extract, path=gdas_output_folder)
-        saved_gdas_file_path = '%s/%s' % (gdas_output_folder, member_to_extract)
+        grib_file = '%s/%d/%02d/%02d/%s_%d%02d%02d%02d_f%03d.grib' % (grib_indir, year, month, day, gdas_or_gfs, year, month, day, hour, forecast_hour)
 
         ###############################################################################################################
         ############################################# Pressure level data #############################################
         ###############################################################################################################
 
-        print("generating GDAS pressure level data for %d-%02d-%02d-%02dz" % (year, month, day, hour))
+        print("generating %s pressure level data for %d-%02d-%02d-%02dz" % (gdas_or_gfs.upper(), year, month, day, hour))
 
-        pressure_level_data = xr.open_dataset(saved_gdas_file_path, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks={'latitude': 721, 'longitude': 1440})
+        pressure_level_data = xr.open_dataset(grib_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks={'latitude': 721, 'longitude': 1440})
         unified_pressure_level_data = pressure_level_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices, isobaricInhPa=np.arange(0, 21))  # unified surface analysis domain
         unified_pressure_level_data['longitude'] = np.arange(start_lon, end_lon + 0.25, 0.25)  # reformat longitude coordinates to a 360 degree system
 
@@ -737,7 +771,7 @@ def create_gdas_datasets(year, month, day, gdas_dir, pickle_outdir):
         for pressure_level in range(21):
             current_pressure_level = pressure_levels[pressure_level]
             current_pressure_level_ds = unified_pressure_level_data.isel(pressure_level=pressure_level)
-            variable_file_path = '%s/gdas_%d_%d%02d%02d%02d_full.pkl' % (pickle_output_folder, current_pressure_level, year, month, day, hour)
+            variable_file_path = '%s/%d/%02d/%02d/%s_%d_%d%02d%02d%02d_f%03d_full.pkl' % (pickle_outdir, year, month, day, gdas_or_gfs, current_pressure_level, year, month, day, hour, forecast_hour)
             with open(variable_file_path, 'wb') as gdas_file:
                 pickle.dump(current_pressure_level_ds, gdas_file)
 
@@ -745,12 +779,12 @@ def create_gdas_datasets(year, month, day, gdas_dir, pickle_outdir):
         ################################# Surface data (MSLP and sigma coordinate data) ################################
         ################################################################################################################
 
-        print("generating GDAS surface data for %d-%02d-%02d-%02dz" % (year, month, day, hour))
+        print("generating %s surface data for %d-%02d-%02d-%02dz" % (gdas_or_gfs.upper(), year, month, day, hour))
 
-        mslp_data = xr.open_dataset(saved_gdas_file_path, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks={'latitude': 721, 'longitude': 1440})
+        mslp_data = xr.open_dataset(grib_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks={'latitude': 721, 'longitude': 1440})
         unified_mslp_data = mslp_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
 
-        surface_data = xr.open_dataset(saved_gdas_file_path, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks={'latitude': 721, 'longitude': 1440})
+        surface_data = xr.open_dataset(grib_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks={'latitude': 721, 'longitude': 1440})
         unified_surface_data = surface_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
 
         # Create arrays of coordinates for the surface data
@@ -830,7 +864,7 @@ def create_gdas_datasets(year, month, day, gdas_dir, pickle_outdir):
         new_unified_surface_data['theta_w'].attrs['units'] = 'K'
         new_unified_surface_data['theta_w'].attrs['long_name'] = 'Wet-bulb potential temperature'
 
-        surface_file_path = '%s/gdas_surface_%d%02d%02d%02d_full.pkl' % (pickle_output_folder, year, month, day, hour)
+        surface_file_path = '%s/%02d/%02d/%02d/%s_surface_%d%02d%02d%02d_f%03d_full.pkl' % (pickle_outdir, year, month, day, gdas_or_gfs, year, month, day, hour, forecast_hour)
         with open(surface_file_path, 'wb') as surface_file:
             pickle.dump(new_unified_surface_data, surface_file)
 
@@ -841,12 +875,16 @@ if __name__ == "__main__":
     parser.add_argument('--netcdf_ERA5_indir', type=str, required=False, help="input directory for ERA5 netcdf files")
     parser.add_argument('--fronts', action='store_true', required=False, help="Generate front object data files")
     parser.add_argument('--xml_indir', type=str, required=False, help="input directory for front XML files")
-    parser.add_argument('--GDAS', action='store_true', required=False, help="Generate GDAS data files")
-    parser.add_argument('--gdas_indir', type=str, required=False, help="input directory for the GDAS files")
-    parser.add_argument('--pickle_outdir', type=str, required=True, help="output directory for pickle files")
+    parser.add_argument('--download_grib', action='store_true', help='Download GDAS or GFS grib files')
+    parser.add_argument('--gdas_or_gfs', type=str, help="Data to download or convert from grib to pickle files, can be either 'gdas' or 'gfs'")
+    parser.add_argument('--grib_to_pickle', action='store_true', required=False, help="Generate GDAS pickle files")
+    parser.add_argument('--grib_indir', type=str, required=False, help="input directory for the GDAS or GFS grib files")
+    parser.add_argument('--grib_outdir', type=str, help='Output directory for downloaded grib files.')
+    parser.add_argument('--pickle_outdir', type=str, help="output directory for pickle files")
     parser.add_argument('--year', type=int, required=True, help="year for the data to be read in")
     parser.add_argument('--month', type=int, required=True, help="month for the data to be read in")
     parser.add_argument('--day', type=int, required=True, help="day for the data to be read in")
+    parser.add_argument('--hour', type=int, help='hour for the grib data to be downloaded')
     args = parser.parse_args()
     provided_arguments = vars(args)
 
@@ -858,7 +896,11 @@ if __name__ == "__main__":
         required_arguments = ['year', 'month', 'day', 'xml_indir', 'pickle_outdir']
         check_arguments(provided_arguments, required_arguments)
         front_xmls_to_pickle(args.year, args.month, args.day, args.xml_indir, args.pickle_outdir)
-    if args.GDAS:
-        required_arguments = ['year', 'month', 'day', 'gdas_indir', 'pickle_outdir']
+    if args.grib_to_pickle:
+        required_arguments = ['year', 'month', 'day', 'grib_indir', 'pickle_outdir', 'gdas_or_gfs']
         check_arguments(provided_arguments, required_arguments)
-        create_gdas_datasets(args.year, args.month, args.day, args.gdas_indir, args.pickle_outdir)
+        gdas_or_gfs_grib_to_pickle(args.year, args.month, args.day, args.grib_indir, args.pickle_outdir, gdas_or_gfs=args.gdas_or_gfs)
+    if args.download_grib:
+        required_arguments = ['year', 'month', 'day', 'hour', 'grib_outdir', 'gdas_or_gfs']
+        check_arguments(provided_arguments, required_arguments)
+        download_gdas_or_gfs_file(args.year, args.month, args.day, args.hour, 6, args.grib_outdir, args.gdas_or_gfs)  # forecast hour = 6
