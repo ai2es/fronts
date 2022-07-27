@@ -3,20 +3,17 @@ Code for generating various plots:
     - ERA5/GDAS variable maps with fronts
     - Frequency plots
     - GDAS soundings
-
-TODO:
-    * Update file loading functions
+    - NCEP front analysis
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
 
-Last updated: 7/6/2022 8:30 PM CDT
+Last updated: 7/26/2022 11:16 PM CDT
 """
 
 from matplotlib.colors import Normalize, ListedColormap
 from metpy.plots import SkewT
 import xarray as xr
-from utils import plotting_utils
-from utils.data_utils import reformat_fronts, expand_fronts
+from utils import plotting_utils, data_utils
 from glob import glob
 import argparse
 from errors import check_arguments
@@ -225,7 +222,7 @@ def gdas_sounding(year, month, day, hour, lat, lon, gdas_pickle_indir, sounding_
     plt.close()
 
 
-def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pickle_indir, fronts_pickle_indir, image_outdir, slice_dataset=False, add_wind_barbs=True):
+def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pickle_indir, fronts_pickle_indir, image_outdir, forecast_hour=6, slice_dataset=False, add_wind_barbs=True):
     """
     Plot variable in GDAS data.
 
@@ -247,6 +244,8 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
         Input directory for pickle files containing frontal objects.
     image_outdir: str
         Output directory for the soundings.
+    forecast_hour: int
+        Forecast hour to load.
     slice_dataset: bool
         Slice the ERA5 dataset to only show data within the given extent. If False, data will be plotted across the entire domain,
         but the plot will be zoomed in around the given extent.
@@ -254,8 +253,11 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
         Plot wind barbs.
     """
 
-    fronts_file = '%s\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.pkl' % (fronts_pickle_indir, year, month, day, year, month, day, hour)
-    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%d_%d%02d%02d%02d_full.pkl' % (gdas_pickle_indir, year, month, day, pressure_level, year, month, day, hour)
+    timestep = '%d%02d%02d%02d' % (year, month, day, hour)
+    forecast_timestep = data_utils.add_or_subtract_hours_to_timestep(timestep, forecast_hour)
+
+    fronts_file = '%s\\%s\\%s\\%s\\FrontObjects_%s_full.pkl' % (fronts_pickle_indir, forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep)
+    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_f%03d_full.pkl' % (gdas_pickle_indir, year, month, day, pressure_level, year, month, day, hour, forecast_hour)
 
     # Open the files, and slice the datasets if 'slice_dataset' is True
     fronts_dataset = pd.read_pickle(fronts_file)
@@ -267,8 +269,8 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 6), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=250)})
     plotting_utils.plot_background(extent, ax=ax)  # Plot the background with country and state borders
-    fronts_dataset, names, _, colors_types, _ = reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
-    fronts_dataset = expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
+    fronts_dataset, names, _, colors_types, _ = data_utils.reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
+    fronts_dataset = data_utils.expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
     fronts_dataset = fronts_dataset['identifier'].where(fronts_dataset['identifier'] > 0)  # Turn all zeros to NaNs so they don't show up in the plot
 
     """ Add colorbar for fronts """
@@ -276,12 +278,23 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
     norm_fronts = Normalize(vmin=1, vmax=len(names) + 1)  # Colorbar normalization
     plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts)  # Create the colorbar
 
+    height_contours = ANALYSIS_PRESSURE_CONTOURS[pressure_level]  # Select height contours for the given pressure level
+
+    if pressure_level == 'surface':
+        pressure_variable = 'mslp'
+    else:
+        pressure_variable = 'z'
+
+    # gdas_dataset[pressure_variable].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.6, levels=height_contours, colors='black')  # Plot height contours
+    gdas_dataset[variable].plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(), levels=20, cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})  # Plot GDAS variable contours
+    fronts_dataset.plot(ax=ax, x='longitude', y='latitude', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
+
     # Plot wind barbs
     if add_wind_barbs:
 
         # Interval at which to plot the wind barbs. This value divided by 4 equals the spatial grid on which the barbs are plotted.
         # ex: if step equals 8, the barbs are plotted on an 8/4 degree x 8/4 degree (2 degree x 2 degree) grid.
-        step = 16
+        step = 32
 
         lons_barbs = gdas_dataset['longitude'].values[::step]
         lats_barbs = gdas_dataset['latitude'].values[::step]
@@ -293,20 +306,14 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
 
         ax.barbs(lons_barbs, lats_barbs, u_wind, v_wind, color='black', length=4, linewidth=0.3, sizes={'height': 0.5, 'width': 0}, transform=ccrs.PlateCarree())
 
-    height_contours = ANALYSIS_PRESSURE_CONTOURS[pressure_level]  # Select height contours for the given pressure level
-
-    gdas_dataset['z'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.6, levels=height_contours, colors='black')  # Plot height contours
-    gdas_dataset[variable].plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(), cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})  # Plot GDAS variable contours
-    fronts_dataset.plot(ax=ax, x='longitude', y='latitude', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
-
-    ax.set_title('', loc='center')
     ax.set_title(f"GDAS plot: {variable} @ {pressure_level} hPa", loc='left', fontsize=6, pad=3)
-    ax.set_title(f"Valid: {year}-%02d-%02d-%02dz" % (month, day, hour), loc='right', fontsize=6, pad=3)
-    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_%s_%d_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, variable, pressure_level, year, month, day, hour), dpi=500, bbox_inches='tight')
+    ax.set_title(f"Run: %s-%s-%s-%sz F%03d" % (timestep[:4], timestep[4:6], timestep[6:8], timestep[8:], forecast_hour), loc='center', fontsize=6, pad=3)
+    ax.set_title(f"Forecast and fronts valid: %s-%s-%s-%sz" % (forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep[8:]), loc='right', fontsize=6, pad=3)
+    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_%s_%s_%d%02d%02d%02d_f%03d.png' % (image_outdir, year, month, day, hour, variable, pressure_level, year, month, day, hour, forecast_hour), dpi=500, bbox_inches='tight')
     plt.close()
 
 
-def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_indir, fronts_pickle_indir, image_outdir):
+def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_indir, fronts_pickle_indir, image_outdir, forecast_hour=6):
     """
     Create an analysis with GDAS data at a given timestep and pressure level.
 
@@ -326,18 +333,23 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
         Input directory for pickle files containing frontal objects.
     image_outdir: str
         Output directory for the soundings.
+    forecast_hour: int
+        Forecast hour to load.
     """
 
-    fronts_file = '%s\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.pkl' % (fronts_pickle_indir, year, month, day, year, month, day, hour)
-    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_full.pkl' % (gdas_pickle_indir, year, month, day, pressure_level, year, month, day, hour)
+    timestep = '%d%02d%02d%02d' % (year, month, day, hour)
+    forecast_timestep = data_utils.add_or_subtract_hours_to_timestep(timestep, forecast_hour)
+
+    fronts_file = '%s\\%s\\%s\\%s\\FrontObjects_%s_full.pkl' % (fronts_pickle_indir, forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep)
+    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_f%03d_full.pkl' % (gdas_pickle_indir, year, month, day, pressure_level, year, month, day, hour, forecast_hour)
 
     fronts_dataset = pd.read_pickle(fronts_file)
     gdas_dataset = pd.read_pickle(gdas_file)
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 6), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=250)})
     plotting_utils.plot_background(extent, ax=ax, linewidth=0.2)  # Plot the background with country and state borders
-    fronts_dataset, names, _, colors_types, _ = reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
-    fronts_dataset = expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
+    fronts_dataset, names, _, colors_types, _ = data_utils.reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
+    fronts_dataset = data_utils.expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
     fronts_dataset = fronts_dataset['identifier'].where(fronts_dataset['identifier'] > 0)  # Turn all zeros to NaNs so they don't show up in the plot
 
     """ Add colorbar for fronts """
@@ -346,7 +358,7 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
 
     # Interval at which to plot the wind barbs. This value divided by 4 equals the spatial grid on which the barbs are plotted.
     # ex: if step equals 8, the barbs are plotted on an 8/4 degree x 8/4 degree (2 degree x 2 degree) grid.
-    step = 8
+    step = 16
 
     # Wind values are converted from meters per second to knots
     # 1.94384 knots = 1 meter per second
@@ -380,19 +392,19 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
         plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts, axis_loc=(0.8265, 0.11, 0.015, 0.77))  # Create the colorbar
 
         # Plot isobars
-        cs_mslp = gdas_dataset['mslp'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=1, levels=pressure_contours, colors='black')
+        cs_mslp = gdas_dataset['mslp'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.75, levels=pressure_contours, colors='black')
         plt.clabel(cs_mslp, fontsize=3)
 
     else:
 
-        title = f"GDAS analysis: {pressure_level} hPa"
+        title = f"GDAS: {pressure_level} hPa forecast"
 
         plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts)  # Create the colorbar
 
         wind_contours = ANALYSIS_WIND_SPEED_CONTOURS[pressure_level]
 
         # Plot height contours
-        cs_z = gdas_dataset['z'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.4, levels=pressure_contours, colors='black')
+        cs_z = gdas_dataset['z'].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.75, levels=pressure_contours, colors='black')
         plt.clabel(cs_z, fontsize=3)
 
         gdas_dataset['wind_speed'].plot.contourf(ax=ax, x='longitude', y='latitude', extend='neither', transform=ccrs.PlateCarree(),
@@ -401,12 +413,12 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
                                                                                                            'label': 'Wind Speed (knots)'})
 
     fronts_dataset.plot(ax=ax, x='longitude', y='latitude', extend='neither', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
-    ax.barbs(lons_barbs, lats_barbs, u_wind, v_wind, color='black', length=4, linewidth=0.4, sizes={'height': 0.65, 'width': 0.2}, transform=ccrs.PlateCarree())  # Add wind barbs
+    ax.barbs(lons_barbs, lats_barbs, u_wind, v_wind, color='black', length=4, linewidth=0.4, sizes={'height': 0.325, 'width': 0.1}, transform=ccrs.PlateCarree())  # Add wind barbs
 
-    ax.set_title('', loc='center')
-    ax.set_title(title, loc='left', fontsize=6, pad=3)
-    ax.set_title(f"Valid: {year}-%02d-%02d-%02dz" % (month, day, hour), loc='right', fontsize=6, pad=3)
-    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_analysis_%s_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, pressure_level, year, month, day, hour), dpi=500, bbox_inches='tight')
+    ax.set_title(title, loc='left', fontsize=10, pad=3)
+    ax.set_title(f"Run: %s-%s-%s-%sz F%03d" % (timestep[:4], timestep[4:6], timestep[6:8], timestep[8:], forecast_hour), loc='center', fontsize=6, pad=3)
+    ax.set_title(f"Forecast and fronts valid: %s-%s-%s-%sz" % (forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep[8:]), loc='right', fontsize=6, pad=3)
+    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_analysis_%s_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, pressure_level, year, month, day, hour), dpi=300, bbox_inches='tight')
     plt.close()
 
 
@@ -452,8 +464,8 @@ def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 6), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=250)})
     plotting_utils.plot_background(extent, ax=ax, linewidth=0.2)  # Plot the background with country and state borders
-    fronts_dataset, names, _, colors_types, _ = reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
-    fronts_dataset = expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
+    fronts_dataset, names, _, colors_types, _ = data_utils.reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
+    fronts_dataset = data_utils.expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
     fronts_dataset = fronts_dataset['identifier'].where(fronts_dataset['identifier'] > 0)  # Turn all zeros to NaNs so they don't show up in the plot
 
     """ Add colorbar for fronts """
@@ -477,7 +489,7 @@ def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts
         ax.barbs(lons_barbs, lats_barbs, u_wind, v_wind, color='black', length=4, linewidth=0.3, sizes={'height': 0.5, 'width': 0}, transform=ccrs.PlateCarree())
 
     variable_dataset.plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(), levels=10, cmap='hot', cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})  # Plot ERA5 variable
-    fronts_dataset['identifier'].plot(ax=ax, x='longitude', y='latitude',  extend='neither', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
+    fronts_dataset.plot(ax=ax, x='longitude', y='latitude',  extend='neither', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
 
     ax.set_title('', loc='center')
     ax.set_title(f"ERA5 re-analysis: {variable}", loc='left', fontsize=6, pad=3)
@@ -486,12 +498,62 @@ def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts
     plt.close()
 
 
+def fronts_only(year, month, day, hour, extent, fronts_pickle_indir, image_outdir, slice_dataset=False):
+    """
+    Plot variable in ERA5 data.
+
+    Parameters
+    ----------
+    year: year
+    month: month
+    day: day
+    hour: hour
+    extent: iterable
+        Extent of the plot: [MIN_LON, MAX_LON, MIN_LAT, MAX_LAT]
+    fronts_pickle_indir: str
+        Input directory for pickle files containing frontal objects.
+    image_outdir: str
+        Output directory for the soundings.
+    slice_dataset: bool
+        Slice the ERA5 dataset to only show data within the given extent. If False, data will be plotted across the entire domain,
+        but the plot will be zoomed in around the given extent.
+    """
+
+    fronts_file = '%s\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.pkl' % (fronts_pickle_indir, year, month, day, year, month, day, hour)
+
+    # Open the files, and slice the datasets if 'slice_dataset' is True
+    fronts_dataset = pd.read_pickle(fronts_file)
+    if slice_dataset:
+        min_lon, max_lon, min_lat, max_lat = extent[0], extent[1], extent[2], extent[3]
+        fronts_dataset = fronts_dataset.isel(latitude=slice(int((80-max_lat)*4), int((80-min_lat)*4)), longitude=slice(int((min_lon-130)*4), int((max_lon-130)*4)))
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=250)})
+    plotting_utils.plot_background(extent, ax=ax, linewidth=0.2)  # Plot the background with country and state borders
+    fronts_dataset, names, _, colors_types, _ = data_utils.reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
+    fronts_dataset = data_utils.expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
+    fronts_dataset = fronts_dataset['identifier'].where(fronts_dataset['identifier'] > 0)  # Turn all zeros to NaNs so they don't show up in the plot
+
+    """ Add colorbar for fronts """
+    cmap_fronts = ListedColormap(colors_types, name='from_list', N=len(names))  # Colormap for fronts
+    norm_fronts = Normalize(vmin=1, vmax=len(names) + 1)  # Colorbar normalization
+    plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts, axis_loc=(0.9065, 0.11, 0.015, 0.77))  # Create the colorbar
+
+    fronts_dataset.plot(ax=ax, x='longitude', y='latitude',  extend='neither', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
+
+    ax.set_title('', loc='center')
+    ax.set_title(f"NCEP front analysis", loc='left', fontsize=6, pad=3)
+    ax.set_title(f"Valid: {year}-%02d-%02d-%02dz" % (month, day, hour), loc='right', fontsize=6, pad=3)
+    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\fronts_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, year, month, day, hour), dpi=500, bbox_inches='tight')
+    plt.close()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Create labeled data for the specified day")
+    parser.add_argument('--fronts_only', action='store_true', help='Plot fronts over a domain')
     parser.add_argument('--frequency_plots', action='store_true', help='Generate frequency plots')
     parser.add_argument('--gdas_map', action='store_true', help='Plot GDAS data over a domain')
     parser.add_argument('--gdas_analysis', action='store_true', help='GDAS analysis over a domain')
-    parser.add_argument('--pressure_level', help="Pressure level (hPa) or 'surface'.")
+    parser.add_argument('--pressure_level', default='surface', help="Pressure level (hPa) or 'surface'.")
     parser.add_argument('--gdas_sounding', action='store_true', help='Plot GDAS sounding at a given point.')
     parser.add_argument('--gdas_pickle_indir', type=str, help='Input directory for the GDAS pickle files.')
     parser.add_argument('--sounding_coords', type=float, nargs=2, help='Coordinates for the GDAS sounding. [Lat, Lon]')
@@ -510,6 +572,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     provided_arguments = vars(args)
+
+    if args.pressure_level != 'surface':
+        args.pressure_level = int(args.pressure_level)
 
     if args.frequency_plots:
         required_arguments = ['fronts_pickle_indir', 'image_outdir']
@@ -538,3 +603,8 @@ if __name__ == '__main__':
         required_arguments = ['era5_pickle_indir', 'fronts_pickle_indir', 'variable', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
         check_arguments(provided_arguments, required_arguments)
         era5_map(args.year, args.month, args.day, args.hour, args.variable, args.extent, args.era5_pickle_indir, args.fronts_pickle_indir, args.image_outdir)
+
+    if args.fronts_only:
+        required_arguments = ['fronts_pickle_indir', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
+        check_arguments(provided_arguments, required_arguments)
+        fronts_only(args.year, args.month, args.day, args.hour, args.extent, args.fronts_pickle_indir, args.image_outdir)

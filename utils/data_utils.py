@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/18/2021 5:08 PM CST
+Last updated: 7/26/2022 10:55 PM CDT
 """
 
 import math
@@ -193,7 +193,7 @@ def redistribute_vertices(xy_linestring, distance):
 
     Returns
     -------
-    xy_vertices: Normalized MultiLineString that contains the interpolate coordinates of fronts in kilometers.
+    xy_vertices: Normalized MultiLineString that contains the interpolated coordinates of fronts in kilometers.
 
     Sources
     -------
@@ -414,18 +414,15 @@ def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=Fa
         return fronts_ds
 
 
-def find_era5_normalization_parameters(era5_pickle_indir, fronts_pickle_indir):
+def find_era5_normalization_parameters(era5_pickle_indir):
     """
-
     Parameters
     ----------
     era5_pickle_indir: str
         Input directory for the ERA5 pickle files.
-    fronts_pickle_indir: str
-        Input directory for the front object pickle files.
     """
 
-    _, era5_files = fm.load_era5_pickle_files(era5_pickle_indir, fronts_pickle_indir, num_variables=60, domain='full')
+    era5_files = fm.load_era5_pickle_files(era5_pickle_indir, num_variables=60, domain='full')
 
     num_files = len(era5_files)
     first_dataset = pd.read_pickle(era5_files[0])
@@ -447,3 +444,77 @@ def find_era5_normalization_parameters(era5_pickle_indir, fronts_pickle_indir):
 
     for variable, minimum, average, maximum in zip(variables_in_dataset, min_data, mean_data, max_data):
         print(variable, minimum, (average / num_files).astype('float16'), maximum)
+
+
+def add_or_subtract_hours_to_timestep(timestep, num_hours):
+    """
+    Find the valid timestep for a given number of added or subtracted hours.
+    
+    Parameters
+    ----------
+    timestep: str or tuple
+        * String format for the timestep: YYYY-MM-DD-HH (no dashes)
+        * Tuple format for the timestep (all integers): (YYYY, MM, DD, HH)
+    num_hours: int
+        Number of hours to add or subtract to the new timestep.
+    
+    Returns
+    -------
+    New timestep after adding or subtracting the given number of hours. This new timestep will be returned to the same format
+    as the input timestep.
+    """
+
+    if type(timestep) == str:
+        year = int(timestep[:4])
+        month = int(timestep[4:6])
+        day = int(timestep[6:8])
+        hour = int(timestep[8:])
+    elif type(timestep) == tuple:
+        year, month, day, hour = timestep[0], timestep[1], timestep[2], timestep[3]
+    else:
+        raise TypeError("Timestep must be a string or a tuple with integers in one of the following formats: YYYYMMDDHH or (YYYY, MM, DD, HH)")
+
+    if year % 4 == 0:  # Check if the current year is a leap year
+        month_2_days = 29
+    else:
+        month_2_days = 28
+
+    days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+    new_year, new_month, new_day, new_hour = year, month, day, hour + num_hours
+
+    if new_hour > 0:
+        # If the new timestep is in a future day, this loop will be activated
+        while new_hour > 23:
+            new_hour -= 24
+            new_day += 1
+
+        # If the new timestep is in a future month, this loop will be activated
+        while new_day > days_per_month[new_month - 1]:
+            new_day -= days_per_month[new_month - 1]
+            if new_month < 12:
+                new_month += 1
+            else:
+                new_month = 1
+                new_year += 1
+    else:
+        # If the new timestep is in a past day, this loop will be activated
+        while new_hour < 0:
+            new_hour += 24
+            new_day -= 1
+
+        # If the new timestep is in a past month, this loop will be activated
+        while new_day < 1:
+            new_day += days_per_month[new_month - 2]
+            if new_month > 1:
+                new_month -= 1
+            else:
+                new_month = 12
+                new_year -= 1
+
+    if type(timestep) == str:
+        new_timestep = '%d%02d%02d%02d' % (new_year, new_month, new_day, new_hour)
+    else:
+        new_timestep = (new_year, new_month, new_day, new_hour)
+
+    return new_timestep
