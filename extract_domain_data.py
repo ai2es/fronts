@@ -2,7 +2,7 @@
 Functions in this script create pickle files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/23/2022 11:08 AM CDT
+Last updated: 7/28/2022 11:56 PM CDT
 """
 
 import argparse
@@ -709,6 +709,7 @@ def gdas_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6)
             Tv = variables.virtual_temperature_from_dewpoint(T, Td, P)
             Tw = variables.wet_bulb_temperature(T, Td)
             r = variables.mixing_ratio_from_dewpoint(Td, P) * 1000  # Convert to g/kg
+            q = variables.specific_humidity_from_dewpoint(Td, P) * 1000  # Convert to g/kg
             AH = variables.absolute_humidity(T, Td) * 1000  # Convert to g/kg
             theta = variables.potential_temperature(T, P)
             theta_e = variables.equivalent_potential_temperature(T, Td, P)
@@ -719,6 +720,8 @@ def gdas_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6)
             for variable_to_drop in ['wz', 'absv', 'o3mr', 'q']:
                 if variable_to_drop in pressure_level_variables:
                     unified_pressure_level_data = unified_pressure_level_data.drop_vars(variable_to_drop)
+
+            unified_pressure_level_data['RH'] = (('pressure_level', 'latitude', 'longitude'), RH)
 
             unified_pressure_level_data['Td'] = (('pressure_level', 'latitude', 'longitude'), Td)
             unified_pressure_level_data['Td'].attrs['units'] = 'K'
@@ -735,6 +738,10 @@ def gdas_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6)
             unified_pressure_level_data['r'] = (('pressure_level', 'latitude', 'longitude'), r)
             unified_pressure_level_data['r'].attrs['units'] = 'g/kg'
             unified_pressure_level_data['r'].attrs['long_name'] = 'Mixing ratio'
+
+            unified_pressure_level_data['q'] = (('pressure_level', 'latitude', 'longitude'), q)
+            unified_pressure_level_data['q'].attrs['units'] = 'g/kg'
+            unified_pressure_level_data['q'].attrs['long_name'] = 'Specific humidity'
 
             unified_pressure_level_data['AH'] = (('pressure_level', 'latitude', 'longitude'), AH)
             unified_pressure_level_data['AH'].attrs['units'] = 'percent'
@@ -783,6 +790,9 @@ def gdas_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6)
             surface_data = xr.open_dataset(gdas_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks={'latitude': 721, 'longitude': 1440})
             unified_surface_data = surface_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
 
+            raw_pressure_data = xr.open_dataset(gdas_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks={'latitude': 721, 'longitude': 1440})
+            sp = raw_pressure_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)['sp'].values / 100  # select unified surface analysis domain
+
             # Create arrays of coordinates for the surface data
             surface_data_longitudes = np.arange(start_lon, end_lon + 0.25, 0.25)
             surface_data_latitudes = unified_surface_data['latitude'].values
@@ -795,6 +805,7 @@ def gdas_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6)
             Tv_sigma = variables.virtual_temperature_from_dewpoint(T_sigma, Td_sigma, mslp)
             Tw_sigma = variables.wet_bulb_temperature(T_sigma, Td_sigma)
             r_sigma = variables.mixing_ratio_from_dewpoint(Td_sigma, mslp) * 1000  # Convert to g/kg
+            q_sigma = variables.specific_humidity_from_dewpoint(Td_sigma, mslp) * 1000  # Convert to g/kg
             AH_sigma = variables.absolute_humidity(T_sigma, Td_sigma) * 1000  # Convert to g/kg
             theta_sigma = variables.potential_temperature(T_sigma, mslp)
             theta_e_sigma = variables.equivalent_potential_temperature(T_sigma, Td_sigma, mslp)
@@ -812,6 +823,8 @@ def gdas_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6)
                                                                  u=(('latitude', 'longitude'), u_sigma),
                                                                  v=(('latitude', 'longitude'), v_sigma),
                                                                  r=(('latitude', 'longitude'), r_sigma),
+                                                                 q=(('latitude', 'longitude'), q_sigma),
+                                                                 sp=(('latitude', 'longitude'), sp),
                                                                  AH=(('latitude', 'longitude'), AH_sigma),
                                                                  theta=(('latitude', 'longitude'), theta_sigma),
                                                                  theta_e=(('latitude', 'longitude'), theta_e_sigma),
@@ -844,6 +857,12 @@ def gdas_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6)
 
             new_unified_surface_data['r'].attrs['units'] = 'g/kg'
             new_unified_surface_data['r'].attrs['long_name'] = 'Mixing ratio'
+
+            new_unified_surface_data['q'].attrs['units'] = 'g/kg'
+            new_unified_surface_data['q'].attrs['long_name'] = 'Specific humidity'
+
+            new_unified_surface_data['sp'].attrs['units'] = 'hPa'
+            new_unified_surface_data['sp'].attrs['long_name'] = 'Surface pressure'
 
             new_unified_surface_data['AH'].attrs['units'] = 'percent'
             new_unified_surface_data['AH'].attrs['long_name'] = 'Mixing ratio'
