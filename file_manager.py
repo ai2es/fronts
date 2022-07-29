@@ -15,11 +15,9 @@ TODO:
         - delete_grouped_files
         - extract_tarfile
         - load_model
-    * Assure that the code for loading different dataset (training, test, timestep, validation) are working
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 7/16/2022 11:56 AM CDT
+Last updated: 7/28/2022 11:46 PM CDT
 """
 
 from glob import glob
@@ -876,8 +874,10 @@ def load_gdas_or_gfs_and_fronts_pickle_files(gdas_or_gfs_pickle_indir, fronts_pi
         if dataset != 'timestep':
             raise ValueError("dataset must be set to 'timestep' when loading GDAS/GFS and fronts files for a specific timestep")
 
-        front_files = sorted(glob("%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_%s.pkl" % (fronts_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2],
-                                                                                          timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], domain)))
+        new_timestep_tuple = data_utils.add_or_subtract_hours_to_timestep(timestep_tuple, forecast_hour)
+
+        front_files = sorted(glob("%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_%s.pkl" % (fronts_pickle_indir, new_timestep_tuple[0], new_timestep_tuple[1], new_timestep_tuple[2],
+                                                                                          new_timestep_tuple[0], new_timestep_tuple[1], new_timestep_tuple[2], new_timestep_tuple[3], domain)))
         gdas_or_gfs_files = sorted(glob("%s/%d/%02d/%02d/%s_*_%d%02d%02d%02d_f%03d_%s.pkl" % (gdas_or_gfs_pickle_indir, timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], gdas_or_gfs.lower(),
                                                                                               timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], forecast_hour, domain)))
 
@@ -936,8 +936,9 @@ def load_gdas_or_gfs_and_fronts_pickle_files(gdas_or_gfs_pickle_indir, fronts_pi
             loop_counter += 1
 
     # Flatten new file lists
-    front_files = list(sorted(itertools.chain(*front_files_list)))
-    gdas_or_gfs_files = list(sorted(itertools.chain(*gdas_or_gfs_files_list)))
+    if len(front_files) > 1:
+        front_files = list(sorted(itertools.chain(*front_files_list)))
+        gdas_or_gfs_files = list(sorted(itertools.chain(*gdas_or_gfs_files_list)))
 
     # Reset the 'list' variables so they can be reused later during file matching
     front_files_list = []
@@ -1039,10 +1040,10 @@ def load_gdas_or_gfs_and_fronts_pickle_files(gdas_or_gfs_pickle_indir, fronts_pi
         if timestep_tuple is None:
             raise ValueError("Missing timestep parameter")
 
-        gdas_or_gfs_files_list = gdas_or_gfs_files_by_timestep[0]
-        front_files_list = [front_files, ]
+        gdas_or_gfs_files_list = gdas_or_gfs_files_by_timestep
+        front_files_list = [front_files[0], ]
 
-        print(f"{gdas_or_gfs.upper()}/fronts files for %d-%02d-%02d-%02dz: %d/%d" % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], len(gdas_or_gfs_files_list), len(front_files_list)))
+        print(f"{gdas_or_gfs.upper()}/fronts files for %d-%02d-%02d-%02dz F%03d: %d/%d" % (timestep_tuple[0], timestep_tuple[1], timestep_tuple[2], timestep_tuple[3], len(gdas_or_gfs_files_list[0]), len(front_files_list), forecast_hour))
 
     elif dataset is None:
 
@@ -1077,7 +1078,7 @@ def load_model(model_number, model_dir):
     else:
         if loss == 'fss':
             fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
-            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, c=fss_c)
+            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
             loss_string = 'FSS_loss_3D'
         elif loss == 'bss':
             loss_string = 'brier_skill_score'
@@ -1088,7 +1089,7 @@ def load_model(model_number, model_dir):
 
         if metric == 'fss':
             fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
-            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, c=fss_c)
+            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
             metric_string = 'FSS_loss_3D'
         elif metric == 'dice':
             metric_string = 'dice'
