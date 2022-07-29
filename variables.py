@@ -10,7 +10,7 @@ References
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
     - Modified for Xarray by: John Allen (allen4jt@cmich.edu)
 
-Last updated: 6/9/2022 1:42 PM CDT by Andrew Justin
+Last updated: 7/28/2022 11:52 PM CDT by Andrew Justin
 """
 
 import xarray as xr
@@ -412,28 +412,65 @@ def virtual_temperature_from_dewpoint(T, Td, P):
     return virtual_temperature_from_mixing_ratio(T, r)  # virtual temperature
 
 
-def normalize(variable_ds):
+def normalize_era5(era5_ds):
     """
-    Function that normalizes variables via min-max normalization.
+    Function that normalizes ERA5 variables via min-max normalization.
 
     Parameters
     ----------
-    variable_ds: xr.Dataset
+    era5_ds: xr.Dataset
         Dataset containing variable data.
 
     Returns
     -------
-    variable_ds: xr.Dataset
+    era5_ds: xr.Dataset
         Dataset containing normalized variable data.
     """
 
-    norm_params = read_csv('normalization_parameters.csv', index_col='Variable')
+    norm_params = read_csv('normalization_parameters_era5.csv', index_col='Variable')
 
-    variable_list = list(variable_ds.keys())
+    variable_list = list(era5_ds.keys())
     for j in range(len(variable_list)):
         var = variable_list[j]
         # Min-max normalization
-        variable_ds[var].values = np.nan_to_num((variable_ds[var].values - norm_params.loc[var, 'Min']) /
-                                                (norm_params.loc[var, 'Max'] - norm_params.loc[var, 'Min']))
+        era5_ds[var].values = np.nan_to_num((era5_ds[var].values - norm_params.loc[var, 'Min']) /
+                                            (norm_params.loc[var, 'Max'] - norm_params.loc[var, 'Min']))
 
-    return variable_ds
+    return era5_ds
+
+
+def normalize_gdas(gdas_ds, pressure_level):
+    """
+    Function that normalizes GDAS variables via min-max normalization.
+
+    Parameters
+    ----------
+    gdas_ds: xr.Dataset
+        Dataset containing variable data.
+    pressure_level: 'surface' or int
+        Pressure level of the data that is being normalized.
+
+    Returns
+    -------
+    gdas_ds: xr.Dataset
+        Dataset containing normalized variable data.
+    """
+
+    norm_params = read_csv('I:/PycharmProjects/fronts/normalization_parameters_gdas.csv', index_col='Variable')
+
+    variable_list = ['T', 'Td', 'Tv', 'Tw', 'theta_e', 'theta_w', 'r', 'RH', 'u', 'v', 'q']
+
+    if pressure_level == 'surface':
+        variable_list.append('mslp')
+    else:
+        variable_list.append('z')
+
+    for j in range(len(variable_list)):
+        norm_var = variable_list[j] + '_' + str(pressure_level)
+        var = variable_list[j]
+        # Min-max normalization
+
+        gdas_ds[var].values = np.nan_to_num((gdas_ds[var].values - norm_params.loc[norm_var, 'Min']) /
+                                            (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+
+    return gdas_ds

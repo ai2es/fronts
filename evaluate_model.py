@@ -3,7 +3,7 @@ Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 5/10/2022 7:30 PM CDT
+Last updated: 7/28/2022 11:53 PM CDT
 """
 
 import os
@@ -22,7 +22,7 @@ import tensorflow as tf
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
 from utils.data_utils import expand_fronts, reformat_fronts
 from utils.plotting_utils import plot_background
-from variables import normalize
+from variables import normalize_era5, normalize_gdas
 from glob import glob
 
 
@@ -540,9 +540,9 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
         print(f"Compatible latitude images: {lat_image_matches}")
 
 
-def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_images, domain_size, domain_trim,
+def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts_pickle_indir, domain, domain_images, domain_size, domain_trim,
     prediction_method, datetime, dataset=None, num_rand_predictions=None, random_variables=None, save_map=True,
-    save_probabilities=False, save_statistics=False):
+    save_probabilities=False, save_statistics=False, variable_data_source='gdas'):
     """
     Generate predictions with a model.
 
@@ -552,8 +552,10 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
         - Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
         - Main directory for the models.
-    pickle_dir: str
-        - Directory where the created pickle files containing the domain data will be stored.
+    variables_pickle_indir: str
+        - Input directory for the ERA5 pickle files.
+    fronts_pickle_indir: str
+        - Input directory for the front object pickle files.
     domain: str
         - Domain of the datasets.
     domain_images: iterable object with 2 ints
@@ -578,6 +580,8 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
         - Setting this to true will save front probability data to a pickle file.
     save_statistics: bool
         - Setting this to true will save performance statistics data to a pickle file.
+    variable_data_source: str
+        - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
     """
 
     # Model properties
@@ -610,24 +614,28 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
     else:
         lat_image_spacing = 0
 
-    front_files, variable_files = fm.load_files(pickle_dir, num_variables, domain, dataset=dataset, test_years=test_years, validation_years=valid_years)
+    if prediction_method == 'datetime':
+        dataset = 'timestep'
+        timestep_tuple = tuple(datetime)
+    else:
+        timestep_tuple = None
+
+    if variable_data_source.lower() == 'era5':
+        variable_files, front_files = fm.load_era5_and_fronts_pickle_files(variables_pickle_indir, fronts_pickle_indir, num_variables, domain, dataset=dataset, test_years=test_years, validation_years=valid_years, timestep_tuple=timestep_tuple)
+    elif variable_data_source.lower() == 'gdas' or variable_data_source.lower() == 'gfs':
+        variable_files, front_files = fm.load_gdas_or_gfs_and_fronts_pickle_files(variables_pickle_indir, fronts_pickle_indir, domain, dataset=dataset, test_years=test_years, validation_years=valid_years, gdas_or_gfs=variable_data_source.lower(), timestep_tuple=timestep_tuple)
+    else:
+        raise TypeError("Invalid source for variable data, available options are: 'era5', 'gdas', or 'gfs' (case-insensitive)")
 
     # Find files with provided date and time to make a prediction (if applicable)
-    if prediction_method == 'datetime':
-        year, month, day, hour = datetime[0], datetime[1], datetime[2], datetime[3]
-        front_filename_no_dir = 'FrontObjects_%d%02d%02d%02d_%s.pkl' % (year, month, day, hour, domain)
-        variable_filename_no_dir = 'Data_%dvar_%d%02d%02d%02d_%s.pkl' % (60, year, month, day, hour, domain)
-        front_files = [[front_filename for front_filename in front_files if front_filename_no_dir in front_filename][0], ]
-        variable_files = [[variable_filename for variable_filename in variable_files if variable_filename_no_dir in variable_filename][0], ]
-
-    elif prediction_method == 'random':
+    if prediction_method == 'random':
         if prediction_method == 'random':  # Select a random set of files for which to generate predictions
             indices = random.choices(range(len(front_files) - 1), k=num_rand_predictions)
             if num_rand_predictions > 1:
                 front_files, variable_files = list(front_files[index] for index in indices), list(variable_files[index] for index in indices)
             else:
                 front_files, variable_files = [front_files,], [variable_files,]
-    elif prediction_method != 'all':
+    elif prediction_method != 'all' and prediction_method != 'datetime':
         raise ValueError(f"'{prediction_method}' is not a valid prediction method. Options are: 'datetime', 'random', 'all'")
 
     subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])  #
@@ -649,8 +657,6 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
     n = int((n - 1)/2)
 
     for file_index in range(len(front_files)):
-        fronts_filename = front_files[file_index]
-        variables_filename = variable_files[file_index]
 
         """ 
         Create array that contains all probabilities across the whole domain map for every front type that the model is 
@@ -659,135 +665,274 @@ def generate_predictions(model_number, model_dir, pickle_dir, domain, domain_ima
         """
         stitched_map_probs = np.empty(shape=[classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
 
-        # Create a backup variable dataset that will be called to reset the variable dataset after it is modified.
-        raw_variable_ds = normalize(pd.read_pickle(variables_filename))
+        if variable_data_source == 'era5':
+            fronts_filename = front_files[file_index]
+            variables_filename = variable_files[file_index]
 
-        # Randomize variable
-        if random_variables is not None:
-            for random_variable in random_variables:
-                domain_dim_lon = len(raw_variable_ds['longitude'].values)  # Length of the full domain in the longitude direction (# of pixels)
-                domain_dim_lat = len(raw_variable_ds['latitude'].values)  # Length of the full domain in the latitude direction (# of pixels)
-                var_values = raw_variable_ds[random_variable].values.flatten()
-                np.random.shuffle(var_values)
-                raw_variable_ds[random_variable].values = var_values.reshape(domain_dim_lat, domain_dim_lon)
+            variable_ds = normalize_era5(pd.read_pickle(variables_filename))
 
-        fronts_ds = pd.read_pickle(fronts_filename)
-        fronts = fronts_ds.sel(longitude=fronts_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon],
-                               latitude=fronts_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat])
+            # Randomize variable
+            if random_variables is not None:
+                for random_variable in random_variables:
+                    domain_dim_lon = len(variable_ds['longitude'].values)  # Length of the full domain in the longitude direction (# of pixels)
+                    domain_dim_lat = len(variable_ds['latitude'].values)  # Length of the full domain in the latitude direction (# of pixels)
+                    var_values = variable_ds[random_variable].values.flatten()
+                    np.random.shuffle(var_values)
+                    variable_ds[random_variable].values = var_values.reshape(domain_dim_lat, domain_dim_lon)
 
-        # Latitude and longitude points in the domain
-        image_lats = fronts_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat]
-        image_lons = fronts_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon]
+            fronts_ds = pd.read_pickle(fronts_filename)
+            fronts = fronts_ds.sel(longitude=fronts_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon],
+                                   latitude=fronts_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat])
 
-        time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
+            # Latitude and longitude points in the domain
+            image_lats = fronts_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat]
+            image_lons = fronts_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon]
 
-        map_created = False  # Boolean that determines whether or not the final stitched map has been created
+            time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
 
-        for lat_image in range(domain_images_lat):
-            lat_index = int(lat_image*lat_image_spacing)
-            for lon_image in range(domain_images_lon):
-                print("%s....%d/%d" % (time, int(lat_image*domain_images_lon)+lon_image, int(domain_images_lon*domain_images_lat)), end='\r')
-                lon_index = int(lon_image*lon_image_spacing)
+            map_created = False  # Boolean that determines whether or not the final stitched map has been created
 
-                variable_ds = raw_variable_ds
-                lons = variable_ds.longitude.values[lon_index:lon_index + image_size[0]]  # Longitude points for the current image
-                lats = variable_ds.latitude.values[lat_index:lat_index + image_size[1]]  # Latitude points for the current image
+            for lat_image in range(domain_images_lat):
+                lat_index = int(lat_image*lat_image_spacing)
+                for lon_image in range(domain_images_lon):
+                    print("%s....%d/%d" % (time, int(lat_image*domain_images_lon)+lon_image, int(domain_images_lon*domain_images_lat)), end='\r')
+                    lon_index = int(lon_image*lon_image_spacing)
 
-                if num_dimensions == 2:
-                    variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, image_size[0],
-                        image_size[1], channels))
-                elif num_dimensions == 3:
-                    variables_sfc = variable_ds[['t2m', 'd2m', 'sp', 'u10', 'v10', 'theta_w', 'mix_ratio', 'rel_humid', 'virt_temp', 'wet_bulb', 'theta_e',
-                                                 'q']].sel(longitude=lons, latitude=lats).to_array().values
-                    variables_1000 = variable_ds[['t_1000', 'd_1000', 'z_1000', 'u_1000', 'v_1000', 'theta_w_1000', 'mix_ratio_1000', 'rel_humid_1000', 'virt_temp_1000',
-                                                  'wet_bulb_1000', 'theta_e_1000', 'q_1000']].sel(longitude=lons, latitude=lats).to_array().values
-                    variables_950 = variable_ds[['t_950', 'd_950', 'z_950', 'u_950', 'v_950', 'theta_w_950', 'mix_ratio_950', 'rel_humid_950', 'virt_temp_950',
-                                                 'wet_bulb_950', 'theta_e_950', 'q_950']].sel(longitude=lons, latitude=lats).to_array().values
-                    variables_900 = variable_ds[['t_900', 'd_900', 'z_900', 'u_900', 'v_900', 'theta_w_900', 'mix_ratio_900', 'rel_humid_900', 'virt_temp_900',
-                                                 'wet_bulb_900', 'theta_e_900', 'q_900']].sel(longitude=lons, latitude=lats).to_array().values
-                    variables_850 = variable_ds[['t_850', 'd_850', 'z_850', 'u_850', 'v_850', 'theta_w_850', 'mix_ratio_850', 'rel_humid_850', 'virt_temp_850',
-                                                 'wet_bulb_850', 'theta_e_850', 'q_850']].sel(longitude=lons, latitude=lats).to_array().values
-                    variable_ds_new = np.expand_dims(np.array([variables_sfc, variables_1000, variables_950, variables_900, variables_850]).transpose([3, 2, 0, 1]), axis=0)
-                else:
-                    raise ValueError("Invalid number of dimensions: %d" % num_dimensions)
+                    # variable_ds = raw_variable_ds
+                    lons = variable_ds.longitude.values[lon_index:lon_index + image_size[0]]  # Longitude points for the current image
+                    lats = variable_ds.latitude.values[lat_index:lat_index + image_size[1]]  # Latitude points for the current image
 
-                prediction = model.predict(variable_ds_new)
-
-                if num_dimensions == 2:
-                    image_probs = np.transpose(prediction[0][0][:, :, 1:], (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
-                else:
-                    image_probs = np.transpose(np.amax(prediction[0][0][:, :, :, 1:], axis=2), (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
-
-                # Add predictions to the map
-                stitched_map_probs, map_created = add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
-                    image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing, lon_pixels_per_image, lat_pixels_per_image)
-
-                if map_created is True:
-                    print("%s....%d/%d" % (time, int(domain_images_lon*domain_images_lat), int(domain_images_lon*domain_images_lat)))
-                    if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
-                        probs_ds = xr.Dataset(
-                            {front_types: (('longitude', 'latitude'), stitched_map_probs[0])},
-                            coords={'latitude': image_lats, 'longitude': image_lons})
-                    elif front_types == 'MERGED-F':
-                        probs_ds = xr.Dataset(
-                            {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
-                             'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
-                             'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
-                             'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3])},
-                            coords={'latitude': image_lats, 'longitude': image_lons})
-                    elif front_types == 'MERGED-ALL':
-                        probs_ds = xr.Dataset(
-                            {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
-                             'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
-                             'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
-                             'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3]),
-                             'TROF_merged': (('longitude', 'latitude'), stitched_map_probs[4]),
-                             'INST': (('longitude', 'latitude'), stitched_map_probs[5]),
-                             'DL': (('longitude', 'latitude'), stitched_map_probs[6])},
-                            coords={'latitude': image_lats, 'longitude': image_lons})
-                    elif type(front_types) == list:
-                        probs_ds_dict = dict({})
-                        probs_ds_index = 0
-                        for front_type in front_types:
-                            probs_ds_dict[front_type] = (('longitude', 'latitude'), stitched_map_probs[probs_ds_index])
-                            probs_ds_index += 1
-                        probs_ds = xr.Dataset(probs_ds_dict, coords={'latitude': image_lats, 'longitude': image_lons})
+                    if num_dimensions == 2:
+                        variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, image_size[0], image_size[1], channels))
+                    elif num_dimensions == 3:
+                        variables_sfc = variable_ds[['t2m', 'd2m', 'sp', 'u10', 'v10', 'theta_w', 'mix_ratio', 'rel_humid', 'virt_temp', 'wet_bulb', 'theta_e',
+                                                     'q']].sel(longitude=lons, latitude=lats).to_array().values
+                        variables_1000 = variable_ds[['t_1000', 'd_1000', 'z_1000', 'u_1000', 'v_1000', 'theta_w_1000', 'mix_ratio_1000', 'rel_humid_1000', 'virt_temp_1000',
+                                                      'wet_bulb_1000', 'theta_e_1000', 'q_1000']].sel(longitude=lons, latitude=lats).to_array().values
+                        variables_950 = variable_ds[['t_950', 'd_950', 'z_950', 'u_950', 'v_950', 'theta_w_950', 'mix_ratio_950', 'rel_humid_950', 'virt_temp_950',
+                                                     'wet_bulb_950', 'theta_e_950', 'q_950']].sel(longitude=lons, latitude=lats).to_array().values
+                        variables_900 = variable_ds[['t_900', 'd_900', 'z_900', 'u_900', 'v_900', 'theta_w_900', 'mix_ratio_900', 'rel_humid_900', 'virt_temp_900',
+                                                     'wet_bulb_900', 'theta_e_900', 'q_900']].sel(longitude=lons, latitude=lats).to_array().values
+                        variables_850 = variable_ds[['t_850', 'd_850', 'z_850', 'u_850', 'v_850', 'theta_w_850', 'mix_ratio_850', 'rel_humid_850', 'virt_temp_850',
+                                                     'wet_bulb_850', 'theta_e_850', 'q_850']].sel(longitude=lons, latitude=lats).to_array().values
+                        variable_ds_new = np.expand_dims(np.array([variables_sfc, variables_1000, variables_950, variables_900, variables_850]).transpose([3, 2, 0, 1]), axis=0)
                     else:
-                        raise ValueError(f"'{front_types}' is not a valid set of front types.")
+                        raise ValueError("Invalid number of dimensions: %d" % num_dimensions)
 
-                    filename_base = 'model_%d_%s_%s_%dx%dimages_%dx%dtrim' % (model_number, time, domain, domain_images_lon,
-                        domain_images_lat, domain_trim_lon, domain_trim_lat)
-                    if random_variables is not None:
-                        filename_base += '_' + '-'.join(sorted(random_variables))
+                    prediction = model.predict(variable_ds_new)
 
-                    if save_map:
-                        # Check that the necessary subdirectory exists and make it if it doesn't exist
-                        if not os.path.isdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base)):
-                            os.mkdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
-                            print("New subdirectory made:", '%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
-                        prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, subdir_base, filename_base)  # Generate prediction plot
+                    if num_dimensions == 2:
+                        image_probs = np.transpose(prediction[0][0][:, :, 1:], (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
+                    else:
+                        image_probs = np.transpose(np.amax(prediction[0][0][:, :, :, 1:], axis=2), (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
 
-                    if save_probabilities:
-                        # Check that the necessary subdirectory exists and make it if it doesn't exist
-                        if not os.path.isdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base)):
-                            os.mkdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
-                            print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
-                        outfile = '%s/model_%d/probabilities/%s/%s_probabilities.pkl' % (model_dir, model_number, subdir_base, filename_base)
+                    # Add predictions to the map
+                    stitched_map_probs, map_created = add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
+                        image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing, lon_pixels_per_image, lat_pixels_per_image)
 
-                        with open(outfile, 'wb') as f:
-                            pickle.dump(probs_ds, f)  # Save probabilities dataset
+                    if map_created is True:
+                        print("%s....%d/%d" % (time, int(domain_images_lon*domain_images_lat), int(domain_images_lon*domain_images_lat)))
+                        if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
+                            probs_ds = xr.Dataset(
+                                {front_types: (('longitude', 'latitude'), stitched_map_probs[0])},
+                                coords={'latitude': image_lats, 'longitude': image_lons})
+                        elif front_types == 'MERGED-F':
+                            probs_ds = xr.Dataset(
+                                {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
+                                 'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
+                                 'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
+                                 'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3])},
+                                coords={'latitude': image_lats, 'longitude': image_lons})
+                        elif front_types == 'MERGED-ALL':
+                            probs_ds = xr.Dataset(
+                                {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
+                                 'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
+                                 'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
+                                 'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3]),
+                                 'TROF_merged': (('longitude', 'latitude'), stitched_map_probs[4]),
+                                 'INST': (('longitude', 'latitude'), stitched_map_probs[5]),
+                                 'DL': (('longitude', 'latitude'), stitched_map_probs[6])},
+                                coords={'latitude': image_lats, 'longitude': image_lons})
+                        elif type(front_types) == list:
+                            probs_ds_dict = dict({})
+                            probs_ds_index = 0
+                            for front_type in front_types:
+                                probs_ds_dict[front_type] = (('longitude', 'latitude'), stitched_map_probs[probs_ds_index])
+                                probs_ds_index += 1
+                            probs_ds = xr.Dataset(probs_ds_dict, coords={'latitude': image_lats, 'longitude': image_lons})
+                        else:
+                            raise ValueError(f"'{front_types}' is not a valid set of front types.")
 
-                    if save_statistics:
+                        filename_base = 'model_%d_%s_%s_%dx%dimages_%dx%dtrim' % (model_number, time, domain, domain_images_lon,
+                            domain_images_lat, domain_trim_lon, domain_trim_lat)
+                        if random_variables is not None:
+                            filename_base += '_' + '-'.join(sorted(random_variables))
 
-                        # Check that the necessary subdirectory exists and make it if it doesn't exist
-                        if not os.path.isdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base)):
-                            os.mkdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
-                            print("New subdirectory made:", '%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
+                        if save_map:
+                            # Check that the necessary subdirectory exists and make it if it doesn't exist
+                            if not os.path.isdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base)):
+                                os.mkdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
+                                print("New subdirectory made:", '%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
+                            prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, subdir_base, filename_base)  # Generate prediction plot
 
-                        performance_ds = calculate_performance_stats(probs_ds, front_types, fronts_filename)
-                        outfile = '%s/model_%d/statistics/%s/%s_statistics.pkl' % (model_dir, model_number, subdir_base, filename_base)
-                        with open(outfile, 'wb') as f:
-                            pickle.dump(performance_ds, f)
+                        if save_probabilities:
+                            # Check that the necessary subdirectory exists and make it if it doesn't exist
+                            if not os.path.isdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base)):
+                                os.mkdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
+                                print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
+                            outfile = '%s/model_%d/probabilities/%s/%s_probabilities.pkl' % (model_dir, model_number, subdir_base, filename_base)
+
+                            with open(outfile, 'wb') as f:
+                                pickle.dump(probs_ds, f)  # Save probabilities dataset
+
+                        if save_statistics:
+
+                            # Check that the necessary subdirectory exists and make it if it doesn't exist
+                            if not os.path.isdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base)):
+                                os.mkdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
+                                print("New subdirectory made:", '%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
+
+                            performance_ds = calculate_performance_stats(probs_ds, front_types, fronts_filename)
+                            outfile = '%s/model_%d/statistics/%s/%s_statistics.pkl' % (model_dir, model_number, subdir_base, filename_base)
+                            with open(outfile, 'wb') as f:
+                                pickle.dump(performance_ds, f)
+
+        elif variable_data_source == 'gdas':
+
+            fronts_filename = front_files[file_index]
+            gdas_filenames = variable_files[file_index]
+
+            print(gdas_filenames)
+
+            # Create a backup variable dataset that will be called to reset the variable dataset after it is modified.
+            gdas_surface = normalize_gdas(pd.read_pickle(gdas_filenames[0]), 'surface')
+            gdas_1000 = normalize_gdas(pd.read_pickle(gdas_filenames[1]), 1000)
+            gdas_950 = normalize_gdas(pd.read_pickle(gdas_filenames[3]), 950)
+            gdas_900 = normalize_gdas(pd.read_pickle(gdas_filenames[5]), 900)
+            gdas_850 = normalize_gdas(pd.read_pickle(gdas_filenames[6]), 850)
+
+            # TODO: Develop randomization code for GDAS data
+            # # Randomize variable
+            # if random_variables is not None:
+            #     for random_variable in random_variables:
+            #         domain_dim_lon = len(variable_ds['longitude'].values)  # Length of the full domain in the longitude direction (# of pixels)
+            #         domain_dim_lat = len(variable_ds['latitude'].values)  # Length of the full domain in the latitude direction (# of pixels)
+            #         var_values = variable_ds[random_variable].values.flatten()
+            #         np.random.shuffle(var_values)
+            #         raw_variable_ds[random_variable].values = var_values.reshape(domain_dim_lat, domain_dim_lon)
+
+            fronts_ds = pd.read_pickle(fronts_filename)
+            fronts = fronts_ds.sel(longitude=fronts_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon],
+                                   latitude=fronts_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat])
+
+            # Latitude and longitude points in the domain
+            image_lats = fronts_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat]
+            image_lons = fronts_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon]
+
+            time = str(fronts.time.values)[0:13].replace('T', '-') + 'z'
+
+            map_created = False  # Boolean that determines whether or not the final stitched map has been created
+
+            for lat_image in range(domain_images_lat):
+                lat_index = int(lat_image*lat_image_spacing)
+                for lon_image in range(domain_images_lon):
+                    print("%s....%d/%d" % (time, int(lat_image*domain_images_lon)+lon_image, int(domain_images_lon*domain_images_lat)), end='\r')
+                    lon_index = int(lon_image*lon_image_spacing)
+
+                    lons = fronts_ds.longitude.values[lon_index:lon_index + image_size[0]]  # Longitude points for the current image
+                    lats = fronts_ds.latitude.values[lat_index:lat_index + image_size[1]]  # Latitude points for the current image
+
+                    # TODO: Program GDAS datasets for 2D models
+                    # if num_dimensions == 2:
+                    #     variable_ds_new = np.nan_to_num(variable_ds.sel(longitude=lons, latitude=lats).to_array().T.values.reshape(1, image_size[0], image_size[1], channels))
+                    if num_dimensions == 3:
+                        variables_sfc = gdas_surface[['T', 'Td', 'mslp', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']].sel(longitude=lons, latitude=lats).to_array().values
+                        variables_1000 = gdas_1000[['T', 'Td', 'z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']].sel(longitude=lons, latitude=lats).to_array().values
+                        variables_950 = gdas_950[['T', 'Td', 'z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']].sel(longitude=lons, latitude=lats).to_array().values
+                        variables_900 = gdas_900[['T', 'Td', 'z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']].sel(longitude=lons, latitude=lats).to_array().values
+                        variables_850 = gdas_850[['T', 'Td', 'z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']].sel(longitude=lons, latitude=lats).to_array().values
+
+                        variable_ds_new = np.expand_dims(np.array([variables_sfc, variables_1000, variables_950, variables_900, variables_850]).transpose([3, 2, 0, 1]), axis=0)
+                    else:
+                        raise ValueError("Invalid number of dimensions: %d" % num_dimensions)
+
+                    prediction = model.predict(variable_ds_new)
+
+                    if num_dimensions == 2:
+                        image_probs = np.transpose(prediction[0][0][:, :, 1:], (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
+                    else:
+                        image_probs = np.transpose(np.amax(prediction[0][0][:, :, :, 1:], axis=2), (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
+
+                    # Add predictions to the map
+                    stitched_map_probs, map_created = add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
+                        image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing, lon_pixels_per_image, lat_pixels_per_image)
+
+                    if map_created is True:
+                        print("%s....%d/%d" % (time, int(domain_images_lon*domain_images_lat), int(domain_images_lon*domain_images_lat)))
+                        if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
+                            probs_ds = xr.Dataset(
+                                {front_types: (('longitude', 'latitude'), stitched_map_probs[0])},
+                                coords={'latitude': image_lats, 'longitude': image_lons})
+                        elif front_types == 'MERGED-F':
+                            probs_ds = xr.Dataset(
+                                {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
+                                 'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
+                                 'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
+                                 'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3])},
+                                coords={'latitude': image_lats, 'longitude': image_lons})
+                        elif front_types == 'MERGED-ALL':
+                            probs_ds = xr.Dataset(
+                                {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
+                                 'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
+                                 'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
+                                 'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3]),
+                                 'TROF_merged': (('longitude', 'latitude'), stitched_map_probs[4]),
+                                 'INST': (('longitude', 'latitude'), stitched_map_probs[5]),
+                                 'DL': (('longitude', 'latitude'), stitched_map_probs[6])},
+                                coords={'latitude': image_lats, 'longitude': image_lons})
+                        elif type(front_types) == list:
+                            probs_ds_dict = dict({})
+                            probs_ds_index = 0
+                            for front_type in front_types:
+                                probs_ds_dict[front_type] = (('longitude', 'latitude'), stitched_map_probs[probs_ds_index])
+                                probs_ds_index += 1
+                            probs_ds = xr.Dataset(probs_ds_dict, coords={'latitude': image_lats, 'longitude': image_lons})
+                        else:
+                            raise ValueError(f"'{front_types}' is not a valid set of front types.")
+
+                        filename_base = 'model_%d_%s_%s_%dx%dimages_%dx%dtrim' % (model_number, time, domain, domain_images_lon,
+                            domain_images_lat, domain_trim_lon, domain_trim_lat)
+                        if random_variables is not None:
+                            filename_base += '_' + '-'.join(sorted(random_variables))
+
+                        if save_map:
+                            # Check that the necessary subdirectory exists and make it if it doesn't exist
+                            if not os.path.isdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base)):
+                                os.mkdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
+                                print("New subdirectory made:", '%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base))
+                            prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, subdir_base, filename_base)  # Generate prediction plot
+
+                        if save_probabilities:
+                            # Check that the necessary subdirectory exists and make it if it doesn't exist
+                            if not os.path.isdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base)):
+                                os.mkdir('%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
+                                print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (model_dir, model_number, subdir_base))
+                            outfile = '%s/model_%d/probabilities/%s/%s_probabilities.pkl' % (model_dir, model_number, subdir_base, filename_base)
+
+                            with open(outfile, 'wb') as f:
+                                pickle.dump(probs_ds, f)  # Save probabilities dataset
+
+                        if save_statistics:
+
+                            # Check that the necessary subdirectory exists and make it if it doesn't exist
+                            if not os.path.isdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base)):
+                                os.mkdir('%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
+                                print("New subdirectory made:", '%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
+
+                            performance_ds = calculate_performance_stats(probs_ds, front_types, fronts_filename)
+                            outfile = '%s/model_%d/statistics/%s/%s_statistics.pkl' % (model_dir, model_number, subdir_base, filename_base)
+                            with open(outfile, 'wb') as f:
+                                pickle.dump(performance_ds, f)
 
 
 def plot_performance_diagrams(model_dir, model_number, domain, domain_images, domain_trim, bootstrap=True, random_variables=None,
@@ -979,8 +1124,6 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         CSI_warm_150km = np.nan_to_num(stats_150km['tp_warm']/(stats_150km['tp_warm'] + stats_150km['fp_warm'] + stats_150km['fn_warm']))
         CSI_warm_200km = np.nan_to_num(stats_200km['tp_warm']/(stats_200km['tp_warm'] + stats_200km['fp_warm'] + stats_200km['fn_warm']))
         CSI_warm_250km = np.nan_to_num(stats_250km['tp_warm']/(stats_250km['tp_warm'] + stats_250km['fp_warm'] + stats_250km['fn_warm']))
-        print((stats_200km['tp_cold'] + stats_200km['tp_warm'])/(stats_200km['tp_warm'] + stats_200km['fp_warm'] + stats_200km['fn_warm'] + stats_200km['tp_cold'] + stats_200km['fp_cold'] + stats_200km['fn_cold']).values)
-        print(stop)
 
         # Probability of detection for each front type and boundary
         POD_cold_50km = np.nan_to_num(stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fn_cold']))
@@ -1554,6 +1697,7 @@ def prediction_plot(fronts, probs_ds, time, model_number, model_dir, domain, sub
         cbar_tick_labels = [None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
     fronts, names, labels, colors_types, colors_probs = reformat_fronts(fronts, front_types, return_names=True, return_colors=True)
+    fronts = expand_fronts(fronts)
     fronts = xr.where(fronts == 0, float('NaN'), fronts)
 
     probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN"))
@@ -1839,7 +1983,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_number', type=int, help='Model number.')
     parser.add_argument('--num_iterations', type=int, default=10000, help='Number of iterations to perform when bootstrapping the data.')
     parser.add_argument('--num_rand_predictions', type=int, default=10, help='Number of random predictions to make.')
-    parser.add_argument('--pickle_dir', type=str, help='Main directory for the pickle files.')
+    parser.add_argument('--fronts_pickle_indir', type=str, help='Main directory for the pickle files containing frontal objects.')
+    parser.add_argument('--variables_pickle_indir', type=str, help='Main directory for the pickle files containing variable data.')
     parser.add_argument('--plot_performance_diagrams', action='store_true', help='Plot performance diagrams for a model?')
     parser.add_argument('--prediction_method', type=str, help="Prediction method. Options are: 'datetime', 'random', 'all'")
     parser.add_argument('--random_variables', type=str, nargs="+", default=None, help="Variables to randomize when generating predictions.")
@@ -1869,7 +2014,7 @@ if __name__ == '__main__':
         learning_curve(args.model_number, args.model_dir)
 
     if args.generate_predictions:
-        required_arguments = ['domain', 'model_number', 'model_dir', 'domain_images', 'domain_size', 'prediction_method', 'pickle_dir']
+        required_arguments = ['domain', 'model_number', 'model_dir', 'domain_images', 'domain_size', 'prediction_method', 'variables_pickle_indir', 'fronts_pickle_indir']
         check_arguments(provided_arguments, required_arguments)
 
         if args.prediction_method == 'datetime' and args.datetime is None:
@@ -1881,10 +2026,10 @@ if __name__ == '__main__':
         # Verify the compatibility of image stitching arguments
         find_matches_for_domain(args.domain_size, image_size, compatibility_mode=True, compat_images=args.domain_images)
 
-        generate_predictions(args.model_number, args.model_dir, args.pickle_dir, args.domain, args.domain_images, args.domain_size,
-            args.domain_trim, args.prediction_method, args.datetime, dataset=args.dataset, num_rand_predictions=args.num_rand_predictions,
-            random_variables=args.random_variables, save_map=args.save_map, save_probabilities=args.save_probabilities,
-            save_statistics=args.save_statistics)
+        generate_predictions(args.model_number, args.model_dir, args.variables_pickle_indir, args.fronts_pickle_indir,
+            args.domain, args.domain_images, args.domain_size, args.domain_trim, args.prediction_method, args.datetime,
+            dataset=args.dataset, num_rand_predictions=args.num_rand_predictions, random_variables=args.random_variables,
+            save_map=args.save_map, save_probabilities=args.save_probabilities, save_statistics=args.save_statistics)
 
     if args.plot_performance_diagrams:
         required_arguments = ['model_number', 'model_dir', 'domain', 'domain_images', 'num_iterations']
