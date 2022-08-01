@@ -17,7 +17,7 @@ TODO:
         - load_model
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/28/2022 11:46 PM CDT
+Last updated: 8/1/2022 1:54 AM CDT
 """
 
 from glob import glob
@@ -1056,6 +1056,49 @@ def load_gdas_or_gfs_and_fronts_pickle_files(gdas_or_gfs_pickle_indir, fronts_pi
     return gdas_or_gfs_files_list, front_files_list
 
 
+def remove_members_from_gdas_tarfiles(gdas_tar_indir, year, month, day):
+    """
+    Remove files that are not on a 0.25 degree grid from a GDAS tarfile.
+    
+    gdas_tar_indir: str
+        Directory for the GDAS tarfiles.
+    year: int
+    month: int
+    day: int
+    """
+
+    for hour in range(0, 24, 6):
+        try:
+            tarfile_path = '%s/ncep_global_ssi.%d%02d%02d%02d.tar' % (gdas_tar_indir, year, month, day, hour)
+            temp_tarfile_path = '%s/TEMP_ncep_global_ssi.%d%02d%02d%02d.tar' % (gdas_tar_indir, year, month, day, hour)
+
+            old_tarfile = tarfile.open(tarfile_path, 'r')
+            old_tarfile_members = old_tarfile.getmembers()
+            members_to_keep = [member for member in old_tarfile.getmembers() if '0p25' in member.name]
+
+        except:
+            pass
+
+        else:
+            """ If there are files that are not needed in the tarfile (not having a 0.25 degree resolution) then create a new tarfile containing only members that are needed """
+            if len(members_to_keep) < len(old_tarfile_members):
+
+                """ Create a new tarfile and extract files with 0.25 degree resolution from the old tarfile to add to the new tarfile """
+                new_tarfile = tarfile.open(temp_tarfile_path, 'w')  # Create the new tarfile
+                for member in members_to_keep:
+                    new_tarfile.addfile(member, old_tarfile.extractfile(member.name))  # Add file to the new tarfile
+
+                # Close the tarfiles
+                new_tarfile.close()
+                old_tarfile.close()
+
+                os.remove(tarfile_path)  # Delete the old tarfile
+
+                os.rename(temp_tarfile_path, tarfile_path)  # Rename the new tarfile with the same name as the old tarfile.
+
+
+
+
 def load_model(model_number, model_dir):
     """
     Load a saved model.
@@ -1188,6 +1231,9 @@ if __name__ == '__main__':
     parser.add_argument('--era5_pickle_indir', type=str, help='Input directory for the ERA5 pickle files.')
     parser.add_argument('--fronts_pickle_indir', type=str, help='Input directory for the front object files.')
     parser.add_argument('--tar_filename', type=str, help='Name of the tar file.')
+    parser.add_argument('--gdas_tar_indir', type=str, help='Input directory for the GDAS tarfiles.')
+    parser.add_argument('--remove_members_from_gdas_tarfiles', action='store_true', help='Remove non-0.25 degree grid files from a GDAS tarfile')
+    parser.add_argument('--timestep_for_gdas_extraction', type=int, nargs=3, help='Year, month, and day for the GDAS tarfiles that will be modified.')
     args = parser.parse_args()
     provided_arguments = vars(args)
     
@@ -1228,3 +1274,10 @@ if __name__ == '__main__':
         required_arguments = ['main_dir', 'tar_filename']
         check_arguments(provided_arguments, required_arguments)
         extract_tarfile(args.main_dir, args.tar_filename)
+
+    if args.remove_members_from_gdas_tarfiles:
+        required_arguments = ['gdas_tar_indir', 'timestep_for_gdas_extraction']
+        check_arguments(provided_arguments, required_arguments)
+        remove_members_from_gdas_tarfiles(args.gdas_tar_indir, args.timestep_for_gdas_extraction[0], args.timestep_for_gdas_extraction[1],
+                                         args.timestep_for_gdas_extraction[2])
+
