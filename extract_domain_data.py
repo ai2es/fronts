@@ -2,11 +2,13 @@
 Functions in this script create pickle files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/28/2022 11:56 PM CDT
+Last updated: 8/1/2022 2:18 AM CDT
 """
 
 import argparse
 import urllib.error
+import requests
+from bs4 import BeautifulSoup
 import xarray as xr
 import pickle
 import pandas as pd
@@ -621,37 +623,32 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, pickle_outdir):
         outfile.close()
 
 
-def download_gdas(year, month, day, gdas_outdir):
+def download_gdas_order(gdas_order_number, gdas_outdir):
     """
-    Download a GDAS grib file from the NCEP website.
+    Download a set of GDAS files as part of a HAS order from the NCEP.
 
-    year: year
-    month: month
-    day: day
-    gdas_outdir: Directory where the GDAS or GFS file will be saved to.
+    gdas_order_number: str
+        - HAS order number for the GDAS data.
+    gdas_outdir: str
+        - Directory where the GDAS or GFS file will be saved to.
     """
 
-    target_path = f'{gdas_outdir}/{year}%02d%02d' % (month, day)
+    url = f'https://www.ncei.noaa.gov/pub/has/model/HAS{gdas_order_number}/'
+    page = requests.get(url).text
+    soup = BeautifulSoup(page, 'html.parser')
+    files = [url + node.get('href') for node in soup.find_all('a') if node.get('href').endswith('.tar')]
 
-    if not os.path.isdir(target_path):
-        os.mkdir(target_path)
-
-    os.chdir(target_path)
-
-    base_url = 'https://www.ncei.noaa.gov/data/ncep-global-data-assimilation/access'
-
-    if year != 2022:
-        base_url += '/historical'
-
-    for hour in range(0, 24, 6):
-        if not os.path.isfile(f'{target_path}/gdas.t%02dz.pgrb2.0p25.f006' % hour):
+    for file in files:
+        local_filename = file.replace(url, '')
+        if not os.path.isfile(f'{gdas_outdir}/{local_filename}'):
             try:
-                wget.download(f'{base_url}/{year}%02d/{year}%02d%02d/gdas.t%02dz.pgrb2.0p25.f006' % (month, month, day, hour))
+                wget.download(file, out=f"{gdas_outdir}/{local_filename}")
             except urllib.error.HTTPError:
+                print(f"Error downloading {url}{file}")
                 pass
 
 
-def gdas_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6):
+def gdas_grib_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6):
     """
     Create GDAS pickle files from the grib files.
 
@@ -890,14 +887,15 @@ if __name__ == "__main__":
     parser.add_argument('--netcdf_ERA5_indir', type=str, required=False, help="input directory for ERA5 netcdf files")
     parser.add_argument('--fronts', action='store_true', required=False, help="Generate front object data files")
     parser.add_argument('--xml_indir', type=str, required=False, help="input directory for front XML files")
-    parser.add_argument('--download_gdas', action='store_true', help='Download GDAS grib files')
-    parser.add_argument('--gdas_to_pickle', action='store_true', required=False, help="Generate GDAS pickle files")
+    parser.add_argument('--download_gdas', action='store_true', help='Download GDAS tarfiles')
+    parser.add_argument('--gdas_order_number', type=str, help='HAS order number for the GDAS data')
+    parser.add_argument('--gdas_grib_to_pickle', action='store_true', required=False, help="Generate GDAS pickle files")
     parser.add_argument('--gdas_indir', type=str, required=False, help="input directory for the GDAS grib files")
     parser.add_argument('--gdas_outdir', type=str, help='Output directory for downloaded grib files.')
     parser.add_argument('--pickle_outdir', type=str, help="output directory for pickle files")
-    parser.add_argument('--year', type=int, required=True, help="year for the data to be read in")
-    parser.add_argument('--month', type=int, required=True, help="month for the data to be read in")
-    parser.add_argument('--day', type=int, required=True, help="day for the data to be read in")
+    parser.add_argument('--year', type=int, help="year for the data to be read in")
+    parser.add_argument('--month', type=int, help="month for the data to be read in")
+    parser.add_argument('--day', type=int, help="day for the data to be read in")
     parser.add_argument('--hour', type=int, help='hour for the grib data to be downloaded')
     args = parser.parse_args()
     provided_arguments = vars(args)
@@ -910,11 +908,11 @@ if __name__ == "__main__":
         required_arguments = ['year', 'month', 'day', 'xml_indir', 'pickle_outdir']
         check_arguments(provided_arguments, required_arguments)
         front_xmls_to_pickle(args.year, args.month, args.day, args.xml_indir, args.pickle_outdir)
-    if args.gdas_to_pickle:
+    if args.gdas_grib_to_pickle:
         required_arguments = ['year', 'month', 'day', 'gdas_indir', 'pickle_outdir']
         check_arguments(provided_arguments, required_arguments)
-        gdas_to_pickle(args.year, args.month, args.day, args.gdas_indir, args.pickle_outdir)
+        gdas_grib_to_pickle(args.year, args.month, args.day, args.gdas_indir, args.pickle_outdir)
     if args.download_gdas:
-        required_arguments = ['year', 'month', 'day', 'gdas_outdir']
+        required_arguments = ['gdas_order_number', 'gdas_outdir']
         check_arguments(provided_arguments, required_arguments)
-        download_gdas(args.year, args.month, args.day, args.gdas_outdir)
+        download_gdas_order(args.gdas_order_number, args.gdas_outdir)
