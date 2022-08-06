@@ -7,7 +7,7 @@ Code for generating various plots:
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
 
-Last updated: 7/26/2022 11:16 PM CDT
+Last updated: 8/6/2022 11:04 AM CDT
 """
 
 from matplotlib.colors import Normalize, ListedColormap
@@ -309,7 +309,7 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
     ax.set_title(f"GDAS plot: {variable} @ {pressure_level} hPa", loc='left', fontsize=6, pad=3)
     ax.set_title(f"Run: %s-%s-%s-%sz F%03d" % (timestep[:4], timestep[4:6], timestep[6:8], timestep[8:], forecast_hour), loc='center', fontsize=6, pad=3)
     ax.set_title(f"Forecast and fronts valid: %s-%s-%s-%sz" % (forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep[8:]), loc='right', fontsize=6, pad=3)
-    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_%s_%s_%d%02d%02d%02d_f%03d.png' % (image_outdir, year, month, day, hour, variable, pressure_level, year, month, day, hour, forecast_hour), dpi=500, bbox_inches='tight')
+    plt.savefig('%s\\gdas_%s_%s_%d%02d%02d%02d_f%03d.png' % (image_outdir, variable, pressure_level, year, month, day, hour, forecast_hour), dpi=500, bbox_inches='tight')
     plt.close()
 
 
@@ -418,7 +418,7 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
     ax.set_title(title, loc='left', fontsize=10, pad=3)
     ax.set_title(f"Run: %s-%s-%s-%sz F%03d" % (timestep[:4], timestep[4:6], timestep[6:8], timestep[8:], forecast_hour), loc='center', fontsize=6, pad=3)
     ax.set_title(f"Forecast and fronts valid: %s-%s-%s-%sz" % (forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep[8:]), loc='right', fontsize=6, pad=3)
-    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\gdas_analysis_%s_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, pressure_level, year, month, day, hour), dpi=300, bbox_inches='tight')
+    plt.savefig('%s\\gdas_analysis_%s_%d%02d%02d%02d.png' % (image_outdir, pressure_level, year, month, day, hour), dpi=300, bbox_inches='tight')
     plt.close()
 
 
@@ -494,7 +494,7 @@ def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts
     ax.set_title('', loc='center')
     ax.set_title(f"ERA5 re-analysis: {variable}", loc='left', fontsize=6, pad=3)
     ax.set_title(f"Valid: {year}-%02d-%02d-%02dz" % (month, day, hour), loc='right', fontsize=6, pad=3)
-    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\era5_%s_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, variable, year, month, day, hour), dpi=500, bbox_inches='tight')
+    plt.savefig('%s\\era5_%s_%d%02d%02d%02d.png' % (image_outdir, variable, year, month, day, hour), dpi=500, bbox_inches='tight')
     plt.close()
 
 
@@ -543,7 +543,7 @@ def fronts_only(year, month, day, hour, extent, fronts_pickle_indir, image_outdi
     ax.set_title('', loc='center')
     ax.set_title(f"NCEP front analysis", loc='left', fontsize=6, pad=3)
     ax.set_title(f"Valid: {year}-%02d-%02d-%02dz" % (month, day, hour), loc='right', fontsize=6, pad=3)
-    plt.savefig('%s\\%d\\%02d\\%02d\\%02d\\fronts_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour, year, month, day, hour), dpi=500, bbox_inches='tight')
+    plt.savefig('%s\\fronts_%d%02d%02d%02d.png' % (image_outdir, year, month, day, hour), dpi=500, bbox_inches='tight')
     plt.close()
 
 
