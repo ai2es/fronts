@@ -4,20 +4,18 @@ Functions in this code manage data files and directories.
     2. Compress a large set of files into a tarfile.
     3. Extract the contents of an existing tarfile.
     4. Create new ERA5, GDAS, GFS, and frontal object pickle files across a smaller domain.
-    5. Delete a large group of files using a common string in the filenames.
-    6. Load ERA5, ERA5/fronts, GDAS, GDAS/fronts, GFS, GFS/fronts, or frontal object pickle files.
-    7. Load a saved tensorflow model.
+    5. Remove members that are not on a 0.25 degree grid from GDAS TAR files.
+    6. Delete a large group of files using a common string in the filenames.
+    7. Load ERA5, ERA5/fronts, GDAS, GDAS/fronts, GFS, GFS/fronts, or frontal object pickle files.
+    8. Load a saved tensorflow model.
 
 TODO:
     * Add examples to the following functions:
-        - compress_files
-        - create_subdirectories
-        - delete_grouped_files
-        - extract_tarfile
         - load_model
+    * Add functions for managing GFS data and separate GDAS and GFS
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/1/2022 1:54 AM CDT
+Last updated: 8/5/2022 10:07 PM CDT
 """
 
 from glob import glob
@@ -36,42 +34,64 @@ from utils import data_utils
 
 def compress_files(main_dir, glob_file_string, tar_filename, remove_files=False, status_printout=True):
     """
-    Compress files into a tar file.
+    Compress files into a TAR file.
 
     Parameters
     ----------
     main_dir: str
-        - Main directory where the files are located and where the tar file will be saved.
+        - Main directory where the files are located and where the TAR file will be saved.
     glob_file_string: str
         - String of the names of the files to compress.
     tar_filename:
-        - Name of the compressed tar file that will be made.
+        - Name of the compressed TAR file that will be made. Do not include the .tar.gz extension in the name, this is added automatically.
     remove_files: bool
-        - Setting this to true will remove the files after they have been compressed to a tar file.
+        - Setting this to true will remove the files after they have been compressed to a TAR file.
     status_printout: bool
         - Setting this to true will provide printouts of the status of the compression.
+
+    Examples
+    --------
+    <<<<< start example >>>>
+
+        import fronts.file_manager as fm
+
+        main_dir = 'C:/Users/username/data_files'
+        glob_file_string = '*matching_string.pkl'
+        tar_filename = 'matching_files'  # Do not add the .tar.gz extension, this is done automatically
+
+        compress_files(main_dir, glob_file_string, tar_filename, remove_files=True, status_printout=False)  # Compress files and remove them after compression into a TAR file
+
+    <<<<< end example >>>>>
     """
     uncompressed_size = 0  # MB
 
+    ### Gather a list of files containing the specified string ###
     files = list(sorted(glob(f"{main_dir}/{glob_file_string}")))
     if len(files) == 0:
         raise OSError("No files found")
     else:
         print(f"{len(files)} files found")
 
-    num_files = len(files)
+    num_files = len(files)  # Total number of files
 
+    ### Create the tarfile ###
     with tarfile.open(f"{main_dir}/{tar_filename}.tar.gz", "w:gz") as tarF:
+
+        ### Iterate through all of the available files ###
         for file in range(num_files):
-            tarF.add(files[file], arcname=files[file].replace(main_dir, ''))
-            tarF_size = os.path.getsize(f"{main_dir}/{tar_filename}.tar.gz")/1e6  # MB
-            uncompressed_size += os.path.getsize(files[file])/1e6
+            tarF.add(files[file], arcname=files[file].replace(main_dir, ''))  # Add the file to the TAR file
+            tarF_size = os.path.getsize(f"{main_dir}/{tar_filename}.tar.gz")/1e6  # Compressed size of the files within the TAR file (megabytes)
+            uncompressed_size += os.path.getsize(files[file])/1e6  # Uncompressed size of the files within the TAR file (megabytes)
+
+            ### Print out the current status of the compression (if enabled) ###
             if status_printout:
                 print(f'({file+1}/{num_files})      {uncompressed_size:,.2f} MB ---> {tarF_size:,.2f} MB ({100*(1-(tarF_size/uncompressed_size)):.1f}% compression ratio)', end='\r')
 
+    # Completion message
     print(f"Successfully compressed {len(files)} files: ",
           f'{uncompressed_size:,.2f} MB ---> {tarF_size:,.2f} MB ({100*(1-(tarF_size/uncompressed_size)):.1f}% compression ratio)')
 
+    ### Remove the files that were added to the TAR archive (if enabled; does NOT affect the contents of the TAR file just created) ###
     if remove_files:
         for file in files:
             os.remove(file)
@@ -92,16 +112,36 @@ def create_new_domain_files(current_domain_files, domain, new_domain, new_extent
         - Name of the new domain.
     new_extent: Iterable object with 4 ints
         - 4 values for the new extent: min_lon, max_lon, min_lat, max_lat
+
+    Examples
+    --------
+    <<<<< start example >>>>
+
+        import fronts.file_manager as fm
+
+        era5_pickle_indir = 'C:/Users/username/era5_files'
+        num_variables = 60
+        domain = 'full'
+
+        era5_pickle_files = fm.load_era5_pickle_files(era5_pickle_indir, num_variables, domain)
+
+        new_domain = 'conus'
+        new_extent = (228, 300, 25, 57)
+
+        fm.create_new_domain_files(era5_pickle_files, domain, new_domain, new_extent)  # Compress files and remove them after compression into a TAR file
+
+    <<<<< end example >>>>>
     """
 
     print("Create new files for the following domain:", new_domain)
 
+    ### Iterate through all the files and create new files with the new domain ###
     for file in current_domain_files:
-        full_dataset = pd.read_pickle(file)
-        new_domain_dataset = full_dataset.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))
-        new_domain_file = file.replace(domain, new_domain)
+        full_dataset = pd.read_pickle(file)  # Open the dataset
+        new_domain_dataset = full_dataset.sel(longitude=slice(new_extent[0], new_extent[1]), latitude=slice(new_extent[3], new_extent[2]))  # Slice the dataset with the new extent
+        new_domain_file = file.replace(domain, new_domain)  # Filename for the new file
         with open(new_domain_file, "wb") as f:
-            pickle.dump(new_domain_dataset, f)
+            pickle.dump(new_domain_dataset, f)  # Save the file
 
 
 def create_subdirectories(main_dir, hour_dirs=False):
@@ -113,11 +153,17 @@ def create_subdirectories(main_dir, hour_dirs=False):
     main_dir: str
         - Main directory for the subdirectories.
     hour_dirs: bool
-        - Boolean flag that determines whether hourly subdirectories will be generated.
+        - Boolean flag that determines whether 3-hourly subdirectories will be generated.
+    
+    Examples
+    --------
+    fm.create_subdirectories(main_dir)  # Create subdirectories sorted by year, month, and day
+        * add 'hour_dirs=True' to create 3-hourly subdirectories
     """
 
-    years = list(np.arange(2006, 2023, 1))
+    years = list(np.arange(2006, 2023, 1))  # List of years for the subdirectories
 
+    ### Number of days in each month (except 2/February) ###
     month_1_days = np.linspace(1, 31, 31)
     month_3_days = np.linspace(1, 31, 31)
     month_4_days = np.linspace(1, 30, 30)
@@ -130,24 +176,43 @@ def create_subdirectories(main_dir, hour_dirs=False):
     month_11_days = np.linspace(1, 30, 30)
     month_12_days = np.linspace(1, 31, 31)
 
+    ### Iterate through all of the years ###
     for year in years:
         print(f"Making directories for year {year}")
-        if year % 4 == 0:  # Check if the current year is a leap year
-            month_2_days = np.linspace(1, 29, 29)
+
+        # Check if the current year is a leap year
+        if year % 4 == 0:
+            month_2_days = np.linspace(1, 29, 29)  # 29 days in February during a leap year
         else:
-            month_2_days = np.linspace(1, 28, 28)
+            month_2_days = np.linspace(1, 28, 28)  # 28 days in February if not a leap year
+
+        # List of days in every month of the year
         month_days = [month_1_days, month_2_days, month_3_days, month_4_days, month_5_days, month_6_days, month_7_days, month_8_days,
                       month_9_days, month_10_days, month_11_days, month_12_days]
+
+        # Check if the directory for the current year exists, and create it if it does not exist
         if not os.path.isdir('%s/%d' % (main_dir,  year)):
             os.mkdir('%s/%d' % (main_dir,  year))
+
+        ### Iterate through all the months for the current year ###
         for month in range(1, 13):
+
+            # Check if the directory for the current month exists, and create it if it does not exist
             if not os.path.isdir('%s/%d/%02d' % (main_dir, year, month)):
                 os.mkdir('%s/%d/%02d' % (main_dir, year, month))
+
+            ### Iterate through all the days of the current month and year ###
             for day in month_days[month-1]:
+
+                # Check if the directory for the current day exists, and create it if it does not exist
                 if not os.path.isdir('%s/%d/%02d/%02d' % (main_dir, year, month, day)):
                     os.mkdir('%s/%d/%02d/%02d' % (main_dir, year, month, day))
+
+                ### Create 3-hourly directories (if enabled) ###
                 if hour_dirs:
                     for hour in range(0, 24, 3):
+
+                        # Check if the directory for the current hour exists, and create it if it does not exist
                         if not os.path.isdir('%s/%d/%02d/%02d/%02d' % (main_dir, year, month, day, hour)):
                             os.mkdir('%s/%d/%02d/%02d/%02d' % (main_dir, year, month, day, hour))
 
@@ -164,16 +229,31 @@ def delete_grouped_files(main_dir, glob_file_string, num_subdir):
         - String of the names of the files to delete.
     num_subdir: int
         - Number of subdirectory layers in the main directory.
+
+    Examples
+    --------
+    <<<<< start example >>>>>
+
+        import fronts.file_manager as fm
+
+        main_dir = 'C:/Users/username/data_files'
+        glob_file_string = '*matching_string.pkl'
+        num_subdir = 3  # Check in the 3rd level of the directories within the main directory
+
+        fm.delete_grouped_files(main_dir, glob_file_string, num_subdir)
+
+    <<<<< end example >>>>>
     """
 
-    subdir_string = ''
-
+    subdir_string = ''  # This string will be modified depending on the provided value of num_subdir
     for i in range(num_subdir):
         subdir_string += '/*'
-    glob_file_string = subdir_string + glob_file_string
+    subdir_string += '/'
+    glob_file_string = subdir_string + glob_file_string  # String that will be used to match with patterns in filenames
 
-    files_to_delete = list(sorted(glob("%s/%s" % (main_dir, glob_file_string))))
+    files_to_delete = list(sorted(glob("%s/%s" % (main_dir, glob_file_string))))  # Search for files in the given directory that have patterns matching the file string
 
+    # Delete all the files
     print("Deleting %d files...." % len(files_to_delete), end='')
     for file in files_to_delete:
         os.remove(file)
@@ -182,15 +262,30 @@ def delete_grouped_files(main_dir, glob_file_string, num_subdir):
 
 def extract_tarfile(main_dir, tar_filename):
     """
-    Extract all the contents of a tar file.
+    Extract all the contents of a TAR file.
 
+    Parameters
+    ----------
     main_dir: str
-        - Main directory where the tar file is located. This is also where the extracted files will be placed.
+        - Main directory where the TAR file is located. This is also where the extracted files will be placed.
     tar_filename: str
-        - Name of the compressed tar file.
+        - Name of the compressed TAR file. Do NOT include the .tar.gz extension.
+
+    Examples
+    --------
+    <<<<< start example >>>>
+
+        import fronts.file_manager as fm
+
+        main_dir = 'C:/Users/username/data_files'
+        tar_filename = 'foo_tarfile'  # Do not add the .tar.gz extension
+
+        fm.extract_tarfile(main_dir, glob_file_string, tar_filename, remove_files=True, status_printout=False)  # Compress files and remove them after compression into a TAR file
+
+    <<<<< end example >>>>>
     """
 
-    with tarfile.open(f"{main_dir}/{tar_filename}", 'r') as tarF:
+    with tarfile.open(f"{main_dir}/{tar_filename}.tar.gz", 'r') as tarF:
         tarF.extractall(main_dir)
     print(f"Successfully extracted {main_dir}/{tar_filename}")
 
@@ -1097,8 +1192,6 @@ def remove_members_from_gdas_tarfiles(gdas_tar_indir, year, month, day):
                 os.rename(temp_tarfile_path, tarfile_path)  # Rename the new tarfile with the same name as the old tarfile.
 
 
-
-
 def load_model(model_number, model_dir):
     """
     Load a saved model.
@@ -1122,7 +1215,7 @@ def load_model(model_number, model_dir):
         if loss == 'fss':
             fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
             loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
-            loss_string = 'FSS_loss_3D'
+            loss_string = 'fractions_skill_score'
         elif loss == 'bss':
             loss_string = 'brier_skill_score'
             loss_function = custom_losses.brier_skill_score
@@ -1133,13 +1226,7 @@ def load_model(model_number, model_dir):
         if metric == 'fss':
             fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
             loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
-            metric_string = 'FSS_loss_3D'
-        elif metric == 'dice':
-            metric_string = 'dice'
-            metric_function = custom_losses.dice
-        elif metric == 'tversky':
-            metric_string = 'tversky'
-            metric_function = custom_losses.tversky
+            metric_string = 'fractions_skill_score'
         elif metric == 'bss':
             metric_string = 'brier_skill_score'
             metric_function = custom_losses.brier_skill_score
@@ -1147,17 +1234,81 @@ def load_model(model_number, model_dir):
             metric_string = None
             metric_function = None
 
-        print(loss_string, metric_string)
-
+        model_loaded = False  # Boolean flag that will become True once a ValueError is not raised when loading a model
         print("Loading model....", end='')
         if loss_string is not None:
             if metric_string is not None:
-                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+
+                ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
+                while model_loaded is False:
+                    try:
+                        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+                    except ValueError:
+
+                        if 'fractions' in loss_string or 'FSS' in loss_string:
+                            if loss_string == 'fractions_skill_score':
+                                loss_string = 'FSS_loss_2D'
+                            elif loss_string == 'FSS_loss_2D':
+                                loss_string = 'FSS_loss_3D'
+                            else:
+                                print("failed")
+                                # Load the model normally to return the ValueError message for unknown loss function
+                                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+
+                        if 'fractions' in metric_string or 'FSS' in metric_string:
+                            if metric_string == 'fractions_skill_score':
+                                metric_string = 'FSS_loss_2D'
+                            elif metric_string == 'FSS_loss_2D':
+                                metric_string = 'FSS_loss_3D'
+                            else:
+                                print("failed")
+                                # Load the model normally to return the ValueError message for unknown metric
+                                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+
+                    else:
+                        model_loaded = True
+
             else:
-                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
+
+                ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
+                while model_loaded is False:
+                    try:
+                        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
+                    except ValueError:
+
+                        if 'fractions' in loss_string or 'FSS' in loss_string:
+                            if loss_string == 'fractions_skill_score':
+                                loss_string = 'FSS_loss_2D'
+                            elif loss_string == 'FSS_loss_2D':
+                                loss_string = 'FSS_loss_3D'
+                            else:
+                                print("failed")
+                                # Load the model normally to return the ValueError message for unknown loss function
+                                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
+
+                    else:
+                        model_loaded = True
+
         else:
-            model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
-        print("done")
+
+            ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
+            while model_loaded is False:
+                try:
+                    model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
+                except ValueError:
+                    if 'fractions' in metric_string or 'FSS' in metric_string:
+                        if metric_string == 'fractions_skill_score':
+                            metric_string = 'FSS_loss_2D'
+                        elif metric_string == 'FSS_loss_2D':
+                            metric_string = 'FSS_loss_3D'
+                        else:
+                            print("failed")
+                            # Load the model normally to return the ValueError message for unknown loss function
+                            model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
+
+                else:
+                    model_loaded = True
+                    print("done")
 
     return model
 
@@ -1171,7 +1322,6 @@ if __name__ == '__main__':
     Examples
         Example 1a. Create subdirectories organized by year, month, and day to organize data files.
             > python file_manager.py --create_subdirectories --main_dir ./pickle_files
-        
         Example 1b. Create subdirectories organized by year, month, day, and hour to organize data files.
             > python file_manager.py --create_subdirectories --main_dir ./pickle_files --hour_dirs
         
@@ -1180,33 +1330,35 @@ if __name__ == '__main__':
         
         Example 3. Extract the contents of an existing tarfile.
             > python file_manager.py --extract_tarfile --main_dir ./file_directory --tar_filename compressed_files.tar
+    
+        Example 4a. Create new ERA5 pickle files across a smaller domain.
+            > python file_manager.py --create_new_era5_files --era5_pickle_indir ./era5_files --domain full --new_domain conus --new extent 228 300 25 57
+        Example 4b. Create new GDAS or GFS pickle files across a smaller domain.
+            > python file_manager.py --create_new_gdas_or_gfs_files --gdas_or_gfs_pickle_indir ./gdas_pickle_files --domain full --new_domain conus --new extent 228 300 25 57
+        Example 4c. Create new frontal object pickle files across a smaller domain.
+            > python file_manager.py --create_new_front_files --fronts_pickle_indir ./front_pickle_files --domain full --new_domain conus --new extent 228 300 25 57
         
-        Example 4. Create new ERA5, GDAS, GFS, and frontal object pickle files across a smaller domain.
-            NOTE: This is currently not operational.
-        
-        Example 5. Delete a large group of files using a common string in the filenames.
+        Example 5. Remove members from GDAS TAR file.
+            
+        Example 6. Delete a large group of files using a common string in the filenames.
             > python file_manager.py --delete_grouped_files --main_dir ./file_directory --num_subdir 3 --glob_file_string test_files_*_.pkl
-            Using 3 for 'num_subdir' means that files will be returned from glob that match the following string:
-                ./file_directory/*/*/*/test_files_*_.pkl
-            - Using 5 for 'num_subdir':
-                ./file_directory/*/*/*/*/*/test_files_*_.pkl
+                - Using 3 for 'num_subdir' means that files will be returned from glob that match the following string:
+                    ./file_directory/*/*/*/test_files_*_.pkl
+                - Using 5 for 'num_subdir':
+                    ./file_directory/*/*/*/*/*/test_files_*_.pkl
 
-        Example 6a. Load ERA5 pickle files.
+        Example 7a. Load ERA5 pickle files.
             Refer to Examples in function 'load_era5_pickle_files'.
-        
-        Example 6b. Load ERA5/front pickle files.
+        Example 7b. Load ERA5/front pickle files.
             Refer to Examples in function 'load_era5_and_fronts_pickle_files'.
-        
-        Example 6c. Load GDAS or GFS pickle files.
+        Example 7c. Load GDAS or GFS pickle files.
             Refer to Examples in function 'load_gdas_or_gfs_pickle_files'.
-        
-        Example 6d. Load GDAS/GFS and front pickle_files.
+        Example 7d. Load GDAS/GFS and front pickle_files.
             Refer to Examples in function 'load_gdas_or_gfs_and_fronts_pickle_files.
-        
-        Example 6e. Load pickle files containing frontal objects.
+        Example 7e. Load pickle files containing frontal objects.
             Refer to Examples in function 'load_fronts_pickle_files'.
         
-        Example 7. Load a saved tensorflow model.
+        Example 8. Load a saved tensorflow model.
             Refer to Examples in function 'load_model'.
     """
 
@@ -1230,7 +1382,7 @@ if __name__ == '__main__':
     parser.add_argument('--gdas_or_gfs_pickle_indir', type=str, help='Input directory for the GDAS or GFS pickle files.')
     parser.add_argument('--era5_pickle_indir', type=str, help='Input directory for the ERA5 pickle files.')
     parser.add_argument('--fronts_pickle_indir', type=str, help='Input directory for the front object files.')
-    parser.add_argument('--tar_filename', type=str, help='Name of the tar file.')
+    parser.add_argument('--tar_filename', type=str, help='Name of the TAR file.')
     parser.add_argument('--gdas_tar_indir', type=str, help='Input directory for the GDAS tarfiles.')
     parser.add_argument('--remove_members_from_gdas_tarfiles', action='store_true', help='Remove non-0.25 degree grid files from a GDAS tarfile')
     parser.add_argument('--timestep_for_gdas_extraction', type=int, nargs=3, help='Year, month, and day for the GDAS tarfiles that will be modified.')
@@ -1280,4 +1432,3 @@ if __name__ == '__main__':
         check_arguments(provided_arguments, required_arguments)
         remove_members_from_gdas_tarfiles(args.gdas_tar_indir, args.timestep_for_gdas_extraction[0], args.timestep_for_gdas_extraction[1],
                                          args.timestep_for_gdas_extraction[2])
-
