@@ -452,10 +452,11 @@ def add_or_subtract_hours_to_timestep(timestep, num_hours):
     
     Parameters
     ----------
-    timestep: str or tuple
+    timestep: int, str, tuple
+        * Int format for the timestep: YYYYMMDDHH
         * String format for the timestep: YYYY-MM-DD-HH (no dashes)
         * Tuple format for the timestep (all integers): (YYYY, MM, DD, HH)
-    num_hours: int
+    num_hours: int or tuple
         Number of hours to add or subtract to the new timestep.
     
     Returns
@@ -464,12 +465,16 @@ def add_or_subtract_hours_to_timestep(timestep, num_hours):
     as the input timestep.
     """
 
-    if type(timestep) == str:
+    timestep_type = type(timestep)
+
+    if timestep_type == str or timestep_type == np.str_:
         year = int(timestep[:4])
         month = int(timestep[4:6])
         day = int(timestep[6:8])
         hour = int(timestep[8:])
-    elif type(timestep) == tuple:
+    elif timestep_type == tuple:
+        if all(type(timestep_tuple_element) == int for timestep_tuple_element in timestep):
+            timestep = tuple([str(timestep_element) for timestep_element in timestep])
         year, month, day, hour = timestep[0], timestep[1], timestep[2], timestep[3]
     else:
         raise TypeError("Timestep must be a string or a tuple with integers in one of the following formats: YYYYMMDDHH or (YYYY, MM, DD, HH)")
@@ -481,40 +486,102 @@ def add_or_subtract_hours_to_timestep(timestep, num_hours):
 
     days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-    new_year, new_month, new_day, new_hour = year, month, day, hour + num_hours
+    new_timesteps = []
 
-    if new_hour > 0:
-        # If the new timestep is in a future day, this loop will be activated
-        while new_hour > 23:
-            new_hour -= 24
-            new_day += 1
+    for hours in num_hours:
+        new_year, new_month, new_day, new_hour = year, month, day, hour + hours
+        if new_hour > 0:
+            # If the new timestep is in a future day, this loop will be activated
+            while new_hour > 23:
+                new_hour -= 24
+                new_day += 1
 
-        # If the new timestep is in a future month, this loop will be activated
-        while new_day > days_per_month[new_month - 1]:
-            new_day -= days_per_month[new_month - 1]
-            if new_month < 12:
-                new_month += 1
-            else:
-                new_month = 1
-                new_year += 1
-    else:
-        # If the new timestep is in a past day, this loop will be activated
-        while new_hour < 0:
-            new_hour += 24
-            new_day -= 1
+            # If the new timestep is in a future month, this loop will be activated
+            while new_day > days_per_month[new_month - 1]:
+                new_day -= days_per_month[new_month - 1]
+                if new_month < 12:
+                    new_month += 1
+                else:
+                    new_month = 1
+                    new_year += 1
+        else:
+            # If the new timestep is in a past day, this loop will be activated
+            while new_hour < 0:
+                new_hour += 24
+                new_day -= 1
 
-        # If the new timestep is in a past month, this loop will be activated
-        while new_day < 1:
-            new_day += days_per_month[new_month - 2]
-            if new_month > 1:
-                new_month -= 1
-            else:
-                new_month = 12
-                new_year -= 1
+            # If the new timestep is in a past month, this loop will be activated
+            while new_day < 1:
+                new_day += days_per_month[new_month - 2]
+                if new_month > 1:
+                    new_month -= 1
+                else:
+                    new_month = 12
+                    new_year -= 1
 
-    if type(timestep) == str:
-        new_timestep = '%d%02d%02d%02d' % (new_year, new_month, new_day, new_hour)
-    else:
-        new_timestep = (new_year, new_month, new_day, new_hour)
+        if timestep_type == str or timestep_type == np.str_:
+            new_timesteps.append('%d%02d%02d%02d' % (new_year, new_month, new_day, new_hour))
+        else:
+            new_timesteps.append((new_year, new_month, new_day, new_hour))
 
-    return new_timestep
+        if len(new_timesteps) == 1:
+            new_timesteps = new_timesteps[0]
+
+        return new_timesteps
+
+
+def normalize_variables(variable_ds):
+    """
+    Function that normalizes GDAS variables via min-max normalization.
+
+    Parameters
+    ----------
+    variable_ds: xr.Dataset
+        - Dataset containing ERA5 or GDAS variable data.
+
+    Returns
+    -------
+    variable_ds: xr.Dataset
+        - Same as input dataset, but the variables are normalized via min-max normalization.
+    """
+
+    norm_params = pd.read_csv('./normalization_parameters.csv', index_col='Variable')
+
+    variable_list = list(variable_ds.keys())
+    pressure_levels = variable_ds['pressure_level'].values
+
+    for j in range(len(variable_list)):
+
+        new_values_for_variable = np.empty(shape=np.shape(variable_ds[variable_list[0]].values))
+        var = variable_list[j]
+
+        for pressure_level_index in range(len(pressure_levels)):
+            norm_var = variable_list[j] + '_' + pressure_levels[pressure_level_index]
+
+            # Min-max normalization
+            new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - norm_params.loc[norm_var, 'Min']) /
+                                                    (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+
+        variable_ds[var].values = new_values_for_variable
+
+    return variable_ds
+
+
+def randomize_variables(variable_ds: xr.Dataset, random_variables: list or tuple):
+    """
+    Scramble the values of specific variables within a given dataset.
+
+    Parameters
+    ----------
+    variable_ds: xr.Dataset
+        - ERA5 or GDAS variable dataset.
+    random_variables: list or tuple
+        List of variables to randomize the values of.
+    """
+
+    for random_variable in random_variables:
+        variable_values = variable_ds[random_variable].values  # DataArray of the current variable
+        variable_shape = np.shape(variable_values)
+        flattened_variable_values = variable_values.flatten()
+        np.random.shuffle(flattened_variable_values)
+        variable_ds[random_variable].values = np.reshape(flattened_variable_values, variable_shape)
