@@ -412,65 +412,38 @@ def virtual_temperature_from_dewpoint(T, Td, P):
     return virtual_temperature_from_mixing_ratio(T, r)  # virtual temperature
 
 
-def normalize_era5(era5_ds):
-    """
-    Function that normalizes ERA5 variables via min-max normalization.
-
-    Parameters
-    ----------
-    era5_ds: xr.Dataset
-        Dataset containing variable data.
-
-    Returns
-    -------
-    era5_ds: xr.Dataset
-        Dataset containing normalized variable data.
-    """
-
-    norm_params = read_csv('normalization_parameters_era5.csv', index_col='Variable')
-
-    variable_list = list(era5_ds.keys())
-    for j in range(len(variable_list)):
-        var = variable_list[j]
-        # Min-max normalization
-        era5_ds[var].values = np.nan_to_num((era5_ds[var].values - norm_params.loc[var, 'Min']) /
-                                            (norm_params.loc[var, 'Max'] - norm_params.loc[var, 'Min']))
-
-    return era5_ds
-
-
-def normalize_gdas(gdas_ds, pressure_level):
+def normalize(variable_ds):
     """
     Function that normalizes GDAS variables via min-max normalization.
 
     Parameters
     ----------
-    gdas_ds: xr.Dataset
-        Dataset containing variable data.
-    pressure_level: 'surface' or int
-        Pressure level of the data that is being normalized.
+    variable_ds: xr.Dataset
+        - Dataset containing ERA5 or GDAS variable data.
 
     Returns
     -------
-    gdas_ds: xr.Dataset
-        Dataset containing normalized variable data.
+    variable_ds: xr.Dataset
+        - Same as input dataset, but the variables are normalized via min-max normalization.
     """
 
-    norm_params = read_csv('I:/PycharmProjects/fronts/normalization_parameters_gdas.csv', index_col='Variable')
+    norm_params = read_csv('./normalization_parameters.csv', index_col='Variable')
 
-    variable_list = ['T', 'Td', 'Tv', 'Tw', 'theta_e', 'theta_w', 'r', 'RH', 'u', 'v', 'q']
-
-    if pressure_level == 'surface':
-        variable_list.append('mslp')
-    else:
-        variable_list.append('z')
+    variable_list = list(variable_ds.keys())
+    pressure_levels = variable_ds['pressure_level'].values
 
     for j in range(len(variable_list)):
-        norm_var = variable_list[j] + '_' + str(pressure_level)
+
+        new_values_for_variable = np.empty(shape=np.shape(variable_ds[variable_list[0]].values))
         var = variable_list[j]
-        # Min-max normalization
 
-        gdas_ds[var].values = np.nan_to_num((gdas_ds[var].values - norm_params.loc[norm_var, 'Min']) /
-                                            (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+        for pressure_level_index in range(len(pressure_levels)):
+            norm_var = variable_list[j] + '_' + pressure_levels[pressure_level_index]
 
-    return gdas_ds
+            # Min-max normalization
+            new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - norm_params.loc[norm_var, 'Min']) /
+                                                    (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+
+        variable_ds[var].values = new_values_for_variable
+
+    return variable_ds
