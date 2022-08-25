@@ -2,7 +2,7 @@
 Functions in this script create pickle files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/1/2022 2:18 AM CDT
+Last updated: 8/25/2022 1:29 PM CT
 """
 
 import argparse
@@ -22,7 +22,38 @@ import wget
 import os
 
 
-def front_xmls_to_pickle(year, month, day, xml_dir, pickle_outdir):
+def check_directory(directory: str, year: int, month: int, day: int):
+    """
+    Check directory for subdirectories for the given year, month, and day.
+
+    Parameters
+    ----------
+    directory: str
+        - Directory to check
+    year: int
+    month: int
+    day: int
+    """
+
+    assert os.path.isdir(directory)  # Check to see if the main directory is valid
+
+    year_dir = '%s/%d' % (directory, year)
+    month_dir = '%s/%02d' % (year_dir, month)
+    day_dir = '%s/%02d' % (month_dir, day)
+    
+    ### Check for the correct subdirectories and make them if they do not exist ###
+    if not os.path.isdir(year_dir):
+        os.mkdir(year_dir)
+        os.mkdir(month_dir)
+        os.mkdir(day_dir)
+    elif not os.path.isdir(month_dir):
+        os.mkdir(month_dir)
+        os.mkdir(day_dir)
+    elif not os.path.isdir(day_dir):
+        os.mkdir(day_dir)
+
+
+def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
     """
     Reads the xml files to pull frontal objects.
 
@@ -33,7 +64,7 @@ def front_xmls_to_pickle(year, month, day, xml_dir, pickle_outdir):
     day: day
     xml_dir: str
         Directory where the front xml files are stored.
-    pickle_outdir: str
+    netcdf_outdir: str
         Directory where the created pickle files will be stored.
     """
     files = sorted(glob.glob("%s/*_%04d%02d%02d*f000.xml" % (xml_dir, year, month, day)))
@@ -242,20 +273,22 @@ def front_xmls_to_pickle(year, month, day, xml_dir, pickle_outdir):
                             if frequency[k][i][j] > 0:
                                 fronttype[i][j] = 16
 
+        filename_netcdf = "FrontObjects_%04d%02d%02d%02d_full.nc" % (year, month, day, hour)
         fronts_ds = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)}, coords={"latitude": lats, "longitude": lons, "time": time})
+        fronts_ds.to_netcdf(path="%s/%d/%02d/%02d/%s" % (netcdf_outdir, year, month, day, filename_netcdf), engine='scipy', mode='w')
+
         fronts_ds['longitude'] = fronts_ds['longitude'].astype('float16')
         fronts_ds['latitude'] = fronts_ds['latitude'].astype('float16')
         fronts_ds['identifier'] = fronts_ds['identifier'].astype('int8')
 
-        filename = "FrontObjects_%04d%02d%02d%02d_full.pkl" % (year, month, day, hour)
-
+        filename_pickle = "FrontObjects_%04d%02d%02d%02d_full.pkl" % (year, month, day, hour)
         fronts_ds.load()
-        outfile = open("%s/%d/%02d/%02d/%s" % (pickle_outdir, year, month, day, filename), 'wb')
+        outfile = open("%s/%d/%02d/%02d/%s" % (netcdf_outdir, year, month, day, filename_pickle), 'wb')
         pickle.dump(fronts_ds, outfile)
         outfile.close()
 
 
-def create_era5_datasets(year, month, day, netcdf_ERA5_indir, pickle_outdir):
+def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
     """
     Extract ERA5 variable data for the specified year, month, day, and hour.
 
@@ -265,61 +298,29 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, pickle_outdir):
     month: month
     day: day
     netcdf_ERA5_indir: Directory where the ERA5 netCDF files are contained.
-    pickle_outdir: Directory where the created pickle files will be stored.
+    netcdf_outdir: Directory where the created pickle files will be stored.
 
     Returns
     -------
     xr_pickle: Xarray dataset containing variable data for the full domain.
     """
-    in_file_name_2mT = 'ERA5Global_%d_3hrly_2mT.nc' % year
-    in_file_name_2mTd = 'ERA5Global_%d_3hrly_2mTd.nc' % year
-    in_file_name_sp = 'ERA5Global_%d_3hrly_sp.nc' % year
-    in_file_name_U10m = 'ERA5Global_%d_3hrly_U10m.nc' % year
-    in_file_name_V10m = 'ERA5Global_%d_3hrly_V10m.nc' % year
+    era5_T_sfc_file = 'ERA5Global_%d_3hrly_2mT.nc' % year
+    era5_Td_sfc_file = 'ERA5Global_%d_3hrly_2mTd.nc' % year
+    era5_sp_file = 'ERA5Global_%d_3hrly_sp.nc' % year
+    era5_u_sfc_file = 'ERA5Global_%d_3hrly_U10m.nc' % year
+    era5_v_sfc_file = 'ERA5Global_%d_3hrly_V10m.nc' % year
 
     timestring = "%d-%02d-%02d" % (year, month, day)
-
-    ds_2mT = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_2mT), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
-    ds_2mTd = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_2mTd), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
-    ds_sp = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_sp), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
-    ds_U10m = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_U10m), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
-    ds_V10m = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, in_file_name_V10m), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
-
-    ds_2mT = ds_2mT.sel(time='%s' % timestring)
-    ds_2mTd = ds_2mTd.sel(time='%s' % timestring)
-    ds_sp = ds_sp.sel(time='%s' % timestring)
-    ds_U10m = ds_U10m.sel(time='%s' % timestring)
-    ds_V10m = ds_V10m.sel(time='%s' % timestring)
-
-    ds = xr.merge((ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m))
-    ds_theta_w = variables.wet_bulb_temperature(ds.t2m, ds.d2m)  # Wet-bulb potential temperature dataset
-    ds_mixing_ratio = variables.mixing_ratio_from_dewpoint(ds.d2m, ds.sp)  # Mixing ratio dataset
-    ds_RH = variables.relative_humidity(ds.t2m, ds.d2m)  # Relative humidity dataset
-    ds_Tv = variables.virtual_temperature_from_dewpoint(ds.t2m, ds.d2m, ds.sp)  # Virtual temperature dataset
-    ds_Tw = variables.wet_bulb_temperature(ds.t2m, ds.d2m)  # Wet-bulb temperature dataset
 
     lons = np.append(np.arange(130, 360, 0.25), np.arange(0, 10.25, 0.25))
-    lats = np.arange(0, 80.25, 0.25)
+    lats = np.arange(0, 80.25, 0.25)[::-1]
     lons360 = np.arange(130, 370.25, 0.25)
 
-    full_lons = np.arange(0, 360, 0.25)
-    full_lats = np.arange(-90, 90.25, 0.25)
-
-    ds_2mT = ds_2mT.sel(longitude=lons, latitude=lats)
-    ds_2mTd = ds_2mTd.sel(longitude=lons, latitude=lats)
-    ds_sp = ds_sp.sel(longitude=lons, latitude=lats)
-    ds_U10m = ds_U10m.sel(longitude=lons, latitude=lats)
-    ds_V10m = ds_V10m.sel(longitude=lons, latitude=lats)
-    ds_theta_w = ds_theta_w.sel(longitude=lons, latitude=lats).to_dataset(name='theta_w')
-    ds_mixing_ratio = ds_mixing_ratio.sel(longitude=lons, latitude=lats).to_dataset(name='mix_ratio')
-    ds_RH = ds_RH.sel(longitude=lons, latitude=lats).to_dataset(name='rel_humid')
-    ds_Tv = ds_Tv.sel(longitude=lons, latitude=lats).to_dataset(name='virt_temp')
-    ds_Tw = ds_Tw.sel(longitude=lons, latitude=lats).to_dataset(name='wet_bulb')
-    ds_theta_e = variables.equivalent_potential_temperature(ds_2mT.t2m, ds_2mTd.d2m, ds_sp.sp).to_dataset(name='theta_e')
-    ds_theta_v = variables.virtual_potential_temperature(ds_2mT.t2m, ds_2mTd.d2m, ds_sp.sp).to_dataset(name='theta_v')
-    ds_q = variables.specific_humidity_from_dewpoint(ds_2mTd.d2m, ds_sp.sp).to_dataset(name='q')
-
-    timestring = "%d-%02d-%02d" % (year, month, day)
+    T_sfc_full_day = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, era5_T_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
+    Td_sfc_full_day = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, era5_Td_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
+    sp_full_day = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, era5_sp_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
+    u_sfc_full_day = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, era5_u_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
+    v_sfc_full_day = xr.open_mfdataset("%s/%s" % (netcdf_ERA5_indir, era5_v_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
 
     PL_data = xr.open_mfdataset(
         paths=('/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_Q.nc' % year,
@@ -327,328 +328,293 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, pickle_outdir):
                '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_U.nc' % year,
                '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_V.nc' % year,
                '/ourdisk/hpc/ai2es/fronts/era5/Pressure_Level/ERA5Global_PL_%s_3hrly_Z.nc' % year),
-        chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
-
-    PL_850 = PL_data.sel(level=850)
-    PL_900 = PL_data.sel(level=900)
-    PL_950 = PL_data.sel(level=950)
-    PL_1000 = PL_data.sel(level=1000)
-
-    time = PL_850['time'].values
-    q_850 = PL_850['q'].values
-    q_900 = PL_900['q'].values
-    q_950 = PL_950['q'].values
-    q_1000 = PL_1000['q'].values
-    t_850 = PL_850['t'].values
-    t_900 = PL_900['t'].values
-    t_950 = PL_950['t'].values
-    t_1000 = PL_1000['t'].values
-    u_850 = PL_850['u'].values
-    u_900 = PL_900['u'].values
-    u_950 = PL_950['u'].values
-    u_1000 = PL_1000['u'].values
-    v_850 = PL_850['v'].values
-    v_900 = PL_900['v'].values
-    v_950 = PL_950['v'].values
-    v_1000 = PL_1000['v'].values
-    z_850 = PL_850['z'].values
-    z_900 = PL_900['z'].values
-    z_950 = PL_950['z'].values
-    z_1000 = PL_1000['z'].values
-
-    d_850 = variables.dewpoint_from_specific_humidity(85000, t_850, q_850)
-    d_900 = variables.dewpoint_from_specific_humidity(90000, t_900, q_900)
-    d_950 = variables.dewpoint_from_specific_humidity(95000, t_950, q_950)
-    d_1000 = variables.dewpoint_from_specific_humidity(100000, t_1000, q_1000)
-    mix_ratio_850 = variables.mixing_ratio_from_dewpoint(d_850, 85000)
-    mix_ratio_900 = variables.mixing_ratio_from_dewpoint(d_900, 90000)
-    mix_ratio_950 = variables.mixing_ratio_from_dewpoint(d_950, 95000)
-    mix_ratio_1000 = variables.mixing_ratio_from_dewpoint(d_1000, 100000)
-    rel_humid_850 = variables.relative_humidity(t_850, d_850)
-    rel_humid_900 = variables.relative_humidity(t_900, d_900)
-    rel_humid_950 = variables.relative_humidity(t_950, d_950)
-    rel_humid_1000 = variables.relative_humidity(t_1000, d_1000)
-    theta_e_850 = variables.equivalent_potential_temperature(t_850, d_850, 85000)
-    theta_e_900 = variables.equivalent_potential_temperature(t_900, d_900, 90000)
-    theta_e_950 = variables.equivalent_potential_temperature(t_950, d_950, 95000)
-    theta_e_1000 = variables.equivalent_potential_temperature(t_1000, d_1000, 100000)
-    theta_v_850 = variables.virtual_temperature_from_dewpoint(t_850, d_850, 85000)
-    theta_v_900 = variables.virtual_temperature_from_dewpoint(t_900, d_900, 90000)
-    theta_v_950 = variables.virtual_temperature_from_dewpoint(t_950, d_950, 95000)
-    theta_v_1000 = variables.virtual_temperature_from_dewpoint(t_1000, d_1000, 100000)
-    theta_w_850 = variables.wet_bulb_potential_temperature(t_850, d_850, 85000)
-    theta_w_900 = variables.wet_bulb_potential_temperature(t_900, d_900, 90000)
-    theta_w_950 = variables.wet_bulb_potential_temperature(t_950, d_950, 95000)
-    theta_w_1000 = variables.wet_bulb_potential_temperature(t_1000, d_1000, 100000)
-    virt_temp_850 = variables.virtual_temperature_from_dewpoint(t_850, d_850, 85000)
-    virt_temp_900 = variables.virtual_temperature_from_dewpoint(t_900, d_900, 90000)
-    virt_temp_950 = variables.virtual_temperature_from_dewpoint(t_950, d_950, 95000)
-    virt_temp_1000 = variables.virtual_temperature_from_dewpoint(t_1000, d_1000, 100000)
-    wet_bulb_850 = variables.wet_bulb_temperature(t_850, d_850)
-    wet_bulb_900 = variables.wet_bulb_temperature(t_900, d_900)
-    wet_bulb_950 = variables.wet_bulb_temperature(t_950, d_950)
-    wet_bulb_1000 = variables.wet_bulb_temperature(t_1000, d_1000)
-
-    new_850 = xr.Dataset(data_vars=dict(q_850=(['time', 'latitude', 'longitude'], q_850*1000),
-                                        t_850=(['time', 'latitude', 'longitude'], t_850),
-                                        u_850=(['time', 'latitude', 'longitude'], u_850),
-                                        v_850=(['time', 'latitude', 'longitude'], v_850),
-                                        z_850=(['time', 'latitude', 'longitude'], z_850/98.0665),
-                                        d_850=(['time', 'latitude', 'longitude'], d_850),
-                                        mix_ratio_850=(['time', 'latitude', 'longitude'], mix_ratio_850*1000),
-                                        rel_humid_850=(['time', 'latitude', 'longitude'], rel_humid_850),
-                                        theta_e_850=(['time', 'latitude', 'longitude'], theta_e_850),
-                                        theta_v_850=(['time', 'latitude', 'longitude'], theta_v_850),
-                                        theta_w_850=(['time', 'latitude', 'longitude'], theta_w_850),
-                                        virt_temp_850=(['time', 'latitude', 'longitude'], virt_temp_850),
-                                        wet_bulb_850=(['time', 'latitude', 'longitude'], wet_bulb_850)),
-                         coords=dict(latitude=full_lats, longitude=full_lons, time=time))
-    new_900 = xr.Dataset(data_vars=dict(q_900=(['time', 'latitude', 'longitude'], q_900*1000),
-                                        t_900=(['time', 'latitude', 'longitude'], t_900),
-                                        u_900=(['time', 'latitude', 'longitude'], u_900),
-                                        v_900=(['time', 'latitude', 'longitude'], v_900),
-                                        z_900=(['time', 'latitude', 'longitude'], z_900/98.0665),
-                                        d_900=(['time', 'latitude', 'longitude'], d_900),
-                                        mix_ratio_900=(['time', 'latitude', 'longitude'], mix_ratio_900*1000),
-                                        rel_humid_900=(['time', 'latitude', 'longitude'], rel_humid_900),
-                                        theta_e_900=(['time', 'latitude', 'longitude'], theta_e_900),
-                                        theta_v_900=(['time', 'latitude', 'longitude'], theta_v_900),
-                                        theta_w_900=(['time', 'latitude', 'longitude'], theta_w_900),
-                                        virt_temp_900=(['time', 'latitude', 'longitude'], virt_temp_900),
-                                        wet_bulb_900=(['time', 'latitude', 'longitude'], wet_bulb_900)),
-                         coords=dict(latitude=full_lats, longitude=full_lons, time=time))
-    new_950 = xr.Dataset(data_vars=dict(q_950=(['time', 'latitude', 'longitude'], q_950*1000),
-                                        t_950=(['time', 'latitude', 'longitude'], t_950),
-                                        u_950=(['time', 'latitude', 'longitude'], u_950),
-                                        v_950=(['time', 'latitude', 'longitude'], v_950),
-                                        z_950=(['time', 'latitude', 'longitude'], z_950/98.0665),
-                                        d_950=(['time', 'latitude', 'longitude'], d_950),
-                                        mix_ratio_950=(['time', 'latitude', 'longitude'], mix_ratio_950*1000),
-                                        rel_humid_950=(['time', 'latitude', 'longitude'], rel_humid_950),
-                                        theta_e_950=(['time', 'latitude', 'longitude'], theta_e_950),
-                                        theta_v_950=(['time', 'latitude', 'longitude'], theta_v_950),
-                                        theta_w_950=(['time', 'latitude', 'longitude'], theta_w_950),
-                                        virt_temp_950=(['time', 'latitude', 'longitude'], virt_temp_950),
-                                        wet_bulb_950=(['time', 'latitude', 'longitude'], wet_bulb_950)),
-                         coords=dict(latitude=full_lats, longitude=full_lons, time=time))
-    new_1000 = xr.Dataset(data_vars=dict(q_1000=(['time', 'latitude', 'longitude'], q_1000*1000),
-                                         t_1000=(['time', 'latitude', 'longitude'], t_1000),
-                                         u_1000=(['time', 'latitude', 'longitude'], u_1000),
-                                         v_1000=(['time', 'latitude', 'longitude'], v_1000),
-                                         z_1000=(['time', 'latitude', 'longitude'], z_1000/98.0665),
-                                         d_1000=(['time', 'latitude', 'longitude'], d_1000),
-                                         mix_ratio_1000=(['time', 'latitude', 'longitude'], mix_ratio_1000*1000),
-                                         rel_humid_1000=(['time', 'latitude', 'longitude'], rel_humid_1000),
-                                         theta_e_1000=(['time', 'latitude', 'longitude'], theta_e_1000),
-                                         theta_v_1000=(['time', 'latitude', 'longitude'], theta_v_1000),
-                                         theta_w_1000=(['time', 'latitude', 'longitude'], theta_w_1000),
-                                         virt_temp_1000=(['time', 'latitude', 'longitude'], virt_temp_1000),
-                                         wet_bulb_1000=(['time', 'latitude', 'longitude'], wet_bulb_1000)),
-                          coords=dict(latitude=full_lats, longitude=full_lons, time=time))
-
-    ds_pickle = [ds_2mT, ds_2mTd, ds_sp, ds_U10m, ds_V10m, ds_theta_w, ds_mixing_ratio, ds_RH, ds_Tv, ds_Tw, ds_theta_e,
-                 ds_theta_v, ds_q, new_850, new_900, new_950, new_1000]
-
-    xr_pickle = xr.merge(ds_pickle, combine_attrs='override').sel(longitude=lons, latitude=lats)
-    xr_pickle['longitude'] = lons360
-    xr_pickle['q'].values = xr_pickle['q'].values*1000
-    xr_pickle['t2m'].values = xr_pickle['t2m'].values
-    xr_pickle['d2m'].values = xr_pickle['d2m'].values
-    xr_pickle['sp'].values = xr_pickle['sp'].values/100  # convert Pa to hPa
-    xr_pickle['u10'].values = xr_pickle['u10'].values
-    xr_pickle['v10'].values = xr_pickle['v10'].values
-    xr_pickle['theta_e'].values = xr_pickle['theta_e'].values
-    xr_pickle['theta_v'].values = xr_pickle['theta_v'].values
-    xr_pickle['theta_w'].values = xr_pickle['theta_w'].values
-    xr_pickle['mix_ratio'].values = xr_pickle['mix_ratio'].values*1000
-    xr_pickle['rel_humid'].values = xr_pickle['rel_humid'].values
-    xr_pickle['virt_temp'].values = xr_pickle['virt_temp'].values
-    xr_pickle['wet_bulb'].values = xr_pickle['wet_bulb'].values
-
-    xr_pickle.t2m.attrs['units'] = 'K'
-    xr_pickle.t2m.attrs['long_name'] = '2m AGL Temperature'
-    xr_pickle.d2m.attrs['units'] = 'K'
-    xr_pickle.d2m.attrs['long_name'] = '2m AGL Dewpoint temperature'
-    xr_pickle.sp.attrs['units'] = 'hPa'
-    xr_pickle.sp.attrs['long_name'] = 'Surface pressure'
-    xr_pickle.u10.attrs['units'] = 'm/s'
-    xr_pickle.u10.attrs['long_name'] = '10m AGL Zonal wind velocity'
-    xr_pickle.v10.attrs['units'] = 'm/s'
-    xr_pickle.v10.attrs['long_name'] = '10m AGL Meridional wind velocity'
-    xr_pickle.theta_v.attrs['units'] = 'K'
-    xr_pickle.theta_v.attrs['long_name'] = '2m AGL Virtual potential temperature'
-    xr_pickle.theta_w.attrs['units'] = 'K'
-    xr_pickle.theta_w.attrs['long_name'] = '2m AGL Wet-bulb potential temperature'
-    xr_pickle.mix_ratio.attrs['units'] = 'g(H2O)/kg(air)'
-    xr_pickle.mix_ratio.attrs['long_name'] = '2m AGL Mixing ratio'
-    xr_pickle.rel_humid.attrs['long_name'] = '2m AGL Relative humidity'
-    xr_pickle.virt_temp.attrs['units'] = 'K'
-    xr_pickle.virt_temp.attrs['long_name'] = '2m AGL Virtual temperature'
-    xr_pickle.wet_bulb.attrs['units'] = 'K'
-    xr_pickle.wet_bulb.attrs['long_name'] = '2m AGL Wet-bulb temperature'
-    xr_pickle.theta_e.attrs['units'] = 'K'
-    xr_pickle.theta_e.attrs['long_name'] = '2m AGL Equivalent potential temperature'
-    xr_pickle['q'].attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle['q'].attrs['long_name'] = '2m AGL Specific humidity'
-
-    xr_pickle.q_850.attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle.q_850.attrs['long_name'] = '850mb Specific humidity'
-    xr_pickle.t_850.attrs['units'] = 'K'
-    xr_pickle.t_850.attrs['long_name'] = '850mb Temperature'
-    xr_pickle.u_850.attrs['units'] = 'm/s'
-    xr_pickle.u_850.attrs['long_name'] = '850mb Zonal wind velocity'
-    xr_pickle.v_850.attrs['units'] = 'm/s'
-    xr_pickle.v_850.attrs['long_name'] = '850mb Meridional wind velocity'
-    xr_pickle.z_850.attrs['units'] = 'dam'
-    xr_pickle.z_850.attrs['long_name'] = '850mb Geopotential height'
-    xr_pickle.d_850.attrs['units'] = 'K'
-    xr_pickle.d_850.attrs['long_name'] = '850mb Dewpoint temperature'
-    xr_pickle.mix_ratio_850.attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle.mix_ratio_850.attrs['long_name'] = '850mb Mixing ratio'
-    xr_pickle.rel_humid_850.attrs['long_name'] = '850mb Relative humidity'
-    xr_pickle.theta_e_850.attrs['units'] = 'K'
-    xr_pickle.theta_e_850.attrs['long_name'] = '850mb Equivalent potential temperature'
-    xr_pickle.theta_v_850.attrs['units'] = 'K'
-    xr_pickle.theta_v_850.attrs['long_name'] = '850mb Virtual potential temperature'
-    xr_pickle.theta_w_850.attrs['units'] = 'K'
-    xr_pickle.theta_w_850.attrs['long_name'] = '850mb Wet-bulb potential temperature'
-    xr_pickle.virt_temp_850.attrs['units'] = 'K'
-    xr_pickle.virt_temp_850.attrs['long_name'] = '850mb Virtual temperature'
-    xr_pickle.wet_bulb_850.attrs['units'] = 'K'
-    xr_pickle.wet_bulb_850.attrs['long_name'] = '850mb Wet-bulb temperature'
-
-    xr_pickle.q_900.attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle.q_900.attrs['long_name'] = '900mb Specific humidity'
-    xr_pickle.t_900.attrs['units'] = 'K'
-    xr_pickle.t_900.attrs['long_name'] = '900mb Temperature'
-    xr_pickle.u_900.attrs['units'] = 'm/s'
-    xr_pickle.u_900.attrs['long_name'] = '900mb Zonal wind velocity'
-    xr_pickle.v_900.attrs['units'] = 'm/s'
-    xr_pickle.v_900.attrs['long_name'] = '900mb Meridional wind velocity'
-    xr_pickle.z_900.attrs['units'] = 'dam'
-    xr_pickle.z_900.attrs['long_name'] = '900mb Geopotential height'
-    xr_pickle.d_900.attrs['units'] = 'K'
-    xr_pickle.d_900.attrs['long_name'] = '900mb Dewpoint temperature'
-    xr_pickle.mix_ratio_900.attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle.mix_ratio_900.attrs['long_name'] = '900mb Mixing ratio'
-    xr_pickle.rel_humid_900.attrs['long_name'] = '900mb Relative humidity'
-    xr_pickle.theta_e_900.attrs['units'] = 'K'
-    xr_pickle.theta_e_900.attrs['long_name'] = '900mb Equivalent potential temperature'
-    xr_pickle.theta_v_900.attrs['units'] = 'K'
-    xr_pickle.theta_v_900.attrs['long_name'] = '900mb Virtual potential temperature'
-    xr_pickle.theta_w_900.attrs['units'] = 'K'
-    xr_pickle.theta_w_900.attrs['long_name'] = '900mb Wet-bulb potential temperature'
-    xr_pickle.virt_temp_900.attrs['units'] = 'K'
-    xr_pickle.virt_temp_900.attrs['long_name'] = '900mb Virtual temperature'
-    xr_pickle.wet_bulb_900.attrs['units'] = 'K'
-    xr_pickle.wet_bulb_900.attrs['long_name'] = '900mb Wet-bulb temperature'
-
-    xr_pickle.q_950.attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle.q_950.attrs['long_name'] = '950mb Specific humidity'
-    xr_pickle.t_950.attrs['units'] = 'K'
-    xr_pickle.t_950.attrs['long_name'] = '950mb Temperature'
-    xr_pickle.u_950.attrs['units'] = 'm/s'
-    xr_pickle.u_950.attrs['long_name'] = '950mb Zonal wind velocity'
-    xr_pickle.v_950.attrs['units'] = 'm/s'
-    xr_pickle.v_950.attrs['long_name'] = '950mb Meridional wind velocity'
-    xr_pickle.z_950.attrs['units'] = 'dam'
-    xr_pickle.z_950.attrs['long_name'] = '950mb Geopotential height'
-    xr_pickle.d_950.attrs['units'] = 'K'
-    xr_pickle.d_950.attrs['long_name'] = '950mb Dewpoint temperature'
-    xr_pickle.mix_ratio_950.attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle.mix_ratio_950.attrs['long_name'] = '950mb Mixing ratio'
-    xr_pickle.rel_humid_950.attrs['long_name'] = '950mb Relative humidity'
-    xr_pickle.theta_e_950.attrs['units'] = 'K'
-    xr_pickle.theta_e_950.attrs['long_name'] = '950mb Equivalent potential temperature'
-    xr_pickle.theta_v_950.attrs['units'] = 'K'
-    xr_pickle.theta_v_950.attrs['long_name'] = '950mb Virtual potential temperature'
-    xr_pickle.theta_w_950.attrs['units'] = 'K'
-    xr_pickle.theta_w_950.attrs['long_name'] = '950mb Wet-bulb potential temperature'
-    xr_pickle.virt_temp_950.attrs['units'] = 'K'
-    xr_pickle.virt_temp_950.attrs['long_name'] = '950mb Virtual temperature'
-    xr_pickle.wet_bulb_950.attrs['units'] = 'K'
-    xr_pickle.wet_bulb_950.attrs['long_name'] = '950mb Wet-bulb temperature'
-
-    xr_pickle.q_1000.attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle.q_1000.attrs['long_name'] = '1000mb Specific humidity'
-    xr_pickle.t_1000.attrs['units'] = 'K'
-    xr_pickle.t_1000.attrs['long_name'] = '1000mb Temperature'
-    xr_pickle.u_1000.attrs['units'] = 'm/s'
-    xr_pickle.u_1000.attrs['long_name'] = '1000mb Zonal wind velocity'
-    xr_pickle.v_1000.attrs['units'] = 'm/s'
-    xr_pickle.v_1000.attrs['long_name'] = '1000mb Meridional wind velocity'
-    xr_pickle.z_1000.attrs['units'] = 'dam'
-    xr_pickle.z_1000.attrs['long_name'] = '1000mb Geopotential height'
-    xr_pickle.d_1000.attrs['units'] = 'K'
-    xr_pickle.d_1000.attrs['long_name'] = '1000mb Dewpoint temperature'
-    xr_pickle.mix_ratio_1000.attrs['units'] = 'g(H20)/kg(air)'
-    xr_pickle.mix_ratio_1000.attrs['long_name'] = '1000mb Mixing ratio'
-    xr_pickle.rel_humid_1000.attrs['long_name'] = '1000mb Relative humidity'
-    xr_pickle.theta_e_1000.attrs['units'] = 'K'
-    xr_pickle.theta_e_1000.attrs['long_name'] = '1000mb Equivalent potential temperature'
-    xr_pickle.theta_v_1000.attrs['units'] = 'K'
-    xr_pickle.theta_v_1000.attrs['long_name'] = '1000mb Virtual potential temperature'
-    xr_pickle.theta_w_1000.attrs['units'] = 'K'
-    xr_pickle.theta_w_1000.attrs['long_name'] = '1000mb Wet-bulb potential temperature'
-    xr_pickle.virt_temp_1000.attrs['units'] = 'K'
-    xr_pickle.virt_temp_1000.attrs['long_name'] = '1000mb Virtual temperature'
-    xr_pickle.wet_bulb_1000.attrs['units'] = 'K'
-    xr_pickle.wet_bulb_1000.attrs['long_name'] = '1000mb Wet-bulb temperature'
-
-    lons = np.append(np.arange(130, 360, 0.25), np.arange(0, 10.25, 0.25))
-    lats = np.arange(0, 80.25, 0.25)
-    lons360 = np.arange(130, 370.25, 0.25)
-
-    xr_pickle = xr_pickle.sel(Longitude=lons, Latitude=lats)
-    xr_pickle = xr_pickle.rename(Latitude='latitude', Longitude='longitude', Type='type', Date='time')
-    xr_pickle['longitude'] = lons360
+        chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
 
     for hour in range(0, 24, 3):
 
         print(f"saving ERA5 data for {year}-%02d-%02d-%02dz" % (month, day, hour))
 
-        xr_pickle_data = xr_pickle.sel(time='%d-%02d-%02dT%02d:00:00' % (year, month, day, hour))
+        timestep = '%d-%02d-%02dT%02d:00:00' % (year, month, day, hour)
 
-        xr_pickle_data['longitude'] = xr_pickle_data['longitude'].astype('float16')
-        xr_pickle_data['latitude'] = xr_pickle_data['latitude'].astype('float16')
-        xr_pickle_data = xr_pickle_data.astype('float16')
+        PL_850 = PL_data.sel(level=850, time=timestep)
+        PL_900 = PL_data.sel(level=900, time=timestep)
+        PL_950 = PL_data.sel(level=950, time=timestep)
+        PL_1000 = PL_data.sel(level=1000, time=timestep)
 
-        num_variables = len(list(xr_pickle_data.keys()))
+        T_sfc = T_sfc_full_day.sel(time=timestep)['t2m'].values
+        Td_sfc = Td_sfc_full_day.sel(time=timestep)['d2m'].values
+        sp = sp_full_day.sel(time=timestep)['sp'].values
+        u_sfc = u_sfc_full_day.sel(time=timestep)['u10'].values
+        v_sfc = v_sfc_full_day.sel(time=timestep)['v10'].values
 
-        filename = "Data_%dvar_%04d%02d%02d%02d_full.pkl" % (num_variables, year, month, day, hour)
+        theta_sfc = variables.potential_temperature(T_sfc, sp)  # Potential temperature
+        theta_e_sfc = variables.equivalent_potential_temperature(T_sfc, Td_sfc, sp)  # Equivalent potential temperature
+        theta_v_sfc = variables.virtual_temperature_from_dewpoint(T_sfc, Td_sfc, sp)  # Virtual potential temperature
+        theta_w_sfc = variables.wet_bulb_potential_temperature(T_sfc, Td_sfc, sp)  # Wet-bulb potential temperature
+        r_sfc = variables.mixing_ratio_from_dewpoint(Td_sfc, sp)  # Mixing ratio
+        q_sfc = variables.specific_humidity_from_dewpoint(Td_sfc, sp)  # Specific humidity
+        RH_sfc = variables.relative_humidity(T_sfc, Td_sfc)  # Relative humidity
+        Tv_sfc = variables.virtual_temperature_from_dewpoint(T_sfc, Td_sfc, sp)  # Virtual temperature
+        Tw_sfc = variables.wet_bulb_temperature(T_sfc, Td_sfc)  # Wet-bulb temperature
 
-        xr_pickle_data.load()  # prevents bug that can occur from opening the dataset
-        outfile = open("%s/%d/%02d/%02d/%s" % (pickle_outdir, year, month, day, filename), 'wb')
-        pickle.dump(xr_pickle_data, outfile)
-        outfile.close()
+        q_850 = PL_850['q'].values
+        q_900 = PL_900['q'].values
+        q_950 = PL_950['q'].values
+        q_1000 = PL_1000['q'].values
+        T_850 = PL_850['t'].values
+        T_900 = PL_900['t'].values
+        T_950 = PL_950['t'].values
+        T_1000 = PL_1000['t'].values
+        u_850 = PL_850['u'].values
+        u_900 = PL_900['u'].values
+        u_950 = PL_950['u'].values
+        u_1000 = PL_1000['u'].values
+        v_850 = PL_850['v'].values
+        v_900 = PL_900['v'].values
+        v_950 = PL_950['v'].values
+        v_1000 = PL_1000['v'].values
+        z_850 = PL_850['z'].values
+        z_900 = PL_900['z'].values
+        z_950 = PL_950['z'].values
+        z_1000 = PL_1000['z'].values
+
+        Td_850 = variables.dewpoint_from_specific_humidity(85000, T_850, q_850)
+        Td_900 = variables.dewpoint_from_specific_humidity(90000, T_900, q_900)
+        Td_950 = variables.dewpoint_from_specific_humidity(95000, T_950, q_950)
+        Td_1000 = variables.dewpoint_from_specific_humidity(100000, T_1000, q_1000)
+        r_850 = variables.mixing_ratio_from_dewpoint(Td_850, 85000)
+        r_900 = variables.mixing_ratio_from_dewpoint(Td_900, 90000)
+        r_950 = variables.mixing_ratio_from_dewpoint(Td_950, 95000)
+        r_1000 = variables.mixing_ratio_from_dewpoint(Td_1000, 100000)
+        RH_850 = variables.relative_humidity(T_850, Td_850)
+        RH_900 = variables.relative_humidity(T_900, Td_900)
+        RH_950 = variables.relative_humidity(T_950, Td_950)
+        RH_1000 = variables.relative_humidity(T_1000, Td_1000)
+        theta_850 = variables.potential_temperature(T_850, 85000)
+        theta_900 = variables.potential_temperature(T_900, 90000)
+        theta_950 = variables.potential_temperature(T_950, 95000)
+        theta_1000 = variables.potential_temperature(T_1000, 100000)
+        theta_e_850 = variables.equivalent_potential_temperature(T_850, Td_850, 85000)
+        theta_e_900 = variables.equivalent_potential_temperature(T_900, Td_900, 90000)
+        theta_e_950 = variables.equivalent_potential_temperature(T_950, Td_950, 95000)
+        theta_e_1000 = variables.equivalent_potential_temperature(T_1000, Td_1000, 100000)
+        theta_v_850 = variables.virtual_temperature_from_dewpoint(T_850, Td_850, 85000)
+        theta_v_900 = variables.virtual_temperature_from_dewpoint(T_900, Td_900, 90000)
+        theta_v_950 = variables.virtual_temperature_from_dewpoint(T_950, Td_950, 95000)
+        theta_v_1000 = variables.virtual_temperature_from_dewpoint(T_1000, Td_1000, 100000)
+        theta_w_850 = variables.wet_bulb_potential_temperature(T_850, Td_850, 85000)
+        theta_w_900 = variables.wet_bulb_potential_temperature(T_900, Td_900, 90000)
+        theta_w_950 = variables.wet_bulb_potential_temperature(T_950, Td_950, 95000)
+        theta_w_1000 = variables.wet_bulb_potential_temperature(T_1000, Td_1000, 100000)
+        Tv_850 = variables.virtual_temperature_from_dewpoint(T_850, Td_850, 85000)
+        Tv_900 = variables.virtual_temperature_from_dewpoint(T_900, Td_900, 90000)
+        Tv_950 = variables.virtual_temperature_from_dewpoint(T_950, Td_950, 95000)
+        Tv_1000 = variables.virtual_temperature_from_dewpoint(T_1000, Td_1000, 100000)
+        Tw_850 = variables.wet_bulb_temperature(T_850, Td_850)
+        Tw_900 = variables.wet_bulb_temperature(T_900, Td_900)
+        Tw_950 = variables.wet_bulb_temperature(T_950, Td_950)
+        Tw_1000 = variables.wet_bulb_temperature(T_1000, Td_1000)
+
+        pressure_levels = ['surface', 1000, 950, 900, 850]
+
+        T = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        Td = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        Tv = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        Tw = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        theta = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        theta_e = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        theta_v = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        theta_w = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        RH = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        r = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        q = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        u = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        v = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        sp_z = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+
+        T[0, :, :], T[1, :, :], T[2, :, :], T[3, :, :], T[4, :, :] = T_sfc, T_1000, T_950, T_900, T_850
+        Td[0, :, :], Td[1, :, :], Td[2, :, :], Td[3, :, :], Td[4, :, :] = Td_sfc, Td_1000, Td_950, Td_900, Td_850
+        Tv[0, :, :], Tv[1, :, :], Tv[2, :, :], Tv[3, :, :], Tv[4, :, :] = Tv_sfc, Tv_1000, Tv_950, Tv_900, Tv_850
+        Tw[0, :, :], Tw[1, :, :], Tw[2, :, :], Tw[3, :, :], Tw[4, :, :] = Tw_sfc, Tw_1000, Tw_950, Tw_900, Tw_850
+        theta[0, :, :], theta[1, :, :], theta[2, :, :], theta[3, :, :], theta[4, :, :] = theta_sfc, theta_1000, theta_950, theta_900, theta_850
+        theta_e[0, :, :], theta_e[1, :, :], theta_e[2, :, :], theta_e[3, :, :], theta_e[4, :, :] = theta_e_sfc, theta_e_1000, theta_e_950, theta_e_900, theta_e_850
+        theta_v[0, :, :], theta_v[1, :, :], theta_v[2, :, :], theta_v[3, :, :], theta_v[4, :, :] = theta_v_sfc, theta_v_1000, theta_v_950, theta_v_900, theta_v_850
+        theta_w[0, :, :], theta_w[1, :, :], theta_w[2, :, :], theta_w[3, :, :], theta_w[4, :, :] = theta_w_sfc, theta_w_1000, theta_w_950, theta_w_900, theta_w_850
+        RH[0, :, :], RH[1, :, :], RH[2, :, :], RH[3, :, :], RH[4, :, :] = RH_sfc, RH_1000, RH_950, RH_900, RH_850
+        r[0, :, :], r[1, :, :], r[2, :, :], r[3, :, :], r[4, :, :] = r_sfc, r_1000, r_950, r_900, r_850
+        q[0, :, :], q[1, :, :], q[2, :, :], q[3, :, :], q[4, :, :] = q_sfc, q_1000, q_950, q_900, q_850
+        u[0, :, :], u[1, :, :], u[2, :, :], u[3, :, :], u[4, :, :] = u_sfc, u_1000, u_950, u_900, u_850
+        v[0, :, :], v[1, :, :], v[2, :, :], v[3, :, :], v[4, :, :] = v_sfc, v_1000, v_950, v_900, v_850
+        sp_z[0, :, :], sp_z[1, :, :], sp_z[2, :, :], sp_z[3, :, :], sp_z[4, :, :] = sp/100, z_1000/10, z_950/10, z_900/10, z_850/10
+
+        full_era5_dataset = xr.Dataset(data_vars=dict(T=(('pressure_level', 'latitude', 'longitude'), T),
+                                                      Td=(('pressure_level', 'latitude', 'longitude'), Td),
+                                                      Tv=(('pressure_level', 'latitude', 'longitude'), Tv),
+                                                      Tw=(('pressure_level', 'latitude', 'longitude'), Tw),
+                                                      theta=(('pressure_level', 'latitude', 'longitude'), theta),
+                                                      theta_e=(('pressure_level', 'latitude', 'longitude'), theta_e),
+                                                      theta_v=(('pressure_level', 'latitude', 'longitude'), theta_v),
+                                                      theta_w=(('pressure_level', 'latitude', 'longitude'), theta_w),
+                                                      RH=(('pressure_level', 'latitude', 'longitude'), RH),
+                                                      r=(('pressure_level', 'latitude', 'longitude'), r * 1000),
+                                                      q=(('pressure_level', 'latitude', 'longitude'), q * 1000),
+                                                      u=(('pressure_level', 'latitude', 'longitude'), u),
+                                                      v=(('pressure_level', 'latitude', 'longitude'), v),
+                                                      sp_z=(('pressure_level', 'latitude', 'longitude'), sp_z)),
+                                       coords=dict(pressure_level=pressure_levels, latitude=lats, longitude=lons360)).astype('float32')
+
+        full_era5_dataset = full_era5_dataset.expand_dims({'time': np.atleast_1d(timestep)})
+
+        for variable in list(full_era5_dataset.keys()):
+            full_era5_dataset[variable].to_netcdf(path='%s/%d/%02d/%02d/era5_%s_%d%02d%02d%02d_full.nc' % (netcdf_outdir, year, month, day, variable, year, month, day, hour), mode='w', engine='scipy')
 
 
-def download_gdas_order(gdas_order_number, gdas_outdir):
+def download_ncep_has_order(ncep_has_order_number, ncep_has_outdir):
     """
-    Download a set of GDAS files as part of a HAS order from the NCEP.
+    Download files as part of a HAS order from the NCEP.
 
-    gdas_order_number: str
+    ncep_has_order_number: str
         - HAS order number for the GDAS data.
-    gdas_outdir: str
+    ncep_has_outdir: str
         - Directory where the GDAS or GFS file will be saved to.
     """
 
-    url = f'https://www.ncei.noaa.gov/pub/has/model/HAS{gdas_order_number}/'
-    page = requests.get(url).text
-    soup = BeautifulSoup(page, 'html.parser')
-    files = [url + node.get('href') for node in soup.find_all('a') if node.get('href').endswith('.tar')]
+    print("Connecting")
+    url = f'ftp://ftp.ncei.noaa.gov/pub/has/HAS{ncep_has_order_number}/'
+    files = pd.read_csv(f'I:/PycharmProjects/fronts/gdas_tarfiles_{ncep_has_order_number}.csv')['Filename'].values[::-1]
+    print("connected")
 
+    print("downloading")
     for file in files:
+        print(file)
         local_filename = file.replace(url, '')
-        if not os.path.isfile(f'{gdas_outdir}/{local_filename}'):
+        if not os.path.isfile(f'{ncep_has_outdir}/{local_filename}'):
             try:
-                wget.download(file, out=f"{gdas_outdir}/{local_filename}")
+                wget.download(url + file, out=f"{ncep_has_outdir}/{local_filename}")
             except urllib.error.HTTPError:
                 print(f"Error downloading {url}{file}")
                 pass
 
 
-def gdas_grib_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_hour=6):
+def download_latest_gdas_data(gdas_grib_outdir):
+    """
+    Download the latest GDAS grib files from NCEP.
+
+    gdas_outdir: str
+        Main directory for the GDAS grib files.
+    """
+
+    print(f"Updating GDAS files in directory: {gdas_grib_outdir}")
+
+    print("Connecting to main GDAS source")
+    url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/'
+    page = requests.get(url).text
+    soup = BeautifulSoup(page, 'html.parser')
+    gdas_folders_by_day = [url + node.get('href') for node in soup.find_all('a') if 'gdas' in node.get('href')]
+    timesteps_available = [folder[-9:-1] for folder in gdas_folders_by_day if 'prod/gdas' in folder][::-1]
+
+    files_added = 0
+
+    for timestep in timesteps_available:
+
+        year, month, day = timestep[:4], timestep[4:6], timestep[6:]
+        daily_directory = '%s/%s' % (gdas_grib_outdir, timestep)
+
+        url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gdas.{timestep}/'
+        page = requests.get(url).text
+        soup = BeautifulSoup(page, 'html.parser')
+
+        gdas_folders_by_hour = [url + node.get('href') for node in soup.find_all('a')]
+        hours_available = [folder[-3:-1] for folder in gdas_folders_by_hour if any(hour in folder[-3:-1] for hour in ['00', '06', '12', '18'])][::-1]
+
+        for hour in hours_available:
+
+            print(f"\nSearching for available data: {year}-{month}-{day}-%02dz" % float(hour))
+
+            url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gdas.{timestep}/%02d/atmos/' % float(hour)
+            page = requests.get(url).text
+            soup = BeautifulSoup(page, 'html.parser')
+            files = [url + node.get('href') for node in soup.find_all('a') if 'pgrb2.0p25' in node.get('href')]
+
+            if not os.path.isdir(daily_directory):
+                os.mkdir(daily_directory)
+
+            for file in files:
+                local_filename = file.replace(url, '')
+                full_file_path = f'{daily_directory}/{local_filename}'
+                if not os.path.isfile(full_file_path):
+                    try:
+                        wget.download(file, out=full_file_path)
+                        files_added += 1
+                    except urllib.error.HTTPError:
+                        print(f"Error downloading {url}{file}")
+                        pass
+                else:
+                    print(f"{full_file_path} already exists")
+
+    print("GDAS directory update complete, %d files added" % files_added)
+
+
+def download_latest_gfs_data(gfs_grib_outdir):
+    """
+    Download the latest GFS grib files from NCEP.
+
+    gfs_outdir: str
+        Main directory for the GFS grib files.
+    """
+
+    print(f"Updating GFS files in directory: {gfs_grib_outdir}")
+
+    print("Connecting to main GFS source")
+    url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/'
+    page = requests.get(url).text
+    soup = BeautifulSoup(page, 'html.parser')
+    gfs_folders_by_day = [url + node.get('href') for node in soup.find_all('a') if 'gfs' in node.get('href')]
+    timesteps_available = [folder[-9:-1] for folder in gfs_folders_by_day if 'prod/gfs' in folder][::-1]
+
+    files_added = 0
+
+    for timestep in timesteps_available:
+
+        year, month, day = timestep[:4], timestep[4:6], timestep[6:]
+        daily_directory = '%s/%s' % (gfs_grib_outdir, timestep)
+
+        url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.{timestep}/'
+        page = requests.get(url).text
+        soup = BeautifulSoup(page, 'html.parser')
+
+        gfs_folders_by_hour = [url + node.get('href') for node in soup.find_all('a')]
+        hours_available = [folder[-3:-1] for folder in gfs_folders_by_hour if any(hour in folder[-3:-1] for hour in ['00', '06', '12', '18'])][::-1]
+
+        for hour in hours_available:
+
+            print(f"\nSearching for available data: {year}-{month}-{day}-%02dz" % float(hour))
+
+            url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.{timestep}/%02d/atmos/' % float(hour)
+            page = requests.get(url).text
+            soup = BeautifulSoup(page, 'html.parser')
+            files = [url + node.get('href') for node in soup.find_all('a') if 'pgrb2.0p25.f00' in node.get('href')]
+
+            if not os.path.isdir(daily_directory):
+                os.mkdir(daily_directory)
+
+            for file in files:
+                local_filename = file.replace(url, '')
+                full_file_path = f'{daily_directory}/{local_filename}'
+                if not os.path.isfile(full_file_path):
+                    try:
+                        wget.download(file, out=full_file_path)
+                        files_added += 1
+                    except urllib.error.HTTPError:
+                        print(f"Error downloading {url}{file}")
+                        pass
+                else:
+                    print(f"{full_file_path} already exists")
+
+    print("GFS directory update complete, %d files added" % files_added)
+
+
+def gdas_grib_to_netcdf(year, month, day, hour, gdas_grib_indir, netcdf_outdir, forecast_hour=6):
     """
     Create GDAS pickle files from the grib files.
 
@@ -657,8 +623,9 @@ def gdas_grib_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_ho
     year: year
     month: month
     day: day
-    gdas_indir: Directory where the GDAS grib files are stored.
-    pickle_outdir: Directory where the created GDAS or GFS pickle files will be stored.
+    hour: hour
+    gdas_grib_indir: Directory where the GDAS grib files are stored.
+    netcdf_outdir: Directory where the created GDAS or GFS pickle files will be stored.
     forecast_hour: Hour for the forecast.
     """
 
@@ -670,229 +637,184 @@ def gdas_grib_to_pickle(year, month, day, gdas_indir, pickle_outdir, forecast_ho
     unified_longitude_indices = np.append(np.arange(start_lon * 4, (end_lon - 10) * 4), np.arange(0, (end_lon - 360) * 4 + 1))
     unified_latitude_indices = np.arange((90 - start_lat) * 4, (90 - end_lat) * 4 + 1)
 
-    for hour in range(0, 24, 6):
+    gdas_file_formats = ['%s/%d%02d%02d/gdas1.t%02dz.pgrb2.0p25.f%03d' % (gdas_grib_indir, year, month, day, hour, forecast_hour),
+                         '%s/%d%02d%02d/gdas.t%02dz.pgrb2.0p25.f%03d' % (gdas_grib_indir, year, month, day, hour, forecast_hour)]
 
-        gdas_file = '%s/%d%02d%02d/gdas.t%02dz.pgrb2.0p25.f%03d' % (gdas_indir, year, month, day, hour, forecast_hour)
+    ###############################################################################################################
+    ############################################# Pressure level data #############################################
+    ###############################################################################################################
 
-        ###############################################################################################################
-        ############################################# Pressure level data #############################################
-        ###############################################################################################################
+    file_found = False
 
-        try:
-            pressure_level_data = xr.open_dataset(gdas_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks={'latitude': 721, 'longitude': 1440})
-        except FileNotFoundError:
-            pass
+    attempt_no = 0
+    max_attempts = len(gdas_file_formats)
+
+    while file_found is False and attempt_no < max_attempts:
+        if not os.path.isfile(gdas_file_formats[attempt_no]):
+            attempt_no += 1
+            if attempt_no == max_attempts:
+                raise FileNotFoundError(f"No GDAS file found for {year}-%02d-%02d-%02dz f%03d" % (month, day, hour, forecast_hour))
+            else:
+                pass
         else:
-            print("generating GDAS pressure level data for %d-%02d-%02d-%02dz" % (year, month, day, hour))
+            file_found = True
+            pressure_level_data = xr.open_dataset(gdas_file_formats[attempt_no], engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks={'latitude': 721, 'longitude': 1440})
+            surface_data = xr.open_dataset(gdas_file_formats[attempt_no], engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks={'latitude': 721, 'longitude': 1440})
+            raw_pressure_data = xr.open_dataset(gdas_file_formats[attempt_no], engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks={'latitude': 721, 'longitude': 1440})
+            mslp_data = xr.open_dataset(gdas_file_formats[attempt_no], engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks={'latitude': 721, 'longitude': 1440})
 
-            unified_pressure_level_data = pressure_level_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices, isobaricInhPa=np.arange(0, 21))  # unified surface analysis domain
-            unified_pressure_level_data['longitude'] = np.arange(start_lon, end_lon + 0.25, 0.25)  # reformat longitude coordinates to a 360 degree system
+    sp = raw_pressure_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)['sp'].values / 100  # select unified surface analysis domain
+    unified_surface_data = surface_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
+    unified_mslp_data = mslp_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
 
-            # Change data type of the coordinates and pressure levels to reduce the size of the data
-            unified_pressure_level_data['longitude'] = unified_pressure_level_data['longitude'].values.astype('float16')
-            unified_pressure_level_data['latitude'] = unified_pressure_level_data['latitude'].values.astype('float16')
-            unified_pressure_level_data['isobaricInhPa'] = unified_pressure_level_data['isobaricInhPa'].values.astype('float32')
+    print("generating GDAS pressure level data for %d-%02d-%02d-%02dz" % (year, month, day, hour))
 
-            pressure_level_variables = list(unified_pressure_level_data.keys())
-            pressure_levels = unified_pressure_level_data['isobaricInhPa'].values
-            P = np.empty(shape=(21, (start_lat - end_lat) * 4 + 1, (end_lon - start_lon) * 4 + 1))  # create 3D array of pressure levels to match the shape of variable arrays
-            for pressure_level in range(21):
-                P[pressure_level, :, :] = pressure_levels[pressure_level] * 100
+    pressure_level_indices = np.array([0, 1, 2, 3, 4, 5, 8])
 
-            T = unified_pressure_level_data['t'].values
-            RH = unified_pressure_level_data['r'].values / 100
-            vap_pres = RH * variables.vapor_pressure(T)
-            Td = variables.dewpoint_from_vapor_pressure(vap_pres)
-            Tv = variables.virtual_temperature_from_dewpoint(T, Td, P)
-            Tw = variables.wet_bulb_temperature(T, Td)
-            r = variables.mixing_ratio_from_dewpoint(Td, P) * 1000  # Convert to g/kg
-            q = variables.specific_humidity_from_dewpoint(Td, P) * 1000  # Convert to g/kg
-            AH = variables.absolute_humidity(T, Td) * 1000  # Convert to g/kg
-            theta = variables.potential_temperature(T, P)
-            theta_e = variables.equivalent_potential_temperature(T, Td, P)
-            theta_v = variables.virtual_potential_temperature(T, Td, P)
-            theta_w = variables.wet_bulb_potential_temperature(T, Td, P)
+    unified_pressure_level_data = pressure_level_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices, isobaricInhPa=pressure_level_indices).drop_vars(['valid_time', 'step'])  # unified surface analysis domain
+    unified_pressure_level_data['longitude'] = np.arange(start_lon, end_lon + 0.25, 0.25)  # reformat longitude coordinates to a 360 degree system
 
-            unified_pressure_level_data = unified_pressure_level_data.rename(t='T', gh='z', r='RH', isobaricInhPa='pressure_level')
-            for variable_to_drop in ['wz', 'absv', 'o3mr', 'q']:
-                if variable_to_drop in pressure_level_variables:
-                    unified_pressure_level_data = unified_pressure_level_data.drop_vars(variable_to_drop)
+    # Change data type of the coordinates and pressure levels to reduce the size of the data
+    unified_pressure_level_data['longitude'] = unified_pressure_level_data['longitude'].values.astype('float32')
+    unified_pressure_level_data['latitude'] = unified_pressure_level_data['latitude'].values.astype('float32')
+    unified_pressure_level_data['isobaricInhPa'] = unified_pressure_level_data['isobaricInhPa'].values.astype('float32')
 
-            unified_pressure_level_data['RH'] = (('pressure_level', 'latitude', 'longitude'), RH)
+    pressure_levels = unified_pressure_level_data['isobaricInhPa'].values
+    P = np.empty(shape=(len(pressure_level_indices), (start_lat - end_lat) * 4 + 1, (end_lon - start_lon) * 4 + 1))  # create 3D array of pressure levels to match the shape of variable arrays
+    for pressure_level in range(len(pressure_level_indices)):
+        P[pressure_level, :, :] = pressure_levels[pressure_level] * 100
 
-            unified_pressure_level_data['Td'] = (('pressure_level', 'latitude', 'longitude'), Td)
-            unified_pressure_level_data['Td'].attrs['units'] = 'K'
-            unified_pressure_level_data['Td'].attrs['long_name'] = 'Dewpoint temperature'
+    T_pl = unified_pressure_level_data['t'].values
+    RH_pl = unified_pressure_level_data['r'].values / 100
+    vap_pres_pl = RH_pl * variables.vapor_pressure(T_pl)
+    Td_pl = variables.dewpoint_from_vapor_pressure(vap_pres_pl)
+    Tv_pl = variables.virtual_temperature_from_dewpoint(T_pl, Td_pl, P)
+    Tw_pl = variables.wet_bulb_temperature(T_pl, Td_pl)
+    r_pl = variables.mixing_ratio_from_dewpoint(Td_pl, P) * 1000  # Convert to g/kg
+    q_pl = variables.specific_humidity_from_dewpoint(Td_pl, P) * 1000  # Convert to g/kg
+    theta_pl = variables.potential_temperature(T_pl, P)
+    theta_e_pl = variables.equivalent_potential_temperature(T_pl, Td_pl, P)
+    theta_v_pl = variables.virtual_potential_temperature(T_pl, Td_pl, P)
+    theta_w_pl = variables.wet_bulb_potential_temperature(T_pl, Td_pl, P)
+    z = unified_pressure_level_data['gh'].values / 10  # Convert to dam
+    u_pl = unified_pressure_level_data['u'].values
+    v_pl = unified_pressure_level_data['v'].values
 
-            unified_pressure_level_data['Tv'] = (('pressure_level', 'latitude', 'longitude'), Tv)
-            unified_pressure_level_data['Tv'].attrs['units'] = 'K'
-            unified_pressure_level_data['Tv'].attrs['long_name'] = 'Virtual temperature'
+    ################################################################################################################
+    ################################# Surface data (MSLP and sigma coordinate data) ################################
+    ################################################################################################################
 
-            unified_pressure_level_data['Tw'] = (('pressure_level', 'latitude', 'longitude'), Tw)
-            unified_pressure_level_data['Tw'].attrs['units'] = 'K'
-            unified_pressure_level_data['Tw'].attrs['long_name'] = 'Wet-bulb temperature'
+    print("generating GDAS surface data for %d-%02d-%02d-%02dz" % (year, month, day, hour))
 
-            unified_pressure_level_data['r'] = (('pressure_level', 'latitude', 'longitude'), r)
-            unified_pressure_level_data['r'].attrs['units'] = 'g/kg'
-            unified_pressure_level_data['r'].attrs['long_name'] = 'Mixing ratio'
+    # Create arrays of coordinates for the surface data
+    surface_data_longitudes = np.arange(start_lon, end_lon + 0.25, 0.25).astype('float32')
+    surface_data_latitudes = unified_surface_data['latitude'].values.astype('float32')
 
-            unified_pressure_level_data['q'] = (('pressure_level', 'latitude', 'longitude'), q)
-            unified_pressure_level_data['q'].attrs['units'] = 'g/kg'
-            unified_pressure_level_data['q'].attrs['long_name'] = 'Specific humidity'
+    mslp = unified_mslp_data['mslet'].values  # mean sea level pressure (eta model reduction)
+    T_sigma = unified_surface_data['t'].values
+    RH_sigma = unified_surface_data['r'].values / 100
+    vap_pres_sigma = RH_sigma * variables.vapor_pressure(T_sigma)
+    Td_sigma = variables.dewpoint_from_vapor_pressure(vap_pres_sigma)
+    Tv_sigma = variables.virtual_temperature_from_dewpoint(T_sigma, Td_sigma, mslp)
+    Tw_sigma = variables.wet_bulb_temperature(T_sigma, Td_sigma)
+    r_sigma = variables.mixing_ratio_from_dewpoint(Td_sigma, mslp) * 1000  # Convert to g/kg
+    q_sigma = variables.specific_humidity_from_dewpoint(Td_sigma, mslp) * 1000  # Convert to g/kg
+    theta_sigma = variables.potential_temperature(T_sigma, mslp)
+    theta_e_sigma = variables.equivalent_potential_temperature(T_sigma, Td_sigma, mslp)
+    theta_v_sigma = variables.virtual_potential_temperature(T_sigma, Td_sigma, mslp)
+    theta_w_sigma = variables.wet_bulb_potential_temperature(T_sigma, Td_sigma, mslp)
+    u_sigma = unified_surface_data['u'].values
+    v_sigma = unified_surface_data['v'].values
 
-            unified_pressure_level_data['AH'] = (('pressure_level', 'latitude', 'longitude'), AH)
-            unified_pressure_level_data['AH'].attrs['units'] = 'percent'
-            unified_pressure_level_data['AH'].attrs['long_name'] = 'Mixing ratio'
+    T = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    Td = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    Tv = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    Tw = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    theta = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    theta_e = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    theta_v = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    theta_w = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    RH = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    r = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    q = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    u = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    v = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    mslp_z = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    sp_z = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
 
-            unified_pressure_level_data['theta'] = (('pressure_level', 'latitude', 'longitude'), theta)
-            unified_pressure_level_data['theta'].attrs['units'] = 'K'
-            unified_pressure_level_data['theta'].attrs['long_name'] = 'Potential temperature'
+    T[0, :, :] = T_sigma
+    T[1:, :, :] = T_pl
+    Td[0, :, :] = Td_sigma
+    Td[1:, :, :] = Td_pl
+    Tv[0, :, :] = Tv_sigma
+    Tv[1:, :, :] = Tv_pl
+    Tw[0, :, :] = Tw_sigma
+    Tw[1:, :, :] = Tw_pl
+    theta[0, :, :] = theta_sigma
+    theta[1:, :, :] = theta_pl
+    theta_e[0, :, :] = theta_e_sigma
+    theta_e[1:, :, :] = theta_e_pl
+    theta_v[0, :, :] = theta_v_sigma
+    theta_v[1:, :, :] = theta_v_pl
+    theta_w[0, :, :] = theta_w_sigma
+    theta_w[1:, :, :] = theta_w_pl
+    RH[0, :, :] = RH_sigma
+    RH[1:, :, :] = RH_pl
+    r[0, :, :] = r_sigma
+    r[1:, :, :] = r_pl
+    q[0, :, :] = q_sigma
+    q[1:, :, :] = q_pl
+    u[0, :, :] = u_sigma
+    u[1:, :, :] = u_pl
+    v[0, :, :] = v_sigma
+    v[1:, :, :] = v_pl
+    mslp_z[0, :, :] = mslp
+    mslp_z[1:, :, :] = z
+    sp_z[0, :, :] = sp
+    sp_z[1:, :, :] = z
 
-            unified_pressure_level_data['theta_e'] = (('pressure_level', 'latitude', 'longitude'), theta_e)
-            unified_pressure_level_data['theta_e'].attrs['units'] = 'K'
-            unified_pressure_level_data['theta_e'].attrs['long_name'] = 'Equivalent potential temperature'
+    pressure_levels = ['surface', 1000, 975, 950, 925, 900, 850, 700]
 
-            unified_pressure_level_data['theta_v'] = (('pressure_level', 'latitude', 'longitude'), theta_v)
-            unified_pressure_level_data['theta_v'].attrs['units'] = 'K'
-            unified_pressure_level_data['theta_v'].attrs['long_name'] = 'Virtual potential temperature'
+    full_gdas_dataset = xr.Dataset(data_vars=dict(T=(('pressure_level', 'latitude', 'longitude'), T),
+                                                  Td=(('pressure_level', 'latitude', 'longitude'), Td),
+                                                  Tv=(('pressure_level', 'latitude', 'longitude'), Tv),
+                                                  Tw=(('pressure_level', 'latitude', 'longitude'), Tw),
+                                                  theta=(('pressure_level', 'latitude', 'longitude'), theta),
+                                                  theta_e=(('pressure_level', 'latitude', 'longitude'), theta_e),
+                                                  theta_v=(('pressure_level', 'latitude', 'longitude'), theta_v),
+                                                  theta_w=(('pressure_level', 'latitude', 'longitude'), theta_w),
+                                                  RH=(('pressure_level', 'latitude', 'longitude'), RH),
+                                                  r=(('pressure_level', 'latitude', 'longitude'), r),
+                                                  q=(('pressure_level', 'latitude', 'longitude'), q),
+                                                  u=(('pressure_level', 'latitude', 'longitude'), u),
+                                                  v=(('pressure_level', 'latitude', 'longitude'), v),
+                                                  mslp_z=(('pressure_level', 'latitude', 'longitude'), mslp_z),
+                                                  sp_z=(('pressure_level', 'latitude', 'longitude'), sp_z)),
+                                   coords=dict(pressure_level=pressure_levels, latitude=surface_data_latitudes, longitude=surface_data_longitudes)).astype('float32')
 
-            unified_pressure_level_data['theta_w'] = (('pressure_level', 'latitude', 'longitude'), theta_w)
-            unified_pressure_level_data['theta_w'].attrs['units'] = 'K'
-            unified_pressure_level_data['theta_w'].attrs['long_name'] = 'Wet-bulb potential temperature'
+    full_gdas_dataset = full_gdas_dataset.expand_dims({'time': np.atleast_1d(unified_pressure_level_data['time'].values),
+                                                       'forecast_hour': np.atleast_1d(forecast_hour)})
 
-            variables_in_ds = list(unified_pressure_level_data.keys())
-            num_vars = len(variables_in_ds)
-
-            # Convert variables to float16 to conserve storage
-            for var in range(num_vars):
-                unified_pressure_level_data[variables_in_ds[var]].values = unified_pressure_level_data[variables_in_ds[var]].values.astype('float16')
-
-            # Save pressure level data
-            for pressure_level in range(21):
-                current_pressure_level = pressure_levels[pressure_level]
-                current_pressure_level_ds = unified_pressure_level_data.isel(pressure_level=pressure_level)
-                variable_file_path = '%s/%d/%02d/%02d/gdas_%d_%d%02d%02d%02d_f%03d_full.pkl' % (pickle_outdir, year, month, day, current_pressure_level, year, month, day, hour, forecast_hour)
-                with open(variable_file_path, 'wb') as gdas_variable_file:
-                    pickle.dump(current_pressure_level_ds, gdas_variable_file)
-
-            ################################################################################################################
-            ################################# Surface data (MSLP and sigma coordinate data) ################################
-            ################################################################################################################
-
-            print("generating GDAS surface data for %d-%02d-%02d-%02dz" % (year, month, day, hour))
-
-            mslp_data = xr.open_dataset(gdas_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks={'latitude': 721, 'longitude': 1440})
-            unified_mslp_data = mslp_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
-
-            surface_data = xr.open_dataset(gdas_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks={'latitude': 721, 'longitude': 1440})
-            unified_surface_data = surface_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
-
-            raw_pressure_data = xr.open_dataset(gdas_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks={'latitude': 721, 'longitude': 1440})
-            sp = raw_pressure_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)['sp'].values / 100  # select unified surface analysis domain
-
-            # Create arrays of coordinates for the surface data
-            surface_data_longitudes = np.arange(start_lon, end_lon + 0.25, 0.25)
-            surface_data_latitudes = unified_surface_data['latitude'].values
-
-            mslp = unified_mslp_data['mslet'].values  # mean sea level pressure (eta model reduction)
-            T_sigma = unified_surface_data['t'].values
-            RH_sigma = unified_surface_data['r'].values / 100
-            vap_pres_sigma = RH_sigma * variables.vapor_pressure(T_sigma)
-            Td_sigma = variables.dewpoint_from_vapor_pressure(vap_pres_sigma)
-            Tv_sigma = variables.virtual_temperature_from_dewpoint(T_sigma, Td_sigma, mslp)
-            Tw_sigma = variables.wet_bulb_temperature(T_sigma, Td_sigma)
-            r_sigma = variables.mixing_ratio_from_dewpoint(Td_sigma, mslp) * 1000  # Convert to g/kg
-            q_sigma = variables.specific_humidity_from_dewpoint(Td_sigma, mslp) * 1000  # Convert to g/kg
-            AH_sigma = variables.absolute_humidity(T_sigma, Td_sigma) * 1000  # Convert to g/kg
-            theta_sigma = variables.potential_temperature(T_sigma, mslp)
-            theta_e_sigma = variables.equivalent_potential_temperature(T_sigma, Td_sigma, mslp)
-            theta_v_sigma = variables.virtual_potential_temperature(T_sigma, Td_sigma, mslp)
-            theta_w_sigma = variables.wet_bulb_potential_temperature(T_sigma, Td_sigma, mslp)
-            u_sigma = unified_surface_data['u'].values
-            v_sigma = unified_surface_data['v'].values
-
-            new_unified_surface_data = xr.Dataset(data_vars=dict(mslp=(('latitude', 'longitude'), mslp / 100),
-                                                                 T=(('latitude', 'longitude'), T_sigma),
-                                                                 RH=(('latitude', 'longitude'), RH_sigma),
-                                                                 Td=(('latitude', 'longitude'), Td_sigma),
-                                                                 Tv=(('latitude', 'longitude'), Tv_sigma),
-                                                                 Tw=(('latitude', 'longitude'), Tw_sigma),
-                                                                 u=(('latitude', 'longitude'), u_sigma),
-                                                                 v=(('latitude', 'longitude'), v_sigma),
-                                                                 r=(('latitude', 'longitude'), r_sigma),
-                                                                 q=(('latitude', 'longitude'), q_sigma),
-                                                                 sp=(('latitude', 'longitude'), sp),
-                                                                 AH=(('latitude', 'longitude'), AH_sigma),
-                                                                 theta=(('latitude', 'longitude'), theta_sigma),
-                                                                 theta_e=(('latitude', 'longitude'), theta_e_sigma),
-                                                                 theta_v=(('latitude', 'longitude'), theta_v_sigma),
-                                                                 theta_w=(('latitude', 'longitude'), theta_w_sigma)),
-                                                  coords=dict(latitude=surface_data_latitudes, longitude=surface_data_longitudes)).astype('float16')
-
-            new_unified_surface_data['mslp'].attrs['units'] = 'hPa'
-            new_unified_surface_data['mslp'].attrs['long_name'] = 'Mean sea level pressure'
-
-            new_unified_surface_data['T'].attrs['units'] = 'K'
-            new_unified_surface_data['T'].attrs['long_name'] = 'Temperature'
-
-            new_unified_surface_data['RH'].attrs['long_name'] = 'Relative humidity'
-
-            new_unified_surface_data['Td'].attrs['units'] = 'K'
-            new_unified_surface_data['Td'].attrs['long_name'] = 'Dewpoint temperature'
-
-            new_unified_surface_data['Tv'].attrs['units'] = 'K'
-            new_unified_surface_data['Tv'].attrs['long_name'] = 'Virtual temperature'
-
-            new_unified_surface_data['Tw'].attrs['units'] = 'K'
-            new_unified_surface_data['Tw'].attrs['long_name'] = 'Wet-bulb temperature'
-
-            new_unified_surface_data['u'].attrs['units'] = 'm/s'
-            new_unified_surface_data['u'].attrs['long_name'] = 'Zonal wind velocity'
-
-            new_unified_surface_data['v'].attrs['units'] = 'm/s'
-            new_unified_surface_data['v'].attrs['long_name'] = 'Meridional wind velocity'
-
-            new_unified_surface_data['r'].attrs['units'] = 'g/kg'
-            new_unified_surface_data['r'].attrs['long_name'] = 'Mixing ratio'
-
-            new_unified_surface_data['q'].attrs['units'] = 'g/kg'
-            new_unified_surface_data['q'].attrs['long_name'] = 'Specific humidity'
-
-            new_unified_surface_data['sp'].attrs['units'] = 'hPa'
-            new_unified_surface_data['sp'].attrs['long_name'] = 'Surface pressure'
-
-            new_unified_surface_data['AH'].attrs['units'] = 'percent'
-            new_unified_surface_data['AH'].attrs['long_name'] = 'Mixing ratio'
-
-            new_unified_surface_data['theta'].attrs['units'] = 'K'
-            new_unified_surface_data['theta'].attrs['long_name'] = 'Potential temperature'
-
-            new_unified_surface_data['theta_e'].attrs['units'] = 'K'
-            new_unified_surface_data['theta_e'].attrs['long_name'] = 'Equivalent potential temperature'
-
-            new_unified_surface_data['theta_v'].attrs['units'] = 'K'
-            new_unified_surface_data['theta_v'].attrs['long_name'] = 'Virtual potential temperature'
-
-            new_unified_surface_data['theta_w'].attrs['units'] = 'K'
-            new_unified_surface_data['theta_w'].attrs['long_name'] = 'Wet-bulb potential temperature'
-
-            surface_file_path = '%s/%02d/%02d/%02d/gdas_surface_%d%02d%02d%02d_f%03d_full.pkl' % (pickle_outdir, year, month, day, year, month, day, hour, forecast_hour)
-            with open(surface_file_path, 'wb') as surface_file:
-                pickle.dump(new_unified_surface_data, surface_file)
+    for variable in list(full_gdas_dataset.keys()):
+        full_gdas_dataset[variable].to_netcdf(path='%s/%d/%02d/%02d/gdas_%s_%d%02d%02d%02d_f%03d_full.nc' % (netcdf_outdir, year, month, day, variable, year, month, day, hour, forecast_hour), mode='w', engine='scipy')
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ERA5', action='store_true', required=False, help="Generate ERA5 data files")
-    parser.add_argument('--netcdf_ERA5_indir', type=str, required=False, help="input directory for ERA5 netcdf files")
-    parser.add_argument('--fronts', action='store_true', required=False, help="Generate front object data files")
-    parser.add_argument('--xml_indir', type=str, required=False, help="input directory for front XML files")
-    parser.add_argument('--download_gdas', action='store_true', help='Download GDAS tarfiles')
-    parser.add_argument('--gdas_order_number', type=str, help='HAS order number for the GDAS data')
-    parser.add_argument('--gdas_grib_to_pickle', action='store_true', required=False, help="Generate GDAS pickle files")
-    parser.add_argument('--gdas_indir', type=str, required=False, help="input directory for the GDAS grib files")
-    parser.add_argument('--gdas_outdir', type=str, help='Output directory for downloaded grib files.')
-    parser.add_argument('--pickle_outdir', type=str, help="output directory for pickle files")
+    parser.add_argument('--ERA5', action='store_true', help="Generate ERA5 data files")
+    parser.add_argument('--netcdf_ERA5_indir', type=str, help="input directory for ERA5 netcdf files")
+    parser.add_argument('--fronts', action='store_true', help="Generate front object data files")
+    parser.add_argument('--xml_indir', type=str, help="input directory for front XML files")
+    parser.add_argument('--download_ncep_has_order', action='store_true', help='Download GDAS tarfiles')
+    parser.add_argument('--download_latest_gdas_data', action='store_true', help='Download GDAS grib files from NCEP.')
+    parser.add_argument('--download_latest_gfs_data', action='store_true', help='Download GFS grib files from NCEP.')
+    parser.add_argument('--ncep_has_order_number', type=str, help='HAS order number')
+    parser.add_argument('--gdas_grib_to_netcdf', action='store_true', help="Generate GDAS pickle files")
+    parser.add_argument('--gdas_grib_outdir', type=str, help='Output directory for GDAS grib files downloaded from NCEP.')
+    parser.add_argument('--gfs_grib_outdir', type=str, help='Output directory for GFS grib files downloaded from NCEP.')
+    parser.add_argument('--gdas_grib_indir', type=str, help="input directory for the GDAS grib files")
+    parser.add_argument('--ncep_has_outdir', type=str, help='Output directory for downloaded files from the HAS order.')
+    parser.add_argument('--netcdf_outdir', type=str, help="output directory for pickle files")
     parser.add_argument('--year', type=int, help="year for the data to be read in")
     parser.add_argument('--month', type=int, help="month for the data to be read in")
     parser.add_argument('--day', type=int, help="day for the data to be read in")
@@ -901,18 +823,29 @@ if __name__ == "__main__":
     provided_arguments = vars(args)
 
     if args.ERA5:
-        required_arguments = ['year', 'month', 'day', 'netcdf_ERA5_indir', 'pickle_outdir']
+        required_arguments = ['year', 'month', 'day', 'netcdf_ERA5_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
-        create_era5_datasets(args.year, args.month, args.day, args.netcdf_ERA5_indir, args.pickle_outdir)
+        check_directory(args.netcdf_outdir, args.year, args.month, args.day)
+        create_era5_datasets(args.year, args.month, args.day, args.netcdf_ERA5_indir, args.netcdf_outdir)
     if args.fronts:
-        required_arguments = ['year', 'month', 'day', 'xml_indir', 'pickle_outdir']
+        required_arguments = ['year', 'month', 'day', 'xml_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
-        front_xmls_to_pickle(args.year, args.month, args.day, args.xml_indir, args.pickle_outdir)
-    if args.gdas_grib_to_pickle:
-        required_arguments = ['year', 'month', 'day', 'gdas_indir', 'pickle_outdir']
+        check_directory(args.netcdf_outdir, args.year, args.month, args.day)
+        front_xmls_to_netcdf(args.year, args.month, args.day, args.xml_indir, args.netcdf_outdir)
+    if args.gdas_grib_to_netcdf:
+        required_arguments = ['year', 'month', 'day', 'hour', 'gdas_grib_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
-        gdas_grib_to_pickle(args.year, args.month, args.day, args.gdas_indir, args.pickle_outdir)
-    if args.download_gdas:
-        required_arguments = ['gdas_order_number', 'gdas_outdir']
+        check_directory(args.netcdf_outdir, args.year, args.month, args.day)
+        gdas_grib_to_netcdf(args.year, args.month, args.day, args.hour, args.gdas_grib_indir, args.netcdf_outdir, forecast_hour=6)
+    if args.download_ncep_has_order:
+        required_arguments = ['ncep_has_order_number', 'ncep_has_outdir']
         check_arguments(provided_arguments, required_arguments)
-        download_gdas_order(args.gdas_order_number, args.gdas_outdir)
+        download_ncep_has_order(args.ncep_has_order_number, args.ncep_has_outdir)
+    if args.download_latest_gdas_data:
+        required_arguments = ['gdas_grib_outdir']
+        check_arguments(provided_arguments, required_arguments)
+        download_latest_gdas_data(args.gdas_grib_outdir)
+    if args.download_latest_gfs_data:
+        required_arguments = ['year', 'month', 'day', 'hour', 'gfs_grib_outdir']
+        check_arguments(provided_arguments, required_arguments)
+        download_latest_gfs_data(args.gfs_grib_outdir)
