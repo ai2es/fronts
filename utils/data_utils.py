@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/26/2022 10:55 PM CDT
+Last updated: 8/25/2022 11:50 AM CT
 """
 
 import math
@@ -560,7 +560,7 @@ def normalize_variables(variable_ds):
 
             # Min-max normalization
             new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - norm_params.loc[norm_var, 'Min']) /
-                                                    (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+                                                                                   (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
 
         variable_ds[var].values = new_values_for_variable
 
@@ -576,7 +576,12 @@ def randomize_variables(variable_ds: xr.Dataset, random_variables: list or tuple
     variable_ds: xr.Dataset
         - ERA5 or GDAS variable dataset.
     random_variables: list or tuple
-        List of variables to randomize the values of.
+        - List of variables to randomize the values of.
+
+    Returns
+    -------
+    variable_ds: xr.Dataset
+        - Same as input, but with the given variables having scrambled values.
     """
 
     for random_variable in random_variables:
@@ -585,3 +590,5 @@ def randomize_variables(variable_ds: xr.Dataset, random_variables: list or tuple
         flattened_variable_values = variable_values.flatten()
         np.random.shuffle(flattened_variable_values)
         variable_ds[random_variable].values = np.reshape(flattened_variable_values, variable_shape)
+
+    return variable_ds
