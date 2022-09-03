@@ -11,7 +11,7 @@ TODO:
     * Add functions for managing GFS data once the data is obtained
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/24/2022 10:52 AM CT
+Last updated: 9/3/2022 5:04 PM CT
 """
 
 from glob import glob
@@ -180,7 +180,7 @@ class ERA5files:
         self._all_era5_netcdf_files = sorted(glob("%s/*/*/*/era5*.nc" % era5_netcdf_indir))  # All ERA5 files without filtering
 
         ### All available options for specific filters ###
-        self._all_domains = ('full', 'conus')
+        self._all_domains = ('full', )
         self._all_variables = ('q', 'r', 'RH', 'sp_z', 'T', 'Td', 'theta', 'theta_e', 'theta_v', 'theta_w', 'Tv', 'Tw', 'u', 'v')
         self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
 
@@ -437,12 +437,14 @@ class ERA5files:
 
     ####################################################################################################################
 
-    def pair_with_fronts(self, front_indir):
+    def pair_with_fronts(self, front_indir, synoptic_only=True):
         """
         Pair all of the ERA5 timesteps with frontal object files containing matching timesteps
 
         front_indir: str
             - Directory where the frontal object files are stored.
+        synoptic_only: bool
+            - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
         """
 
         self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
@@ -452,50 +454,52 @@ class ERA5files:
         for domain in self._domains_not_in_data:
             self.front_files = [file for file in self.front_files if '_%s.nc' % domain not in file]
 
-        front_files_timestep = []
-        era5_timesteps = []  # Timesteps of ERA5/GFS files
-        era5_files_by_timestep = []  # List of ERA5/GFS files with each index representing a group of files with a common timestep
         front_files_list = []
         era5_files_list = []
+        timesteps_in_era5_files = []
 
-        ### Collect all timesteps in the fronts files ###
-        for i in range(len(self.front_files)):
-            front_filename_start_index = self.front_files[i].find('FrontObjects_')
-            front_files_timestep.append(self.front_files[i][front_filename_start_index + 13:front_filename_start_index + 23])  # Timestep is first 10 characters after 'FrontObjects_'
-
-        ### Find all timesteps in the ERA5 files ###
+        ### Find all timesteps in the GDAS files ###
         for j in range(len(self.era5_files)):
             era5_filename_start_index = self.era5_files[j].find('era5_')
             era5_filename_no_variable_index = self.era5_files[j][era5_filename_start_index:].find('_2') + 1
-            era5_timesteps.append(self.era5_files[j][era5_filename_start_index + era5_filename_no_variable_index:era5_filename_start_index + era5_filename_no_variable_index + 10])  # Timestep is the first 10 characters after the pressure level in the filename
+            timesteps_in_era5_files.append(self.era5_files[j][era5_filename_start_index + era5_filename_no_variable_index:era5_filename_start_index + era5_filename_no_variable_index + 10])  # Timestep is the first 10 characters after the pressure level in the filename
 
-        unique_era5_timesteps = list(np.unique(sorted(era5_timesteps)))
+        unique_timesteps_in_era5_files = list(np.unique(timesteps_in_era5_files))
 
-        ### Find all ERA5 files for each timestep ###
-        for timestep in unique_era5_timesteps:
-            files_for_timestep = sorted(filter(lambda filename: timestep in filename, self.era5_files))
-            era5_files_by_timestep.append(files_for_timestep)
+        if synoptic_only:
+            ### Filter out non-synotpic hours (3, 9, 15, 21z) ###
+            for unique_timestep in unique_timesteps_in_era5_files:
+                if any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
+                    unique_timesteps_in_era5_files.pop(unique_timesteps_in_era5_files.index(unique_timestep))
 
-        ### File matching: only load files with common timesteps ###
-        total_era5_files = len(era5_files_by_timestep)
-        total_front_files = len(self.front_files)
-        for era5_file_no in range(total_era5_files):
-            if unique_era5_timesteps[era5_file_no] in front_files_timestep:
-                era5_files_list.append(era5_files_by_timestep[era5_file_no])
-        for front_file_no in range(total_front_files):
-            if front_files_timestep[front_file_no] in unique_era5_timesteps:
-                front_files_list.append(self.front_files[front_file_no])
+        # List of ERA5 timesteps used when adding files to the final list. If an incomplete set of ERA5 or front files was discovered for a
+        # timestep in 'unique_timesteps_in_era5_files', then the files for that timestep will not be added to the final list.
+        era5_timesteps_used = []
+
+        ### Create a nested list for ERA5 files sorted by timestep and another for front files for each forecast timestep and the given forecast hours ###
+        for timestep in unique_timesteps_in_era5_files:
+            era5_files_for_timestep = sorted(filter(lambda filename: timestep in filename, self.era5_files))
+            front_file_for_timestep = list(filter(lambda filename: timestep in filename, self.front_files))
+            if len(front_file_for_timestep) == 1:
+                era5_files_list.append(era5_files_for_timestep)
+                front_files_list.append(front_file_for_timestep[0])
+                era5_timesteps_used.append(timestep)
 
         self.era5_files = era5_files_list
         self.front_files = front_files_list
 
-        ### Iterate through the front files to search for indices within the list to delegate to the lists for training, validation and test datasets ###
-        self.era5_files_training, self.front_files_training = [files for files in self.era5_files if any('_%s' % str(year) in files[0] for year in self._training_years)], \
-                                                              [file for file in self.front_files if any('_%s' % str(year) in file for year in self._training_years)]
-        self.era5_files_validation, self.front_files_validation = [files for files in self.era5_files if any('_%s' % str(year) in files[0] for year in self._validation_years)], \
-                                                                  [file for file in self.front_files if any('_%s' % str(year) in file for year in self._validation_years)]
-        self.era5_files_test, self.front_files_test = [files for files in self.era5_files if any('_%s' % str(year) in files[0] for year in self._test_years)], \
-                                                      [file for file in self.front_files if any('_%s' % str(year) in file for year in self._test_years)]
+        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected ERA5 files ###
+        training_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % training_year in timestep for training_year in self._training_years)]
+        validation_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % validation_year in timestep for validation_year in self._validation_years)]
+        test_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % test_year in timestep for test_year in self._test_years)]
+
+        ### Create new file lists for training, validation, and test datasets using the indices pulled from above ###
+        self.era5_files_training, self.front_files_training = [self.era5_files[index] for index in training_indices], \
+                                                              [self.front_files[index] for index in training_indices]
+        self.era5_files_validation, self.front_files_validation = [self.era5_files[index] for index in validation_indices], \
+                                                                  [self.front_files[index] for index in validation_indices]
+        self.era5_files_test, self.front_files_test = [self.era5_files[index] for index in test_indices], \
+                                                      [self.front_files[index] for index in test_indices]
 
 
 class GDASfiles:
@@ -513,7 +517,7 @@ class GDASfiles:
         self._all_gdas_netcdf_files = sorted(glob("%s/*/*/*/gdas*.nc" % gdas_netcdf_indir))  # All GDAS files without filtering
 
         ### All available options for specific filters ###
-        self._all_domains = ('full', 'conus')
+        self._all_domains = ('full', )
         self._all_variables = ('q', 'r', 'RH', 'sp_z', 'mslp_z', 'T', 'Td', 'theta', 'theta_e', 'theta_v', 'theta_w', 'Tv', 'Tw', 'u', 'v')
         self._all_forecast_hours = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
         self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
@@ -823,12 +827,14 @@ class GDASfiles:
 
     ####################################################################################################################
 
-    def pair_with_fronts(self, front_indir):
+    def pair_with_fronts(self, front_indir, synoptic_only=True):
         """
         Pair all of the GDAS timesteps with frontal object files containing timesteps for the given forecast hours
         
         front_indir: str
             - Directory where the frontal object files are stored.
+        synoptic_only: bool
+            - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
         """
 
         self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
@@ -838,64 +844,54 @@ class GDASfiles:
         for domain in self._domains_not_in_data:
             self.front_files = [file for file in self.front_files if '_%s.nc' % domain not in file]
 
-        front_files_timestep = []
-        gdas_files_timestep = []
-        gdas_timesteps = []  # Timesteps of GDAS/GFS files
-        gdas_files_by_timestep = []  # List of GDAS/GFS files with each index representing a group of files with a common timestep
+        timesteps_in_gdas_files = []
         front_files_list = []
         gdas_files_list = []
 
-        ### Collect all timesteps in the fronts files ###
-        for i in range(len(self.front_files)):
-            front_filename_start_index = self.front_files[i].find('FrontObjects_')
-            front_files_timestep.append(self.front_files[i][front_filename_start_index + 13:front_filename_start_index + 23])  # Timestep is first 10 characters after 'FrontObjects_'
-
-        ### Find all timesteps in the GDAS/GFS files ###
+        ### Find all timesteps in the GDAS files ###
         for j in range(len(self.gdas_files)):
             gdas_filename_start_index = self.gdas_files[j].find('gdas_')
             gdas_filename_no_variable_index = self.gdas_files[j][gdas_filename_start_index:].find('_2') + 1
-            gdas_timesteps.append(self.gdas_files[j][gdas_filename_start_index + gdas_filename_no_variable_index:gdas_filename_start_index + gdas_filename_no_variable_index + 10])  # Timestep is the first 10 characters after the pressure level in the filename
+            timesteps_in_gdas_files.append(self.gdas_files[j][gdas_filename_start_index + gdas_filename_no_variable_index:gdas_filename_start_index + gdas_filename_no_variable_index + 10])  # Timestep is the first 10 characters after the pressure level in the filename
 
-        unique_gdas_timesteps = list(np.unique(sorted(gdas_timesteps)))
+        unique_timesteps_in_gdas_files = list(np.unique(sorted(timesteps_in_gdas_files)))
         unique_forecast_timesteps = []
 
-        for unique_timestep in unique_gdas_timesteps:
-            if 'full' in self._domains and any('%02d' % hour in unique_timestep[-2:] for hour in [6, 9, 15, 21]):
-                unique_gdas_timesteps.pop(unique_gdas_timesteps.index(unique_timestep))
+        ### Calculate timesteps needed for pulling front object files ###
+        for unique_timestep in unique_timesteps_in_gdas_files:
+            if synoptic_only and any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
+                unique_timesteps_in_gdas_files.pop(unique_timesteps_in_gdas_files.index(unique_timestep))
             else:
-                unique_forecast_timesteps.append(data_utils.add_or_subtract_hours_to_timestep(unique_timestep, self._forecast_hours))
+                unique_forecast_timesteps.append([data_utils.add_or_subtract_hours_to_timestep(unique_timestep, num_hours) for num_hours in self._forecast_hours])
 
-        ### Find all GDAS files for each timestep ###
-        for timestep in unique_gdas_timesteps:
-            files_for_timestep = sorted(filter(lambda filename: timestep in filename, self.gdas_files))
-            gdas_files_timestep_temp = []  # Temporary holding folder for GDAS files before they are added to the list of filenames
-            for gdas_file in files_for_timestep:
-                gdas_filename_start_index = gdas_file.find('gdas_')
-                gdas_filename_no_variable_index = gdas_file[gdas_filename_start_index:].find('_2') + 1
-                gdas_files_timestep_temp.append(gdas_file[gdas_filename_start_index + gdas_filename_no_variable_index:gdas_filename_start_index + gdas_filename_no_variable_index + 10])
-            gdas_files_timestep.append(gdas_files_timestep_temp)
-            gdas_files_by_timestep.append(files_for_timestep)
+        # List of GDAS timesteps used when adding files to the final list. If an incomplete set of GDAS or front files was discovered for a
+        # timestep in 'unique_timesteps_in_gdas_files', then the files for that timestep will not be added to the final list.
+        gdas_timesteps_used = []
 
-        ### File matching: only load files with common timesteps or the proper timesteps for the given forecast hour ###
-        total_gdas_files = len(gdas_files_timestep)
-        total_front_files = len(self.front_files)
-        for gdas_file_no in range(total_gdas_files):
-            if unique_gdas_timesteps[gdas_file_no] in front_files_timestep:
-                gdas_files_list.append(gdas_files_by_timestep[gdas_file_no])
-        for front_file_no in range(total_front_files):
-            if front_files_timestep[front_file_no] in unique_forecast_timesteps:
-                front_files_list.append(self.front_files[front_file_no])
+        ### Create a nested list for GDAS files sorted by timestep and another for front files for each forecast timestep and the given forecast hours ###
+        for gdas_timestep, forecast_timesteps in zip(unique_timesteps_in_gdas_files, unique_forecast_timesteps):
+            gdas_files_for_timestep = sorted(filter(lambda filename: gdas_timestep in filename, self.gdas_files))
+            front_files_for_timesteps = [filename for filename in self.front_files if any(timestep in filename for timestep in forecast_timesteps)]
+            if len(gdas_files_for_timestep) == len(self._variables) * len(self._forecast_hours) and len(front_files_for_timesteps) == len(self._forecast_hours):
+                gdas_files_list.append(gdas_files_for_timestep)
+                front_files_list.append(front_files_for_timesteps)
+                gdas_timesteps_used.append(gdas_timestep)
 
         self.gdas_files = gdas_files_list
         self.front_files = front_files_list
 
-        ### Iterate through the front files to search for indices within the list to delegate to the lists for training, validation and test datasets ###
-        self.gdas_files_training, self.front_files_training = [files[0] for files in self.gdas_files if any('_%s' % str(year) in files[0] for year in self._training_years)], \
-                                                              [file for file in self.front_files if any('_%s' % str(year) in file for year in self._training_years)]
-        self.gdas_files_validation, self.front_files_validation = [files[0] for files in self.gdas_files if any('_%s' % str(year) in files[0] for year in self._validation_years)], \
-                                                                  [file for file in self.front_files if any('_%s' % str(year) in file for year in self._validation_years)]
-        self.gdas_files_test, self.front_files_test = [files[0] for files in self.gdas_files if any('_%s' % str(year) in files[0] for year in self._test_years)], \
-                                                      [file for file in self.front_files if any('_%s' % str(year) in file for year in self._test_years)]
+        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected GDAS files ###
+        training_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % training_year in timestep for training_year in self._training_years)]
+        validation_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % validation_year in timestep for validation_year in self._validation_years)]
+        test_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % test_year in timestep for test_year in self._test_years)]
+
+        ### Create new file lists for training, validation, and test datasets using the indices pulled from above ###
+        self.gdas_files_training, self.front_files_training = [self.gdas_files[index] for index in training_indices], \
+                                                              [self.front_files[index] for index in training_indices]
+        self.gdas_files_validation, self.front_files_validation = [self.gdas_files[index] for index in validation_indices], \
+                                                                  [self.front_files[index] for index in validation_indices]
+        self.gdas_files_test, self.front_files_test = [self.gdas_files[index] for index in test_indices], \
+                                                      [self.front_files[index] for index in test_indices]
 
 
 def extract_gdas_tarfile(gdas_tar_indir: str, gdas_grib_outdir: str, year: int, month: int, day: int, string_to_find: str = None, remove_tarfile: bool = True):
@@ -1009,7 +1005,7 @@ def load_model(model_number, model_dir):
             metric_function = None
 
         model_loaded = False  # Boolean flag that will become True once a model successfully loads
-        print("Loading model....", end='')
+        print("Loading model %d" % model_number)
         if loss_string is not None:
             if metric_string is not None:
 
@@ -1025,7 +1021,6 @@ def load_model(model_number, model_dir):
                             elif loss_string == 'FSS_loss_2D':
                                 loss_string = 'FSS_loss_3D'
                             else:
-                                print("failed")
                                 # Load the model normally to return the ValueError message for unknown loss function
                                 model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
 
@@ -1035,7 +1030,6 @@ def load_model(model_number, model_dir):
                             elif metric_string == 'FSS_loss_2D':
                                 metric_string = 'FSS_loss_3D'
                             else:
-                                print("failed")
                                 # Load the model normally to return the ValueError message for unknown metric
                                 model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
 
@@ -1056,7 +1050,6 @@ def load_model(model_number, model_dir):
                             elif loss_string == 'FSS_loss_2D':
                                 loss_string = 'FSS_loss_3D'
                             else:
-                                print("failed")
                                 # Load the model normally to return the ValueError message for unknown loss function
                                 model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
 
@@ -1076,13 +1069,11 @@ def load_model(model_number, model_dir):
                         elif metric_string == 'FSS_loss_2D':
                             metric_string = 'FSS_loss_3D'
                         else:
-                            print("failed")
                             # Load the model normally to return the ValueError message for unknown loss function
                             model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
 
                 else:
                     model_loaded = True
-                    print("done")
 
     return model
 
