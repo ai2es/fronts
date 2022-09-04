@@ -2,7 +2,7 @@
 Functions in this script create pickle files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 8/25/2022 1:29 PM CT
+Last updated: 9/4/2022 1:28 PM CT
 """
 
 import argparse
@@ -480,19 +480,19 @@ def download_ncep_has_order(ncep_has_order_number, ncep_has_outdir):
     """
 
     print("Connecting")
-    url = f'ftp://ftp.ncei.noaa.gov/pub/has/HAS{ncep_has_order_number}/'
-    files = pd.read_csv(f'I:/PycharmProjects/fronts/gdas_tarfiles_{ncep_has_order_number}.csv')['Filename'].values[::-1]
-    print("connected")
+    url = f'https://www.ncei.noaa.gov/pub/has/model/HAS{ncep_has_order_number}/'
+    page = requests.get(url).text
+    soup = BeautifulSoup(page, 'html.parser')
+    files = [url + node.get('href') for node in soup.find_all('a') if node.get('href').endswith('.tar')]
 
-    print("downloading")
     for file in files:
-        print(file)
+        ftp_file = file.replace('https://www', 'ftp://ftp')
         local_filename = file.replace(url, '')
         if not os.path.isfile(f'{ncep_has_outdir}/{local_filename}'):
             try:
-                wget.download(url + file, out=f"{ncep_has_outdir}/{local_filename}")
+                wget.download(ftp_file, out=f"{ncep_has_outdir}/{local_filename}")
             except urllib.error.HTTPError:
-                print(f"Error downloading {url}{file}")
+                print(f"Error downloading {url.replace('https://www', 'ftp://ftp')}{file}")
                 pass
 
 
@@ -836,7 +836,8 @@ if __name__ == "__main__":
         required_arguments = ['year', 'month', 'day', 'hour', 'gdas_grib_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
         check_directory(args.netcdf_outdir, args.year, args.month, args.day)
-        gdas_grib_to_netcdf(args.year, args.month, args.day, args.hour, args.gdas_grib_indir, args.netcdf_outdir, forecast_hour=6)
+        for forecast_hour in range(10):
+            gdas_grib_to_netcdf(args.year, args.month, args.day, args.hour, args.gdas_grib_indir, args.netcdf_outdir, forecast_hour=forecast_hour)
     if args.download_ncep_has_order:
         required_arguments = ['ncep_has_order_number', 'ncep_has_outdir']
         check_arguments(provided_arguments, required_arguments)
