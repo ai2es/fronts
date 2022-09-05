@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/25/2022 11:50 AM CT
+Last updated: 9/5/2022 10:43 AM CT
 """
 
 import math
@@ -456,7 +456,7 @@ def add_or_subtract_hours_to_timestep(timestep, num_hours):
         * Int format for the timestep: YYYYMMDDHH
         * String format for the timestep: YYYY-MM-DD-HH (no dashes)
         * Tuple format for the timestep (all integers): (YYYY, MM, DD, HH)
-    num_hours: int or tuple
+    num_hours: int
         Number of hours to add or subtract to the new timestep.
     
     Returns
@@ -486,48 +486,37 @@ def add_or_subtract_hours_to_timestep(timestep, num_hours):
 
     days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-    new_timesteps = []
+    new_year, new_month, new_day, new_hour = year, month, day, hour + num_hours
+    if new_hour > 0:
+        # If the new timestep is in a future day, this loop will be activated
+        while new_hour > 23:
+            new_hour -= 24
+            new_day += 1
 
-    for hours in num_hours:
-        new_year, new_month, new_day, new_hour = year, month, day, hour + hours
-        if new_hour > 0:
-            # If the new timestep is in a future day, this loop will be activated
-            while new_hour > 23:
-                new_hour -= 24
-                new_day += 1
+        # If the new timestep is in a future month, this loop will be activated
+        while new_day > days_per_month[new_month - 1]:
+            new_day -= days_per_month[new_month - 1]
+            if new_month < 12:
+                new_month += 1
+            else:
+                new_month = 1
+                new_year += 1
+    else:
+        # If the new timestep is in a past day, this loop will be activated
+        while new_hour < 0:
+            new_hour += 24
+            new_day -= 1
 
-            # If the new timestep is in a future month, this loop will be activated
-            while new_day > days_per_month[new_month - 1]:
-                new_day -= days_per_month[new_month - 1]
-                if new_month < 12:
-                    new_month += 1
-                else:
-                    new_month = 1
-                    new_year += 1
-        else:
-            # If the new timestep is in a past day, this loop will be activated
-            while new_hour < 0:
-                new_hour += 24
-                new_day -= 1
+        # If the new timestep is in a past month, this loop will be activated
+        while new_day < 1:
+            new_day += days_per_month[new_month - 2]
+            if new_month > 1:
+                new_month -= 1
+            else:
+                new_month = 12
+                new_year -= 1
 
-            # If the new timestep is in a past month, this loop will be activated
-            while new_day < 1:
-                new_day += days_per_month[new_month - 2]
-                if new_month > 1:
-                    new_month -= 1
-                else:
-                    new_month = 12
-                    new_year -= 1
-
-        if timestep_type == str or timestep_type == np.str_:
-            new_timesteps.append('%d%02d%02d%02d' % (new_year, new_month, new_day, new_hour))
-        else:
-            new_timesteps.append((new_year, new_month, new_day, new_hour))
-
-        if len(new_timesteps) == 1:
-            new_timesteps = new_timesteps[0]
-
-        return new_timesteps
+    return '%d%02d%02d%02d' % (new_year, new_month, new_day, new_hour)
 
 
 def normalize_variables(variable_ds):
@@ -559,8 +548,12 @@ def normalize_variables(variable_ds):
             norm_var = variable_list[j] + '_' + pressure_levels[pressure_level_index]
 
             # Min-max normalization
-            new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - norm_params.loc[norm_var, 'Min']) /
-                                                                                   (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+            if len(np.shape(new_values_for_variable)) == 4:
+                new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - norm_params.loc[norm_var, 'Min']) /
+                                                                                       (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+            elif len(np.shape(new_values_for_variable)) == 5:  # If forecast hours are in the dataset
+                new_values_for_variable[:, :, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, :, pressure_level_index] - norm_params.loc[norm_var, 'Min']) /
+                                                                                          (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
 
         variable_ds[var].values = new_values_for_variable
 
