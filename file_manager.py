@@ -11,7 +11,7 @@ TODO:
     * Add functions for managing GFS data once the data is obtained
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 9/3/2022 5:04 PM CT
+Last updated: 9/13/2022 10:18 PM CT
 """
 
 from glob import glob
@@ -180,14 +180,12 @@ class ERA5files:
         self._all_era5_netcdf_files = sorted(glob("%s/*/*/*/era5*.nc" % era5_netcdf_indir))  # All ERA5 files without filtering
 
         ### All available options for specific filters ###
-        self._all_domains = ('full', )
         self._all_variables = ('q', 'r', 'RH', 'sp_z', 'T', 'Td', 'theta', 'theta_e', 'theta_v', 'theta_w', 'Tv', 'Tw', 'u', 'v')
         self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
 
         self.reset_all_filters()  # Resetting the filters simply creates the ERA5 file lists
 
         ### Current values for the filters used in the files ###
-        self._domains = self._all_domains
         self._variables = self._all_variables
         self._training_years = self._all_years[:11]  # default training years: 2006-2016
         self._validation_years = self._all_years[11:14]  # default validation years: 2017-2019
@@ -386,58 +384,72 @@ class ERA5files:
 
     ####################################################################################################################
 
-    def __get_domains(self):
+    def __sort_files_by_dataset(self, era5_timesteps_used, sort_fronts=False):
         """
-        Return the list of domains used
-        """
+        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'era5_timesteps_used' list.
 
-        return self._domains
-
-    def __set_domains(self, domains: tuple or list):
-        """
-        Select the domains to load
-        """
-
-        self.__reset_domains()  # Return file list to last state before domains were modified (no effect is this is first domain selection)
-
-        self._domains = domains
-
-        ### Check that all selected ERA5 domains are valid ###
-        invalid_domains = [domain for domain in domains if domain not in self._all_domains]
-        if len(invalid_domains) > 0:
-            raise TypeError(f"The following domains are not valid: {','.join(sorted(invalid_domains))}")
-
-        self._domains_not_in_data = [domain for domain in self._all_domains if domain not in domains]
-
-        ### Remove unwanted domains from the list of files ###
-        for domain in self._domains_not_in_data:
-            self.era5_files = [file for file in self.era5_files if '_%s.nc' % domain not in file]
-            self.era5_files_training = [file for file in self.era5_files_training if '_%s.nc' % domain not in file]
-            self.era5_files_validation = [file for file in self.era5_files_validation if '_%s.nc' % domain not in file]
-            self.era5_files_test = [file for file in self.era5_files_test if '_%s.nc' % domain not in file]
-
-    def __reset_domains(self):
-        """
-        Reset domains in the ERA5 files
+        era5_timesteps_used: list
+            List of timesteps used when sorting ERA5 and/or frontal object files.
+        sort_fronts: bool
+            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both ERA5 and frontal object files at the
+            same time.
         """
 
-        if not hasattr(self, '_filtered_era5_files_before_domain_selection'):  # If the domains have not been selected yet
-            self._filtered_era5_files_before_domain_selection = self.era5_files
-            self._filtered_era5_training_files_before_domain_selection = self.era5_files_training
-            self._filtered_era5_validation_files_before_domain_selection = self.era5_files_validation
-            self._filtered_era5_test_files_before_domain_selection = self.era5_files_test
-        else:
-            ### Return file lists to last state before domains were modified ###
-            self.era5_files = self._filtered_era5_files_before_domain_selection
-            self.era5_files_training = self._filtered_era5_training_files_before_domain_selection
-            self.era5_files_validation = self._filtered_era5_validation_files_before_domain_selection
-            self.era5_files_test = self._filtered_era5_test_files_before_domain_selection
+        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected ERA5 files ###
+        training_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % training_year in timestep for training_year in self._training_years)]
+        validation_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % validation_year in timestep for validation_year in self._validation_years)]
+        test_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % test_year in timestep for test_year in self._test_years)]
 
-    domains = property(__get_domains, __set_domains)  # Property method for setting domains
+        ### Create new ERA5 file lists for training, validation, and test datasets using the indices pulled from above ###
+        self.era5_files_training = [self.era5_files[index] for index in training_indices]
+        self.era5_files_validation = [self.era5_files[index] for index in validation_indices]
+        self.era5_files_test = [self.era5_files[index] for index in test_indices]
 
-    ####################################################################################################################
+        if sort_fronts:
+            ### Create new frontal object file lists for training, validation, and test datasets using the indices pulled from above ###
+            self.front_files_training = [self.front_files[index] for index in training_indices]
+            self.front_files_validation = [self.front_files[index] for index in validation_indices]
+            self.front_files_test = [self.front_files[index] for index in test_indices]
 
-    def pair_with_fronts(self, front_indir, synoptic_only=True):
+    def sort_by_timestep(self, synoptic_only=False):
+        """
+        Sort ERA5 files by timestep. This function is intended to be used only if frontal object files are not needed, as sorting is done within 'ERA5files.pair_with_fronts' if
+        frontal object files are needed.
+        """
+
+        era5_files_list = []
+        timesteps_in_era5_files = []
+
+        ### Find all timesteps in the GDAS files ###
+        for j in range(len(self.era5_files)):
+            era5_filename_start_index = self.era5_files[j].find('era5_')
+            era5_filename_no_variable_index = self.era5_files[j][era5_filename_start_index:].find('_2') + 1
+            timesteps_in_era5_files.append(self.era5_files[j][era5_filename_start_index + era5_filename_no_variable_index:era5_filename_start_index + era5_filename_no_variable_index + 10])  # Timestep is the first 10 characters after the pressure level in the filename
+
+        unique_timesteps_in_era5_files = list(np.unique(timesteps_in_era5_files))
+
+        if synoptic_only:
+            ### Filter out non-synotpic hours (3, 9, 15, 21z) ###
+            for unique_timestep in unique_timesteps_in_era5_files:
+                if any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
+                    unique_timesteps_in_era5_files.pop(unique_timesteps_in_era5_files.index(unique_timestep))
+
+        # List of GDAS timesteps used when adding files to the final list. If an incomplete set of GDAS or front files was discovered for a
+        # timestep in 'unique_timesteps_in_gdas_files', then the files for that timestep will not be added to the final list.
+        era5_timesteps_used = []
+
+        ### Create a nested list for GDAS files sorted by timestep and another for front files for each forecast timestep and the given forecast hours ###
+        for gdas_timestep in unique_timesteps_in_era5_files:
+            gdas_files_for_timestep = sorted(filter(lambda filename: gdas_timestep in filename, self.era5_files))
+            if len(gdas_files_for_timestep) == len(self._variables):
+                era5_files_list.append(gdas_files_for_timestep)
+                era5_timesteps_used.append(gdas_timestep)
+
+        self.era5_files = era5_files_list
+
+        self.__sort_files_by_dataset(unique_timesteps_in_era5_files)  # Modify lists for training, validation, and test datasets
+
+    def pair_with_fronts(self, front_indir, synoptic_only=False):
         """
         Pair all of the ERA5 timesteps with frontal object files containing matching timesteps
 
@@ -449,10 +461,6 @@ class ERA5files:
 
         self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
         self.front_files = self._all_front_files
-
-        ### Remove unwanted domains from the list of front files ###
-        for domain in self._domains_not_in_data:
-            self.front_files = [file for file in self.front_files if '_%s.nc' % domain not in file]
 
         front_files_list = []
         era5_files_list = []
@@ -488,18 +496,7 @@ class ERA5files:
         self.era5_files = era5_files_list
         self.front_files = front_files_list
 
-        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected ERA5 files ###
-        training_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % training_year in timestep for training_year in self._training_years)]
-        validation_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % validation_year in timestep for validation_year in self._validation_years)]
-        test_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % test_year in timestep for test_year in self._test_years)]
-
-        ### Create new file lists for training, validation, and test datasets using the indices pulled from above ###
-        self.era5_files_training, self.front_files_training = [self.era5_files[index] for index in training_indices], \
-                                                              [self.front_files[index] for index in training_indices]
-        self.era5_files_validation, self.front_files_validation = [self.era5_files[index] for index in validation_indices], \
-                                                                  [self.front_files[index] for index in validation_indices]
-        self.era5_files_test, self.front_files_test = [self.era5_files[index] for index in test_indices], \
-                                                      [self.front_files[index] for index in test_indices]
+        self.__sort_files_by_dataset(era5_timesteps_used, sort_fronts=True)
 
 
 class GDASfiles:
@@ -517,7 +514,6 @@ class GDASfiles:
         self._all_gdas_netcdf_files = sorted(glob("%s/*/*/*/gdas*.nc" % gdas_netcdf_indir))  # All GDAS files without filtering
 
         ### All available options for specific filters ###
-        self._all_domains = ('full', )
         self._all_variables = ('q', 'r', 'RH', 'sp_z', 'mslp_z', 'T', 'Td', 'theta', 'theta_e', 'theta_v', 'theta_w', 'Tv', 'Tw', 'u', 'v')
         self._all_forecast_hours = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
         self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
@@ -525,7 +521,6 @@ class GDASfiles:
         self.reset_all_filters()  # Resetting the filters simply creates the GDAS file lists
 
         ### Current values for the filters used in the files ###
-        self._domains = self._all_domains
         self._forecast_hours = self._all_forecast_hours
         self.variables = self._all_variables
         self._training_years = self._all_years[:11]  # default training years: 2006-2016
@@ -776,56 +771,69 @@ class GDASfiles:
 
     ####################################################################################################################
 
-    def __get_domains(self):
+    def __sort_files_by_dataset(self, gdas_timesteps_used, sort_fronts=False):
         """
-        Return the list of domains used
-        """
+        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'gdas_timesteps_used' list.
 
-        return self._domains
-
-    def __set_domains(self, domains: tuple or list):
-        """
-        Select the domains to load
-        """
-
-        self.__reset_domains()  # Return file list to last state before domains were modified (no effect is this is first domain selection)
-
-        self._domains = domains
-
-        ### Check that all selected GDAS domains are valid ###
-        invalid_domains = [domain for domain in domains if domain not in self._all_domains]
-        if len(invalid_domains) > 0:
-            raise TypeError(f"The following domains are not valid: {','.join(sorted(invalid_domains))}")
-
-        self._domains_not_in_data = [domain for domain in self._all_domains if domain not in domains]
-
-        ### Remove unwanted domains from the list of files ###
-        for domain in self._domains_not_in_data:
-            self.gdas_files = [file for file in self.gdas_files if '_%s.nc' % domain not in file]
-            self.gdas_files_training = [file for file in self.gdas_files_training if '_%s.nc' % domain not in file]
-            self.gdas_files_validation = [file for file in self.gdas_files_validation if '_%s.nc' % domain not in file]
-            self.gdas_files_test = [file for file in self.gdas_files_test if '_%s.nc' % domain not in file]
-
-    def __reset_domains(self):
-        """
-        Reset domains in the GDAS files
+        gdas_timesteps_used: list
+            List of timesteps used when sorting GDAS and/or frontal object files.
+        sort_fronts: bool
+            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both GDAS and frontal object files at the
+            same time.
         """
 
-        if not hasattr(self, '_filtered_gdas_files_before_domain_selection'):  # If the domains have not been selected yet
-            self._filtered_gdas_files_before_domain_selection = self.gdas_files
-            self._filtered_gdas_training_files_before_domain_selection = self.gdas_files_training
-            self._filtered_gdas_validation_files_before_domain_selection = self.gdas_files_validation
-            self._filtered_gdas_test_files_before_domain_selection = self.gdas_files_test
-        else:
-            ### Return file lists to last state before domains were modified ###
-            self.gdas_files = self._filtered_gdas_files_before_domain_selection
-            self.gdas_files_training = self._filtered_gdas_training_files_before_domain_selection
-            self.gdas_files_validation = self._filtered_gdas_validation_files_before_domain_selection
-            self.gdas_files_test = self._filtered_gdas_test_files_before_domain_selection
+        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected GDAS files ###
+        training_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % training_year in timestep for training_year in self._training_years)]
+        validation_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % validation_year in timestep for validation_year in self._validation_years)]
+        test_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % test_year in timestep for test_year in self._test_years)]
 
-    domains = property(__get_domains, __set_domains)  # Property method for setting domains
+        ### Create new GDAS file lists for training, validation, and test datasets using the indices pulled from above ###
+        self.gdas_files_training = [self.gdas_files[index] for index in training_indices]
+        self.gdas_files_validation = [self.gdas_files[index] for index in validation_indices]
+        self.gdas_files_test = [self.gdas_files[index] for index in test_indices]
 
-    ####################################################################################################################
+        if sort_fronts:
+            ### Create new frontal object file lists for training, validation, and test datasets using the indices pulled from above ###
+            self.front_files_training = [self.front_files[index] for index in training_indices]
+            self.front_files_validation = [self.front_files[index] for index in validation_indices]
+            self.front_files_test = [self.front_files[index] for index in test_indices]
+
+    def sort_by_timestep(self, synoptic_only=False):
+        """
+        Sort GDAS files by timestep. This function is intended to be used only if frontal object files are not needed, as sorting is done within 'ERA5files.pair_with_fronts' if
+        frontal object files are needed.
+        """
+
+        timesteps_in_gdas_files = []
+        gdas_files_list = []
+
+        ### Find all timesteps in the GDAS files ###
+        for j in range(len(self.gdas_files)):
+            gdas_filename_start_index = self.gdas_files[j].find('gdas_')
+            gdas_filename_no_variable_index = self.gdas_files[j][gdas_filename_start_index:].find('_2') + 1
+            timesteps_in_gdas_files.append(self.gdas_files[j][gdas_filename_start_index + gdas_filename_no_variable_index:gdas_filename_start_index + gdas_filename_no_variable_index + 10])  # Timestep is the first 10 characters after the pressure level in the filename
+
+        unique_timesteps_in_gdas_files = list(np.unique(sorted(timesteps_in_gdas_files)))
+
+        if synoptic_only:
+            for unique_timestep in unique_timesteps_in_gdas_files:
+                if any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
+                    unique_timesteps_in_gdas_files.pop(unique_timesteps_in_gdas_files.index(unique_timestep))
+
+        # List of GDAS timesteps used when adding files to the final list. If an incomplete set of GDAS is discovered for a
+        # timestep in 'unique_timesteps_in_gdas_files', then the files for that timestep will not be added to the final list.
+        gdas_timesteps_used = []
+
+        ### Create a nested list for GDAS files sorted by timestep ###
+        for gdas_timestep in unique_timesteps_in_gdas_files:
+            gdas_files_for_timestep = sorted(filter(lambda filename: gdas_timestep in filename, self.gdas_files))
+            if len(gdas_files_for_timestep) == len(self._variables) * len(self._forecast_hours):
+                gdas_files_list.append(gdas_files_for_timestep)
+                gdas_timesteps_used.append(gdas_timestep)
+
+        self.gdas_files = gdas_files_list
+
+        self.__sort_files_by_dataset(gdas_timesteps_used)  # Modify lists for training, validation, and test datasets
 
     def pair_with_fronts(self, front_indir, synoptic_only=True):
         """
@@ -839,10 +847,6 @@ class GDASfiles:
 
         self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
         self.front_files = self._all_front_files
-
-        ### Remove unwanted domains from the list of front files ###
-        for domain in self._domains_not_in_data:
-            self.front_files = [file for file in self.front_files if '_%s.nc' % domain not in file]
 
         timesteps_in_gdas_files = []
         front_files_list = []
