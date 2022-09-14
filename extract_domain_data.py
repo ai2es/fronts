@@ -1,16 +1,16 @@
 """
-Functions in this script create pickle files containing ERA5, GDAS, or frontal object data.
+Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/4/2022 1:28 PM CT
+Last updated: 9/12/2022 3:37 PM CT
 """
 
 import argparse
 import urllib.error
+import warnings
 import requests
 from bs4 import BeautifulSoup
 import xarray as xr
-import pickle
 import pandas as pd
 from utils import data_utils
 from errors import check_arguments
@@ -65,7 +65,7 @@ def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
     xml_dir: str
         Directory where the front xml files are stored.
     netcdf_outdir: str
-        Directory where the created pickle files will be stored.
+        Directory where the created netcdf files will be stored.
     """
     files = sorted(glob.glob("%s/*_%04d%02d%02d*f000.xml" % (xml_dir, year, month, day)))
 
@@ -277,16 +277,6 @@ def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
         fronts_ds = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)}, coords={"latitude": lats, "longitude": lons, "time": time})
         fronts_ds.to_netcdf(path="%s/%d/%02d/%02d/%s" % (netcdf_outdir, year, month, day, filename_netcdf), engine='scipy', mode='w')
 
-        fronts_ds['longitude'] = fronts_ds['longitude'].astype('float16')
-        fronts_ds['latitude'] = fronts_ds['latitude'].astype('float16')
-        fronts_ds['identifier'] = fronts_ds['identifier'].astype('int8')
-
-        filename_pickle = "FrontObjects_%04d%02d%02d%02d_full.pkl" % (year, month, day, hour)
-        fronts_ds.load()
-        outfile = open("%s/%d/%02d/%02d/%s" % (netcdf_outdir, year, month, day, filename_pickle), 'wb')
-        pickle.dump(fronts_ds, outfile)
-        outfile.close()
-
 
 def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
     """
@@ -298,11 +288,11 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
     month: month
     day: day
     netcdf_ERA5_indir: Directory where the ERA5 netCDF files are contained.
-    netcdf_outdir: Directory where the created pickle files will be stored.
+    netcdf_outdir: Directory where the created netcdf files will be stored.
 
     Returns
     -------
-    xr_pickle: Xarray dataset containing variable data for the full domain.
+    xr_netcdf: Xarray dataset containing variable data for the full domain.
     """
     era5_T_sfc_file = 'ERA5Global_%d_3hrly_2mT.nc' % year
     era5_Td_sfc_file = 'ERA5Global_%d_3hrly_2mTd.nc' % year
@@ -445,7 +435,7 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
         q[0, :, :], q[1, :, :], q[2, :, :], q[3, :, :], q[4, :, :] = q_sfc, q_1000, q_950, q_900, q_850
         u[0, :, :], u[1, :, :], u[2, :, :], u[3, :, :], u[4, :, :] = u_sfc, u_1000, u_950, u_900, u_850
         v[0, :, :], v[1, :, :], v[2, :, :], v[3, :, :], v[4, :, :] = v_sfc, v_1000, v_950, v_900, v_850
-        sp_z[0, :, :], sp_z[1, :, :], sp_z[2, :, :], sp_z[3, :, :], sp_z[4, :, :] = sp/100, z_1000/10, z_950/10, z_900/10, z_850/10
+        sp_z[0, :, :], sp_z[1, :, :], sp_z[2, :, :], sp_z[3, :, :], sp_z[4, :, :] = sp/100, z_1000/98.0665, z_950/98.0665, z_900/98.0665, z_850/98.0665
 
         full_era5_dataset = xr.Dataset(data_vars=dict(T=(('pressure_level', 'latitude', 'longitude'), T),
                                                       Td=(('pressure_level', 'latitude', 'longitude'), Td),
@@ -494,6 +484,93 @@ def download_ncep_has_order(ncep_has_order_number, ncep_has_outdir):
             except urllib.error.HTTPError:
                 print(f"Error downloading {url.replace('https://www', 'ftp://ftp')}{file}")
                 pass
+
+
+def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
+    """
+    Download GDAS grib files for a given timestep from the AWS server.
+
+    gdas_outdir: str
+        Main directory for the GDAS grib files.
+    """
+
+    if year % 4 == 0:
+        month_2_days = 29  # Leap year
+    else:
+        month_2_days = 28  # Not a leap year
+
+    days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+    ### Generate a list of dates [[year, 1, 1], [year, ..., ...], [year, 12, 31]] ###
+    date_list = []
+    for month in range(12):
+        for day in range(days_per_month[month]):
+            date_list.append([year, month + 1, day + 1])
+
+    for day_index in range(day_range[0], day_range[1] + 1):
+
+        month, day = date_list[day_index][1], date_list[day_index][2]
+        hours = np.arange(0, 24, 6)  # Hours that the GDAS model runs forecasts for
+
+        daily_directory = gdas_grib_outdir + '/%d%02d%02d' % (year, month, day)  # Directory for the GDAS grib files for the given day
+
+        # GDAS files have different naming patterns based on which year the data is for
+        if year < 2012:
+            forecast_hours = np.arange(0, 12, 3)
+            files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.{year}%02d%02d/%02d/gdas1.t%02dz.pgrbf%02d.grib2' % (month, day, hour, hour, forecast_hour)
+                     for hour in hours
+                     for forecast_hour in forecast_hours]
+            local_filenames = ['gdas1.t%02dz.pgrbf%02d.grib2' % (hour, forecast_hour)
+                               for hour in hours
+                               for forecast_hour in forecast_hours]
+
+        elif 2012 < year < 2018:
+
+            forecast_hours = np.arange(0, 10)  # Forecast hours 0-9
+
+            files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.{year}%02d%02d/%02d/gdas1.t%02dz.pgrb2.0p25.f%03d' % (month, day, hour, hour, forecast_hour)
+                     for hour in hours
+                     for forecast_hour in forecast_hours]
+            local_filenames = ['gdas.t%02dz.pgrb2.0p25.f%03d' % (hour, forecast_hour)
+                               for hour in hours
+                               for forecast_hour in forecast_hours]
+
+        elif year > 2018:
+
+            forecast_hours = np.arange(0, 10)  # Forecast hours 0-9
+
+            files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.{year}%02d%02d/%02d/gdas.t%02dz.pgrb2.0p25.f%03d' % (month, day, hour, hour, forecast_hour)
+                     for hour in hours
+                     for forecast_hour in forecast_hours]
+
+            local_filenames = ['gdas.t%02dz.pgrb2.0p25.f%03d' % (hour, forecast_hour)
+                               for hour in hours
+                               for forecast_hour in forecast_hours]
+
+        for file, local_filename in zip(files, local_filenames):
+
+            ### If the directory does not exist, check to see if the file link is valid. If the file link is NOT valid, then the directory will not be created since it will be empty. ###
+            if not os.path.isdir(daily_directory):
+                if requests.head(file).status_code == requests.codes.ok:
+                    os.mkdir(daily_directory)
+
+            full_file_path = f'{daily_directory}/{local_filename}'
+
+            if not os.path.isfile(full_file_path) and os.path.isdir(daily_directory):
+                try:
+                    wget.download(file, out=full_file_path)
+                except urllib.error.HTTPError:
+                    print(f"Error downloading {file}")
+                    pass
+
+            elif not os.path.isdir(daily_directory):
+                warnings.warn(f"Unknown problem encountered when creating the following directory: {daily_directory}, "
+                              f"Consider checking the AWS server to make sure that data exists for the given day ({year}-%02d-%02d): "
+                              f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/index.html#gdas.{year}%02d%02d" % (date_list[day_index][1], date_list[day_index][2], date_list[day_index][1], date_list[day_index][2]))
+                break
+
+            elif os.path.isfile(full_file_path):
+                print(f"{full_file_path} already exists, skipping file....")
 
 
 def download_latest_gdas_data(gdas_grib_outdir):
@@ -616,7 +693,7 @@ def download_latest_gfs_data(gfs_grib_outdir):
 
 def gdas_grib_to_netcdf(year, month, day, hour, gdas_grib_indir, netcdf_outdir, forecast_hour=6):
     """
-    Create GDAS pickle files from the grib files.
+    Create GDAS netcdf files from the grib files.
 
     Parameters
     ----------
@@ -625,7 +702,7 @@ def gdas_grib_to_netcdf(year, month, day, hour, gdas_grib_indir, netcdf_outdir, 
     day: day
     hour: hour
     gdas_grib_indir: Directory where the GDAS grib files are stored.
-    netcdf_outdir: Directory where the created GDAS or GFS pickle files will be stored.
+    netcdf_outdir: Directory where the created GDAS or GFS netcdf files will be stored.
     forecast_hour: Hour for the forecast.
     """
 
@@ -806,15 +883,17 @@ if __name__ == "__main__":
     parser.add_argument('--fronts', action='store_true', help="Generate front object data files")
     parser.add_argument('--xml_indir', type=str, help="input directory for front XML files")
     parser.add_argument('--download_ncep_has_order', action='store_true', help='Download GDAS tarfiles')
+    parser.add_argument('--download_gdas_grib_files', action='store_true', help='Download GDAS grib files for a specific date and time')
     parser.add_argument('--download_latest_gdas_data', action='store_true', help='Download GDAS grib files from NCEP.')
     parser.add_argument('--download_latest_gfs_data', action='store_true', help='Download GFS grib files from NCEP.')
     parser.add_argument('--ncep_has_order_number', type=str, help='HAS order number')
-    parser.add_argument('--gdas_grib_to_netcdf', action='store_true', help="Generate GDAS pickle files")
+    parser.add_argument('--gdas_grib_to_netcdf', action='store_true', help="Generate GDAS netcdf files")
     parser.add_argument('--gdas_grib_outdir', type=str, help='Output directory for GDAS grib files downloaded from NCEP.')
     parser.add_argument('--gfs_grib_outdir', type=str, help='Output directory for GFS grib files downloaded from NCEP.')
     parser.add_argument('--gdas_grib_indir', type=str, help="input directory for the GDAS grib files")
     parser.add_argument('--ncep_has_outdir', type=str, help='Output directory for downloaded files from the HAS order.')
-    parser.add_argument('--netcdf_outdir', type=str, help="output directory for pickle files")
+    parser.add_argument('--netcdf_outdir', type=str, help="output directory for netcdf files")
+    parser.add_argument('--day_range', type=int, nargs=2, default=[0, 364], help="Start and end days of the year for grabbing grib files")
     parser.add_argument('--year', type=int, help="year for the data to be read in")
     parser.add_argument('--month', type=int, help="month for the data to be read in")
     parser.add_argument('--day', type=int, help="day for the data to be read in")
@@ -842,11 +921,15 @@ if __name__ == "__main__":
         required_arguments = ['ncep_has_order_number', 'ncep_has_outdir']
         check_arguments(provided_arguments, required_arguments)
         download_ncep_has_order(args.ncep_has_order_number, args.ncep_has_outdir)
+    if args.download_gdas_grib_files:
+        required_arguments = ['year', 'day_range', 'gdas_grib_outdir']
+        check_arguments(provided_arguments, required_arguments)
+        download_gdas_grib_files(args.gdas_grib_outdir, args.year, args.day_range)
     if args.download_latest_gdas_data:
         required_arguments = ['gdas_grib_outdir']
         check_arguments(provided_arguments, required_arguments)
         download_latest_gdas_data(args.gdas_grib_outdir)
     if args.download_latest_gfs_data:
-        required_arguments = ['year', 'month', 'day', 'hour', 'gfs_grib_outdir']
+        required_arguments = ['gfs_grib_outdir']
         check_arguments(provided_arguments, required_arguments)
         download_latest_gfs_data(args.gfs_grib_outdir)
