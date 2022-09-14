@@ -11,7 +11,7 @@ TODO:
     * Add functions for managing GFS data once the data is obtained
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 9/13/2022 10:18 PM CT
+Last updated: 9/14/2022 5:16 PM CT
 """
 
 from glob import glob
@@ -126,7 +126,7 @@ def delete_grouped_files(main_dir, glob_file_string, num_subdir):
     subdir_string += '/'
     glob_file_string = subdir_string + glob_file_string  # String that will be used to match with patterns in filenames
 
-    files_to_delete = list(sorted(glob("%s/%s" % (main_dir, glob_file_string))))  # Search for files in the given directory that have patterns matching the file string
+    files_to_delete = list(sorted(glob("%s%s" % (main_dir, glob_file_string))))  # Search for files in the given directory that have patterns matching the file string
 
     # Delete all the files
     print("Deleting %d files...." % len(files_to_delete), end='')
