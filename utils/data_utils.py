@@ -13,17 +13,21 @@ import xarray as xr
 import file_manager as fm
 
 
-def expand_fronts(ds_fronts):
+def expand_fronts(ds_fronts, iterations=1):
     """
     Expands fronts by 1 pixel in all directions.
 
     Parameters
     ----------
-    ds_fronts: Dataset that contains frontal objects.
+    ds_fronts: xr.Dataset
+        Dataset that contains frontal objects.
+    iterations: int
+        Number of pixels that the fronts will be expanded by in all directions, determined by the number of iterations across this expansion method.
 
     Returns
     -------
-    ds_fronts: Dataset that contains expanded frontal objects.
+    ds_fronts: xr.Dataset
+        Dataset that contains expanded frontal objects.
     """
     lats = ds_fronts.latitude.values
     lons = ds_fronts.longitude.values
@@ -34,103 +38,104 @@ def expand_fronts(ds_fronts):
     indices = np.where(ds_fronts[variable_name].values != 0)
     identifier = ds_fronts[variable_name].values
 
-    for i in range(len(indices[0])):
-        front_value = identifier[indices[0][i]][indices[1][i]]
-        if lats[indices[0][i]] == lats[0]:
-            # If the front pixel is at the north end of the domain (max lat), and there is no front directly
-            # to the south, expand the front 1 pixel south.
-            if identifier[indices[0][i]][indices[1][i]] == 0:
-                ds_fronts[variable_name].values[indices[0][i]][indices[1][i]] = front_value
-            # If the front pixel is at the northwest end of the domain (max/min lat/lon), check the pixels to the
-            # southeast and east for fronts, and expand the front there if no other fronts are already present.
-            if lons[indices[1][i]] == lons[0]:
-                if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] + 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
-            # If the front pixel is at the northeast end of the domain (max/max lat/lon), check the pixels to the
-            # southwest and west for fronts, and expand the front there if no other fronts are already present.
-            elif lons[indices[1][i]] == lons[len_lons - 1]:
-                if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] - 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
-            # If the front pixel is at the north end of the domain (max lat), but not at the west or east end (min lon
-            # or max lon) check the pixels to the west and east for fronts, and expand the front there if no other
-            # fronts are already present.
+    for iteration in range(iterations):
+        for i in range(len(indices[0])):
+            front_value = identifier[indices[0][i]][indices[1][i]]
+            if lats[indices[0][i]] == lats[0]:
+                # If the front pixel is at the north end of the domain (max lat), and there is no front directly
+                # to the south, expand the front 1 pixel south.
+                if identifier[indices[0][i]][indices[1][i]] == 0:
+                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i]] = front_value
+                # If the front pixel is at the northwest end of the domain (max/min lat/lon), check the pixels to the
+                # southeast and east for fronts, and expand the front there if no other fronts are already present.
+                if lons[indices[1][i]] == lons[0]:
+                    if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] + 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
+                # If the front pixel is at the northeast end of the domain (max/max lat/lon), check the pixels to the
+                # southwest and west for fronts, and expand the front there if no other fronts are already present.
+                elif lons[indices[1][i]] == lons[len_lons - 1]:
+                    if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] - 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
+                # If the front pixel is at the north end of the domain (max lat), but not at the west or east end (min lon
+                # or max lon) check the pixels to the west and east for fronts, and expand the front there if no other
+                # fronts are already present.
+                else:
+                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
+            elif lats[-1] < lats[indices[0][i]] < lats[len_lats - 1]:
+                # If there is no front directly to the south, expand the front 1 pixel south.
+                if identifier[indices[0][i] + 1][indices[1][i]] == 0:
+                    identifier[indices[0][i]][indices[1][i]] = front_value
+                # If there is no front directly to the north, expand the front 1 pixel north.
+                if identifier[indices[0][i] - 1][indices[1][i]] == 0:
+                    ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i]] = front_value
+                # If the front pixel is at the west end of the domain (min lon), check the pixels to the southeast,
+                # east, and northeast for fronts, and expand the front there if no other fronts are already present.
+                if lons[indices[1][i]] == lons[0]:
+                    if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] + 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
+                    if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] + 1] = front_value
+                # If the front pixel is at the east end of the domain (min lon), check the pixels to the southwest,
+                # west, and northwest for fronts, and expand the front there if no other fronts are already present.
+                elif lons[indices[1][i]] == lons[len_lons - 1]:
+                    if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] - 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
+                    if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] - 1] = front_value
+                # If the front pixel is not at the end of the domain in any direction, check the northeast, east,
+                # southeast, northwest, west, and southwest for fronts, and expand the front there if no other fronts
+                # are already present.
+                else:
+                    if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] + 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
+                    if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] + 1] = front_value
+                    if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] - 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
+                    if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] - 1] = front_value
             else:
-                if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
-        elif lats[-1] < lats[indices[0][i]] < lats[len_lats - 1]:
-            # If there is no front directly to the south, expand the front 1 pixel south.
-            if identifier[indices[0][i] + 1][indices[1][i]] == 0:
-                identifier[indices[0][i]][indices[1][i]] = front_value
-            # If there is no front directly to the north, expand the front 1 pixel north.
-            if identifier[indices[0][i] - 1][indices[1][i]] == 0:
-                ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i]] = front_value
-            # If the front pixel is at the west end of the domain (min lon), check the pixels to the southeast,
-            # east, and northeast for fronts, and expand the front there if no other fronts are already present.
-            if lons[indices[1][i]] == lons[0]:
-                if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] + 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
-                if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] + 1] = front_value
-            # If the front pixel is at the east end of the domain (min lon), check the pixels to the southwest,
-            # west, and northwest for fronts, and expand the front there if no other fronts are already present.
-            elif lons[indices[1][i]] == lons[len_lons - 1]:
-                if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] - 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
-                if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] - 1] = front_value
-            # If the front pixel is not at the end of the domain in any direction, check the northeast, east,
-            # southeast, northwest, west, and southwest for fronts, and expand the front there if no other fronts
-            # are already present.
-            else:
-                if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] + 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
-                if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] + 1] = front_value
-                if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] + 1][indices[1][i] - 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
-                if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] - 1] = front_value
-        else:
-            # If the front pixel is at the south end of the domain (max lat), and there is no front directly
-            # to the north, expand the front 1 pixel north.
-            if identifier[indices[0][i] - 1][indices[1][i]] == 0:
-                ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i]] = front_value
-            # If the front pixel is at the southwest end of the domain (max/min lat/lon), check the pixels to the
-            # northeast and east for fronts, and expand the front there if no other fronts are already present.
-            if lons[indices[1][i]] == lons[0]:
-                if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] + 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
-            # If the front pixel is at the southeast end of the domain (max/max lat/lon), check the pixels to the
-            # northwest and west for fronts, and expand the front there if no other fronts are already present.
-            elif lons[indices[1][i]] == lons[len_lons - 1]:
-                if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] - 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
-            # If the front pixel is at the south end of the domain (max lat), but not at the west or east end (min lon
-            # or max lon) check the pixels to the west and east for fronts, and expand the front there if no other
-            # fronts are already present.
-            else:
-                if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
-                if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                    ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
+                # If the front pixel is at the south end of the domain (max lat), and there is no front directly
+                # to the north, expand the front 1 pixel north.
+                if identifier[indices[0][i] - 1][indices[1][i]] == 0:
+                    ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i]] = front_value
+                # If the front pixel is at the southwest end of the domain (max/min lat/lon), check the pixels to the
+                # northeast and east for fronts, and expand the front there if no other fronts are already present.
+                if lons[indices[1][i]] == lons[0]:
+                    if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] + 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
+                # If the front pixel is at the southeast end of the domain (max/max lat/lon), check the pixels to the
+                # northwest and west for fronts, and expand the front there if no other fronts are already present.
+                elif lons[indices[1][i]] == lons[len_lons - 1]:
+                    if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i] - 1][indices[1][i] - 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
+                # If the front pixel is at the south end of the domain (max lat), but not at the west or east end (min lon
+                # or max lon) check the pixels to the west and east for fronts, and expand the front there if no other
+                # fronts are already present.
+                else:
+                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] - 1] = front_value
+                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
+                        ds_fronts[variable_name].values[indices[0][i]][indices[1][i] + 1] = front_value
 
     return ds_fronts
 
@@ -247,22 +252,22 @@ def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=Fa
 
         Special codes (cannot be passed with any individual front codes):
         -----------------------------------------------------------------
-        F_BIN (1 class): Train on 1-4, but treat all front types as one type.
+        F_BIN (1 class): 1-4, but treat all front types as one type.
             (1): CF, WF, SF, OF
 
-        MERGED-F (4 classes): Train on 1-12, but treat forming and dissipating fronts as a standard front.
+        MERGED-F (4 classes): 1-12, but treat forming and dissipating fronts as a standard front.
             (1): CF, CF-F, CF-D
             (2): WF, WF-F, WF-D
             (3): SF, SF-F, SF-D
             (4): OF, OF-F, OF-D
 
-        MERGED-F-BIN (1 class): Train on 1-12, but treat all front types and stages as one type. This means that classes 1-12 will all be one class (1).
+        MERGED-F_BIN (1 class): 1-12, but treat all front types and stages as one type. This means that classes 1-12 will all be one class (1).
             (1): CF, CF-F, CF-D, WF, WF-F, WF-D, SF, SF-F, SF-D, OF, OF-F, OF-D
 
-        MERGED-T (1 class): Train on 14-15, but treat troughs and tropical troughs as the same. In other words, TT (15) becomes TROF (14).
+        MERGED-T (1 class): 14-15, but treat troughs and tropical troughs as the same. In other words, TT (15) becomes TROF (14).
             (1): TROF, TT
 
-        MERGED-ALL (7 classes): Train on all classes (1-16), but make the changes in the MERGED-F and MERGED-T codes.
+        MERGED-ALL (7 classes): 1-16, but make the changes in the MERGED-F and MERGED-T codes.
             (1): CF, CF-F, CF-D
             (2): WF, WF-F, WF-D
             (3): SF, SF-F, SF-D
