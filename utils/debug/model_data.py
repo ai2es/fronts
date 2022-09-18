@@ -1,3 +1,11 @@
+"""
+Debug tools for model data (predictions, statistics, etc.)
+
+Code written by: Andrew Justin (andrewjustinwx@gmail.com)
+
+Last updated: 9/18/2022 4:46 PM CT
+"""
+
 import numpy as np
 import pandas as pd
 import os
@@ -96,11 +104,18 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
     for timestep in date_list:
 
         # Boolean flags for signaling whether a specific data file is missing
+        missing_prediction_file = False
         missing_variables_file = False
         missing_front_file = False
 
-        if not os.path.isfile(f'%s/model_{model_number}_{year}-%02d-%02d-%02dz_conus_%dx%dimages_%dx%dtrim_statistics.nc' %
-                              (stats_folder_to_analyze, timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])):
+        stats_file = f'%s/model_{model_number}_{year}-%02d-%02d-%02dz_conus_%dx%dimages_%dx%dtrim_statistics.nc' % (stats_folder_to_analyze, timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        probs_file = stats_file.replace('statistics', 'probabilities')
+
+        if not os.path.isfile(stats_file):
+
+            # If the statistics file does not exist, check to see if a prediction/probabilities file is missing
+            if not os.path.isfile(probs_file):
+                missing_prediction_file = True
 
             # If the statistics file does not exist, check to see if a variable file is missing
             if not os.path.isfile(f'%s/%d/%02d/%02d/{variables_data_source}_T_%d%02d%02d%02d_full.nc' %
@@ -112,15 +127,18 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
                                   (fronts_netcdf_indir, timestep[1], timestep[2], timestep[3], timestep[0], timestep[1], timestep[2], timestep[3])):
                 missing_front_file = True
 
-            if missing_variables_file:
-                if missing_front_file:
-                    report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source} and front object files" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+            if missing_prediction_file:
+                if missing_variables_file:
+                    if missing_front_file:
+                        report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source} and front object files" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+                    else:
+                        report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source} file" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+                elif missing_front_file:
+                    report_file.write(f"\n%d-%02d-%02d-%02dz: missing front object file" % (timestep[0], timestep[1], timestep[2], timestep[3]))
                 else:
-                    report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source} file" % (timestep[0], timestep[1], timestep[2], timestep[3]))
-            elif missing_front_file:
-                report_file.write(f"\n%d-%02d-%02d-%02dz: missing front object file" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+                    report_file.write(f"\n%d-%02d-%02d-%02dz: prediction was not completed (era5 and front object files were found)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
             else:
-                report_file.write(f"\n%d-%02d-%02d-%02dz: prediction was not completed (era5 and front object files were found)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+                report_file.write(f"\n%d-%02d-%02d-%02dz: statistics calculation was not completed (prediction/probabilities file was found)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
 
             num_missing_stats_files += 1
             current_year = str(timestep[0])
