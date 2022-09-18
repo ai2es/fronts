@@ -111,6 +111,8 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
         stats_file = f'%s/model_{model_number}_{year}-%02d-%02d-%02dz_conus_%dx%dimages_%dx%dtrim_statistics.nc' % (stats_folder_to_analyze, timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
         probs_file = stats_file.replace('statistics', 'probabilities')
 
+        print(probs_file)
+
         if not os.path.isfile(stats_file):
 
             # If the statistics file does not exist, check to see if a prediction/probabilities file is missing
@@ -145,7 +147,7 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
             current_month = timestep[1]
             current_day = timestep[2]
 
-            index = int(np.sum(days_per_month[:current_month-1]) + current_day)
+            index = int(np.sum(days_per_month[:current_month-1]) + current_day) - 1
             missing_indices[current_year].append(index)
 
     report_file.write('\n\n\n Summary \n -------------')
