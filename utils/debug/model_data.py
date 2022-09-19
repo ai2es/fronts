@@ -3,7 +3,7 @@ Debug tools for model data (predictions, statistics, etc.)
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 9/18/2022 4:46 PM CT
+Last updated: 9/18/2022 9:10 PM CT
 """
 
 import numpy as np
@@ -12,7 +12,7 @@ import os
 
 
 def find_missing_statistics(model_dir, model_number, domain, domain_images, domain_trim, variables_data_source, variables_netcdf_indir,
-    fronts_netcdf_indir, dataset=None, years=None, report_outdir=None):
+    fronts_netcdf_indir, fronts_xml_indir, dataset=None, years=None, report_outdir=None):
     """
     Search through a folder containing model statistics to find timesteps for which files are missing.
     Information on missing timesteps will be output to a text file.
@@ -35,6 +35,8 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
         - Directory for the data used when making the predictions for the statistics.
     fronts_netcdf_indir: str
         - Directory where the front object netcdf files are stored.
+    fronts_xml_indir: str
+        - Directory where the XML files for front objects are stored.
     dataset: str or None
         - Dataset (years) to analyze. Available options are: 'training', 'validation', 'test', or None.
         - If None, 'years' must be provided.
@@ -53,7 +55,8 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
 
     assert os.path.isdir(model_dir)  # Assert that the model directory exists
     assert os.path.isdir(variables_netcdf_indir)  # Assert that the directory for variable data exists
-    assert os.path.isdir(fronts_netcdf_indir)  # Assert that the directory for the front object data exists
+    assert os.path.isdir(fronts_netcdf_indir)  # Assert that the directory for the front object netcdf data exists
+    assert os.path.isdir(fronts_xml_indir)  # Assert that the directory for the front object XML data exists
 
     model_folder = '%s/model_%d' % (model_dir, model_number)
     model_properties = pd.read_pickle('%s/model_%d_properties.pkl' % (model_folder, model_number))
@@ -83,18 +86,19 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
 
     ### Generate a list of timesteps [[year, 1, 1, 0], [year, ..., ..., ...], [year, 12, 31, 21]] ###
     date_list = []
+    days_per_month = dict({str(year): None for year in years})  # Number of days in each month for each year being analyzed
     for year in years:
         if year % 4 == 0:
             month_2_days = 29  # Leap year
         else:
             month_2_days = 28  # Not a leap year
 
-        days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        days_per_month[str(year)] = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-        for month in range(12):
-            for day in range(days_per_month[month]):
+        for month in range(1, 13):
+            for day in range(1, days_per_month[str(year)][month - 1] + 1):
                 for hour in range(0, 24, 3):
-                    date_list.append([year, month + 1, day + 1, hour])
+                    date_list.append([year, month, day, hour])
 
     num_timesteps = len(date_list)
     num_missing_stats_files = 0  # Counter for the number of missing statistics files
@@ -106,12 +110,11 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
         # Boolean flags for signaling whether a specific data file is missing
         missing_prediction_file = False
         missing_variables_file = False
-        missing_front_file = False
+        missing_front_netcdf_file = False
+        missing_front_xml_file = False
 
-        stats_file = f'%s/model_{model_number}_{year}-%02d-%02d-%02dz_conus_%dx%dimages_%dx%dtrim_statistics.nc' % (stats_folder_to_analyze, timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        stats_file = f'%s/model_{model_number}_%d-%02d-%02d-%02dz_conus_%dx%dimages_%dx%dtrim_statistics.nc' % (stats_folder_to_analyze, timestep[0], timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
         probs_file = stats_file.replace('statistics', 'probabilities')
-
-        print(probs_file)
 
         if not os.path.isfile(stats_file):
 
@@ -121,24 +124,37 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
 
             # If the statistics file does not exist, check to see if a variable file is missing
             if not os.path.isfile(f'%s/%d/%02d/%02d/{variables_data_source}_T_%d%02d%02d%02d_full.nc' %
-                                  (variables_data_source, timestep[1], timestep[2], timestep[3], timestep[0], timestep[1], timestep[2], timestep[3])):
+                                  (variables_netcdf_indir, timestep[0], timestep[1], timestep[2], timestep[0], timestep[1], timestep[2], timestep[3])):
                 missing_variables_file = True
 
-            # If the statistics file does not exist, check to see if a front ibject file is missing
+            # If the statistics file does not exist, check to see if a front object netcdf file is missing
             if not os.path.isfile(f'%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_full.nc' %
-                                  (fronts_netcdf_indir, timestep[1], timestep[2], timestep[3], timestep[0], timestep[1], timestep[2], timestep[3])):
-                missing_front_file = True
+                                  (fronts_netcdf_indir, timestep[0], timestep[1], timestep[2], timestep[0], timestep[1], timestep[2], timestep[3])):
+                missing_front_netcdf_file = True
 
-            if missing_prediction_file:
-                if missing_variables_file:
-                    if missing_front_file:
-                        report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source} and front object files" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+            # If the statistics file does not exist, check to see if a front object XML file is missing
+            if missing_front_netcdf_file:
+                if not os.path.isfile(f'%s/pres_pmsl_%d%02d%02d%02df000.xml' % (fronts_xml_indir, timestep[0], timestep[1], timestep[2], timestep[3])):
+                    missing_front_xml_file = True
+
+            if missing_variables_file:
+                if missing_front_netcdf_file:
+                    if missing_front_xml_file:
+                        report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source.upper()} netcdf, front object netcdf (front XML file found: No)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
                     else:
-                        report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source} file" % (timestep[0], timestep[1], timestep[2], timestep[3]))
-                elif missing_front_file:
-                    report_file.write(f"\n%d-%02d-%02d-%02dz: missing front object file" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+                        report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source.upper()} netcdf, front object netcdf (front XML file found: Yes)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
                 else:
-                    report_file.write(f"\n%d-%02d-%02d-%02dz: prediction was not completed (era5 and front object files were found)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+                    report_file.write(f"\n%d-%02d-%02d-%02dz: missing {variables_data_source.upper()} netcdf" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+
+            elif missing_front_netcdf_file:
+                if missing_front_xml_file:
+                    report_file.write(f"\n%d-%02d-%02d-%02dz: missing front object netcdf (front XML file found: No)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+                else:
+                    report_file.write(f"\n%d-%02d-%02d-%02dz: missing front object netcdf (front XML file found: Yes)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+
+            elif missing_prediction_file:
+                report_file.write(f"\n%d-%02d-%02d-%02dz: prediction was not completed ({variables_data_source.upper()} netcdf and front object netcdf files were found)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
+
             else:
                 report_file.write(f"\n%d-%02d-%02d-%02dz: statistics calculation was not completed (prediction/probabilities file was found)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
 
@@ -147,7 +163,7 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
             current_month = timestep[1]
             current_day = timestep[2]
 
-            index = int(np.sum(days_per_month[:current_month-1]) + current_day) - 1
+            index = int(np.sum(days_per_month[current_year][:current_month-1]) + current_day) - 1
             missing_indices[current_year].append(index)
 
     report_file.write('\n\n\n Summary \n -------------')

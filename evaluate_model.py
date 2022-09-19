@@ -7,7 +7,7 @@ TODO:
     * Finish separating plots and statistics calculations from the main prediction method
     * Touch up prediction method for quicker predictions?
 
-Last updated: 9/13/2022 10:35 PM CT
+Last updated: 9/18/2022 9:10 PM CT
 """
 
 import os
@@ -27,6 +27,10 @@ from matplotlib.animation import FuncAnimation
 from utils import data_utils
 from utils.plotting_utils import plot_background
 from glob import glob
+
+# default values for extents and images on different domains
+DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}
+DEFAULT_DOMAIN_IMAGES = {'full': [8, 3], 'conus': [3, 1]}
 
 
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
@@ -208,22 +212,22 @@ def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images
     return stitched_map_probs, map_created
 
 
-def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, timestep, domain_images, domain_trim, forecast_hour=None):
+def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, domain_trim, forecast_hour=None):
     """
     """
 
     year, month, day, hour = timestep[0], timestep[1], timestep[2], timestep[3]
 
-    probs_dir = f'{model_dir}/model_{model_number}/probabilities/full_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim'
+    probs_dir = f'{model_dir}/model_{model_number}/probabilities/{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim'
 
     if forecast_hour is not None:
         forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
         new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep[8:]
         fronts_file = '%s/%s/%s/%s/FrontObjects_%s%s%s%s_full.nc' % (fronts_netcdf_dir, new_year, new_month, new_day, new_year, new_month, new_day, new_hour)
-        probs_file = f'{probs_dir}/model_{model_number}_{year}-%02d-%02d-%02dz_full_f%03d_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities.nc' % (month, day, hour, forecast_hour)
+        probs_file = f'{probs_dir}/model_{model_number}_{year}-%02d-%02d-%02dz_{domain}_f%03d_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities.nc' % (month, day, hour, forecast_hour)
     else:
         fronts_file = '%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_dir, year, month, day, year, month, day, hour)
-        probs_file = f'{probs_dir}/model_{model_number}_{year}-%02d-%02d-%02dz_full_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities.nc' % (month, day, hour)
+        probs_file = f'{probs_dir}/model_{model_number}_{year}-%02d-%02d-%02dz_{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities.nc' % (month, day, hour)
 
     fronts_ds = xr.open_dataset(fronts_file)
     probs_ds = xr.open_dataset(probs_file)
@@ -259,7 +263,6 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
     boundaries = np.array([50, 100, 150, 200, 250])  # Boundaries for checking whether or not a front is present (kilometers)
 
     for front_no, front_type in enumerate(front_types):
-        print("Front no", front_no)
         for i in range(100):
             """
             True negative ==> model correctly predicts the lack of a front at a given point
@@ -293,7 +296,11 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
             performance_ds["tn_%s" % front_type] = (('boundary', 'threshold'), tn_array[front_no])
             performance_ds["fn_%s" % front_type] = (('boundary', 'threshold'), fn_array[front_no])
 
-    return performance_ds.astype('float32')
+    performance_ds = performance_ds.expand_dims({'time': np.atleast_1d(probs_ds['time'].values)})
+    if forecast_hour is not None:
+        performance_ds = performance_ds.expand_dims({'forecast_hour': np.atleast_1d(probs_ds['forecast_hour'].values)})
+
+    performance_ds.to_netcdf(path=probs_file.replace('probabilities', 'statistics'), mode='w', engine='scipy')
 
 
 def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, compat_images=None):
@@ -458,8 +465,9 @@ def gdas_prediction_animated(model_number, model_dir, fronts_netcdf_indir, domai
         ani.save(f'{path_to_probs_folder}test_animation_{front_key}.mp4', writer='ffmpeg', fps=5)
 
 
-def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts_pickle_indir, domain, domain_images, domain_size, domain_trim,
-    prediction_method, dataset=None, datetime=None, num_rand_predictions=None, random_variables=None, save_probabilities=False, variable_data_source='gdas', forecast_hours=(6,)):
+def generate_predictions(model_number, model_dir, variables_netcdf_indir, fronts_netcdf_indir, prediction_method, domain='full',
+    domain_images='min', domain_trim=(0, 0), dataset=None, datetime=None, num_rand_predictions=None, random_variables=None,
+    variable_data_source='gdas', forecast_hours=None):
     """
     Generate predictions with a model.
 
@@ -469,20 +477,24 @@ def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts
         - Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
         - Main directory for the models.
-    variables_pickle_indir: str
-        - Input directory for the ERA5 pickle files.
-    fronts_pickle_indir: str
-        - Input directory for the front object pickle files.
+    variables_netcdf_indir: str
+        - Input directory for the ERA5 netcdf files.
+    fronts_netcdf_indir: str
+        - Input directory for the front object netcdf files.
     domain: str
         - Domain of the datasets.
-    domain_images: iterable object with 2 ints
-        - Number of images along each dimension of the final stitched map (lon lat).
-    domain_size: iterable object with 2 ints
-        - Number of pixels along each dimension of the final stitched map (lon lat).
-    domain_trim: iterable object with 2 ints
+    domain_images: str or iterable object with 2 ints
+        - If a string, valid values are 'min', 'balanced', 'max'. Default is 'min'.
+            * 'min' uses the minimum possible number of images when making the predictions.
+            * 'balanced' chooses the number of images that creates the closest possible balance of images in the longitude and latitude direction.
+            * 'max' chooses the maximum number of images that can be stitched together (NOT RECOMMENDED)
+        - If an iterable with 2 integers, values represent the number of images in the longitude and latitude dimensions.
+    domain_trim: None or iterable object with 2 ints
         - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
     prediction_method: str
         - Prediction method. Options are: 'datetime', 'random', 'all'
+    domain: str
+        - Domain over which the predictions will be made. Options are: 'conus', 'full'. Default is 'full'.
     datetime: iterable object with 4 integers
         - 4 values for the date and time: year, month, day, hour
     dataset: str
@@ -491,8 +503,6 @@ def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts
         - Number of random predictions to make.
     random_variables: str, or iterable of strings
         - Variables to randomize.
-    save_probabilities: bool
-        - Setting this to true will save front probability data to a pickle file.
     variable_data_source: str
         - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
     forecast_hours: int or tuple of ints
@@ -507,9 +517,12 @@ def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts
     num_dimensions = len(image_size)
     test_years, valid_years = model_properties['test_years'], model_properties['validation_years']
 
+    domain_images = DEFAULT_DOMAIN_IMAGES[domain]
+    domain_extent = DEFAULT_DOMAIN_EXTENTS[domain]
+
     ### Properties of the final map made from stitched images ###
     domain_images_lon, domain_images_lat = domain_images[0], domain_images[1]
-    domain_size_lon, domain_size_lat = domain_size[0], domain_size[1]
+    domain_size_lon, domain_size_lat = int((domain_extent[1] - domain_extent[0])*4) + 1, int((domain_extent[3] - domain_extent[2])*4) + 1
     domain_trim_lon, domain_trim_lat = domain_trim[0], domain_trim[1]
     image_size_lon, image_size_lat = image_size[0], image_size[1]  # Dimensions of the model's predictions
     domain_size_lon_trimmed = domain_size_lon - 2*domain_trim_lon  # Longitude dimension of the full stitched map after trimming
@@ -531,7 +544,7 @@ def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts
 
     if variable_data_source.lower() == 'era5':
 
-        era5_files_obj = fm.ERA5files(variables_pickle_indir)
+        era5_files_obj = fm.ERA5files(variables_netcdf_indir)
         era5_files_obj.variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
         era5_files_obj.validation_years = valid_years
         era5_files_obj.test_years = test_years
@@ -544,12 +557,12 @@ def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts
 
     elif variable_data_source.lower() == 'gdas':
 
-        gdas_files_obj = fm.GDASfiles(variables_pickle_indir)
+        gdas_files_obj = fm.GDASfiles(variables_netcdf_indir)
         gdas_files_obj.variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
         gdas_files_obj.validation_years = valid_years
         gdas_files_obj.test_years = test_years
         gdas_files_obj.forecast_hours = (0, 3, 6, 9)
-        gdas_files_obj.pair_with_fronts(fronts_pickle_indir)
+        gdas_files_obj.pair_with_fronts(fronts_netcdf_indir)
 
         if dataset is not None:
             variable_files = getattr(gdas_files_obj, 'gdas_files_' + dataset)
@@ -573,10 +586,10 @@ def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts
         """
 
         if variable_data_source == 'era5':
-            variable_ds = xr.open_mfdataset(variable_files[file_index]).transpose('time', 'longitude', 'latitude', 'pressure_level')
+            variable_ds = xr.open_mfdataset(variable_files[file_index]).transpose('time', 'longitude', 'latitude', 'pressure_level').sel(longitude=slice(domain_extent[0], domain_extent[1]), latitude=slice(domain_extent[3], domain_extent[2]))
             stitched_map_probs = np.empty(shape=[classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
         elif variable_data_source == 'gdas':
-            variable_ds = xr.open_mfdataset(variable_files[file_index]).transpose('time', 'forecast_hour', 'longitude', 'latitude', 'pressure_level').sel(pressure_level=['surface', '1000', '950', '900', '850'])
+            variable_ds = xr.open_mfdataset(variable_files[file_index]).transpose('time', 'forecast_hour', 'longitude', 'latitude', 'pressure_level').sel(pressure_level=['surface', '1000', '950', '900', '850'], longitude=slice(domain_extent[0], domain_extent[1]), latitude=slice(domain_extent[3], domain_extent[2]))
             forecast_hours = variable_ds['forecast_hour'].values
             stitched_map_probs = np.empty(shape=[len(forecast_hours), classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
 
@@ -658,9 +671,8 @@ def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts
                             if random_variables is not None:
                                 filename_base += '_' + '-'.join(sorted(random_variables))
 
-                            if save_probabilities:
-                                outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (model_dir, model_number, subdir_base, filename_base)
-                                probs_ds.to_netcdf(path=outfile, engine='scipy', mode='w')
+                            outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (model_dir, model_number, subdir_base, filename_base)
+                            probs_ds.to_netcdf(path=outfile, engine='scipy', mode='w')
 
                     elif variable_data_source == 'era5':
                         probs_ds = create_model_prediction_dataset(stitched_map_probs, image_lats, image_lons, front_types)
@@ -669,9 +681,8 @@ def generate_predictions(model_number, model_dir, variables_pickle_indir, fronts
                         if random_variables is not None:
                             filename_base += '_' + '-'.join(sorted(random_variables))
 
-                        if save_probabilities:
-                            outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (model_dir, model_number, subdir_base, filename_base)
-                            probs_ds.to_netcdf(path=outfile, engine='scipy', mode='w')
+                        outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (model_dir, model_number, subdir_base, filename_base)
+                        probs_ds.to_netcdf(path=outfile, engine='scipy', mode='w')
 
 
 def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, front_types: str or list):
@@ -760,7 +771,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     if random_variables is not None:
         subdir_base += '_' + '-'.join(sorted(random_variables))
 
-    files = sorted(glob('%s\\model_%d\\statistics\\%s\\*statistics.pkl' % (model_dir, model_number, subdir_base)))
+    files = sorted(glob('%s\\model_%d\\statistics\\%s\\*statistics.nc' % (model_dir, model_number, subdir_base)))
 
     # If evaluating over the full domain, remove non-synoptic hours (3z, 9z, 15z, 21z)
     if domain == 'full':
@@ -769,7 +780,9 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
             string = '%02dz_' % hour
             files = list(filter(lambda hour: string not in hour, files))
 
-    stats = pd.read_pickle(files[0])  # Open the first dataset so information on variables can be retrieved
+    stats = xr.open_mfdataset(files, combine='nested', concat_dim='time').isel(boundary=-1)  # Open the first dataset so information on variables can be retrieved
+    stats_sum = stats.sum(dim='time')
+
     ds_keys = list(stats.keys())  # List of the names of the variables in the stats datasets.
     num_keys = len(ds_keys)  # Number of data variables
     num_files = len(files)  # Number of files
@@ -783,23 +796,6 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     statistics_array_150km = np.empty(shape=(num_files, num_keys, 100))
     statistics_array_200km = np.empty(shape=(num_files, num_keys, 100))
 
-    for file_no in range(num_files):
-        print(f"File {file_no}/{num_files}", end='\r')
-        if 'total_stats' not in locals():  # If this is the first file
-            stats = pd.read_pickle(files[0])  # Open the first dataset
-            total_stats = stats
-        else:
-            stats = pd.read_pickle(files[file_no])
-            total_stats += stats  # Add the rest of the stats to the first file to create one final dataset
-        stats_50km = stats.sel(boundary=50)
-        stats_100km = stats.sel(boundary=100)
-        stats_150km = stats.sel(boundary=150)
-        stats_200km = stats.sel(boundary=200)
-        for key_no in range(num_keys):  # Iterate through the data variables (statistics)
-            statistics_array_50km[file_no, key_no, :] = stats_50km[ds_keys[key_no]].values
-            statistics_array_100km[file_no, key_no, :] = stats_100km[ds_keys[key_no]].values
-            statistics_array_150km[file_no, key_no, :] = stats_150km[ds_keys[key_no]].values
-            statistics_array_200km[file_no, key_no, :] = stats_200km[ds_keys[key_no]].values
 
     # Split datasets by boundary
     stats_50km = total_stats.sel(boundary=50)
@@ -906,36 +902,36 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     axis_ticks = np.arange(0, 1.1, 0.1)
 
     if front_types == ['CF', 'WF'] or front_types == 'CFWFSFOF':
-        CSI_cold_50km = np.nan_to_num(stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fp_cold'] + stats_50km['fn_cold']))
-        CSI_cold_100km = np.nan_to_num(stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fp_cold'] + stats_100km['fn_cold']))
-        CSI_cold_150km = np.nan_to_num(stats_150km['tp_cold']/(stats_150km['tp_cold'] + stats_150km['fp_cold'] + stats_150km['fn_cold']))
-        CSI_cold_200km = np.nan_to_num(stats_200km['tp_cold']/(stats_200km['tp_cold'] + stats_200km['fp_cold'] + stats_200km['fn_cold']))
-        CSI_cold_250km = np.nan_to_num(stats_250km['tp_cold']/(stats_250km['tp_cold'] + stats_250km['fp_cold'] + stats_250km['fn_cold']))
-        CSI_warm_50km = np.nan_to_num(stats_50km['tp_warm']/(stats_50km['tp_warm'] + stats_50km['fp_warm'] + stats_50km['fn_warm']))
-        CSI_warm_100km = np.nan_to_num(stats_100km['tp_warm']/(stats_100km['tp_warm'] + stats_100km['fp_warm'] + stats_100km['fn_warm']))
-        CSI_warm_150km = np.nan_to_num(stats_150km['tp_warm']/(stats_150km['tp_warm'] + stats_150km['fp_warm'] + stats_150km['fn_warm']))
-        CSI_warm_200km = np.nan_to_num(stats_200km['tp_warm']/(stats_200km['tp_warm'] + stats_200km['fp_warm'] + stats_200km['fn_warm']))
-        CSI_warm_250km = np.nan_to_num(stats_250km['tp_warm']/(stats_250km['tp_warm'] + stats_250km['fp_warm'] + stats_250km['fn_warm']))
+        CSI_cold_50km = np.nan_to_num(stats_50km['tp_CF']/(stats_50km['tp_CF'] + stats_50km['fp_CF'] + stats_50km['fn_CF']))
+        CSI_cold_100km = np.nan_to_num(stats_100km['tp_CF']/(stats_100km['tp_CF'] + stats_100km['fp_CF'] + stats_100km['fn_CF']))
+        CSI_cold_150km = np.nan_to_num(stats_150km['tp_CF']/(stats_150km['tp_CF'] + stats_150km['fp_CF'] + stats_150km['fn_CF']))
+        CSI_cold_200km = np.nan_to_num(stats_200km['tp_CF']/(stats_200km['tp_CF'] + stats_200km['fp_CF'] + stats_200km['fn_CF']))
+        CSI_cold_250km = np.nan_to_num(stats_250km['tp_CF']/(stats_250km['tp_CF'] + stats_250km['fp_CF'] + stats_250km['fn_CF']))
+        CSI_warm_50km = np.nan_to_num(stats_50km['tp_WF']/(stats_50km['tp_WF'] + stats_50km['fp_WF'] + stats_50km['fn_WF']))
+        CSI_warm_100km = np.nan_to_num(stats_100km['tp_WF']/(stats_100km['tp_WF'] + stats_100km['fp_WF'] + stats_100km['fn_WF']))
+        CSI_warm_150km = np.nan_to_num(stats_150km['tp_WF']/(stats_150km['tp_WF'] + stats_150km['fp_WF'] + stats_150km['fn_WF']))
+        CSI_warm_200km = np.nan_to_num(stats_200km['tp_WF']/(stats_200km['tp_WF'] + stats_200km['fp_WF'] + stats_200km['fn_WF']))
+        CSI_warm_250km = np.nan_to_num(stats_250km['tp_WF']/(stats_250km['tp_WF'] + stats_250km['fp_WF'] + stats_250km['fn_WF']))
 
         # Probability of detection for each front type and boundary
-        POD_cold_50km = np.nan_to_num(stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fn_cold']))
-        POD_cold_100km = np.nan_to_num(stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fn_cold']))
-        POD_cold_150km = np.nan_to_num(stats_150km['tp_cold']/(stats_150km['tp_cold'] + stats_150km['fn_cold']))
-        POD_cold_200km = np.nan_to_num(stats_200km['tp_cold']/(stats_200km['tp_cold'] + stats_200km['fn_cold']))
-        POD_warm_50km = np.nan_to_num(stats_50km['tp_warm']/(stats_50km['tp_warm'] + stats_50km['fn_warm']))
-        POD_warm_100km = np.nan_to_num(stats_100km['tp_warm']/(stats_100km['tp_warm'] + stats_100km['fn_warm']))
-        POD_warm_150km = np.nan_to_num(stats_150km['tp_warm']/(stats_150km['tp_warm'] + stats_150km['fn_warm']))
-        POD_warm_200km = np.nan_to_num(stats_200km['tp_warm']/(stats_200km['tp_warm'] + stats_200km['fn_warm']))
+        POD_cold_50km = np.nan_to_num(stats_50km['tp_CF']/(stats_50km['tp_CF'] + stats_50km['fn_CF']))
+        POD_cold_100km = np.nan_to_num(stats_100km['tp_CF']/(stats_100km['tp_CF'] + stats_100km['fn_CF']))
+        POD_cold_150km = np.nan_to_num(stats_150km['tp_CF']/(stats_150km['tp_CF'] + stats_150km['fn_CF']))
+        POD_cold_200km = np.nan_to_num(stats_200km['tp_CF']/(stats_200km['tp_CF'] + stats_200km['fn_CF']))
+        POD_warm_50km = np.nan_to_num(stats_50km['tp_WF']/(stats_50km['tp_WF'] + stats_50km['fn_WF']))
+        POD_warm_100km = np.nan_to_num(stats_100km['tp_WF']/(stats_100km['tp_WF'] + stats_100km['fn_WF']))
+        POD_warm_150km = np.nan_to_num(stats_150km['tp_WF']/(stats_150km['tp_WF'] + stats_150km['fn_WF']))
+        POD_warm_200km = np.nan_to_num(stats_200km['tp_WF']/(stats_200km['tp_WF'] + stats_200km['fn_WF']))
 
         # Success ratio for each front type and boundary
-        SR_cold_50km = np.nan_to_num(stats_50km['tp_cold']/(stats_50km['tp_cold'] + stats_50km['fp_cold']))
-        SR_cold_100km = np.nan_to_num(stats_100km['tp_cold']/(stats_100km['tp_cold'] + stats_100km['fp_cold']))
-        SR_cold_150km = np.nan_to_num(stats_150km['tp_cold']/(stats_150km['tp_cold'] + stats_150km['fp_cold']))
-        SR_cold_200km = np.nan_to_num(stats_200km['tp_cold']/(stats_200km['tp_cold'] + stats_200km['fp_cold']))
-        SR_warm_50km = np.nan_to_num(stats_50km['tp_warm']/(stats_50km['tp_warm'] + stats_50km['fp_warm']))
-        SR_warm_100km = np.nan_to_num(stats_100km['tp_warm']/(stats_100km['tp_warm'] + stats_100km['fp_warm']))
-        SR_warm_150km = np.nan_to_num(stats_150km['tp_warm']/(stats_150km['tp_warm'] + stats_150km['fp_warm']))
-        SR_warm_200km = np.nan_to_num(stats_200km['tp_warm']/(stats_200km['tp_warm'] + stats_200km['fp_warm']))
+        SR_cold_50km = np.nan_to_num(stats_50km['tp_CF']/(stats_50km['tp_CF'] + stats_50km['fp_CF']))
+        SR_cold_100km = np.nan_to_num(stats_100km['tp_CF']/(stats_100km['tp_CF'] + stats_100km['fp_CF']))
+        SR_cold_150km = np.nan_to_num(stats_150km['tp_CF']/(stats_150km['tp_CF'] + stats_150km['fp_CF']))
+        SR_cold_200km = np.nan_to_num(stats_200km['tp_CF']/(stats_200km['tp_CF'] + stats_200km['fp_CF']))
+        SR_warm_50km = np.nan_to_num(stats_50km['tp_WF']/(stats_50km['tp_WF'] + stats_50km['fp_WF']))
+        SR_warm_100km = np.nan_to_num(stats_100km['tp_WF']/(stats_100km['tp_WF'] + stats_100km['fp_WF']))
+        SR_warm_150km = np.nan_to_num(stats_150km['tp_WF']/(stats_150km['tp_WF'] + stats_150km['fp_WF']))
+        SR_warm_200km = np.nan_to_num(stats_200km['tp_WF']/(stats_200km['tp_WF'] + stats_200km['fp_WF']))
 
         # SR and POD values where CSI is maximized for each front type and boundary
         SR_cold_50km_CSI = SR_cold_50km[np.where(CSI_cold_50km == np.max(CSI_cold_50km))]
@@ -985,41 +981,41 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.plot(SR_cold_150km_CSI, POD_cold_150km_CSI, color='brown', marker='*', markersize=9)
         plt.plot(SR_cold_200km_CSI, POD_cold_200km_CSI, color='green', marker='*', markersize=9)
 
-        if bootstrap is True:
-            cold_index = 0
-            """ 
-            Some of the percentage thresholds have no data and will show up as zero in the CIs, so we not include them when interpolating the CIs.
-            These arrays have four values: [50km boundary, 100km, 150km, 200km]
-            These also represent the first index where data is missing, so only values before the index will be included 
-            """
-            CI_zero_index = np.min([np.min(np.where(CI_lower_SR[cold_index, 0] == 0)[0]), np.min(np.where(CI_lower_SR[cold_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_SR[cold_index, 2] == 0)[0]), np.min(np.where(CI_lower_SR[cold_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[cold_index, 0] == 0)[0]), np.min(np.where(CI_upper_SR[cold_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[cold_index, 2] == 0)[0]), np.min(np.where(CI_upper_SR[cold_index, 3] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[cold_index, 0] == 0)[0]), np.min(np.where(CI_lower_POD[cold_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[cold_index, 2] == 0)[0]), np.min(np.where(CI_lower_POD[cold_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[cold_index, 0] == 0)[0]), np.min(np.where(CI_upper_POD[cold_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[cold_index, 2] == 0)[0]), np.min(np.where(CI_upper_POD[cold_index, 3] == 0)[0])])
-
-            # 50km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[cold_index, 0, :CI_zero_index], CI_upper_SR[cold_index, 0, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[cold_index, 0, :CI_zero_index], CI_upper_POD[cold_index, 0, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='red')
-
-            # 100km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[cold_index, 1, :CI_zero_index], CI_upper_SR[cold_index, 1, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[cold_index, 1, :CI_zero_index], CI_upper_POD[cold_index, 1, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='purple')
-
-            # 150km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[cold_index, 2, :CI_zero_index], CI_upper_SR[cold_index, 2, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[cold_index, 2, :CI_zero_index], CI_upper_POD[cold_index, 2, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='brown')
-
-            # 200km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[cold_index, 3, :CI_zero_index], CI_upper_SR[cold_index, 3, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[cold_index, 3, :CI_zero_index], CI_upper_POD[cold_index, 3, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='green')
+        # if bootstrap is True:
+        #     cold_index = 0
+        #     """ 
+        #     Some of the percentage thresholds have no data and will show up as zero in the CIs, so we not include them when interpolating the CIs.
+        #     These arrays have four values: [50km boundary, 100km, 150km, 200km]
+        #     These also represent the first index where data is missing, so only values before the index will be included 
+        #     """
+        #     CI_zero_index = np.min([np.min(np.where(CI_lower_SR[cold_index, 0] == 0)[0]), np.min(np.where(CI_lower_SR[cold_index, 1] == 0)[0]),
+        #                     np.min(np.where(CI_lower_SR[cold_index, 2] == 0)[0]), np.min(np.where(CI_lower_SR[cold_index, 3] == 0)[0]),
+        #                     np.min(np.where(CI_upper_SR[cold_index, 0] == 0)[0]), np.min(np.where(CI_upper_SR[cold_index, 1] == 0)[0]),
+        #                     np.min(np.where(CI_upper_SR[cold_index, 2] == 0)[0]), np.min(np.where(CI_upper_SR[cold_index, 3] == 0)[0]),
+        #                     np.min(np.where(CI_lower_POD[cold_index, 0] == 0)[0]), np.min(np.where(CI_lower_POD[cold_index, 1] == 0)[0]),
+        #                     np.min(np.where(CI_lower_POD[cold_index, 2] == 0)[0]), np.min(np.where(CI_lower_POD[cold_index, 3] == 0)[0]),
+        #                     np.min(np.where(CI_upper_POD[cold_index, 0] == 0)[0]), np.min(np.where(CI_upper_POD[cold_index, 1] == 0)[0]),
+        #                     np.min(np.where(CI_upper_POD[cold_index, 2] == 0)[0]), np.min(np.where(CI_upper_POD[cold_index, 3] == 0)[0])])
+        # 
+        #     # 50km confidence interval polygon
+        #     xs = np.concatenate([CI_lower_SR[cold_index, 0, :CI_zero_index], CI_upper_SR[cold_index, 0, :CI_zero_index][::-1]])
+        #     ys = np.concatenate([CI_lower_POD[cold_index, 0, :CI_zero_index], CI_upper_POD[cold_index, 0, :CI_zero_index][::-1]])
+        #     plt.fill(xs, ys, alpha=0.3, color='red')
+        # 
+        #     # 100km confidence interval polygon
+        #     xs = np.concatenate([CI_lower_SR[cold_index, 1, :CI_zero_index], CI_upper_SR[cold_index, 1, :CI_zero_index][::-1]])
+        #     ys = np.concatenate([CI_lower_POD[cold_index, 1, :CI_zero_index], CI_upper_POD[cold_index, 1, :CI_zero_index][::-1]])
+        #     plt.fill(xs, ys, alpha=0.3, color='purple')
+        # 
+        #     # 150km confidence interval polygon
+        #     xs = np.concatenate([CI_lower_SR[cold_index, 2, :CI_zero_index], CI_upper_SR[cold_index, 2, :CI_zero_index][::-1]])
+        #     ys = np.concatenate([CI_lower_POD[cold_index, 2, :CI_zero_index], CI_upper_POD[cold_index, 2, :CI_zero_index][::-1]])
+        #     plt.fill(xs, ys, alpha=0.3, color='brown')
+        # 
+        #     # 200km confidence interval polygon
+        #     xs = np.concatenate([CI_lower_SR[cold_index, 3, :CI_zero_index], CI_upper_SR[cold_index, 3, :CI_zero_index][::-1]])
+        #     ys = np.concatenate([CI_lower_POD[cold_index, 3, :CI_zero_index], CI_upper_POD[cold_index, 3, :CI_zero_index][::-1]])
+        #     plt.fill(xs, ys, alpha=0.3, color='green')
 
         # Plot CSI scores on a white rectangle in the upper-left portion of the CSI plot
         rectangle = plt.Rectangle((0, 0.795), 0.25, 0.205, facecolor='white', edgecolor='black', zorder=3)
@@ -1034,10 +1030,10 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("3D CF/WF model performance (3x3x3 kernel): Cold fronts")
+        plt.title("3D CF/WF model performance (5x5x5 kernel): Cold fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
-        # plt.savefig("%s/model_%d/%s_performance_cold.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
+        plt.savefig("%s/model_%d/%s_performance_cold.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
         plt.close()
 
         ###############################################################################################################
@@ -1110,329 +1106,15 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         plt.yticks(axis_ticks)
         plt.xticks(axis_ticks)
         plt.grid(color='black', alpha=0.1)
-        plt.title("3D CF/WF model performance (3x3x3 kernel): Warm fronts")
+        plt.title("3D CF/WF model performance (5x5x5 kernel): Warm fronts")
         plt.xlim(0, 1)
         plt.ylim(0, 1)
         plt.savefig("%s/model_%d/%s_performance_warm.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
         plt.close()
 
-    if front_types == ['SF', 'OF'] or front_types == 'CFWFSFOF':
-        CSI_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'] + stats_50km['fn_stationary']).values
-        CSI_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fp_stationary'] + stats_50km['fn_stationary']).values
-        CSI_stationary_150km = stats_150km['tp_stationary']/(stats_150km['tp_stationary'] + stats_150km['fp_stationary'] + stats_50km['fn_stationary']).values
-        CSI_stationary_200km = stats_200km['tp_stationary']/(stats_200km['tp_stationary'] + stats_200km['fp_stationary'] + stats_50km['fn_stationary']).values
-        CSI_stationary_250km = stats_250km['tp_stationary']/(stats_250km['tp_stationary'] + stats_250km['fp_stationary'] + stats_50km['fn_stationary']).values
-        CSI_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fp_occluded'] + stats_50km['fn_occluded']).values
-        CSI_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'] + stats_50km['fn_occluded']).values
-        CSI_occluded_150km = stats_150km['tp_occluded']/(stats_150km['tp_occluded'] + stats_150km['fp_occluded'] + stats_50km['fn_occluded']).values
-        CSI_occluded_200km = stats_200km['tp_occluded']/(stats_200km['tp_occluded'] + stats_200km['fp_occluded'] + stats_50km['fn_occluded']).values
-        CSI_occluded_250km = stats_250km['tp_occluded']/(stats_250km['tp_occluded'] + stats_250km['fp_occluded'] + stats_50km['fn_occluded']).values
-
-        # Probability of detection for each front type and boundary
-        POD_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fn_stationary'])
-        POD_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_50km['fn_stationary'])
-        POD_stationary_150km = stats_150km['tp_stationary']/(stats_150km['tp_stationary'] + stats_50km['fn_stationary'])
-        POD_stationary_200km = stats_200km['tp_stationary']/(stats_200km['tp_stationary'] + stats_50km['fn_stationary'])
-        POD_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fn_occluded'])
-        POD_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_50km['fn_occluded'])
-        POD_occluded_150km = stats_150km['tp_occluded']/(stats_150km['tp_occluded'] + stats_50km['fn_occluded'])
-        POD_occluded_200km = stats_200km['tp_occluded']/(stats_200km['tp_occluded'] + stats_50km['fn_occluded'])
-
-        # Success ratio for each front type and boundary
-        SR_stationary_50km = stats_50km['tp_stationary']/(stats_50km['tp_stationary'] + stats_50km['fp_stationary'])
-        SR_stationary_100km = stats_100km['tp_stationary']/(stats_100km['tp_stationary'] + stats_100km['fp_stationary'])
-        SR_stationary_150km = stats_150km['tp_stationary']/(stats_150km['tp_stationary'] + stats_150km['fp_stationary'])
-        SR_stationary_200km = stats_200km['tp_stationary']/(stats_200km['tp_stationary'] + stats_200km['fp_stationary'])
-        SR_occluded_50km = stats_50km['tp_occluded']/(stats_50km['tp_occluded'] + stats_50km['fp_occluded'])
-        SR_occluded_100km = stats_100km['tp_occluded']/(stats_100km['tp_occluded'] + stats_100km['fp_occluded'])
-        SR_occluded_150km = stats_150km['tp_occluded']/(stats_150km['tp_occluded'] + stats_150km['fp_occluded'])
-        SR_occluded_200km = stats_200km['tp_occluded']/(stats_200km['tp_occluded'] + stats_200km['fp_occluded'])
-
-        # SR and POD values where CSI is maximized for each front type and boundary
-        SR_stationary_50km_CSI = SR_stationary_50km[np.where(CSI_stationary_50km == np.max(CSI_stationary_50km))].values[0]
-        POD_stationary_50km_CSI = POD_stationary_50km[np.where(CSI_stationary_50km == np.max(CSI_stationary_50km))].values[0]
-        SR_stationary_100km_CSI = SR_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))].values[0]
-        POD_stationary_100km_CSI = POD_stationary_100km[np.where(CSI_stationary_100km == np.max(CSI_stationary_100km))].values[0]
-        SR_stationary_150km_CSI = SR_stationary_150km[np.where(CSI_stationary_150km == np.max(CSI_stationary_150km))].values[0]
-        POD_stationary_150km_CSI = POD_stationary_150km[np.where(CSI_stationary_150km == np.max(CSI_stationary_150km))].values[0]
-        SR_stationary_200km_CSI = SR_stationary_200km[np.where(CSI_stationary_200km == np.max(CSI_stationary_200km))].values[0]
-        POD_stationary_200km_CSI = POD_stationary_200km[np.where(CSI_stationary_200km == np.max(CSI_stationary_200km))].values[0]
-        SR_occluded_50km_CSI = SR_occluded_50km[np.where(CSI_occluded_50km == np.max(CSI_occluded_50km))].values[0]
-        POD_occluded_50km_CSI = POD_occluded_50km[np.where(CSI_occluded_50km == np.max(CSI_occluded_50km))].values[0]
-        SR_occluded_100km_CSI = SR_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))].values[0]
-        POD_occluded_100km_CSI = POD_occluded_100km[np.where(CSI_occluded_100km == np.max(CSI_occluded_100km))].values[0]
-        SR_occluded_150km_CSI = SR_occluded_150km[np.where(CSI_occluded_150km == np.max(CSI_occluded_150km))].values[0]
-        POD_occluded_150km_CSI = POD_occluded_150km[np.where(CSI_occluded_150km == np.max(CSI_occluded_150km))].values[0]
-        SR_occluded_200km_CSI = SR_occluded_200km[np.where(CSI_occluded_200km == np.max(CSI_occluded_200km))].values[0]
-        POD_occluded_200km_CSI = POD_occluded_200km[np.where(CSI_occluded_200km == np.max(CSI_occluded_200km))].values[0]
-
-        ###############################################################################################################
-        ######################################## Stationary front CSI diagram #########################################
-        ###############################################################################################################
-
-        plt.figure()
-        plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)  # Plot CSI contours in 0.1 increments
-        plt.colorbar(label='Critical Success Index (CSI)')
-
-        # CSI lines for each boundary
-        plt.plot(SR_stationary_50km, POD_stationary_50km, color='red', linewidth=1)
-        plt.plot(SR_stationary_100km, POD_stationary_100km, color='purple', linewidth=1)
-        plt.plot(SR_stationary_150km, POD_stationary_150km, color='brown', linewidth=1)
-        plt.plot(SR_stationary_200km, POD_stationary_200km, color='green', linewidth=1)
-
-        # Mark points of maximum CSI for each boundary
-        plt.plot(SR_stationary_50km_CSI, POD_stationary_50km_CSI, color='red', marker='*', markersize=9)
-        plt.plot(SR_stationary_100km_CSI, POD_stationary_100km_CSI, color='purple', marker='*', markersize=9)
-        plt.plot(SR_stationary_150km_CSI, POD_stationary_150km_CSI, color='brown', marker='*', markersize=9)
-        plt.plot(SR_stationary_200km_CSI, POD_stationary_200km_CSI, color='green', marker='*', markersize=9)
-
-        if bootstrap is True:
-            if front_types == 'CFWFSFOF':
-                stationary_index = 2
-            else:
-                stationary_index = 0
-
-            """ 
-            Some of the percentage thresholds have no data and will show up as zero in the CIs, so we not include them when interpolating the CIs.
-            These arrays have four values: [50km boundary, 100km, 150km, 200km]
-            These also represent the first index where data is missing, so only values before the index will be included 
-            """
-            CI_zero_index = np.min([np.min(np.where(CI_lower_SR[stationary_index, 0] == 0)[0]), np.min(np.where(CI_lower_SR[stationary_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_SR[stationary_index, 2] == 0)[0]), np.min(np.where(CI_lower_SR[stationary_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[stationary_index, 0] == 0)[0]), np.min(np.where(CI_upper_SR[stationary_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[stationary_index, 2] == 0)[0]), np.min(np.where(CI_upper_SR[stationary_index, 3] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[stationary_index, 0] == 0)[0]), np.min(np.where(CI_lower_POD[stationary_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[stationary_index, 2] == 0)[0]), np.min(np.where(CI_lower_POD[stationary_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[stationary_index, 0] == 0)[0]), np.min(np.where(CI_upper_POD[stationary_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[stationary_index, 2] == 0)[0]), np.min(np.where(CI_upper_POD[stationary_index, 3] == 0)[0])])
-
-            # 50km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[stationary_index, 0, :CI_zero_index], CI_upper_SR[stationary_index, 0, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[stationary_index, 0, :CI_zero_index], CI_upper_POD[stationary_index, 0, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='red')
-
-            # 100km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[stationary_index, 1, :CI_zero_index], CI_upper_SR[stationary_index, 1, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[stationary_index, 1, :CI_zero_index], CI_upper_POD[stationary_index, 1, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='purple')
-
-            # 150km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[stationary_index, 2, :CI_zero_index], CI_upper_SR[stationary_index, 2, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[stationary_index, 2, :CI_zero_index], CI_upper_POD[stationary_index, 2, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='brown')
-
-            # 200km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[stationary_index, 3, :CI_zero_index], CI_upper_SR[stationary_index, 3, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[stationary_index, 3, :CI_zero_index], CI_upper_POD[stationary_index, 3, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='green')
-
-        # Plot CSI scores on a white rectangle in the upper-left portion of the CSI plot
-        rectangle = plt.Rectangle((0, 0.795), 0.25, 0.205, facecolor='white', edgecolor='black', zorder=3)
-        plt.gca().add_patch(rectangle)
-        plt.text(0.005, 0.96, s='CSI scores (*)', style='oblique')
-        plt.text(0.005, 0.92, s=str('50km: %.3f' % np.max(CSI_stationary_50km)), color='red')
-        plt.text(0.005, 0.88, s=str('100km: %.3f' % np.max(CSI_stationary_100km)), color='purple')
-        plt.text(0.005, 0.84, s=str('150km: %.3f' % np.max(CSI_stationary_150km)), color='brown')
-        plt.text(0.005, 0.80, s=str('200km: %.3f' % np.max(CSI_stationary_200km)), color='green')
-
-        plt.xlabel("Success Ratio (1 - FAR)")
-        plt.ylabel("Probability of Detection (POD)")
-        plt.yticks(axis_ticks)
-        plt.xticks(axis_ticks)
-        plt.grid(color='black', alpha=0.1)
-        plt.title("3D SF/OF model performance (3x3x3 kernel): Stationary fronts")
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
-        # plt.savefig("%s/model_%d/%s_performance_stationary.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
-        plt.close()
-
-        ###############################################################################################################
-        ######################################### Occluded front CSI diagram ##########################################
-        ###############################################################################################################
-
-        plt.figure()
-        plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
-        plt.colorbar(label='Critical Success Index (CSI)')
-
-        # CSI lines for each boundary
-        plt.plot(SR_occluded_50km, POD_occluded_50km, color='red', linewidth=1)
-        plt.plot(SR_occluded_100km, POD_occluded_100km, color='purple', linewidth=1)
-        plt.plot(SR_occluded_150km, POD_occluded_150km, color='brown', linewidth=1)
-        plt.plot(SR_occluded_200km, POD_occluded_200km, color='green', linewidth=1)
-
-        if bootstrap is True:
-            if front_types == 'CFWFSFOF':
-                occluded_index = 3
-            else:
-                occluded_index = 1
-
-            """ 
-            Some of the percentage thresholds have no data and will show up as zero in the CIs, so we not include them when interpolating the CIs.
-            These arrays have four values: [50km boundary, 100km, 150km, 200km]
-            These also represent the first index where data is missing, so only values before the index will be included 
-            """
-            CI_zero_index = np.min([np.min(np.where(CI_lower_SR[occluded_index, 0] == 0)[0]), np.min(np.where(CI_lower_SR[occluded_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_SR[occluded_index, 2] == 0)[0]), np.min(np.where(CI_lower_SR[occluded_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[occluded_index, 0] == 0)[0]), np.min(np.where(CI_upper_SR[occluded_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[occluded_index, 2] == 0)[0]), np.min(np.where(CI_upper_SR[occluded_index, 3] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[occluded_index, 0] == 0)[0]), np.min(np.where(CI_lower_POD[occluded_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[occluded_index, 2] == 0)[0]), np.min(np.where(CI_lower_POD[occluded_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[occluded_index, 0] == 0)[0]), np.min(np.where(CI_upper_POD[occluded_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[occluded_index, 2] == 0)[0]), np.min(np.where(CI_upper_POD[occluded_index, 3] == 0)[0])])
-
-            # 50km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[occluded_index, 0, :CI_zero_index], CI_upper_SR[occluded_index, 0, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[occluded_index, 0, :CI_zero_index], CI_upper_POD[occluded_index, 0, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='red')
-
-            # 100km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[occluded_index, 1, :CI_zero_index], CI_upper_SR[occluded_index, 1, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[occluded_index, 1, :CI_zero_index], CI_upper_POD[occluded_index, 1, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='purple')
-
-            # 150km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[occluded_index, 2, :CI_zero_index], CI_upper_SR[occluded_index, 2, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[occluded_index, 2, :CI_zero_index], CI_upper_POD[occluded_index, 2, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='brown')
-
-            # 200km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[occluded_index, 3, :CI_zero_index], CI_upper_SR[occluded_index, 3, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[occluded_index, 3, :CI_zero_index], CI_upper_POD[occluded_index, 3, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='green')
-
-        # Mark points of maximum CSI for each boundary
-        plt.plot(SR_occluded_50km_CSI, POD_occluded_50km_CSI, color='red', marker='*', markersize=9)
-        plt.plot(SR_occluded_100km_CSI, POD_occluded_100km_CSI, color='purple', marker='*', markersize=9)
-        plt.plot(SR_occluded_150km_CSI, POD_occluded_150km_CSI, color='brown', marker='*', markersize=9)
-        plt.plot(SR_occluded_200km_CSI, POD_occluded_200km_CSI, color='green', marker='*', markersize=9)
-
-        # Plot CSI scores on a white rectangle in the upper-left portion of the CSI plot
-        rectangle = plt.Rectangle((0, 0.795), 0.25, 0.205, facecolor='white', edgecolor='black', zorder=3)
-        plt.gca().add_patch(rectangle)
-        plt.text(0.005, 0.96, s='CSI scores (*)', style='oblique')
-        plt.text(0.005, 0.92, s=str('50km: %.3f' % np.max(CSI_occluded_50km)), color='red')
-        plt.text(0.005, 0.88, s=str('100km: %.3f' % np.max(CSI_occluded_100km)), color='purple')
-        plt.text(0.005, 0.84, s=str('150km: %.3f' % np.max(CSI_occluded_150km)), color='brown')
-        plt.text(0.005, 0.80, s=str('200km: %.3f' % np.max(CSI_occluded_200km)), color='green')
-
-        plt.xlabel("Success Ratio (1 - FAR)")
-        plt.ylabel("Probability of Detection (POD)")
-        plt.yticks(axis_ticks)
-        plt.xticks(axis_ticks)
-        plt.grid(color='black', alpha=0.1)
-        plt.title("3D SF/OF model performance (3x3x3 kernel): Occluded fronts")
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
-        # plt.savefig("%s/model_%d/%s_performance_occluded.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
-        plt.close()
-
-    if front_types == 'F_BIN':
-        CSI_front_50km = stats_50km['tp_front']/(stats_50km['tp_front'] + stats_50km['fp_front'] + stats_50km['fn_front']).values
-        CSI_front_100km = stats_100km['tp_front']/(stats_100km['tp_front'] + stats_100km['fp_front'] + stats_100km['fn_front']).values
-        CSI_front_150km = stats_150km['tp_front']/(stats_150km['tp_front'] + stats_150km['fp_front'] + stats_150km['fn_front']).values
-        CSI_front_200km = stats_200km['tp_front']/(stats_200km['tp_front'] + stats_200km['fp_front'] + stats_200km['fn_front']).values
-        CSI_front_250km = stats_250km['tp_front']/(stats_250km['tp_front'] + stats_250km['fp_front'] + stats_250km['fn_front']).values
-
-        # Probability of detection
-        POD_front_50km = stats_50km['tp_front']/(stats_50km['tp_front'] + stats_50km['fn_front'])
-        POD_front_100km = stats_100km['tp_front']/(stats_100km['tp_front'] + stats_100km['fn_front'])
-        POD_front_150km = stats_150km['tp_front']/(stats_150km['tp_front'] + stats_150km['fn_front'])
-        POD_front_200km = stats_200km['tp_front']/(stats_200km['tp_front'] + stats_200km['fn_front'])
-
-        # Success ratio
-        SR_front_50km = stats_50km['tp_front']/(stats_50km['tp_front'] + stats_50km['fp_front'])
-        SR_front_100km = stats_100km['tp_front']/(stats_100km['tp_front'] + stats_100km['fp_front'])
-        SR_front_150km = stats_150km['tp_front']/(stats_150km['tp_front'] + stats_150km['fp_front'])
-        SR_front_200km = stats_200km['tp_front']/(stats_200km['tp_front'] + stats_200km['fp_front'])
-
-        # SR and POD values where CSI is maximized for each boundary
-        SR_front_50km_CSI = SR_front_50km[np.where(CSI_front_50km == np.max(CSI_front_50km))].values[0]
-        POD_front_50km_CSI = POD_front_50km[np.where(CSI_front_50km == np.max(CSI_front_50km))].values[0]
-        SR_front_100km_CSI = SR_front_100km[np.where(CSI_front_100km == np.max(CSI_front_100km))].values[0]
-        POD_front_100km_CSI = POD_front_100km[np.where(CSI_front_100km == np.max(CSI_front_100km))].values[0]
-        SR_front_150km_CSI = SR_front_150km[np.where(CSI_front_150km == np.max(CSI_front_150km))].values[0]
-        POD_front_150km_CSI = POD_front_150km[np.where(CSI_front_150km == np.max(CSI_front_150km))].values[0]
-        SR_front_200km_CSI = SR_front_200km[np.where(CSI_front_200km == np.max(CSI_front_200km))].values[0]
-        POD_front_200km_CSI = POD_front_200km[np.where(CSI_front_200km == np.max(CSI_front_200km))].values[0]
-
-        ##########################################################################################################
-        ######################################## F/NF CSI diagram ################################################
-        ##########################################################################################################
-
-        plt.figure()
-        plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)  # Plot CSI contours in 0.1 increments
-        plt.colorbar(label='Critical Success Index (CSI)')
-
-        # CSI lines for each boundary
-        plt.plot(SR_front_50km, POD_front_50km, color='red', linewidth=1)
-        plt.plot(SR_front_100km, POD_front_100km, color='purple', linewidth=1)
-        plt.plot(SR_front_150km, POD_front_150km, color='brown', linewidth=1)
-        plt.plot(SR_front_200km, POD_front_200km, color='green', linewidth=1)
-
-        # Mark points of maximum CSI for each boundary
-        plt.plot(SR_front_50km_CSI, POD_front_50km_CSI, color='red', marker='*', markersize=9)
-        plt.plot(SR_front_100km_CSI, POD_front_100km_CSI, color='purple', marker='*', markersize=9)
-        plt.plot(SR_front_150km_CSI, POD_front_150km_CSI, color='brown', marker='*', markersize=9)
-        plt.plot(SR_front_200km_CSI, POD_front_200km_CSI, color='green', marker='*', markersize=9)
-
-        if bootstrap is True:
-            front_index = 0
-            """ 
-            Some of the percentage thresholds have no data and will show up as zero in the CIs, so we not include them when interpolating the CIs.
-            These arrays have four values: [50km boundary, 100km, 150km, 200km]
-            These also represent the first index where data is missing, so only values before the index will be included 
-            """
-            CI_zero_index = np.min([np.min(np.where(CI_lower_SR[front_index, 0] == 0)[0]), np.min(np.where(CI_lower_SR[front_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_SR[front_index, 2] == 0)[0]), np.min(np.where(CI_lower_SR[front_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[front_index, 0] == 0)[0]), np.min(np.where(CI_upper_SR[front_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[front_index, 2] == 0)[0]), np.min(np.where(CI_upper_SR[front_index, 3] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[front_index, 0] == 0)[0]), np.min(np.where(CI_lower_POD[front_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[front_index, 2] == 0)[0]), np.min(np.where(CI_lower_POD[front_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[front_index, 0] == 0)[0]), np.min(np.where(CI_upper_POD[front_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[front_index, 2] == 0)[0]), np.min(np.where(CI_upper_POD[front_index, 3] == 0)[0])])
-
-            # 50km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[front_index, 0, :CI_zero_index], CI_upper_SR[front_index, 0, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[front_index, 0, :CI_zero_index], CI_upper_POD[front_index, 0, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='red')
-
-            # 100km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[front_index, 1, :CI_zero_index], CI_upper_SR[front_index, 1, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[front_index, 1, :CI_zero_index], CI_upper_POD[front_index, 1, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='purple')
-
-            # 150km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[front_index, 2, :CI_zero_index], CI_upper_SR[front_index, 2, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[front_index, 2, :CI_zero_index], CI_upper_POD[front_index, 2, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='brown')
-
-            # 200km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[front_index, 3, :CI_zero_index], CI_upper_SR[front_index, 3, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[front_index, 3, :CI_zero_index], CI_upper_POD[front_index, 3, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='green')
-
-        # Plot CSI scores on a white rectangle in the upper-left portion of the CSI plot
-        rectangle = plt.Rectangle((0, 0.795), 0.25, 0.205, facecolor='white', edgecolor='black', zorder=3)
-        plt.gca().add_patch(rectangle)
-        plt.text(0.005, 0.96, s='CSI scores (*)', style='oblique')
-        plt.text(0.005, 0.92, s=str('50km: %.3f' % np.max(CSI_front_50km)), color='red')
-        plt.text(0.005, 0.88, s=str('100km: %.3f' % np.max(CSI_front_100km)), color='purple')
-        plt.text(0.005, 0.84, s=str('150km: %.3f' % np.max(CSI_front_150km)), color='brown')
-        plt.text(0.005, 0.80, s=str('200km: %.3f' % np.max(CSI_front_200km)), color='green')
-
-        plt.xlabel("Success Ratio (1 - FAR)")
-        plt.ylabel("Probability of Detection (POD)")
-        plt.yticks(axis_ticks)
-        plt.xticks(axis_ticks)
-        plt.grid(color='black', alpha=0.1)
-        plt.title("3D F/NF model performance (3x3x3 kernel)")
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
-        plt.savefig("%s/model_%d/%s_performance_fronts.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
-        plt.close()
 
 
-def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain_images, domain_trim, forecast_hour=None, probability_mask_2D=0.05, probability_mask_3D=0.10):
+def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, domain_trim, forecast_hour=None, probability_mask_2D=0.05, probability_mask_3D=0.10):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
     subplots.
@@ -1444,7 +1126,7 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     model_dir: str
         - Main directory for the models.
     fronts_netcdf_dir: str
-        - Input directory for the front object pickle files.
+        - Input directory for the front object netcdf files.
     timestep: str
         - Timestring for the prediction plot title.
     probability_mask_2D: float
@@ -1455,27 +1137,28 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
         - Must be a multiple of 0.1, greater than 0, and no greater than 0.9.
     """
 
-    extent = [130, 370, 0, 80]
+    extent = DEFAULT_DOMAIN_EXTENTS[domain]
 
     year, month, day, hour = int(timestep[0]), int(timestep[1]), int(timestep[2]), int(timestep[3])
 
-    subdir_base = '%s_%dx%dimages_%dx%dtrim' % ('full', domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+    subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
     probs_dir = f'{model_dir}/model_{model_number}/probabilities/{subdir_base}'
 
     if forecast_hour is not None:
         forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
-        new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep[8:]
-        fronts_file = '%s/%s/%s/%s/FrontObjects_%s%s%s%s_full.nc' % (fronts_netcdf_dir, new_year, new_month, new_day, new_year, new_month, new_day, new_hour)
-        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_f%03d_%dx%dimages_%dx%dtrim' % (model_number, month, day, hour, 'full', forecast_hour, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], int(forecast_timestep[8:]) - (int(forecast_timestep[8:]) % 3)
+        fronts_file = '%s/%s/%s/%s/FrontObjects_%s%s%s%02d_full.nc' % (fronts_netcdf_dir, new_year, new_month, new_day, new_year, new_month, new_day, new_hour)
+        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_f%03d_%dx%dimages_%dx%dtrim' % (model_number, month, day, hour, domain, forecast_hour, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
         variable_data_source = 'gdas'
     else:
         fronts_file = '%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_dir, year, month, day, year, month, day, hour)
-        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%dx%dimages_%dx%dtrim' % (model_number, month, day, hour, 'full', domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%dx%dimages_%dx%dtrim' % (model_number, month, day, hour, domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
         variable_data_source = 'era5'
 
     probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
 
-    fronts = xr.open_mfdataset(fronts_file)
+    print(fronts_file)
+    fronts = xr.open_mfdataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
     probs_ds = xr.open_mfdataset(probs_file)
 
     crs = ccrs.LambertConformal(central_longitude=250)
@@ -1508,30 +1191,28 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
     cmap_front = colors.ListedColormap(colors_types, name='from_list', N=len(names))
     norm_front = colors.Normalize(vmin=1, vmax=len(names) + 1)
-    
-    if variable_data_source == 'gdas':
-        forecast_hours = probs_ds['forecast_hour'].values
 
     for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(names) + 1), list(probs_ds.keys()), names, labels, colors_probs):
         if variable_data_source == 'gdas':
-            for forecast_hour in forecast_hours:
-                current_fronts = fronts
-                current_fronts = xr.where(current_fronts != front_no, float("NaN"), front_no)
-                fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
-                plot_background(extent, ax=ax, linewidth=0.5)
-                cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
-                probs_ds[front_key].sel(forecast_hour=forecast_hour).plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs,
-                    transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
-                valid_time = data_utils.add_or_subtract_hours_to_timestep(f'{year}%02d%02d%02d' % (month, day, hour), num_hours=forecast_hour)
-                ax.set_title(f'{front_name} predictions')
-                ax.set_title(f'Run: GDAS {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour), loc='left')
-                cbar_ax = fig.add_axes([0.8365, 0.11, 0.015, 0.77])
-                cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
-                cbar.set_label('Probability', rotation=90)
-                cbar.set_ticks(cbar_ticks)
-                cbar.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-                plt.savefig('%s/model_%d/maps/%s/%s-%s.png' % (model_dir, model_number, subdir_base, filename_base, front_label), bbox_inches='tight', dpi=300)
-                plt.close()
+            fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
+            plot_background(extent, ax=ax, linewidth=0.5)
+            current_fronts = fronts
+            current_fronts = xr.where(current_fronts != front_no, float("NaN"), front_no)
+            cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
+            probs_ds[front_key].sel(forecast_hour=forecast_hour).plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs,
+                transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
+            current_fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
+            valid_time = data_utils.add_or_subtract_hours_to_timestep(f'{year}%02d%02d%02d' % (month, day, hour), num_hours=forecast_hour)
+            ax.set_title(f'{front_name} predictions and ground truth')
+            ax.set_title(f'Run: GDAS {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour), loc='left')
+            ax.set_title(f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z', loc='right')
+            cbar_ax = fig.add_axes([0.8365, 0.11, 0.015, 0.77])
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
+            cbar.set_label('Probability', rotation=90)
+            cbar.set_ticks(cbar_ticks)
+            cbar.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
+            plt.savefig('%s/model_%d/maps/%s/%s-%s.png' % (model_dir, model_number, subdir_base, filename_base, front_label), bbox_inches='tight', dpi=300)
+            plt.close()
         else:
             current_fronts = fronts
             current_fronts = xr.where(current_fronts != front_no, float("NaN"), front_no)
@@ -1767,11 +1448,11 @@ if __name__ == '__main__':
     Generating model predictions:
         ==========================================================================================================================
         python evaluate_model.py --generate_predictions --save_probabilities --save_statistics --save_map --prediction_method all 
-        --domain conus --model_dir /home/my_model_folder --pickle_dir /home/pickle_files --model_number 6846496 --domain_images 3 1
+        --domain conus --model_dir /home/my_model_folder --netcdf_dir /home/netcdf_files --model_number 6846496 --domain_images 3 1
         --domain_size 288 128 --dataset test
         =========================================================================================================================
         Required arguments: --generate_predictions, --model_number, --model_dir, --domain, --domain_images, --domain_size, 
-                            --prediction_method, --pickle_dir
+                            --prediction_method, --netcdf_dir
         Optional arguments: --domain_trim, --save_probabilities, --save_statistics, --save_map, --random_variables, --dataset
         Conditional arguments: --datetime - must be passed if --prediction_method == 'datetime'.
                                --num_rand_predictions - can be passed if --prediction_method == 'random'. Defaults to 10.
@@ -1795,6 +1476,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, help="Dataset for which to make predictions if prediction_method is 'random' or 'all'. Options are:"
                                                     "'training', 'validation', 'test'")
     parser.add_argument('--datetime', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
+    parser.add_argument('--timestep', type=int, nargs=3, help='Date and time of the data. Pass 3 ints in the following order: year, month, day ')
     parser.add_argument('--domain', type=str, help='Domain of the data.')
     parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
     parser.add_argument('--domain_size', type=int, nargs=2, help='Lengths of the dimensions of the final stitched map for predictions: lon, lat')
@@ -1803,6 +1485,7 @@ if __name__ == '__main__':
                              'maximum across overlapping pixels.')
     parser.add_argument('--find_matches', action='store_true', help='Find matches for stitching predictions?')
     parser.add_argument('--generate_predictions', action='store_true', help='Generate prediction plots?')
+    parser.add_argument('--calculate_stats', action='store_true', help='generate stats')
     parser.add_argument('--gpu_device', type=int, help='GPU device number.')
     parser.add_argument('--image_size', type=int, nargs=2, help="Number of pixels along each dimension of the model's output: lon, lat")
     parser.add_argument('--learning_curve', action='store_true', help='Plot learning curve')
@@ -1811,14 +1494,14 @@ if __name__ == '__main__':
     parser.add_argument('--model_number', type=int, help='Model number.')
     parser.add_argument('--num_iterations', type=int, default=10000, help='Number of iterations to perform when bootstrapping the data.')
     parser.add_argument('--num_rand_predictions', type=int, default=10, help='Number of random predictions to make.')
-    parser.add_argument('--fronts_pickle_indir', type=str, help='Main directory for the pickle files containing frontal objects.')
-    parser.add_argument('--variables_pickle_indir', type=str, help='Main directory for the pickle files containing variable data.')
+    parser.add_argument('--fronts_netcdf_indir', type=str, help='Main directory for the netcdf files containing frontal objects.')
+    parser.add_argument('--variables_netcdf_indir', type=str, help='Main directory for the netcdf files containing variable data.')
     parser.add_argument('--plot_performance_diagrams', action='store_true', help='Plot performance diagrams for a model?')
     parser.add_argument('--prediction_method', type=str, help="Prediction method. Options are: 'datetime', 'random', 'all'")
     parser.add_argument('--random_variables', type=str, nargs="+", default=None, help="Variables to randomize when generating predictions.")
     parser.add_argument('--save_map', action='store_true', help='Save maps of the model predictions?')
-    parser.add_argument('--save_probabilities', action='store_true', help='Save model prediction data out to pickle files?')
-    parser.add_argument('--save_statistics', action='store_true', help='Save performance statistics data out to pickle files?')
+    parser.add_argument('--save_probabilities', action='store_true', help='Save model prediction data out to netcdf files?')
+    parser.add_argument('--save_statistics', action='store_true', help='Save performance statistics data out to netcdf files?')
     parser.add_argument('--variable_data_source', type=str, default='era5', help='Data source for variables')
 
     args = parser.parse_args()
@@ -1843,7 +1526,7 @@ if __name__ == '__main__':
         learning_curve(args.model_number, args.model_dir)
 
     if args.generate_predictions:
-        required_arguments = ['domain', 'model_number', 'model_dir', 'domain_images', 'domain_size', 'prediction_method', 'variables_pickle_indir', 'fronts_pickle_indir']
+        required_arguments = ['domain', 'model_number', 'model_dir', 'prediction_method', 'variables_netcdf_indir', 'fronts_netcdf_indir']
         check_arguments(provided_arguments, required_arguments)
 
         if args.prediction_method == 'datetime' and args.datetime is None:
@@ -1853,15 +1536,22 @@ if __name__ == '__main__':
         image_size = model_properties['input_size'][0:2]  # We are only concerned about longitude and latitude when checking compatibility
 
         # Verify the compatibility of image stitching arguments
-        find_matches_for_domain(args.domain_size, image_size, compatibility_mode=True, compat_images=args.domain_images)
+        # find_matches_for_domain(args.domain_size, image_size, compatibility_mode=True, compat_images=args.domain_images)
 
-        generate_predictions(args.model_number, args.model_dir, args.variables_pickle_indir, args.fronts_pickle_indir,
-            args.domain, args.domain_images, args.domain_size, args.domain_trim, args.prediction_method, dataset=args.dataset,
+        generate_predictions(args.model_number, args.model_dir, args.variables_netcdf_indir, args.fronts_netcdf_indir, args.prediction_method,
+            domain=args.domain, domain_images=args.domain_images, domain_trim=args.domain_trim, dataset=args.dataset,
             datetime=args.datetime, num_rand_predictions=args.num_rand_predictions, random_variables=args.random_variables,
-            save_probabilities=args.save_probabilities, variable_data_source=args.variable_data_source)
+            variable_data_source=args.variable_data_source)
+
+    if args.calculate_stats:
+        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'timestep', 'domain_images', 'domain_trim']
+        for hour in range(0, 24, 3):
+            timestep = (args.timestep[0], args.timestep[1], args.timestep[2], hour)
+            calculate_performance_stats(args.model_number, args.model_dir, args.fronts_netcdf_indir, timestep, args.domain,
+                args.domain_images, args.domain_trim)
 
     if args.plot_performance_diagrams:
-        required_arguments = ['model_number', 'model_dir', 'domain', 'domain_images', 'num_iterations']
+        required_arguments = ['model_number', 'model_dir', 'domain', 'domain_images']
         check_arguments(provided_arguments, required_arguments)
         plot_performance_diagrams(args.model_dir, args.model_number, args.domain, args.domain_images, args.domain_trim,
             random_variables=args.random_variables, bootstrap=args.bootstrap, num_iterations=args.num_iterations)
