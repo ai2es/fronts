@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 9/15/2022 8:48 PM CT
+Last updated: 9/22/2022 5:07 PM CT
 """
 
 import math
@@ -219,15 +219,18 @@ def redistribute_vertices(xy_linestring, distance):
         raise ValueError('unhandled geometry %s', (xy_linestring.geom_type,))
 
 
-def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=False):
+def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_names=False):
     """
+    Reformat a frontal object dataset along with its respective colors and labels for plotting, or just return the colors and labels
+    for the given front types.
 
     Parameters
     ----------
-    fronts_ds: xr.Dataset or np.array
-        - Dataset containing the front data.
     front_types: str or list of strs
         - Code(s) that determine how the dataset or array will be reformatted.
+    fronts_ds: xr.Dataset or np.array or None
+        - Dataset containing the front data.
+        - If left as None, no dataset will be returned.
         '''
         Available options for individual front types (cannot be passed with any special codes):
 
@@ -312,8 +315,10 @@ def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=Fa
                  'Occluded front (dying)', 'Outflow boundary', 'Trough', 'Tropical trough', 'Dryline']
 
     if front_types == 'F_BIN':
-        fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Classes 5-16 are removed
-        fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Merge 1-4 into one class
+
+        if fronts_ds is not None:
+            fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Classes 5-16 are removed
+            fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Merge 1-4 into one class
 
         colors_types = ['tab:red']
         colors_probs = ['Reds']
@@ -321,15 +326,17 @@ def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=Fa
         labels = ['CF-WF-SF-OF', ]
 
     elif front_types == 'MERGED-F':
-        fronts_ds = xr.where(fronts_ds == 5, 1, fronts_ds)  # Forming cold front ---> cold front
-        fronts_ds = xr.where(fronts_ds == 6, 2, fronts_ds)  # Forming warm front ---> warm front
-        fronts_ds = xr.where(fronts_ds == 7, 3, fronts_ds)  # Forming stationary front ---> stationary front
-        fronts_ds = xr.where(fronts_ds == 8, 4, fronts_ds)  # Forming occluded front ---> occluded front
-        fronts_ds = xr.where(fronts_ds == 9, 1, fronts_ds)  # Dying cold front ---> cold front
-        fronts_ds = xr.where(fronts_ds == 10, 2, fronts_ds)  # Dying warm front ---> warm front
-        fronts_ds = xr.where(fronts_ds == 11, 3, fronts_ds)  # Dying stationary front ---> stationary front
-        fronts_ds = xr.where(fronts_ds == 12, 4, fronts_ds)  # Dying occluded front ---> occluded front
-        fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Remove all other fronts
+
+        if fronts_ds is not None:
+            fronts_ds = xr.where(fronts_ds == 5, 1, fronts_ds)  # Forming cold front ---> cold front
+            fronts_ds = xr.where(fronts_ds == 6, 2, fronts_ds)  # Forming warm front ---> warm front
+            fronts_ds = xr.where(fronts_ds == 7, 3, fronts_ds)  # Forming stationary front ---> stationary front
+            fronts_ds = xr.where(fronts_ds == 8, 4, fronts_ds)  # Forming occluded front ---> occluded front
+            fronts_ds = xr.where(fronts_ds == 9, 1, fronts_ds)  # Dying cold front ---> cold front
+            fronts_ds = xr.where(fronts_ds == 10, 2, fronts_ds)  # Dying warm front ---> warm front
+            fronts_ds = xr.where(fronts_ds == 11, 3, fronts_ds)  # Dying stationary front ---> stationary front
+            fronts_ds = xr.where(fronts_ds == 12, 4, fronts_ds)  # Dying occluded front ---> occluded front
+            fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Remove all other fronts
 
         colors_types = ['blue', 'red', 'limegreen', 'darkviolet']
         colors_probs = ['Blues', 'Reds', 'Greens', 'Purples']
@@ -337,8 +344,10 @@ def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=Fa
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any']
 
     elif front_types == 'MERGED-F_BIN':
-        fronts_ds = xr.where(fronts_ds > 12, 0, fronts_ds)  # Classes 13-16 are removed
-        fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Classes 1-12 are merged into one class
+
+        if fronts_ds is not None:
+            fronts_ds = xr.where(fronts_ds > 12, 0, fronts_ds)  # Classes 13-16 are removed
+            fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Classes 1-12 are merged into one class
 
         colors_types = ['gray']
         colors_probs = ['Greys']
@@ -346,13 +355,15 @@ def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=Fa
         labels = ['CF-WF-SF-OF_any', ]
 
     elif front_types == 'MERGED-T':
-        fronts_ds = xr.where(fronts_ds < 14, 0, fronts_ds)  # Remove classes 1-13
 
-        # Merge troughs into one class
-        fronts_ds = xr.where(fronts_ds == 14, 1, fronts_ds)
-        fronts_ds = xr.where(fronts_ds == 15, 1, fronts_ds)
+        if fronts_ds is not None:
+            fronts_ds = xr.where(fronts_ds < 14, 0, fronts_ds)  # Remove classes 1-13
 
-        fronts_ds = xr.where(fronts_ds == 16, 0, fronts_ds)  # Remove drylines
+            # Merge troughs into one class
+            fronts_ds = xr.where(fronts_ds == 14, 1, fronts_ds)
+            fronts_ds = xr.where(fronts_ds == 15, 1, fronts_ds)
+
+            fronts_ds = xr.where(fronts_ds == 16, 0, fronts_ds)  # Remove drylines
 
         colors_types = ['brown']
         colors_probs = ['YlOrBr']
@@ -360,21 +371,23 @@ def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=Fa
         labels = ['TR_any', ]
 
     elif front_types == 'MERGED-ALL':
-        fronts_ds = xr.where(fronts_ds == 5, 1, fronts_ds)  # Forming cold front ---> cold front
-        fronts_ds = xr.where(fronts_ds == 6, 2, fronts_ds)  # Forming warm front ---> warm front
-        fronts_ds = xr.where(fronts_ds == 7, 3, fronts_ds)  # Forming stationary front ---> stationary front
-        fronts_ds = xr.where(fronts_ds == 8, 4, fronts_ds)  # Forming occluded front ---> occluded front
-        fronts_ds = xr.where(fronts_ds == 9, 1, fronts_ds)  # Dying cold front ---> cold front
-        fronts_ds = xr.where(fronts_ds == 10, 2, fronts_ds)  # Dying warm front ---> warm front
-        fronts_ds = xr.where(fronts_ds == 11, 3, fronts_ds)  # Dying stationary front ---> stationary front
-        fronts_ds = xr.where(fronts_ds == 12, 4, fronts_ds)  # Dying occluded front ---> occluded front
 
-        # Merge troughs together into class 5
-        fronts_ds = xr.where(fronts_ds == 14, 5, fronts_ds)
-        fronts_ds = xr.where(fronts_ds == 15, 5, fronts_ds)
+        if fronts_ds is not None:
+            fronts_ds = xr.where(fronts_ds == 5, 1, fronts_ds)  # Forming cold front ---> cold front
+            fronts_ds = xr.where(fronts_ds == 6, 2, fronts_ds)  # Forming warm front ---> warm front
+            fronts_ds = xr.where(fronts_ds == 7, 3, fronts_ds)  # Forming stationary front ---> stationary front
+            fronts_ds = xr.where(fronts_ds == 8, 4, fronts_ds)  # Forming occluded front ---> occluded front
+            fronts_ds = xr.where(fronts_ds == 9, 1, fronts_ds)  # Dying cold front ---> cold front
+            fronts_ds = xr.where(fronts_ds == 10, 2, fronts_ds)  # Dying warm front ---> warm front
+            fronts_ds = xr.where(fronts_ds == 11, 3, fronts_ds)  # Dying stationary front ---> stationary front
+            fronts_ds = xr.where(fronts_ds == 12, 4, fronts_ds)  # Dying occluded front ---> occluded front
 
-        fronts_ds = xr.where(fronts_ds == 13, 6, fronts_ds)  # Move outflow boundaries to class 6
-        fronts_ds = xr.where(fronts_ds == 16, 7, fronts_ds)  # Move drylines to class 7
+            # Merge troughs together into class 5
+            fronts_ds = xr.where(fronts_ds == 14, 5, fronts_ds)
+            fronts_ds = xr.where(fronts_ds == 15, 5, fronts_ds)
+
+            fronts_ds = xr.where(fronts_ds == 13, 6, fronts_ds)  # Move outflow boundaries to class 6
+            fronts_ds = xr.where(fronts_ds == 16, 7, fronts_ds)  # Move drylines to class 7
 
         colors_types = ['blue', 'red', 'limegreen', 'darkviolet', 'brown', 'gold', 'chocolate']
         colors_probs = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges', 'YlOrBr', 'copper_r']
@@ -405,19 +418,31 @@ def reformat_fronts(fronts_ds, front_types, return_colors=False, return_names=Fa
         labels = front_types
 
     else:
+
         colors_types, colors_probs = all_color_types, all_color_types
         names = all_names
         labels = list(front_types_classes.keys())
 
-    if return_colors:
-        if return_names:
-            return fronts_ds, names, labels, colors_types, colors_probs
+    if fronts_ds is not None:
+        if return_colors:
+            if return_names:
+                return fronts_ds, names, labels, colors_types, colors_probs
+            else:
+                return fronts_ds, colors_types, colors_probs
+        elif return_names:
+            return fronts_ds, names, labels
         else:
-            return fronts_ds, colors_types, colors_probs
-    elif return_names:
-        return fronts_ds, names, labels
+            return fronts_ds
     else:
-        return fronts_ds
+        if return_colors:
+            if return_names:
+                return names, labels, colors_types, colors_probs
+            else:
+                return colors_types, colors_probs
+        elif return_names:
+            return names, labels
+        else:
+            pass
 
 
 def find_era5_normalization_parameters(era5_pickle_indir):
