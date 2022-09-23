@@ -2,7 +2,7 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/12/2022 3:37 PM CT
+Last updated: 9/22/2022 5:02 PM CT
 """
 
 import argparse
@@ -515,7 +515,7 @@ def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
         daily_directory = gdas_grib_outdir + '/%d%02d%02d' % (year, month, day)  # Directory for the GDAS grib files for the given day
 
         # GDAS files have different naming patterns based on which year the data is for
-        if year < 2012:
+        if year < 2014:
             forecast_hours = np.arange(0, 12, 3)
             files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.{year}%02d%02d/%02d/gdas1.t%02dz.pgrbf%02d.grib2' % (month, day, hour, hour, forecast_hour)
                      for hour in hours
@@ -524,7 +524,7 @@ def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
                                for hour in hours
                                for forecast_hour in forecast_hours]
 
-        elif 2012 < year < 2018:
+        elif 2014 < year < 2018:
 
             forecast_hours = np.arange(0, 10)  # Forecast hours 0-9
 
