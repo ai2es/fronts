@@ -9,6 +9,7 @@ Last updated: 9/18/2022 9:10 PM CT
 import numpy as np
 import pandas as pd
 import os
+import debug_utils
 
 
 def find_missing_statistics(model_dir, model_number, domain, domain_images, domain_trim, variables_data_source, variables_netcdf_indir,
@@ -84,21 +85,7 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
 
     assert os.path.isdir(stats_folder_to_analyze)  # Check that the stats folder is valid
 
-    ### Generate a list of timesteps [[year, 1, 1, 0], [year, ..., ..., ...], [year, 12, 31, 21]] ###
-    date_list = []
-    days_per_month = dict({str(year): None for year in years})  # Number of days in each month for each year being analyzed
-    for year in years:
-        if year % 4 == 0:
-            month_2_days = 29  # Leap year
-        else:
-            month_2_days = 28  # Not a leap year
-
-        days_per_month[str(year)] = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-
-        for month in range(1, 13):
-            for day in range(1, days_per_month[str(year)][month - 1] + 1):
-                for hour in range(0, 24, 3):
-                    date_list.append([year, month, day, hour])
+    date_list = debug_utils.generate_date_list(years, include_hours='all')
 
     num_timesteps = len(date_list)
     num_missing_stats_files = 0  # Counter for the number of missing statistics files
