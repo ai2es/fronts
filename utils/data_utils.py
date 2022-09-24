@@ -406,15 +406,17 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
         front_types, num_types = list(filtered_front_types.keys()), len(filtered_front_types.keys())
 
         for i in range(num_types):
-            if i + 1 != front_types_classes[front_types[i]]:
-                fronts_ds = xr.where(fronts_ds == i + 1, 0, fronts_ds)
-                fronts_ds = xr.where(fronts_ds == front_types_classes[front_types[i]], i + 1, fronts_ds)  # Reformat front classes
+            if fronts_ds is not None:
+                if i + 1 != front_types_classes[front_types[i]]:
+                    fronts_ds = xr.where(fronts_ds == i + 1, 0, fronts_ds)
+                    fronts_ds = xr.where(fronts_ds == front_types_classes[front_types[i]], i + 1, fronts_ds)  # Reformat front classes
+
+                fronts_ds = xr.where(fronts_ds > num_types, 0, fronts_ds)  # Remove unused front types
 
             colors_probs.append(all_color_probs[front_types_classes[front_types[i]] - 1])
             colors_types.append(all_color_types[front_types_classes[front_types[i]] - 1])
             names.append(all_names[front_types_classes[front_types[i]] - 1])
 
-        fronts_ds = xr.where(fronts_ds > num_types, 0, fronts_ds)  # Remove unused front types
         labels = front_types
 
     else:
