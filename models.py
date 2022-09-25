@@ -8,12 +8,12 @@ Deep learning models:
 
 TODO:
     * Allow models to have a unique number of encoder and decoder levels (e.g. 3 encoder levels and 5 decoder levels)
-    * Add temporal U-Nets when Tensorflow 2.8 becomes available via conda
+    * Add temporal U-Nets
     * Create help document with visualizations for in-code documentation
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 6/27/2022 7:10 PM CDT
+Last updated: 9/25/2022 11:47 AM CT
 """
 
 from tensorflow.keras.models import Model
@@ -21,9 +21,9 @@ from tensorflow.keras.layers import Concatenate, Input
 from utils.unet_utils import *
 
 
-def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, modules_per_node=5, batch_normalization=True,
-    activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
+def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, squeeze_dims=None, modules_per_node=5,
+    batch_normalization=True, activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros',
+    kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
     """
     Builds a U-Net model.
 
@@ -43,6 +43,9 @@ def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num,
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
+    squeeze_dims: int, tuple, or None
+        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
+        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
@@ -135,6 +138,7 @@ def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num,
     supervision_kwargs = dict({})
     supervision_kwargs['upsample_size'] = upsample_size
     supervision_kwargs['use_bias'] = True
+    supervision_kwargs['squeeze_dims'] = squeeze_dims
     supervision_kwargs['padding'] = padding
     supervision_kwargs['kernel_initializer'] = kernel_initializer
     supervision_kwargs['bias_initializer'] = bias_initializer
@@ -179,9 +183,9 @@ def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num,
     return model
 
 
-def unet_ensemble(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, modules_per_node=5, batch_normalization=True,
-    activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
+def unet_ensemble(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, squeeze_dims=None, modules_per_node=5,
+    batch_normalization=True, activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros',
+    kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
     """
     Builds a U-Net ensemble model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -202,6 +206,9 @@ def unet_ensemble(input_shape, num_classes, pool_size, upsample_size, levels, fi
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
+    squeeze_dims: int, tuple, or None
+        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
+        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
@@ -290,6 +297,7 @@ def unet_ensemble(input_shape, num_classes, pool_size, upsample_size, levels, fi
     supervision_kwargs = dict({})
     supervision_kwargs['upsample_size'] = upsample_size
     supervision_kwargs['use_bias'] = True
+    supervision_kwargs['squeeze_dims'] = squeeze_dims
     supervision_kwargs['padding'] = padding
     supervision_kwargs['kernel_initializer'] = kernel_initializer
     supervision_kwargs['bias_initializer'] = bias_initializer
@@ -346,9 +354,10 @@ def unet_ensemble(input_shape, num_classes, pool_size, upsample_size, levels, fi
     return model
 
 
-def unet_plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, modules_per_node=5, batch_normalization=True,
-    deep_supervision=True, activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros',
-    kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
+def unet_plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, squeeze_dims=None,
+    modules_per_node=5, batch_normalization=True, deep_supervision=True, activation='relu', padding='same', use_bias=True,
+    kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None,
+    kernel_constraint=None, bias_constraint=None):
     """
     Builds a U-Net+ model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -369,6 +378,9 @@ def unet_plus(input_shape, num_classes, pool_size, upsample_size, levels, filter
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
+    squeeze_dims: int, tuple, or None
+        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
+        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
@@ -460,6 +472,7 @@ def unet_plus(input_shape, num_classes, pool_size, upsample_size, levels, filter
     supervision_kwargs = dict({})
     supervision_kwargs['upsample_size'] = upsample_size
     supervision_kwargs['use_bias'] = True
+    supervision_kwargs['squeeze_dims'] = squeeze_dims
     supervision_kwargs['padding'] = padding
     supervision_kwargs['kernel_initializer'] = kernel_initializer
     supervision_kwargs['bias_initializer'] = bias_initializer
@@ -517,9 +530,10 @@ def unet_plus(input_shape, num_classes, pool_size, upsample_size, levels, filter
     return model
 
 
-def unet_2plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, modules_per_node=5, batch_normalization=True,
-    deep_supervision=True, activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros',
-    kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
+def unet_2plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, squeeze_dims=None,
+    modules_per_node=5, batch_normalization=True, deep_supervision=True, activation='relu', padding='same', use_bias=True,
+    kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None,
+    kernel_constraint=None, bias_constraint=None):
     """
     Builds a U-Net++ model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -540,6 +554,9 @@ def unet_2plus(input_shape, num_classes, pool_size, upsample_size, levels, filte
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
+    squeeze_dims: int, tuple, or None
+        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
+        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
@@ -631,6 +648,7 @@ def unet_2plus(input_shape, num_classes, pool_size, upsample_size, levels, filte
     supervision_kwargs = dict({})
     supervision_kwargs['upsample_size'] = upsample_size
     supervision_kwargs['use_bias'] = True
+    supervision_kwargs['squeeze_dims'] = squeeze_dims
     supervision_kwargs['padding'] = padding
     supervision_kwargs['kernel_initializer'] = kernel_initializer
     supervision_kwargs['bias_initializer'] = bias_initializer
@@ -703,8 +721,8 @@ def unet_2plus(input_shape, num_classes, pool_size, upsample_size, levels, filte
 
 
 def unet_3plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, filter_num_skip=None, filter_num_aggregate=None,
-    kernel_size=3, first_encoder_connections=True, modules_per_node=5, batch_normalization=True, deep_supervision=True, activation='relu',
-    padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
+    kernel_size=3, squeeze_dims=None, first_encoder_connections=True, modules_per_node=5, batch_normalization=True, deep_supervision=True,
+    activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
     bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
     """
     Creates a U-Net 3+.
@@ -734,6 +752,9 @@ def unet_3plus(input_shape, num_classes, pool_size, upsample_size, levels, filte
         Size of the kernel in the convolution layers.
     first_encoder_connections: bool
         Setting this to True will create full-scale skip connections attached to the first encoder node.
+    squeeze_dims: int, tuple, or None
+        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
+        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
     modules_per_node: int
         Number of modules in each node of the U-Net 3+.
     batch_normalization: bool
@@ -878,6 +899,7 @@ def unet_3plus(input_shape, num_classes, pool_size, upsample_size, levels, filte
     supervision_kwargs['kernel_size'] = kernel_size
     supervision_kwargs['use_bias'] = True
     supervision_kwargs['padding'] = padding
+    supervision_kwargs['squeeze_dims'] = squeeze_dims
     supervision_kwargs['kernel_initializer'] = kernel_initializer
     supervision_kwargs['bias_initializer'] = bias_initializer
     supervision_kwargs['kernel_regularizer'] = kernel_regularizer

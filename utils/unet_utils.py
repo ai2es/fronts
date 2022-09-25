@@ -8,7 +8,7 @@ Functions for building U-Net models:
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 6/13/2022 12:53 AM CDT
+Last updated: 9/25/2022 11:47 AM CT
 """
 
 import numpy as np
@@ -578,7 +578,7 @@ def choose_activation_layer(activation: str):
 
 def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level, upsample_size, padding='same', use_bias=True,
     kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None,
-    kernel_constraint=None, bias_constraint=None, name=None):
+    kernel_constraint=None, bias_constraint=None, squeeze_dims=None, name=None):
     """
     Deep supervision output. This is usually used on a decoder node in the U-Net 3+ or the final decoder node of a standard
     U-Net.
@@ -615,6 +615,8 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
         - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+    squeeze_dims: int, tuple, or None
+        - Dimension(s) of the input tensor to squeeze.
     name: str or None
         - Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -657,9 +659,9 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
 
     # Arguments for the Conv2D/Conv3D layer.
     conv_kwargs = dict({})
+    conv_kwargs['use_bias'] = use_bias
     conv_kwargs['kernel_size'] = kernel_size
     conv_kwargs['padding'] = padding
-    conv_kwargs['use_bias'] = use_bias
     conv_kwargs['kernel_initializer'] = kernel_initializer
     conv_kwargs['bias_initializer'] = bias_initializer
     conv_kwargs['kernel_regularizer'] = kernel_regularizer
@@ -676,6 +678,25 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
 
     if upsample_size_2 is not None:
         tensor = upsample_layer(size=upsample_size_2, name=f'{name}_UpSampling{tensor_dims - 2}D_2')(tensor)  # Pass the tensor through the UpSampling2D/UpSampling3D layer
+
+    ### Squeeze the given dimensions/axes ###
+    if squeeze_dims is not None:
+
+        conv_kwargs['kernel_size'] = [1 for dim in range(tensor_dims - 2)]
+
+        if type(squeeze_dims) == int:
+            squeeze_dims = [squeeze_dims, ]  # Turn integer into a list of length 1 to make indexing easier
+
+        squeeze_dims_sizes = [tensor.shape[dim_to_squeeze + 1] for dim_to_squeeze in squeeze_dims]  # Since the tensor contains the 'None' dimension, we have to add 1 to get the correct dimension
+
+        for dim, size in enumerate(squeeze_dims_sizes):
+            conv_kwargs['kernel_size'][squeeze_dims[dim]] = size  # Kernel size of dimension to squeeze is equal to the size of the dimension because we want the final size to be 1 so it can be squeezed
+
+        conv_kwargs['padding'] = 'valid'  # Padding is no longer 'same' since we want to modify the size of the dimension to be squeezed
+        conv_kwargs['name'] = f'{name}_Conv{tensor_dims - 2}D_squeeze'
+
+        tensor = conv_layer(filters=num_classes, **conv_kwargs)(tensor)  # This convolution layer contains num_classes filters, one for each class
+        tensor = tf.squeeze(tensor, axis=list(np.array(squeeze_dims) + 1), name=f'{name}_tensor_squeeze')  # Squeeze the tensor and remove the dimension
 
     sup_output = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
 
