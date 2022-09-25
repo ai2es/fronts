@@ -229,11 +229,13 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
         fronts_file = '%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_dir, year, month, day, year, month, day, hour)
         probs_file = f'{probs_dir}/model_{model_number}_{year}-%02d-%02d-%02dz_{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities.nc' % (month, day, hour)
 
-    fronts_ds = xr.open_dataset(fronts_file)
-    probs_ds = xr.open_dataset(probs_file)
-
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
     front_types = model_properties['front_types']
+
+    fronts_ds = xr.open_dataset(fronts_file).sel(longitude=slice(DEFAULT_DOMAIN_EXTENTS[domain][0], DEFAULT_DOMAIN_EXTENTS[domain][1]),
+                                                 latitude=slice(DEFAULT_DOMAIN_EXTENTS[domain][3], DEFAULT_DOMAIN_EXTENTS[domain][2]))
+    fronts_ds = data_utils.reformat_fronts(front_types, fronts_ds)
+    probs_ds = xr.open_dataset(probs_file)
 
     if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
         num_front_types = 1
@@ -249,6 +251,11 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
 
     if type(front_types) == str:
         front_types = [front_types, ]
+
+    if len(front_types) == 1:
+        front_types_arg_reformat = front_types[0]
+    else:
+        front_types_arg_reformat = front_types
 
     bool_tn_fn_dss = dict({front: xr.where(fronts_ds == front_no + 1, 1, 0)['identifier'] for front_no, front in enumerate(front_types)})
     bool_tp_fp_dss = dict({front: None for front in front_types})
@@ -273,8 +280,10 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
 
         """ Calculate true positives and false positives """
         for boundary in range(5):
-            fronts_ds = xr.open_dataset(fronts_file)
-            front_identifier = data_utils.expand_fronts(fronts_ds, iterations=int(2*(boundary+1)))  # Expand fronts
+            new_fronts_ds = xr.open_dataset(fronts_file).sel(longitude=slice(DEFAULT_DOMAIN_EXTENTS[domain][0], DEFAULT_DOMAIN_EXTENTS[domain][1]),
+                                                          latitude=slice(DEFAULT_DOMAIN_EXTENTS[domain][3], DEFAULT_DOMAIN_EXTENTS[domain][2]))
+            new_fronts = data_utils.reformat_fronts(front_types_arg_reformat, fronts_ds=new_fronts_ds)
+            front_identifier = data_utils.expand_fronts(new_fronts, iterations=int(2*(boundary+1)))  # Expand fronts
             bool_tp_fp_dss[front_type] = xr.where(front_identifier == front_no + 1, 1, 0)['identifier']  # 1 = cold front, 0 = not a cold front
             for i in range(100):
                 """
@@ -739,7 +748,7 @@ def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, fr
 
 
 def plot_performance_diagrams(model_dir, model_number, domain, domain_images, domain_trim, bootstrap=True, random_variables=None,
-    num_iterations=10000):
+    calibrated=False, num_iterations=10000):
     """
     Plots CSI performance diagram for different front types.
 
@@ -759,12 +768,20 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         - Setting this to true will plot confidence intervals onto the performance diagrams.
     random_variables: str or list of strs
         - Variable(s) that were randomized when performance statistics were calculated.
+    calibrated: bool
+        - Indicates whether or not the statistics to be plotted are from a calibrated model.
     num_iterations: int
         - Number of iterations when bootstrapping the data.
     """
 
     model_properties = pd.read_pickle(f"{model_dir}\\model_{model_number}\\model_{model_number}_properties.pkl")
     front_types = model_properties['front_types']
+    num_front_types = model_properties['classes'] - 1  # model_properties['classes'] - 1 ===> number of front types (we ignore the 'no front' type)
+
+    if num_front_types > 1:
+        _, labels = data_utils.reformat_fronts(front_types, return_names=True)
+    else:
+        labels = [front_types, ]
 
     subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
     stats_plot_base = 'model_%d_%s_%dx%dimages_%dx%dtrim' % (model_number, domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
@@ -772,6 +789,7 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         subdir_base += '_' + '-'.join(sorted(random_variables))
 
     files = sorted(glob('%s\\model_%d\\statistics\\%s\\*statistics.nc' % (model_dir, model_number, subdir_base)))
+    num_files = len(files)
 
     # If evaluating over the full domain, remove non-synoptic hours (3z, 9z, 15z, 21z)
     if domain == 'full':
@@ -780,338 +798,184 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
             string = '%02dz_' % hour
             files = list(filter(lambda hour: string not in hour, files))
 
-    stats = xr.open_mfdataset(files, combine='nested', concat_dim='time').isel(boundary=-1)  # Open the first dataset so information on variables can be retrieved
-    stats_sum = stats.sum(dim='time')
+    stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')  # Open the first dataset so information on variables can be retrieved
 
-    ds_keys = list(stats.keys())  # List of the names of the variables in the stats datasets.
-    num_keys = len(ds_keys)  # Number of data variables
-    num_files = len(files)  # Number of files
+    POD_array = np.empty([num_front_types, num_iterations, 5, 100])  # Probability of detection
+    SR_array = np.empty([num_front_types, num_iterations, 5, 100])  # Success ratio
 
     """
-    These arrays are used for calculating confidence intervals. We use these instead of the original datasets because numpy
-    cannot efficiently perform calculations across xarray datasets.
+    Confidence Interval (CI) for POD and SR
+
+    Shape of arrays: (number of front types, number of boundaries, number of thresholds)
     """
-    statistics_array_50km = np.empty(shape=(num_files, num_keys, 100))
-    statistics_array_100km = np.empty(shape=(num_files, num_keys, 100))
-    statistics_array_150km = np.empty(shape=(num_files, num_keys, 100))
-    statistics_array_200km = np.empty(shape=(num_files, num_keys, 100))
+    CI_lower_POD = np.empty([num_front_types, 5, 100])
+    CI_lower_SR = np.empty([num_front_types, 5, 100])
+    CI_upper_POD = np.empty([num_front_types, 5, 100])
+    CI_upper_SR = np.empty([num_front_types, 5, 100])
 
+    selectable_indices = range(num_files)
 
-    # Split datasets by boundary
-    stats_50km = total_stats.sel(boundary=50)
-    stats_100km = total_stats.sel(boundary=100)
-    stats_150km = total_stats.sel(boundary=150)
-    stats_200km = total_stats.sel(boundary=200)
-    stats_250km = total_stats.sel(boundary=250)
+    front_names, _ = data_utils.reformat_fronts(front_types, return_names=True)
 
-    num_front_types = model_properties['classes'] - 1  # model_properties['classes'] - 1 ===> number of front types (we ignore the 'no front' type)
+    for front_no, front_label in enumerate(labels):
 
-    """
-    Probability of Detection (POD) and Success Ratio (SR) 
+        true_positives = stats_ds[f'tp_{front_label}'].values
+        false_positives = stats_ds[f'fp_{front_label}'].values
+        false_negatives = stats_ds[f'fn_{front_label}'].values
+        thresholds = stats_ds['threshold'].values
 
-    Shape of arrays: (number of front types, num_iterations, number of thresholds)
-    """
-    POD_array_50km = np.empty([num_front_types, num_iterations, 100])
-    POD_array_100km = np.empty([num_front_types, num_iterations, 100])
-    POD_array_150km = np.empty([num_front_types, num_iterations, 100])
-    POD_array_200km = np.empty([num_front_types, num_iterations, 100])
-    SR_array_50km = np.empty([num_front_types, num_iterations, 100])
-    SR_array_100km = np.empty([num_front_types, num_iterations, 100])
-    SR_array_150km = np.empty([num_front_types, num_iterations, 100])
-    SR_array_200km = np.empty([num_front_types, num_iterations, 100])
+        true_positives_sum = np.sum(true_positives, axis=0)
+        false_positives_sum = np.sum(false_positives, axis=0)
+        false_negatives_sum = np.sum(false_negatives, axis=0)
 
-    if bootstrap is True:
-        """
-        Confidence Interval (CI) for POD and SR
-        
-        Shape of arrays: (number of front types, number of boundaries, number of thresholds)
-        """
-        CI_lower_POD = np.empty([model_properties['classes'] - 1, 4, 100])
-        CI_lower_SR = np.empty([model_properties['classes'] - 1, 4, 100])
-        CI_upper_POD = np.empty([model_properties['classes'] - 1, 4, 100])
-        CI_upper_SR = np.empty([model_properties['classes'] - 1, 4, 100])
+        true_positives_diff = np.abs(np.diff(true_positives_sum))
+        false_positives_diff = np.abs(np.diff(false_positives_sum))
+        observed_relative_frequency = np.divide(true_positives_diff, true_positives_diff + false_positives_diff)
 
-        for iteration in range(num_iterations):
-            print(f"Iteration {iteration}/{num_iterations}", end='\r')
-            indices = random.choices(range(num_files), k=num_files)  # Select a sample equal to the total number of files
-            for front_type in range(num_front_types):
-                true_positive_index = front_type
-                false_positive_index = num_front_types + front_type
-                true_negative_index = num_front_types*2 + front_type
-                false_negative_index = num_front_types*3 + front_type
-
-                POD_array_50km[front_type, iteration, :] = np.nan_to_num(np.divide(np.sum(statistics_array_50km[indices, true_positive_index, :], axis=0),
-                                                                            np.add(np.sum(statistics_array_50km[indices, true_positive_index, :], axis=0),
-                                                                                   np.sum(statistics_array_50km[indices, false_negative_index, :], axis=0))))
-                SR_array_50km[front_type, iteration, :] = np.nan_to_num(np.divide(np.sum(statistics_array_50km[indices, true_positive_index, :], axis=0),
-                                                                           np.add(np.sum(statistics_array_50km[indices, true_positive_index, :], axis=0),
-                                                                                  np.sum(statistics_array_50km[indices, false_positive_index, :], axis=0))))
-                POD_array_100km[front_type, iteration, :] = np.nan_to_num(np.divide(np.sum(statistics_array_100km[indices, true_positive_index, :], axis=0),
-                                                                             np.add(np.sum(statistics_array_100km[indices, true_positive_index, :], axis=0),
-                                                                                    np.sum(statistics_array_100km[indices, false_negative_index, :], axis=0))))
-                SR_array_100km[front_type, iteration, :] = np.nan_to_num(np.divide(np.sum(statistics_array_100km[indices, true_positive_index, :], axis=0),
-                                                                            np.add(np.sum(statistics_array_100km[indices, true_positive_index, :], axis=0),
-                                                                                   np.sum(statistics_array_100km[indices, false_positive_index, :], axis=0))))
-                POD_array_150km[front_type, iteration, :] = np.nan_to_num(np.divide(np.sum(statistics_array_150km[indices, true_positive_index, :], axis=0),
-                                                                             np.add(np.sum(statistics_array_150km[indices, true_positive_index, :], axis=0),
-                                                                                    np.sum(statistics_array_150km[indices, false_negative_index, :], axis=0))))
-                SR_array_150km[front_type, iteration, :] = np.nan_to_num(np.divide(np.sum(statistics_array_150km[indices, true_positive_index, :], axis=0),
-                                                                            np.add(np.sum(statistics_array_150km[indices, true_positive_index, :], axis=0),
-                                                                                   np.sum(statistics_array_150km[indices, false_positive_index, :], axis=0))))
-                POD_array_200km[front_type, iteration, :] = np.nan_to_num(np.divide(np.sum(statistics_array_200km[indices, true_positive_index, :], axis=0),
-                                                                             np.add(np.sum(statistics_array_200km[indices, true_positive_index, :], axis=0),
-                                                                                    np.sum(statistics_array_200km[indices, false_negative_index, :], axis=0))))
-                SR_array_200km[front_type, iteration, :] = np.nan_to_num(np.divide(np.sum(statistics_array_200km[indices, true_positive_index, :], axis=0),
-                                                                            np.add(np.sum(statistics_array_200km[indices, true_positive_index, :], axis=0),
-                                                                                   np.sum(statistics_array_200km[indices, false_positive_index, :], axis=0))))
-
-        # Calculate 95% confidence intervals
-        for front_type in range(num_front_types):
-            for percent in np.arange(0, 100):
-                # 50km
-                CI_lower_POD[front_type, 0, percent] = np.percentile(POD_array_50km[front_type, :, percent], q=2.5)
-                CI_upper_POD[front_type, 0, percent] = np.percentile(POD_array_50km[front_type, :, percent], q=97.5)
-                CI_lower_SR[front_type, 0, percent] = np.percentile(SR_array_50km[front_type, :, percent], q=2.5)
-                CI_upper_SR[front_type, 0, percent] = np.percentile(SR_array_50km[front_type, :, percent], q=97.5)
-
-                # 100km
-                CI_lower_POD[front_type, 1, percent] = np.percentile(POD_array_100km[front_type, :, percent], q=2.5)
-                CI_upper_POD[front_type, 1, percent] = np.percentile(POD_array_100km[front_type, :, percent], q=97.5)
-                CI_lower_SR[front_type, 1, percent] = np.percentile(SR_array_100km[front_type, :, percent], q=2.5)
-                CI_upper_SR[front_type, 1, percent] = np.percentile(SR_array_100km[front_type, :, percent], q=97.5)
-
-                # 150km
-                CI_lower_POD[front_type, 2, percent] = np.percentile(POD_array_150km[front_type, :, percent], q=2.5)
-                CI_upper_POD[front_type, 2, percent] = np.percentile(POD_array_150km[front_type, :, percent], q=97.5)
-                CI_lower_SR[front_type, 2, percent] = np.percentile(SR_array_150km[front_type, :, percent], q=2.5)
-                CI_upper_SR[front_type, 2, percent] = np.percentile(SR_array_150km[front_type, :, percent], q=97.5)
-
-                # 200km
-                CI_lower_POD[front_type, 3, percent] = np.percentile(POD_array_200km[front_type, :, percent], q=2.5)
-                CI_upper_POD[front_type, 3, percent] = np.percentile(POD_array_200km[front_type, :, percent], q=97.5)
-                CI_lower_SR[front_type, 3, percent] = np.percentile(SR_array_200km[front_type, :, percent], q=2.5)
-                CI_upper_SR[front_type, 3, percent] = np.percentile(SR_array_200km[front_type, :, percent], q=97.5)
-
-    # Code for performance diagram matrices sourced from Ryan Lagerquist's (lagerqui@ualberta.ca) thunderhoser repository:
-    # https://github.com/thunderhoser/GewitterGefahr/blob/master/gewittergefahr/plotting/model_eval_plotting.py
-    success_ratio_matrix, pod_matrix = np.linspace(0, 1, 100), np.linspace(0, 1, 100)
-    x, y = np.meshgrid(success_ratio_matrix, pod_matrix)
-    csi_matrix = (x ** -1 + y ** -1 - 1.) ** -1
-    CSI_LEVELS = np.linspace(0, 1, 11)
-    cmap = 'Blues'
-    axis_ticks = np.arange(0, 1.1, 0.1)
-
-    if front_types == ['CF', 'WF'] or front_types == 'CFWFSFOF':
-        CSI_cold_50km = np.nan_to_num(stats_50km['tp_CF']/(stats_50km['tp_CF'] + stats_50km['fp_CF'] + stats_50km['fn_CF']))
-        CSI_cold_100km = np.nan_to_num(stats_100km['tp_CF']/(stats_100km['tp_CF'] + stats_100km['fp_CF'] + stats_100km['fn_CF']))
-        CSI_cold_150km = np.nan_to_num(stats_150km['tp_CF']/(stats_150km['tp_CF'] + stats_150km['fp_CF'] + stats_150km['fn_CF']))
-        CSI_cold_200km = np.nan_to_num(stats_200km['tp_CF']/(stats_200km['tp_CF'] + stats_200km['fp_CF'] + stats_200km['fn_CF']))
-        CSI_cold_250km = np.nan_to_num(stats_250km['tp_CF']/(stats_250km['tp_CF'] + stats_250km['fp_CF'] + stats_250km['fn_CF']))
-        CSI_warm_50km = np.nan_to_num(stats_50km['tp_WF']/(stats_50km['tp_WF'] + stats_50km['fp_WF'] + stats_50km['fn_WF']))
-        CSI_warm_100km = np.nan_to_num(stats_100km['tp_WF']/(stats_100km['tp_WF'] + stats_100km['fp_WF'] + stats_100km['fn_WF']))
-        CSI_warm_150km = np.nan_to_num(stats_150km['tp_WF']/(stats_150km['tp_WF'] + stats_150km['fp_WF'] + stats_150km['fn_WF']))
-        CSI_warm_200km = np.nan_to_num(stats_200km['tp_WF']/(stats_200km['tp_WF'] + stats_200km['fp_WF'] + stats_200km['fn_WF']))
-        CSI_warm_250km = np.nan_to_num(stats_250km['tp_WF']/(stats_250km['tp_WF'] + stats_250km['fp_WF'] + stats_250km['fn_WF']))
-
-        # Probability of detection for each front type and boundary
-        POD_cold_50km = np.nan_to_num(stats_50km['tp_CF']/(stats_50km['tp_CF'] + stats_50km['fn_CF']))
-        POD_cold_100km = np.nan_to_num(stats_100km['tp_CF']/(stats_100km['tp_CF'] + stats_100km['fn_CF']))
-        POD_cold_150km = np.nan_to_num(stats_150km['tp_CF']/(stats_150km['tp_CF'] + stats_150km['fn_CF']))
-        POD_cold_200km = np.nan_to_num(stats_200km['tp_CF']/(stats_200km['tp_CF'] + stats_200km['fn_CF']))
-        POD_warm_50km = np.nan_to_num(stats_50km['tp_WF']/(stats_50km['tp_WF'] + stats_50km['fn_WF']))
-        POD_warm_100km = np.nan_to_num(stats_100km['tp_WF']/(stats_100km['tp_WF'] + stats_100km['fn_WF']))
-        POD_warm_150km = np.nan_to_num(stats_150km['tp_WF']/(stats_150km['tp_WF'] + stats_150km['fn_WF']))
-        POD_warm_200km = np.nan_to_num(stats_200km['tp_WF']/(stats_200km['tp_WF'] + stats_200km['fn_WF']))
-
-        # Success ratio for each front type and boundary
-        SR_cold_50km = np.nan_to_num(stats_50km['tp_CF']/(stats_50km['tp_CF'] + stats_50km['fp_CF']))
-        SR_cold_100km = np.nan_to_num(stats_100km['tp_CF']/(stats_100km['tp_CF'] + stats_100km['fp_CF']))
-        SR_cold_150km = np.nan_to_num(stats_150km['tp_CF']/(stats_150km['tp_CF'] + stats_150km['fp_CF']))
-        SR_cold_200km = np.nan_to_num(stats_200km['tp_CF']/(stats_200km['tp_CF'] + stats_200km['fp_CF']))
-        SR_warm_50km = np.nan_to_num(stats_50km['tp_WF']/(stats_50km['tp_WF'] + stats_50km['fp_WF']))
-        SR_warm_100km = np.nan_to_num(stats_100km['tp_WF']/(stats_100km['tp_WF'] + stats_100km['fp_WF']))
-        SR_warm_150km = np.nan_to_num(stats_150km['tp_WF']/(stats_150km['tp_WF'] + stats_150km['fp_WF']))
-        SR_warm_200km = np.nan_to_num(stats_200km['tp_WF']/(stats_200km['tp_WF'] + stats_200km['fp_WF']))
-
-        # SR and POD values where CSI is maximized for each front type and boundary
-        SR_cold_50km_CSI = SR_cold_50km[np.where(CSI_cold_50km == np.max(CSI_cold_50km))]
-        POD_cold_50km_CSI = POD_cold_50km[np.where(CSI_cold_50km == np.max(CSI_cold_50km))]
-        SR_cold_100km_CSI = SR_cold_100km[np.where(CSI_cold_100km == np.max(CSI_cold_100km))]
-        POD_cold_100km_CSI = POD_cold_100km[np.where(CSI_cold_100km == np.max(CSI_cold_100km))]
-        SR_cold_150km_CSI = SR_cold_150km[np.where(CSI_cold_150km == np.max(CSI_cold_150km))]
-        POD_cold_150km_CSI = POD_cold_150km[np.where(CSI_cold_150km == np.max(CSI_cold_150km))]
-        SR_cold_200km_CSI = SR_cold_200km[np.where(CSI_cold_200km == np.max(CSI_cold_200km))]
-        POD_cold_200km_CSI = POD_cold_200km[np.where(CSI_cold_200km == np.max(CSI_cold_200km))]
-        SR_warm_50km_CSI = SR_warm_50km[np.where(CSI_warm_50km == np.max(CSI_warm_50km))]
-        POD_warm_50km_CSI = POD_warm_50km[np.where(CSI_warm_50km == np.max(CSI_warm_50km))]
-        SR_warm_100km_CSI = SR_warm_100km[np.where(CSI_warm_100km == np.max(CSI_warm_100km))]
-        POD_warm_100km_CSI = POD_warm_100km[np.where(CSI_warm_100km == np.max(CSI_warm_100km))]
-        SR_warm_150km_CSI = SR_warm_150km[np.where(CSI_warm_150km == np.max(CSI_warm_150km))]
-        POD_warm_150km_CSI = POD_warm_150km[np.where(CSI_warm_150km == np.max(CSI_warm_150km))]
-        SR_warm_200km_CSI = SR_warm_200km[np.where(CSI_warm_200km == np.max(CSI_warm_200km))]
-        POD_warm_200km_CSI = POD_warm_200km[np.where(CSI_warm_200km == np.max(CSI_warm_200km))]
-
-        # First index where the SR or POD go to zero. We will stop plotting the CSI curves at this index
-        cold_50km_stop = np.min([np.where(SR_cold_50km == 0), np.where(POD_cold_50km == 0)])
-        cold_100km_stop = np.min([np.where(SR_cold_100km == 0), np.where(POD_cold_100km == 0)])
-        cold_150km_stop = np.min([np.where(SR_cold_150km == 0), np.where(POD_cold_150km == 0)])
-        cold_200km_stop = np.min([np.where(SR_cold_200km == 0), np.where(POD_cold_200km == 0)])
-        warm_50km_stop = np.min([np.where(SR_warm_50km == 0), np.where(POD_warm_50km == 0)])
-        warm_100km_stop = np.min([np.where(SR_warm_100km == 0), np.where(POD_warm_100km == 0)])
-        warm_150km_stop = np.min([np.where(SR_warm_150km == 0), np.where(POD_warm_150km == 0)])
-        warm_200km_stop = np.min([np.where(SR_warm_200km == 0), np.where(POD_warm_200km == 0)])
-
-        ###############################################################################################################
-        ########################################### Cold front CSI diagram ############################################
-        ###############################################################################################################
-
-        plt.figure()
-        plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)  # Plot CSI contours in 0.1 increments
-        plt.colorbar(label='Critical Success Index (CSI)')
-
-        # CSI lines for each boundary
-        plt.plot(SR_cold_50km, POD_cold_50km, color='red', linewidth=1)
-        plt.plot(SR_cold_100km, POD_cold_100km, color='purple', linewidth=1)
-        plt.plot(SR_cold_150km, POD_cold_150km, color='brown', linewidth=1)
-        plt.plot(SR_cold_200km, POD_cold_200km, color='green', linewidth=1)
-
-        # Mark points of maximum CSI for each boundary
-        plt.plot(SR_cold_50km_CSI, POD_cold_50km_CSI, color='red', marker='*', markersize=9)
-        plt.plot(SR_cold_100km_CSI, POD_cold_100km_CSI, color='purple', marker='*', markersize=9)
-        plt.plot(SR_cold_150km_CSI, POD_cold_150km_CSI, color='brown', marker='*', markersize=9)
-        plt.plot(SR_cold_200km_CSI, POD_cold_200km_CSI, color='green', marker='*', markersize=9)
-
-        # if bootstrap is True:
-        #     cold_index = 0
-        #     """ 
-        #     Some of the percentage thresholds have no data and will show up as zero in the CIs, so we not include them when interpolating the CIs.
-        #     These arrays have four values: [50km boundary, 100km, 150km, 200km]
-        #     These also represent the first index where data is missing, so only values before the index will be included 
-        #     """
-        #     CI_zero_index = np.min([np.min(np.where(CI_lower_SR[cold_index, 0] == 0)[0]), np.min(np.where(CI_lower_SR[cold_index, 1] == 0)[0]),
-        #                     np.min(np.where(CI_lower_SR[cold_index, 2] == 0)[0]), np.min(np.where(CI_lower_SR[cold_index, 3] == 0)[0]),
-        #                     np.min(np.where(CI_upper_SR[cold_index, 0] == 0)[0]), np.min(np.where(CI_upper_SR[cold_index, 1] == 0)[0]),
-        #                     np.min(np.where(CI_upper_SR[cold_index, 2] == 0)[0]), np.min(np.where(CI_upper_SR[cold_index, 3] == 0)[0]),
-        #                     np.min(np.where(CI_lower_POD[cold_index, 0] == 0)[0]), np.min(np.where(CI_lower_POD[cold_index, 1] == 0)[0]),
-        #                     np.min(np.where(CI_lower_POD[cold_index, 2] == 0)[0]), np.min(np.where(CI_lower_POD[cold_index, 3] == 0)[0]),
-        #                     np.min(np.where(CI_upper_POD[cold_index, 0] == 0)[0]), np.min(np.where(CI_upper_POD[cold_index, 1] == 0)[0]),
-        #                     np.min(np.where(CI_upper_POD[cold_index, 2] == 0)[0]), np.min(np.where(CI_upper_POD[cold_index, 3] == 0)[0])])
-        # 
-        #     # 50km confidence interval polygon
-        #     xs = np.concatenate([CI_lower_SR[cold_index, 0, :CI_zero_index], CI_upper_SR[cold_index, 0, :CI_zero_index][::-1]])
-        #     ys = np.concatenate([CI_lower_POD[cold_index, 0, :CI_zero_index], CI_upper_POD[cold_index, 0, :CI_zero_index][::-1]])
-        #     plt.fill(xs, ys, alpha=0.3, color='red')
-        # 
-        #     # 100km confidence interval polygon
-        #     xs = np.concatenate([CI_lower_SR[cold_index, 1, :CI_zero_index], CI_upper_SR[cold_index, 1, :CI_zero_index][::-1]])
-        #     ys = np.concatenate([CI_lower_POD[cold_index, 1, :CI_zero_index], CI_upper_POD[cold_index, 1, :CI_zero_index][::-1]])
-        #     plt.fill(xs, ys, alpha=0.3, color='purple')
-        # 
-        #     # 150km confidence interval polygon
-        #     xs = np.concatenate([CI_lower_SR[cold_index, 2, :CI_zero_index], CI_upper_SR[cold_index, 2, :CI_zero_index][::-1]])
-        #     ys = np.concatenate([CI_lower_POD[cold_index, 2, :CI_zero_index], CI_upper_POD[cold_index, 2, :CI_zero_index][::-1]])
-        #     plt.fill(xs, ys, alpha=0.3, color='brown')
-        # 
-        #     # 200km confidence interval polygon
-        #     xs = np.concatenate([CI_lower_SR[cold_index, 3, :CI_zero_index], CI_upper_SR[cold_index, 3, :CI_zero_index][::-1]])
-        #     ys = np.concatenate([CI_lower_POD[cold_index, 3, :CI_zero_index], CI_upper_POD[cold_index, 3, :CI_zero_index][::-1]])
-        #     plt.fill(xs, ys, alpha=0.3, color='green')
-
-        # Plot CSI scores on a white rectangle in the upper-left portion of the CSI plot
-        rectangle = plt.Rectangle((0, 0.795), 0.25, 0.205, facecolor='white', edgecolor='black', zorder=3)
-        plt.gca().add_patch(rectangle)
-        plt.text(0.005, 0.96, s='CSI scores (*)', style='oblique')
-        plt.text(0.005, 0.92, s=str('50km: %.3f' % np.max(CSI_cold_50km)), color='red')
-        plt.text(0.005, 0.88, s=str('100km: %.3f' % np.max(CSI_cold_100km)), color='purple')
-        plt.text(0.005, 0.84, s=str('150km: %.3f' % np.max(CSI_cold_150km)), color='brown')
-        plt.text(0.005, 0.80, s=str('200km: %.3f' % np.max(CSI_cold_200km)), color='green')
-        plt.xlabel("Success Ratio (1 - FAR)")
-        plt.ylabel("Probability of Detection (POD)")
-        plt.yticks(axis_ticks)
-        plt.xticks(axis_ticks)
-        plt.grid(color='black', alpha=0.1)
-        plt.title("3D CF/WF model performance (5x5x5 kernel): Cold fronts")
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
-        plt.savefig("%s/model_%d/%s_performance_cold.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
-        plt.close()
-
-        ###############################################################################################################
-        ########################################### Warm front CSI diagram ############################################
-        ###############################################################################################################
-
-        plt.figure()
-        plt.contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)
-        plt.colorbar(label='Critical Success Index (CSI)')
-
-        # CSI lines for each boundary
-        plt.plot(SR_warm_50km, POD_warm_50km, color='red', linewidth=1)
-        plt.plot(SR_warm_100km, POD_warm_100km, color='purple', linewidth=1)
-        plt.plot(SR_warm_150km, POD_warm_150km, color='brown', linewidth=1)
-        plt.plot(SR_warm_200km, POD_warm_200km, color='green', linewidth=1)
+        pod = np.divide(true_positives_sum, true_positives_sum + false_negatives_sum)
+        sr = np.divide(true_positives_sum, true_positives_sum + false_positives_sum)
 
         if bootstrap is True:
-            warm_index = 1
+
+            for iteration in range(num_iterations):
+                print(f"Iteration {iteration}/{num_iterations}", end='\r')
+                indices = random.choices(selectable_indices, k=num_files)  # Select a sample equal to the total number of files
+
+                POD_array[front_no, iteration, :, :] = np.nan_to_num(np.divide(np.sum(true_positives[indices, :, :], axis=0),
+                                                                        np.add(np.sum(true_positives[indices, :, :], axis=0),
+                                                                               np.sum(false_negatives[indices, :, :], axis=0))))
+                SR_array[front_no, iteration, :, :] = np.nan_to_num(np.divide(np.sum(true_positives[indices, :, :], axis=0),
+                                                                       np.add(np.sum(true_positives[indices, :, :], axis=0),
+                                                                              np.sum(false_positives[indices, :, :], axis=0))))
+
+            for percent in np.arange(0, 100):
+
+                CI_lower_POD[front_no, :, percent] = np.percentile(POD_array[front_no, :, :, percent], q=2.5, axis=0)
+                CI_upper_POD[front_no, :, percent] = np.percentile(POD_array[front_no, :, :, percent], q=97.5, axis=0)
+                CI_lower_SR[front_no, :, percent] = np.percentile(SR_array[front_no, :, :, percent], q=2.5, axis=0)
+                CI_upper_SR[front_no, :, percent] = np.percentile(SR_array[front_no, :, :, percent], q=97.5, axis=0)
+
             """ 
             Some of the percentage thresholds have no data and will show up as zero in the CIs, so we not include them when interpolating the CIs.
             These arrays have four values: [50km boundary, 100km, 150km, 200km]
             These also represent the first index where data is missing, so only values before the index will be included 
             """
-            CI_zero_index = np.min([np.min(np.where(CI_lower_SR[warm_index, 0] == 0)[0]), np.min(np.where(CI_lower_SR[warm_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_SR[warm_index, 2] == 0)[0]), np.min(np.where(CI_lower_SR[warm_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[warm_index, 0] == 0)[0]), np.min(np.where(CI_upper_SR[warm_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_SR[warm_index, 2] == 0)[0]), np.min(np.where(CI_upper_SR[warm_index, 3] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[warm_index, 0] == 0)[0]), np.min(np.where(CI_lower_POD[warm_index, 1] == 0)[0]),
-                            np.min(np.where(CI_lower_POD[warm_index, 2] == 0)[0]), np.min(np.where(CI_lower_POD[warm_index, 3] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[warm_index, 0] == 0)[0]), np.min(np.where(CI_upper_POD[warm_index, 1] == 0)[0]),
-                            np.min(np.where(CI_upper_POD[warm_index, 2] == 0)[0]), np.min(np.where(CI_upper_POD[warm_index, 3] == 0)[0])])
+            CI_zero_index = np.min([np.min(np.where(CI_lower_SR[front_no, 0] == 0)[0]), np.min(np.where(CI_lower_SR[front_no, 1] == 0)[0]),
+                            np.min(np.where(CI_lower_SR[front_no, 2] == 0)[0]), np.min(np.where(CI_lower_SR[front_no, 3] == 0)[0]),
+                            np.min(np.where(CI_upper_SR[front_no, 0] == 0)[0]), np.min(np.where(CI_upper_SR[front_no, 1] == 0)[0]),
+                            np.min(np.where(CI_upper_SR[front_no, 2] == 0)[0]), np.min(np.where(CI_upper_SR[front_no, 3] == 0)[0]),
+                            np.min(np.where(CI_lower_POD[front_no, 0] == 0)[0]), np.min(np.where(CI_lower_POD[front_no, 1] == 0)[0]),
+                            np.min(np.where(CI_lower_POD[front_no, 2] == 0)[0]), np.min(np.where(CI_lower_POD[front_no, 3] == 0)[0]),
+                            np.min(np.where(CI_upper_POD[front_no, 0] == 0)[0]), np.min(np.where(CI_upper_POD[front_no, 1] == 0)[0]),
+                            np.min(np.where(CI_upper_POD[front_no, 2] == 0)[0]), np.min(np.where(CI_upper_POD[front_no, 3] == 0)[0])])
 
-            # 50km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[warm_index, 0, :CI_zero_index], CI_upper_SR[warm_index, 0, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[warm_index, 0, :CI_zero_index], CI_upper_POD[warm_index, 0, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='red')
+        # Code for performance diagram matrices sourced from Ryan Lagerquist's (lagerqui@ualberta.ca) thunderhoser repository:
+        # https://github.com/thunderhoser/GewitterGefahr/blob/master/gewittergefahr/plotting/model_eval_plotting.py
+        success_ratio_matrix, pod_matrix = np.linspace(0, 1, 100), np.linspace(0, 1, 100)
+        x, y = np.meshgrid(success_ratio_matrix, pod_matrix)
+        csi_matrix = (x ** -1 + y ** -1 - 1.) ** -1
+        fb_matrix = y * (x ** -1)
+        CSI_LEVELS = np.linspace(0, 1, 11)
+        FB_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3]
+        cmap = 'Blues'
+        axis_ticks = np.arange(0, 1.1, 0.1)
 
-            # 100km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[warm_index, 1, :CI_zero_index], CI_upper_SR[warm_index, 1, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[warm_index, 1, :CI_zero_index], CI_upper_POD[warm_index, 1, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='purple')
+        fig, axs = plt.subplots(1, 2, figsize=(15, 6))
+        axarr = axs.flatten()
+        cs = axarr[0].contour(x, y, fb_matrix, FB_LEVELS, colors='black', linewidths=0.5, linestyles='--')
+        axarr[0].clabel(cs, FB_LEVELS, fontsize=8)  # Plot FB contours
+        csi_contour = axarr[0].contourf(x, y, csi_matrix, CSI_LEVELS, cmap=cmap)  # Plot CSI contours in 0.1 increments
+        cbar = fig.colorbar(csi_contour, ax=axarr[0], pad=0.02, label='Critical Success Index (CSI)')
+        cbar.set_ticks(axis_ticks)
 
-            # 150km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[warm_index, 2, :CI_zero_index], CI_upper_SR[warm_index, 2, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[warm_index, 2, :CI_zero_index], CI_upper_POD[warm_index, 2, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='brown')
+        cell_text = []  # List of strings that will be used in the table near the bottom of this function
 
-            # 200km confidence interval polygon
-            xs = np.concatenate([CI_lower_SR[warm_index, 3, :CI_zero_index], CI_upper_SR[warm_index, 3, :CI_zero_index][::-1]])
-            ys = np.concatenate([CI_lower_POD[warm_index, 3, :CI_zero_index], CI_upper_POD[warm_index, 3, :CI_zero_index][::-1]])
-            plt.fill(xs, ys, alpha=0.3, color='green')
+        # CSI lines for each boundary
+        boundary_colors = ['red', 'purple', 'brown', 'darkorange', 'darkgreen']
+        max_CSI_scores_by_boundary = np.empty(shape=(5,))
+        for boundary, color in enumerate(boundary_colors):
+            csi = np.power((1/sr[boundary]) + (1/pod[boundary]) - 1, -1)
+            max_CSI_scores_by_boundary[boundary] = np.nanmax(csi)
+            max_CSI_index = np.where(csi == max_CSI_scores_by_boundary[boundary])[0]
+            max_CSI_threshold = thresholds[max_CSI_index][0]
+            max_CSI_pod = pod[boundary][max_CSI_index][0]  # POD where CSI is maximized
+            max_CSI_sr = sr[boundary][max_CSI_index][0]  # SR where CSI is maximized
+            max_CSI_fb = max_CSI_pod / max_CSI_sr
 
-        # Mark points of maximum CSI for each boundary
-        plt.plot(SR_warm_50km_CSI, POD_warm_50km_CSI, color='red', marker='*', markersize=9)
-        plt.plot(SR_warm_100km_CSI, POD_warm_100km_CSI, color='purple', marker='*', markersize=9)
-        plt.plot(SR_warm_150km_CSI, POD_warm_150km_CSI, color='brown', marker='*', markersize=9)
-        plt.plot(SR_warm_200km_CSI, POD_warm_200km_CSI, color='green', marker='*', markersize=9)
+            cell_text.append(['%.2f' % max_CSI_threshold, '%.2f' % max_CSI_scores_by_boundary[boundary], '%.2f' % max_CSI_pod, '%.2f' % max_CSI_sr, '%.2f' % (1 - max_CSI_sr), '%.2f' % max_CSI_fb])
 
-        # Plot CSI scores on a white rectangle in the upper-left portion of the CSI plot
-        rectangle = plt.Rectangle((0, 0.795), 0.25, 0.205, facecolor='white', edgecolor='black', zorder=3)
-        plt.gca().add_patch(rectangle)
-        plt.text(0.005, 0.96, s='CSI scores (*)', style='oblique')
-        plt.text(0.005, 0.92, s=str('50km: %.3f' % np.max(CSI_warm_50km)), color='red')
-        plt.text(0.005, 0.88, s=str('100km: %.3f' % np.max(CSI_warm_100km)), color='purple')
-        plt.text(0.005, 0.84, s=str('150km: %.3f' % np.max(CSI_warm_150km)), color='brown')
-        plt.text(0.005, 0.80, s=str('200km: %.3f' % np.max(CSI_warm_200km)), color='green')
+            axarr[0].plot(max_CSI_sr, max_CSI_pod, color=color, marker='*', markersize=10)
+            axarr[0].plot(sr[boundary], pod[boundary], color=color, linewidth=1)
+            axarr[1].plot(thresholds[1:] + 0.005, observed_relative_frequency[boundary], color=color, linewidth=1)
+            axarr[1].plot(thresholds, thresholds, color='black', linestyle='--', linewidth=0.5, label='Perfect Reliability')
 
-        plt.xlabel("Success Ratio (1 - FAR)")
-        plt.ylabel("Probability of Detection (POD)")
-        plt.yticks(axis_ticks)
-        plt.xticks(axis_ticks)
-        plt.grid(color='black', alpha=0.1)
-        plt.title("3D CF/WF model performance (5x5x5 kernel): Warm fronts")
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
-        plt.savefig("%s/model_%d/%s_performance_warm.png" % (model_dir, model_number, stats_plot_base), bbox_inches='tight')
+            if bootstrap:
+                xs = np.concatenate([CI_lower_SR[front_no, boundary, :CI_zero_index], CI_upper_SR[front_no, boundary, :CI_zero_index][::-1]])
+                ys = np.concatenate([CI_lower_POD[front_no, boundary, :CI_zero_index], CI_upper_POD[front_no, boundary, :CI_zero_index][::-1]])
+                axarr[0].fill(xs, ys, alpha=0.3, color=color)
+
+        axarr[0].set_xlabel("Success Ratio (SR = 1 - FAR)")
+        axarr[0].set_ylabel("Probability of Detection (POD)")
+        if calibrated:
+            axarr[1].set_xlabel("Forecast Probability (calibrated)")
+        else:
+            axarr[1].set_xlabel("Forecast Probability (uncalibrated)")
+        axarr[1].set_ylabel("Observed Relative Frequency")
+
+        for ax in axarr:
+            ax.set_xticks(axis_ticks)
+            ax.set_yticks(axis_ticks)
+            ax.grid(color='black', alpha=0.1)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+
+        ### Create table of statistics ###
+
+        columns = ['Threshold*', 'CSI', 'POD', 'SR', 'FAR', 'FB']
+        rows = ['50 km', '100 km', '150 km', '200 km', '250 km']
+
+        table_axis = plt.axes([0.063, 0, 0.4, 0.2])
+        table_axis.axis('off')
+        stats_table = table_axis.table(cellText=cell_text, rowLabels=rows, rowColours=boundary_colors, colLabels=columns, cellLoc='center')
+        stats_table.set_fontsize(14)
+        stats_table.scale(1, 2)
+
+        plt.text(0.16, -1.85, '* probability threshold where CSI is maximized')
+
+        ### Text for the plot ###
+
+        fontdict = {'fontsize': 14}
+
+        model_text = f"Model type: {len(model_properties['input_size']) - 1}D "
+        if model_properties['model_type'] == 'unet_3plus':
+            model_text += 'U-Net 3+'
+        plt.text(1.2, -0.25, model_text, fontdict=fontdict)
+
+        kernel_text = 'Kernel size: %s' % model_properties['kernel_size']
+        for dim in range(len(model_properties['input_size']) - 2):
+            kernel_text += 'x%s' % model_properties['kernel_size']
+
+        front_text = 'Front type: '
+        if front_types == 'F_BIN':
+            front_text += 'Binary (front / no front)**'
+            plt.text(1.2, -1.55, '** binary: cold, warm, stationary, and occluded fronts all treated as one type')
+        elif type(front_types) == list:
+            front_text += front_names[front_no]
+
+        domain_text = 'Domain: '
+        if domain == 'conus':
+            domain_text += domain.upper() + f' ({int(domain_images[0] * domain_images[1])} images per stitched map)'
+
+        plt.text(1.2, -0.5, kernel_text, fontdict=fontdict)
+        plt.text(1.2, -0.75, front_text, fontdict=fontdict)
+        plt.text(1.2, -1, domain_text, fontdict=fontdict)
+
+        for cell in stats_table._cells:
+            stats_table._cells[cell].set_alpha(.7)
+
+        plt.tight_layout()
+        plt.savefig("%s/model_%d/%s_performance_%s.png" % (model_dir, model_number, stats_plot_base, front_label), bbox_inches='tight')
         plt.close()
-
 
 
 def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, domain_trim, forecast_hour=None, probability_mask_2D=0.05, probability_mask_3D=0.10):
