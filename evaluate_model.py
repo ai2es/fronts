@@ -7,7 +7,7 @@ TODO:
     * Finish separating plots and statistics calculations from the main prediction method
     * Touch up prediction method for quicker predictions?
 
-Last updated: 9/18/2022 9:10 PM CT
+Last updated: 9/25/2022 11:51 AM CT
 """
 
 import os
