@@ -11,7 +11,7 @@ TODO:
     * Add functions for managing GFS data once the data is obtained
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 9/14/2022 5:16 PM CT
+Last updated: 9/25/2022 9:10 PM CT
 """
 
 from glob import glob
@@ -396,9 +396,9 @@ class ERA5files:
         """
 
         ### Find all indices where timesteps for training, validation, and test datasets are present in the selected ERA5 files ###
-        training_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % training_year in timestep for training_year in self._training_years)]
-        validation_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % validation_year in timestep for validation_year in self._validation_years)]
-        test_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % test_year in timestep for test_year in self._test_years)]
+        training_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
+        validation_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
+        test_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
 
         ### Create new ERA5 file lists for training, validation, and test datasets using the indices pulled from above ###
         self.era5_files_training = [self.era5_files[index] for index in training_indices]
@@ -885,9 +885,9 @@ class GDASfiles:
         self.front_files = front_files_list
 
         ### Find all indices where timesteps for training, validation, and test datasets are present in the selected GDAS files ###
-        training_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % training_year in timestep for training_year in self._training_years)]
-        validation_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % validation_year in timestep for validation_year in self._validation_years)]
-        test_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % test_year in timestep for test_year in self._test_years)]
+        training_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
+        validation_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
+        test_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
 
         ### Create new file lists for training, validation, and test datasets using the indices pulled from above ###
         self.gdas_files_training, self.front_files_training = [self.gdas_files[index] for index in training_indices], \
