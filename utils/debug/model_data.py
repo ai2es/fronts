@@ -3,13 +3,13 @@ Debug tools for model data (predictions, statistics, etc.)
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 9/18/2022 9:10 PM CT
+Last updated: 10/1/2022 7:42 PM CT
 """
 
 import numpy as np
 import pandas as pd
 import os
-import debug_utils
+from utils.debug import debug_utils
 
 
 def find_missing_statistics(model_dir, model_number, domain, domain_images, domain_trim, variables_data_source, variables_netcdf_indir,
@@ -146,9 +146,16 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
                 report_file.write(f"\n%d-%02d-%02d-%02dz: statistics calculation was not completed (prediction/probabilities file was found)" % (timestep[0], timestep[1], timestep[2], timestep[3]))
 
             num_missing_stats_files += 1
-            current_year = str(timestep[0])
+            current_year = timestep[0]
             current_month = timestep[1]
             current_day = timestep[2]
+
+            if current_year % 4 == 0:
+                month_2_days = 29
+            else:
+                month_2_days = 28
+
+            days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
             index = int(np.sum(days_per_month[current_year][:current_month-1]) + current_day) - 1
             missing_indices[current_year].append(index)
