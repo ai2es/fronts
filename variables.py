@@ -10,12 +10,11 @@ References
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
     - Modified for Xarray by: John Allen (allen4jt@cmich.edu)
 
-Last updated: 7/28/2022 11:52 PM CDT by Andrew Justin
+Last updated: 10/4/2022 8:13 PM CDT by Andrew Justin
 """
 
 import xarray as xr
 import numpy as np
-from pandas import read_csv
 
 Rd = 287.04  # Gas constant for dry air (J/kg/K)
 Rv = 461.5  # Gas constant for water vapor (J/kg/K)
@@ -26,6 +25,8 @@ epsilon = Rd / Rv
 P_knot = 1e5  # Pa
 e_knot = 611.2  # Pa
 Lv = 2.257e6  # Latent heat of vaporization for water vapor (J/kg)
+NA = 6.02214076e23  # Avogrado constant (mol^-1)
+kB = 1.380649e-23  # Boltzmann constant (J/K)
 
 
 def absolute_humidity(T, Td):
