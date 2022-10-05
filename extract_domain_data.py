@@ -2,7 +2,7 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/22/2022 5:02 PM CT
+Last updated: 10/4/2022 8:00 PM CT
 """
 
 import argparse
@@ -455,8 +455,10 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
 
         full_era5_dataset = full_era5_dataset.expand_dims({'time': np.atleast_1d(timestep)})
 
-        for variable in list(full_era5_dataset.keys()):
-            full_era5_dataset[variable].to_netcdf(path='%s/%d/%02d/%02d/era5_%s_%d%02d%02d%02d_full.nc' % (netcdf_outdir, year, month, day, variable, year, month, day, hour), mode='w', engine='scipy')
+        full_era5_dataset.to_netcdf(path='%s/%d/%02d/%02d/era5_%d%02d%02d%02d_full.nc' % (netcdf_outdir, year, month, day, year, month, day, hour), mode='w', engine='netcdf4')
+
+        # for variable in list(full_era5_dataset.keys()):
+        #     full_era5_dataset[variable].to_netcdf(path='%s/%d/%02d/%02d/era5_%s_%d%02d%02d%02d_full.nc' % (netcdf_outdir, year, month, day, variable, year, month, day, hour), mode='w', engine='scipy')
 
 
 def download_ncep_has_order(ncep_has_order_number, ncep_has_outdir):
