@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 9/24/2022 12:31 PM CT
+Last updated: 10/8/2022 11:02 PM CT
 """
 
 import math
@@ -10,7 +10,74 @@ import pandas as pd
 from shapely.geometry import LineString
 import numpy as np
 import xarray as xr
-import file_manager as fm
+
+
+# Each variable has parameters in the format of [max, min, mean]
+normalization_parameters = {'T_surface': [326.3396, 192.2074, 278.8511],
+                            'T_1000': [309.2406, 205.7583, 280.1311],
+                            'T_950': [309.2406, 205.7583, 278.2461],
+                            'T_900': [309.2406, 205.7583, 276.6009],
+                            'T_850': [309.2406, 205.7583, 274.6106],
+                            'Td_surface': [305.8017, 189.1589, 274.2648],
+                            'Td_1000': [313.5051, 170.2352, 281.9077],
+                            'Td_950': [311.9054, 169.9939, 280.1014],
+                            'Td_900': [305.5049, 169.7402, 277.0051],
+                            'Td_850': [299.1380, 169.4729, 273.5636],
+                            'r_surface': [30.0701, 0.0007, 4.2927],
+                            'r_1000': [50.6989, 0.0000, 7.1011],
+                            'r_950': [48.8387, 0.0000, 6.6044],
+                            'r_900': [35.4729, 0.0000, 5.6135],
+                            'r_850': [25.5920, 0.0000, 4.6430],
+                            'RH_surface': [1.07, 0, 0.70],
+                            'RH_1000': [1.07, 0, 0.70],
+                            'RH_950': [1.07, 0, 0.70],
+                            'RH_900': [1.07, 0, 0.70],
+                            'RH_850': [1.07, 0, 0.70],
+                            'sp_z_surface': [1070.7823, 473.9962, 966.5046],
+                            'sp_z_1000': [178.6779, 0.0000, 7.5059],
+                            'sp_z_950': [91.7832, 0.0000, 49.7395],
+                            'sp_z_900': [135.1058, 0.0000, 93.9318],
+                            'sp_z_850': [179.5943, 0.0000, 140.3395],
+                            'mslp_z_surface': [1070.7823, 473.9962, 966.5046],
+                            'mslp_z_1000': [178.6779, 0.0000, 7.5059],
+                            'mslp_z_950': [91.7832, 0.0000, 49.7395],
+                            'mslp_z_900': [135.1058, 0.0000, 93.9318],
+                            'mslp_z_850': [179.5943, 0.0000, 140.3395],
+                            'theta_e_surface': [776.7833, 188.4853, 293.6940],
+                            'theta_e_1000': [475.4648, 205.7584, 299.5906],
+                            'theta_e_950': [476.3312, 208.7991, 300.6901],
+                            'theta_e_900': [435.0011, 212.0529, 300.9420],
+                            'theta_e_850': [407.9803, 215.5478, 301.0762],
+                            'theta_w_surface': [326.1300, 188.4853, 278.3979],
+                            'theta_w_1000': [312.9144, 205.7546, 281.0808],
+                            'theta_w_950': [312.9837, 208.7910, 281.5534],
+                            'theta_w_900': [309.2340, 212.0367, 281.6605],
+                            'theta_w_850': [306.1498, 215.5172, 281.7173],
+                            'u_surface': [44.8457, -196.7885, -0.0675],
+                            'u_1000': [62.2232, -165.2770, -0.0509],
+                            'u_950': [62.4603, -148.5150, 0.3758],
+                            'u_900': [89.8531, -165.2056, 0.8397],
+                            'u_850': [89.8112, -165.1002, 1.3851],
+                            'v_surface': [135.2455, -96.9072, 0.1984],
+                            'v_1000': [76.6498, -58.4051, 0.1974],
+                            'v_950': [91.0734, -66.1152, 0.2073],
+                            'v_900': [91.1151, -64.6468, 0.2014],
+                            'v_850': [90.9507, -64.6207, 0.1485],
+                            'Tv_surface': [339.7172, 192.2074, 279.5754],
+                            'Tv_1000': [318.3087, 205.7583, 281.3315],
+                            'Tv_950': [317.9915, 205.7583, 279.3555],
+                            'Tv_900': [315.6787, 205.7583, 277.5392],
+                            'Tv_850': [313.9301, 205.7583, 275.3819],
+                            'Tw_surface': [310.4736, 194.3195, 276.3030],
+                            'Tw_1000': [313.3936, 239.7402, 281.3283],
+                            'Tw_950': [311.8010, 239.7592, 279.4636],
+                            'Tw_900': [306.3249, 239.7782, 276.7549],
+                            'Tw_850': [301.8944, 239.7972, 273.8807],
+                            'q_surface': [67.4536, 0.0000, 4.2743],
+                            'q_1000': [48.1637, 0.0000, 7.0572],
+                            'q_950': [46.4895, 0.0000, 6.5669],
+                            'q_900': [34.2312, 0.0000, 5.5869],
+                            'q_850': [24.9512, 0.0000, 4.6250]}
 
 
 def expand_fronts(ds_fronts, iterations=1):
@@ -33,9 +100,11 @@ def expand_fronts(ds_fronts, iterations=1):
     lons = ds_fronts.longitude.values
     len_lats = len(lats)
     len_lons = len(lons)
-    
-    variable_name = list(ds_fronts.keys())[0]
-    identifier = ds_fronts[variable_name].values
+
+    try:
+        identifier = ds_fronts['identifier'].values
+    except:
+        identifier = ds_fronts.values
 
     for iteration in range(iterations):
         indices = np.where(identifier != 0)
@@ -137,7 +206,11 @@ def expand_fronts(ds_fronts, iterations=1):
                     if identifier[indices[0][i]][indices[1][i] + 1] == 0:
                         identifier[indices[0][i]][indices[1][i] + 1] = front_value
 
-    ds_fronts[variable_name].values = identifier
+    try:
+        ds_fronts['identifier'].values = identifier
+    except:
+        ds_fronts.values = identifier
+
     return ds_fronts
 
 
@@ -219,7 +292,7 @@ def redistribute_vertices(xy_linestring, distance):
         raise ValueError('unhandled geometry %s', (xy_linestring.geom_type,))
 
 
-def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_names=False):
+def reformat_fronts(front_types, fronts_ds):
     """
     Reformat a frontal object dataset along with its respective colors and labels for plotting, or just return the colors and labels
     for the given front types.
@@ -282,10 +355,6 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
 
         **** NOTE - Class 0 is always treated as 'no front'.
         '''
-    return_colors: bool
-        Setting this to True will return a list of colors that can be used to plot the fronts.
-    return_names: bool
-        Setting this to True will return a list of names for the classes.
 
     Returns
     -------
@@ -293,26 +362,10 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
         Reformatted dataset or array based on the provided code(s).
     labels: list
         List of labels for the front types that will be used to name the files.
-    colors_types: list
-        List of colors that can be used to plot the different front types or classes.
-    colors_probs: list
-        List of colormaps that are used to plot the model predictions for the different front types.
-    names: list
-        List of names for the front classes.
     """
 
     front_types_classes = {'CF': 1, 'WF': 2, 'SF': 3, 'OF': 4, 'CF-F': 5, 'WF-F': 6, 'SF-F': 7, 'OF-F': 8, 'CF-D': 9, 'WF-D': 10,
                            'SF-D': 11, 'OF-D': 12, 'OFB': 13, 'TROF': 14, 'TT': 15, 'DL': 16}
-
-    all_color_types = ['blue', 'red', 'limegreen', 'darkviolet', 'darkblue', 'darkred', 'darkgreen', 'darkmagenta', 'lightskyblue',
-                       'lightcoral', 'lightgreen', 'violet', 'gold', 'goldenrod', 'orange', 'chocolate']
-
-    all_color_probs = ['Blues', 'Reds', 'Greens', 'Purples', 'Blues', 'Reds', 'Greens', 'Purples', 'Blues', 'Reds', 'Greens',
-                       'Purples', 'YlOrBr', 'YlOrRed', 'Oranges', 'copper_r']
-
-    all_names = ['Cold front', 'Warm front', 'Stationary front', 'Occluded front', 'Cold front (forming)', 'Warm front (forming)',
-                 'Stationary front (forming)', 'Occluded front (forming)', 'Cold front (dying)', 'Warm front (dying)', 'Stationary front (dying)',
-                 'Occluded front (dying)', 'Outflow boundary', 'Trough', 'Tropical trough', 'Dryline']
 
     if front_types == 'F_BIN':
 
@@ -320,9 +373,6 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
             fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Classes 5-16 are removed
             fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Merge 1-4 into one class
 
-        colors_types = ['tab:red']
-        colors_probs = ['Reds']
-        names = ['CF, WF, SF, OF', ]
         labels = ['CF-WF-SF-OF', ]
 
     elif front_types == 'MERGED-F':
@@ -338,9 +388,6 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
             fronts_ds = xr.where(fronts_ds == 12, 4, fronts_ds)  # Dying occluded front ---> occluded front
             fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Remove all other fronts
 
-        colors_types = ['blue', 'red', 'limegreen', 'darkviolet']
-        colors_probs = ['Blues', 'Reds', 'Greens', 'Purples']
-        names = ['Cold front (any)', 'Warm front (any)', 'Stationary front (any)', 'Occluded front (any)']
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any']
 
     elif front_types == 'MERGED-F_BIN':
@@ -349,9 +396,6 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
             fronts_ds = xr.where(fronts_ds > 12, 0, fronts_ds)  # Classes 13-16 are removed
             fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Classes 1-12 are merged into one class
 
-        colors_types = ['gray']
-        colors_probs = ['Greys']
-        names = ['CF, WF, SF, OF (any)', ]
         labels = ['CF-WF-SF-OF_any', ]
 
     elif front_types == 'MERGED-T':
@@ -365,9 +409,6 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
 
             fronts_ds = xr.where(fronts_ds == 16, 0, fronts_ds)  # Remove drylines
 
-        colors_types = ['brown']
-        colors_probs = ['YlOrBr']
-        names = ['Trough (any)', ]
         labels = ['TR_any', ]
 
     elif front_types == 'MERGED-ALL':
@@ -389,17 +430,9 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
             fronts_ds = xr.where(fronts_ds == 13, 6, fronts_ds)  # Move outflow boundaries to class 6
             fronts_ds = xr.where(fronts_ds == 16, 7, fronts_ds)  # Move drylines to class 7
 
-        colors_types = ['blue', 'red', 'limegreen', 'darkviolet', 'brown', 'gold', 'chocolate']
-        colors_probs = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges', 'YlOrBr', 'copper_r']
-        names = ['Cold front (any)', 'Warm front (any)', 'Stationary front (any)', 'Occluded front (any)', 'Trough (any)',
-                 'Outflow boundary', 'Dryline']
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any', 'TR_any', 'OFB', 'DL']
 
     elif type(front_types) == list:
-
-        names = []
-        colors_types = []
-        colors_probs = []
 
         # Select the front types that are being used to pull their class identifiers
         filtered_front_types = dict(sorted(dict([(i, front_types_classes[i]) for i in front_types_classes if i in set(front_types)]).items(), key=lambda item: item[1]))
@@ -413,70 +446,13 @@ def reformat_fronts(front_types, fronts_ds=None, return_colors=False, return_nam
 
                 fronts_ds = xr.where(fronts_ds > num_types, 0, fronts_ds)  # Remove unused front types
 
-            colors_probs.append(all_color_probs[front_types_classes[front_types[i]] - 1])
-            colors_types.append(all_color_types[front_types_classes[front_types[i]] - 1])
-            names.append(all_names[front_types_classes[front_types[i]] - 1])
-
         labels = front_types
 
     else:
 
-        colors_types, colors_probs = all_color_types, all_color_types
-        names = all_names
         labels = list(front_types_classes.keys())
 
-    if fronts_ds is not None:
-        if return_colors:
-            if return_names:
-                return fronts_ds, names, labels, colors_types, colors_probs
-            else:
-                return fronts_ds, colors_types, colors_probs
-        elif return_names:
-            return fronts_ds, names, labels
-        else:
-            return fronts_ds
-    else:
-        if return_colors:
-            if return_names:
-                return names, labels, colors_types, colors_probs
-            else:
-                return colors_types, colors_probs
-        elif return_names:
-            return names, labels
-        else:
-            pass
-
-
-def find_era5_normalization_parameters(era5_pickle_indir):
-    """
-    Parameters
-    ----------
-    era5_pickle_indir: str
-        Input directory for the ERA5 pickle files.
-    """
-
-    era5_files = fm.load_era5_pickle_files(era5_pickle_indir, num_variables=60, domain='full')
-
-    num_files = len(era5_files)
-    first_dataset = pd.read_pickle(era5_files[0])
-    min_data = np.min(first_dataset).to_array().values
-    mean_data = np.mean(first_dataset.astype('float32')).to_array().values
-    max_data = np.max(first_dataset).to_array().values
-    variables_in_dataset = list(first_dataset.keys())
-    for file in range(1, num_files):
-        print('Calculating parameters....%d/%d' % (file, num_files), end='\r')
-        current_dataset = pd.read_pickle(era5_files[file])
-        current_dataset_mins = np.min(current_dataset).to_array().values
-        current_dataset_means = np.mean(current_dataset.astype('float32')).to_array().values
-        current_dataset_maxs = np.max(current_dataset).to_array().values
-
-        min_data = np.minimum(current_dataset_mins, min_data)
-        mean_data += current_dataset_means
-        max_data = np.maximum(current_dataset_maxs, max_data)
-    print('Calculating parameters....%d/%d' % (num_files, num_files))
-
-    for variable, minimum, average, maximum in zip(variables_in_dataset, min_data, mean_data, max_data):
-        print(variable, minimum, (average / num_files).astype('float16'), maximum)
+    return fronts_ds, labels
 
 
 def add_or_subtract_hours_to_timestep(timestep, num_hours):
@@ -567,8 +543,6 @@ def normalize_variables(variable_ds):
         - Same as input dataset, but the variables are normalized via min-max normalization.
     """
 
-    norm_params = pd.read_csv('./normalization_parameters.csv', index_col='Variable')
-
     variable_list = list(variable_ds.keys())
     pressure_levels = variable_ds['pressure_level'].values
 
@@ -582,11 +556,11 @@ def normalize_variables(variable_ds):
 
             # Min-max normalization
             if len(np.shape(new_values_for_variable)) == 4:
-                new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - norm_params.loc[norm_var, 'Min']) /
-                                                                                       (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+                new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - normalization_parameters[norm_var][1]) /
+                                                                                       (normalization_parameters[norm_var][0] - normalization_parameters[norm_var][1]))
             elif len(np.shape(new_values_for_variable)) == 5:  # If forecast hours are in the dataset
-                new_values_for_variable[:, :, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, :, pressure_level_index] - norm_params.loc[norm_var, 'Min']) /
-                                                                                          (norm_params.loc[norm_var, 'Max'] - norm_params.loc[norm_var, 'Min']))
+                new_values_for_variable[:, :, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, :, pressure_level_index] - normalization_parameters[norm_var][1]) /
+                                                                                          (normalization_parameters[norm_var][0] - normalization_parameters[norm_var][1]))
 
         variable_ds[var].values = new_values_for_variable
 
