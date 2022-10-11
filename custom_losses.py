@@ -5,13 +5,13 @@ Custom loss functions for U-Net models.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 6/28/2022 6:30 PM CDT
+Last updated: 10/11/2022 9:23 AM CT
 """
 
 import tensorflow as tf
 
 
-@tf.function()
+@tf.function
 def brier_skill_score(y_true, y_pred):
     """
     Brier skill score.
@@ -56,7 +56,7 @@ def make_fractions_skill_score(mask_size, c=1.0, cutoff=0.5, want_hard_discretiz
     pool1 = tf.keras.layers.AveragePooling2D(**pool_kwargs)
     pool2 = tf.keras.layers.AveragePooling2D(**pool_kwargs)
 
-    @tf.function()
+    @tf.function
     def fractions_skill_score(y_true, y_pred):
         """
         Fractions skill score (FSS) loss function.
