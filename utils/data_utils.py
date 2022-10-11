@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 10/8/2022 11:02 PM CT
+Last updated: 10/10/2022 12:45 PM CT
 """
 
 import math
@@ -292,7 +292,7 @@ def redistribute_vertices(xy_linestring, distance):
         raise ValueError('unhandled geometry %s', (xy_linestring.geom_type,))
 
 
-def reformat_fronts(front_types, fronts_ds):
+def reformat_fronts(front_types, fronts_ds=None):
     """
     Reformat a frontal object dataset along with its respective colors and labels for plotting, or just return the colors and labels
     for the given front types.
