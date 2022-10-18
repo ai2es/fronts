@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 10/10/2022 12:45 PM CT
+Last updated: 10/18/2022 4:18 PM CT
 """
 
 import math
@@ -444,7 +444,7 @@ def reformat_fronts(front_types, fronts_ds=None):
                     fronts_ds = xr.where(fronts_ds == i + 1, 0, fronts_ds)
                     fronts_ds = xr.where(fronts_ds == front_types_classes[front_types[i]], i + 1, fronts_ds)  # Reformat front classes
 
-                fronts_ds = xr.where(fronts_ds > num_types, 0, fronts_ds)  # Remove unused front types
+        fronts_ds = xr.where(fronts_ds > num_types, 0, fronts_ds)  # Remove unused front types
 
         labels = front_types
 
