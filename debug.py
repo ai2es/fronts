@@ -8,7 +8,7 @@ Last updated: 10/1/2022 7:30 PM CT
 
 import argparse
 from errors import check_arguments
-from utils.debug import model_data, era5
+from utils.debug import model_data, era5, fronts
 import utils
 
 if __name__ == '__main__':
@@ -21,6 +21,8 @@ if __name__ == '__main__':
                         help='Number of pixels to trim the images by along each dimension for stitching before taking the '
                              'maximum across overlapping pixels.')
     parser.add_argument('--find_missing_statistics', action='store_true', help='Analyze a directory of statistics to find missing data')
+    parser.add_argument('--find_missing_era5_files', action='store_true', help='Analyze a directory to find missing ERA5 files')
+    parser.add_argument('--find_missing_front_files', action='store_true', help='Analyze a directory to find missing front object files')
     parser.add_argument('--check_era5_variables', action='store_true', help='Check variables in era5 dataset')
     parser.add_argument('--check_for_corrupt_era5_files', action='store_true', help='Check variables in era5 dataset')
     parser.add_argument('--model_dir', type=str, help='Directory for the models.')
@@ -52,3 +54,13 @@ if __name__ == '__main__':
         required_arguments = ['era5_netcdf_indir']
         check_arguments(provided_arguments, required_arguments)
         utils.debug.era5.check_for_corrupt_era5_files(args.era5_netcdf_indir)
+
+    if args.find_missing_era5_files:
+        required_arguments = ['era5_netcdf_indir']
+        check_arguments(provided_arguments, required_arguments)
+        utils.debug.era5.find_missing_era5_data(args.era5_netcdf_indir)
+
+    if args.find_missing_front_files:
+        required_arguments = ['fronts_netcdf_indir']
+        check_arguments(provided_arguments, required_arguments)
+        utils.debug.fronts.find_missing_fronts_data(args.fronts_netcdf_indir)
