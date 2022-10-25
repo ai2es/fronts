@@ -3,7 +3,7 @@ Debugging tools for ERA5 data
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 10/1/2022 7:25 PM CT
+Last updated: 10/13/2022 1:51 PM CT
 """
 
 
@@ -51,7 +51,7 @@ def check_era5_variables(era5_netcdf_indir, timestep):
             print(key, pressure_level, np.nanmin(current_var), np.nanmean(current_var), np.nanmax(current_var))
 
 
-def check_for_corrupt_era5_files(era5_netcdf_indir, lower_bound_MB=6.1, upper_bound_MB=6.2):
+def check_for_corrupt_era5_files(era5_netcdf_indir, lower_bound_MB=84.3, upper_bound_MB=84.4):
     """
     Function that scans the size of all ERA5 files to search for corrupt files. Files with sizes less than 'lower_bound_MB'
     or larger than 'upper_bound_MB' are deemed to be corrupt.
@@ -87,3 +87,39 @@ def check_for_corrupt_era5_files(era5_netcdf_indir, lower_bound_MB=6.1, upper_bo
     print("Corrupt files found:", num_corrupt_files)
     if num_corrupt_files > 0:
         [print(file) for file in corrupt_files]
+
+
+def find_missing_era5_data(era5_netcdf_indir):
+    """
+    Function that scans a directory and searches for missing ERA5 netcdf files.
+
+    Parameters
+    ----------
+    era5_netcdf_indir: str
+        - Directory where the ERA5 netcdf files are stored.
+    """
+
+    years = np.arange(2008, 2021)
+    missing_indices = dict({str(year): [] for year in years})
+
+    for year in years:
+
+        if year % 4 == 0:  # If it is a leap year
+            month_2_days = 29
+        else:
+            month_2_days = 28
+
+        days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+        for month in range(1, 13):
+            for day in range(1, days_per_month[month - 1] + 1):
+                for hour in range(0, 24, 3):
+                    if not os.path.isfile(f'{era5_netcdf_indir}/%d/%02d/%02d/era5_%d%02d%02d%02d_full.nc' % (year, month, day, year, month, day, hour)):
+
+                        index = int(np.sum(days_per_month[:month-1]) + day) - 1
+                        missing_indices[str(year)].append(index)
+
+    for year in years:
+        year = str(year)
+        missing_indices[year] = np.unique(missing_indices[year])
+        print(f"\nMissing indices [{year}]: {','.join(missing_indices[year].astype(str))}")
