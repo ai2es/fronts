@@ -693,11 +693,15 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
             conv_kwargs['kernel_size'][squeeze_dims[dim]] = size  # Kernel size of dimension to squeeze is equal to the size of the dimension because we want the final size to be 1 so it can be squeezed
 
         conv_kwargs['padding'] = 'valid'  # Padding is no longer 'same' since we want to modify the size of the dimension to be squeezed
-        conv_kwargs['name'] = f'{name}_Conv{tensor_dims - 2}D_squeeze'
+        conv_kwargs['name'] = f'{name}_Conv{tensor_dims - 2}D_collapse'
 
         tensor = conv_layer(filters=num_classes, **conv_kwargs)(tensor)  # This convolution layer contains num_classes filters, one for each class
-        tensor = tf.squeeze(tensor, axis=list(np.array(squeeze_dims) + 1), name=f'{name}_tensor_squeeze')  # Squeeze the tensor and remove the dimension
 
-    sup_output = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
+        tensor = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
+
+        target_shape = tuple(dim_size for dim_size in tensor.shape[1:] if dim_size != 1)
+        sup_output = layers.Reshape(target_shape, name=f'{name}_reshape')(tensor)  # Squeeze the tensor and remove the dimension
+    else:
+        sup_output = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
 
     return sup_output
