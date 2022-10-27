@@ -3,7 +3,7 @@ Debug tools for model data (predictions, statistics, etc.)
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 10/1/2022 7:42 PM CT
+Last updated: 10/22/2022 7:11 PM CT
 """
 
 import numpy as np
@@ -85,7 +85,12 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
 
     assert os.path.isdir(stats_folder_to_analyze)  # Check that the stats folder is valid
 
-    date_list = debug_utils.generate_date_list(years, include_hours='all')
+    if domain == 'full':
+        hours = 'synoptic'
+    else:
+        hours = 'all'
+
+    date_list = debug_utils.generate_date_list(years, include_hours=hours)
 
     num_timesteps = len(date_list)
     num_missing_stats_files = 0  # Counter for the number of missing statistics files
@@ -100,7 +105,7 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
         missing_front_netcdf_file = False
         missing_front_xml_file = False
 
-        stats_file = f'%s/model_{model_number}_%d-%02d-%02d-%02dz_conus_%dx%dimages_%dx%dtrim_statistics.nc' % (stats_folder_to_analyze, timestep[0], timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        stats_file = f'%s/model_{model_number}_%d-%02d-%02d-%02dz_{domain}_%dx%dimages_%dx%dtrim_statistics.nc' % (stats_folder_to_analyze, timestep[0], timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
         probs_file = stats_file.replace('statistics', 'probabilities')
 
         if not os.path.isfile(stats_file):
@@ -110,7 +115,7 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
                 missing_prediction_file = True
 
             # If the statistics file does not exist, check to see if a variable file is missing
-            if not os.path.isfile(f'%s/%d/%02d/%02d/{variables_data_source}_T_%d%02d%02d%02d_full.nc' %
+            if not os.path.isfile(f'%s/%d/%02d/%02d/{variables_data_source}_%d%02d%02d%02d_full.nc' %
                                   (variables_netcdf_indir, timestep[0], timestep[1], timestep[2], timestep[0], timestep[1], timestep[2], timestep[3])):
                 missing_variables_file = True
 
@@ -157,8 +162,8 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
 
             days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-            index = int(np.sum(days_per_month[current_year][:current_month-1]) + current_day) - 1
-            missing_indices[current_year].append(index)
+            index = int(np.sum(days_per_month[:current_month-1]) + current_day) - 1
+            missing_indices[str(current_year)].append(index)
 
     report_file.write('\n\n\n Summary \n -------------')
     report_file.write(f'\nTimesteps analyzed: {num_timesteps}')
