@@ -3,11 +3,7 @@ Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-TODO:
-    * Finish separating plots and statistics calculations from the main prediction method
-    * Touch up prediction method for quicker predictions?
-
-Last updated: 9/25/2022 11:51 AM CT
+Last updated: 10/26/2022 7:24 PM CT
 """
 
 import os
@@ -24,13 +20,9 @@ from errors import check_arguments
 import tensorflow as tf
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
 from matplotlib.animation import FuncAnimation
-from utils import data_utils
+from utils import data_utils, settings
 from utils.plotting_utils import plot_background
 from glob import glob
-
-# default values for extents and images on different domains
-DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}
-DEFAULT_DOMAIN_IMAGES = {'full': [8, 3], 'conus': [3, 1]}
 
 
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
@@ -230,11 +222,13 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
         probs_file = f'{probs_dir}/model_{model_number}_{year}-%02d-%02d-%02dz_{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities.nc' % (month, day, hour)
 
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
+
     front_types = model_properties['front_types']
 
-    fronts_ds = xr.open_dataset(fronts_file).sel(longitude=slice(DEFAULT_DOMAIN_EXTENTS[domain][0], DEFAULT_DOMAIN_EXTENTS[domain][1]),
-                                                 latitude=slice(DEFAULT_DOMAIN_EXTENTS[domain][3], DEFAULT_DOMAIN_EXTENTS[domain][2]))
-    fronts_ds = data_utils.reformat_fronts(front_types, fronts_ds)
+    fronts_ds = xr.open_dataset(fronts_file).isel(longitude=slice(settings.DEFAULT_DOMAIN_INDICES[domain][0], settings.DEFAULT_DOMAIN_INDICES[domain][1]),
+                                                  latitude=slice(settings.DEFAULT_DOMAIN_INDICES[domain][2], settings.DEFAULT_DOMAIN_INDICES[domain][3]))
+    fronts_ds, _ = data_utils.reformat_fronts(front_types, fronts_ds)
+
     probs_ds = xr.open_dataset(probs_file)
 
     if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
@@ -280,9 +274,9 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
 
         """ Calculate true positives and false positives """
         for boundary in range(5):
-            new_fronts_ds = xr.open_dataset(fronts_file).sel(longitude=slice(DEFAULT_DOMAIN_EXTENTS[domain][0], DEFAULT_DOMAIN_EXTENTS[domain][1]),
-                                                          latitude=slice(DEFAULT_DOMAIN_EXTENTS[domain][3], DEFAULT_DOMAIN_EXTENTS[domain][2]))
-            new_fronts = data_utils.reformat_fronts(front_types_arg_reformat, fronts_ds=new_fronts_ds)
+            new_fronts_ds = xr.open_dataset(fronts_file).isel(longitude=slice(settings.DEFAULT_DOMAIN_INDICES[domain][0], settings.DEFAULT_DOMAIN_INDICES[domain][1]),
+                                                              latitude=slice(settings.DEFAULT_DOMAIN_INDICES[domain][2], settings.DEFAULT_DOMAIN_INDICES[domain][3]))
+            new_fronts, _ = data_utils.reformat_fronts(front_types_arg_reformat, new_fronts_ds)
             front_identifier = data_utils.expand_fronts(new_fronts, iterations=int(2*(boundary+1)))  # Expand fronts
             bool_tp_fp_dss[front_type] = xr.where(front_identifier == front_no + 1, 1, 0)['identifier']  # 1 = cold front, 0 = not a cold front
             for i in range(100):
@@ -309,7 +303,7 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
     if forecast_hour is not None:
         performance_ds = performance_ds.expand_dims({'forecast_hour': np.atleast_1d(probs_ds['forecast_hour'].values)})
 
-    performance_ds.to_netcdf(path=probs_file.replace('probabilities', 'statistics'), mode='w', engine='scipy')
+    performance_ds.to_netcdf(path=probs_file.replace('probabilities', 'statistics'), mode='w', engine='netcdf4')
 
 
 def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, compat_images=None):
@@ -474,8 +468,8 @@ def gdas_prediction_animated(model_number, model_dir, fronts_netcdf_indir, domai
         ani.save(f'{path_to_probs_folder}test_animation_{front_key}.mp4', writer='ffmpeg', fps=5)
 
 
-def generate_predictions(model_number, model_dir, variables_netcdf_indir, fronts_netcdf_indir, prediction_method, domain='full',
-    domain_images='min', domain_trim=(0, 0), dataset=None, datetime=None, num_rand_predictions=None, random_variables=None,
+def generate_predictions(model_number, model_dir, variables_netcdf_indir, prediction_method, domain='full',
+    domain_images='min', domain_trim=(0, 0), dataset=None, datetime=None, random_variables=None,
     variable_data_source='gdas', forecast_hours=None):
     """
     Generate predictions with a model.
@@ -520,18 +514,25 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, fronts
 
     ### Model properties ###
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
-    image_size = model_properties['input_size'][:-1]  # The image size does not include the last dimension of the input size as it only represents the number of channels
+    model_type = model_properties['model_type']
+    image_size = model_properties['image_size']  # The image size does not include the last dimension of the input size as it only represents the number of channels
     front_types = model_properties['front_types']
     classes = model_properties['classes']
+    variables = model_properties['variables']
+
     num_dimensions = len(image_size)
+    if model_number not in [7805504, 7866106, 7961517]:  # The model numbers in this list have 2D kernels
+        num_dimensions += 1
+
     test_years, valid_years = model_properties['test_years'], model_properties['validation_years']
 
-    domain_images = DEFAULT_DOMAIN_IMAGES[domain]
-    domain_extent = DEFAULT_DOMAIN_EXTENTS[domain]
+    if domain_images is None:
+        domain_images = settings.DEFAULT_DOMAIN_IMAGES[domain]
+    domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[domain]
 
     ### Properties of the final map made from stitched images ###
     domain_images_lon, domain_images_lat = domain_images[0], domain_images[1]
-    domain_size_lon, domain_size_lat = int((domain_extent[1] - domain_extent[0])*4) + 1, int((domain_extent[3] - domain_extent[2])*4) + 1
+    domain_size_lon, domain_size_lat = domain_extent_indices[1] - domain_extent_indices[0], domain_extent_indices[3] - domain_extent_indices[2]
     domain_trim_lon, domain_trim_lat = domain_trim[0], domain_trim[1]
     image_size_lon, image_size_lat = image_size[0], image_size[1]  # Dimensions of the model's predictions
     domain_size_lon_trimmed = domain_size_lon - 2*domain_trim_lon  # Longitude dimension of the full stitched map after trimming
@@ -554,10 +555,8 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, fronts
     if variable_data_source.lower() == 'era5':
 
         era5_files_obj = fm.ERA5files(variables_netcdf_indir)
-        era5_files_obj.variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
         era5_files_obj.validation_years = valid_years
         era5_files_obj.test_years = test_years
-        era5_files_obj.sort_by_timestep()
 
         if dataset is not None:
             variable_files = getattr(era5_files_obj, 'era5_files_' + dataset)
@@ -566,12 +565,13 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, fronts
 
     elif variable_data_source.lower() == 'gdas':
 
+        variables[2] = 'mslp_z'
+
         gdas_files_obj = fm.GDASfiles(variables_netcdf_indir)
-        gdas_files_obj.variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
+        gdas_files_obj.variables = variables
         gdas_files_obj.validation_years = valid_years
         gdas_files_obj.test_years = test_years
-        gdas_files_obj.forecast_hours = (0, 3, 6, 9)
-        gdas_files_obj.pair_with_fronts(fronts_netcdf_indir)
+        gdas_files_obj.sort_by_timestep()
 
         if dataset is not None:
             variable_files = getattr(gdas_files_obj, 'gdas_files_' + dataset)
@@ -580,85 +580,151 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, fronts
 
     if prediction_method == 'datetime':
         timestep_str = '%d%02d%02d%02d' % (datetime[0], datetime[1], datetime[2], datetime[3])
-        datetime_index = [index for index, files_for_timestep in enumerate(variable_files) if all(timestep_str in file for file in files_for_timestep)][0]
+        datetime_index = [index for index, file in enumerate(variable_files) if timestep_str in file][0]
         variable_files = [variable_files[datetime_index], ]
 
     subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
     if random_variables is not None:
         subdir_base += '_' + '-'.join(sorted(random_variables))
 
-    for file_index in range(len(variable_files)):
-        """
-        Create array that contains all probabilities across the whole domain map for every front type that the model is 
-        predicting. The first dimension is 1 unit less than the number of classes because we are not concerned about the 
-        'no front' front type in the model.
-        """
+    print(f"opening {variable_data_source.upper()} dataset")
+    variable_ds = xr.open_mfdataset(variable_files, engine='netcdf4').isel(longitude=slice(domain_extent_indices[0], domain_extent_indices[1]), latitude=slice(domain_extent_indices[2], domain_extent_indices[3]))[variables]
+
+    if variable_data_source == 'era5':
+
+        variable_ds = variable_ds.transpose('time', 'longitude', 'latitude', 'pressure_level')
+
+        # Older 2D models were trained with the pressure levels not in the proper order
+        if model_number in [7805504, 7866106, 7961517]:
+            variable_ds = variable_ds.isel(pressure_level=[0, 4, 3, 2, 1])
+
+    elif variable_data_source == 'gdas':
+        variable_ds = variable_ds.sel(pressure_level=['surface', '1000', '950', '900', '850']).transpose('time', 'forecast_hour', 'longitude', 'latitude', 'pressure_level')
+        forecast_hours = variable_ds['forecast_hour'].values
+
+    # Latitude and longitude points in the domain
+    image_lats = variable_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat]
+    image_lons = variable_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon]
+
+    # Randomize variable
+    if random_variables is not None:
+        variable_ds = data_utils.randomize_variables(variable_ds, random_variables)
+
+    timestep_predict_size = settings.TIMESTEP_PREDICT_SIZE[domain]
+
+    if variable_data_source == 'gdas':
+        num_forecast_hours = len(forecast_hours)
+        timestep_predict_size /= num_forecast_hours
+        timestep_predict_size = int(timestep_predict_size)
+
+    num_timesteps = len(variable_ds['time'].values)
+    num_batches = int(np.ceil(num_timesteps / timestep_predict_size))
+
+    # TODO: Reformat GDAS surface pressure data to hectopascals to match ERA5 data
+    if variable_data_source == 'gdas':
+        data_utils.normalization_parameters['mslp_z_surface'][0] = data_utils.normalization_parameters['mslp_z_surface'][0] * 100
+        data_utils.normalization_parameters['mslp_z_surface'][1] = data_utils.normalization_parameters['mslp_z_surface'][1] * 100
+        data_utils.normalization_parameters['mslp_z_surface'][2] = data_utils.normalization_parameters['mslp_z_surface'][2] * 100
+
+    for batch_no in range(num_batches):
+
+        print(f"=== Batch {batch_no + 1}/{num_batches} ===")
+
+        variable_batch_ds = variable_ds.isel(time=slice(batch_no * timestep_predict_size, (batch_no + 1) * timestep_predict_size))  # Select timesteps for the current batch
+
+        print('normalizing variables')
+        variable_batch_ds = data_utils.normalize_variables(variable_batch_ds).astype('float16')
+
+        timesteps = variable_batch_ds['time'].values
+        num_timesteps_in_batch = len(timesteps)
+        map_created = False  # Boolean that determines whether or not the final stitched map has been created
 
         if variable_data_source == 'era5':
-            variable_ds = xr.open_mfdataset(variable_files[file_index]).transpose('time', 'longitude', 'latitude', 'pressure_level').sel(longitude=slice(domain_extent[0], domain_extent[1]), latitude=slice(domain_extent[3], domain_extent[2]))
-            stitched_map_probs = np.empty(shape=[classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
+            stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
         elif variable_data_source == 'gdas':
-            variable_ds = xr.open_mfdataset(variable_files[file_index]).transpose('time', 'forecast_hour', 'longitude', 'latitude', 'pressure_level').sel(pressure_level=['surface', '1000', '950', '900', '850'], longitude=slice(domain_extent[0], domain_extent[1]), latitude=slice(domain_extent[3], domain_extent[2]))
-            forecast_hours = variable_ds['forecast_hour'].values
-            stitched_map_probs = np.empty(shape=[len(forecast_hours), classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
-
-        # Latitude and longitude points in the domain
-        image_lats = variable_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat]
-        image_lons = variable_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon]
-
-        timestep = str(variable_ds['time'].values[0])
-        variable_ds = data_utils.normalize_variables(variable_ds)
-
-        # Randomize variable
-        if random_variables is not None:
-            variable_ds = data_utils.randomize_variables(variable_ds, random_variables)
-
-        time = f'{timestep[:4]}-%s-%s-%sz' % (timestep[5:7], timestep[8:10], timestep[11:13])
-
-        map_created = False  # Boolean that determines whether or not the final stitched map has been created
+            stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, len(forecast_hours), classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
 
         for lat_image in range(domain_images_lat):
             lat_index = int(lat_image*lat_image_spacing)
             for lon_image in range(domain_images_lon):
-                print("%s....%d/%d" % (time, int(lat_image*domain_images_lon)+lon_image, int(domain_images_lon*domain_images_lat)))
+                print(f"image %d/%d" % (int(lat_image*domain_images_lon) + lon_image + 1, int(domain_images_lon*domain_images_lat)))
                 lon_index = int(lon_image*lon_image_spacing)
 
-                lons = variable_ds.longitude.values[lon_index:lon_index + image_size[0]]  # Longitude points for the current image
-                lats = variable_ds.latitude.values[lat_index:lat_index + image_size[1]]  # Latitude points for the current image
-
-                variable_ds_new = variable_ds[['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']].sel(longitude=lons, latitude=lats).to_array().values
+                # Convert dataset to numpy array
+                variable_batch_ds_new = variable_batch_ds[variables].isel(longitude=slice(lon_index, lon_index + image_size[0]),
+                                                                          latitude=slice(lat_index, lat_index + image_size[1])).to_array().values
 
                 if num_dimensions == 3:
+
                     if variable_data_source == 'era5':
-                        variable_ds_new = variable_ds_new.transpose([1, 2, 3, 4, 0])
+                        variable_batch_ds_new = variable_batch_ds_new.transpose([1, 2, 3, 4, 0])  # (time, longitude, latitude, pressure level, variable)
                     elif variable_data_source == 'gdas':
-                        variable_ds_new = variable_ds_new.transpose([1, 2, 3, 4, 5, 0])[0]
+                        variable_batch_ds_new = variable_batch_ds_new.transpose([1, 2, 3, 4, 5, 0])  # (time, forecast hour, longitude, latitude, pressure level, variable)
                         forecast_hours = variable_ds['forecast_hour'].values
-                else:
-                    raise ValueError("Invalid number of dimensions: %d" % num_dimensions)
 
-                prediction = model.predict(variable_ds_new)
-
-                if num_dimensions == 2:
-                    if variable_data_source == 'era5':
-                        image_probs = np.transpose(prediction[0][0][:, :, 1:], (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
                 else:
+
                     if variable_data_source == 'era5':
-                        image_probs = np.transpose(np.amax(prediction[0][0][:, :, :, 1:], axis=2), (2, 0, 1))  # Final index is front+1 because we skip over the 'no front' type
+                        variable_batch_ds_new = variable_batch_ds_new.transpose([1, 2, 3, 4, 0])  # (time, longitude, latitude, pressure level, variable)
+
                     elif variable_data_source == 'gdas':
-                        image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), (0, 3, 1, 2))  # Final index is front+1 because we skip over the 'no front' type
+                        variable_batch_ds_new = variable_batch_ds_new.transpose([1, 2, 3, 4, 0, 5])  # (time, forecast hour, longitude, latitude, pressure level, variable)
+                        forecast_hours = variable_ds['forecast_hour'].values
+
+                    ### Combine pressure levels and variables into one dimension ###
+                    variable_batch_ds_new_shape = np.shape(variable_batch_ds_new)
+                    variable_batch_ds_new = variable_batch_ds_new.reshape(*[dim_size for dim_size in variable_batch_ds_new_shape[:-2]], variable_batch_ds_new_shape[-2] * variable_batch_ds_new_shape[-1])
+
+                    ### Variables in older 2D models are in a weird order, so we will reshape the input array to account for this ###
+                    if model_number in [7805504, 7866106, 7961517]:
+                        variable_batch_ds_new_2D = np.empty(shape=np.shape(variable_batch_ds_new))
+                        variable_index_order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+                                                23, 12, 15, 16, 14, 13, 18, 19, 22, 17, 20, 21,
+                                                35, 24, 27, 28, 26, 25, 30, 31, 34, 29, 32, 33,
+                                                47, 36, 39, 40, 38, 37, 42, 43, 46, 41, 44, 45,
+                                                59, 48, 51, 52, 50, 49, 54, 55, 58, 53, 56, 57]
+
+                        for variable_index_new, variable_index_old in enumerate(variable_index_order):
+                            variable_batch_ds_new_2D[:, :, :, variable_index_new] = np.array(variable_batch_ds_new[:, :, :, variable_index_old])
+                        variable_batch_ds_new = variable_batch_ds_new_2D
+
+                transpose_indices = (0, 3, 1, 2)  # New order of indices for model predictions (time, front type, longitude, latitude)
+
+                ### Generate the predictions ###
+                if variable_data_source == 'era5':
+
+                    prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE)
+
+                    if num_dimensions == 2:
+                        if model_type == 'unet_3plus':
+                            image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)  # transpose the predictions
+                    else:  # if num_dimensions == 3
+                        if model_type == 'unet_3plus':
+                            image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
+
+                elif variable_data_source == 'gdas':
+
+                    ### Combine time and forecast hour into one dimension ###
+                    gdas_variable_ds_new_shape = np.shape(variable_batch_ds_new)
+                    variable_batch_ds_new = variable_batch_ds_new.reshape(gdas_variable_ds_new_shape[0] * gdas_variable_ds_new_shape[1], *[dim_size for dim_size in gdas_variable_ds_new_shape[2:]])
+
+                    prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE)
+
+                    if num_dimensions == 3:
+                        image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)
 
                 # Add predictions to the map
                 if variable_data_source == 'gdas':
-                    for fcst_hr_index in range(len(forecast_hours)):
-                        stitched_map_probs[fcst_hr_index], map_created = add_image_to_map(stitched_map_probs[fcst_hr_index], image_probs[fcst_hr_index], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
+                    for timestep in range(num_timesteps_in_batch):
+                        for fcst_hr_index in range(num_forecast_hours):
+                            stitched_map_probs[timestep][fcst_hr_index], map_created = add_image_to_map(stitched_map_probs[timestep][fcst_hr_index], image_probs[timestep * num_forecast_hours + fcst_hr_index], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
+                                image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing, lon_pixels_per_image, lat_pixels_per_image)
+                else:  # if variable_data_source == 'era5'
+                    for timestep in range(num_timesteps_in_batch):
+                        stitched_map_probs[timestep], map_created = add_image_to_map(stitched_map_probs[timestep], image_probs[timestep], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
                             image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing, lon_pixels_per_image, lat_pixels_per_image)
-                else:
-                    stitched_map_probs, map_created = add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
-                        image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing, lon_pixels_per_image, lat_pixels_per_image)
 
                 if map_created is True:
-                    print("%s....%d/%d" % (time, int(domain_images_lon*domain_images_lat), int(domain_images_lon*domain_images_lat)))
 
                     ### Create subdirectories for the data if they do not exist ###
                     if not os.path.isdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base)):
@@ -672,26 +738,31 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, fronts
                         print("New subdirectory made:", '%s/model_%d/statistics/%s' % (model_dir, model_number, subdir_base))
 
                     if variable_data_source == 'gdas':
+                        for timestep_no, timestep in enumerate(timesteps):
+                            timestep = str(timestep)
+                            for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
+                                time = f'{timestep[:4]}-%s-%s-%sz' % (timestep[5:7], timestep[8:10], timestep[11:13])
+                                probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no][fcst_hr_index], image_lats, image_lons, front_types)
+                                probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep), 'forecast_hour': np.atleast_1d(forecast_hours[fcst_hr_index])})
+                                filename_base = 'model_%d_%s_%s_f%03d_%dx%dimages_%dx%dtrim' % (model_number, time, domain, forecast_hours[fcst_hr_index], domain_images_lon, domain_images_lat, domain_trim_lon, domain_trim_lat)
+                                if random_variables is not None:
+                                    filename_base += '_' + '-'.join(sorted(random_variables))
 
-                        for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
-                            probs_ds = create_model_prediction_dataset(stitched_map_probs[fcst_hr_index], image_lats, image_lons, front_types)
-                            probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep), 'forecast_hour': np.atleast_1d(forecast_hours[fcst_hr_index])})
-                            filename_base = 'model_%d_%s_%s_f%03d_%dx%dimages_%dx%dtrim' % (model_number, time, domain, forecast_hours[fcst_hr_index], domain_images_lon, domain_images_lat, domain_trim_lon, domain_trim_lat)
+                                outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (model_dir, model_number, subdir_base, filename_base)
+                                probs_ds.to_netcdf(path=outfile, engine='netcdf4', mode='w')
+
+                    elif variable_data_source == 'era5':
+
+                        for timestep_no, timestep in enumerate(timesteps):
+                            time = f'{timestep[:4]}-%s-%s-%sz' % (timestep[5:7], timestep[8:10], timestep[11:13])
+                            probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no], image_lats, image_lons, front_types)
+                            probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep)})
+                            filename_base = 'model_%d_%s_%s_%dx%dimages_%dx%dtrim' % (model_number, time, domain, domain_images_lon, domain_images_lat, domain_trim_lon, domain_trim_lat)
                             if random_variables is not None:
                                 filename_base += '_' + '-'.join(sorted(random_variables))
 
                             outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (model_dir, model_number, subdir_base, filename_base)
-                            probs_ds.to_netcdf(path=outfile, engine='scipy', mode='w')
-
-                    elif variable_data_source == 'era5':
-                        probs_ds = create_model_prediction_dataset(stitched_map_probs, image_lats, image_lons, front_types)
-                        probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep)})
-                        filename_base = 'model_%d_%s_%s_%dx%dimages_%dx%dtrim' % (model_number, time, domain, domain_images_lon, domain_images_lat, domain_trim_lon, domain_trim_lat)
-                        if random_variables is not None:
-                            filename_base += '_' + '-'.join(sorted(random_variables))
-
-                        outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (model_dir, model_number, subdir_base, filename_base)
-                        probs_ds.to_netcdf(path=outfile, engine='scipy', mode='w')
+                            probs_ds.to_netcdf(path=outfile, engine='netcdf4', mode='w')
 
 
 def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, front_types: str or list):
@@ -748,7 +819,7 @@ def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, fr
 
 
 def plot_performance_diagrams(model_dir, model_number, domain, domain_images, domain_trim, bootstrap=True, random_variables=None,
-    calibrated=False, num_iterations=10000):
+    variable_data_source='era5', calibrated=False, num_iterations=10000):
     """
     Plots CSI performance diagram for different front types.
 
@@ -768,6 +839,8 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         - Setting this to true will plot confidence intervals onto the performance diagrams.
     random_variables: str or list of strs
         - Variable(s) that were randomized when performance statistics were calculated.
+    variable_data_source: str
+        - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
     calibrated: bool
         - Indicates whether or not the statistics to be plotted are from a calibrated model.
     num_iterations: int
@@ -778,8 +851,14 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     front_types = model_properties['front_types']
     num_front_types = model_properties['classes'] - 1  # model_properties['classes'] - 1 ===> number of front types (we ignore the 'no front' type)
 
+    if model_number in [7805504, 7866106, 7961517]:
+        num_dimensions = 2
+    else:
+        num_dimensions = 3
+
+
     if num_front_types > 1:
-        _, labels = data_utils.reformat_fronts(front_types, return_names=True)
+        _, labels = data_utils.reformat_fronts(front_types)
     else:
         labels = [front_types, ]
 
@@ -788,7 +867,11 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     if random_variables is not None:
         subdir_base += '_' + '-'.join(sorted(random_variables))
 
-    files = sorted(glob('%s\\model_%d\\statistics\\%s\\*statistics.nc' % (model_dir, model_number, subdir_base)))
+    if variable_data_source == 'gdas':
+        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*_f*statistics.nc' % (model_dir, model_number, subdir_base)))
+    else:
+        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*{domain}_{domain_images[0]}x*statistics.nc' % (model_dir, model_number, subdir_base)))
+
     num_files = len(files)
 
     # If evaluating over the full domain, remove non-synoptic hours (3z, 9z, 15z, 21z)
@@ -798,7 +881,12 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
             string = '%02dz_' % hour
             files = list(filter(lambda hour: string not in hour, files))
 
-    stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')  # Open the first dataset so information on variables can be retrieved
+    print("opening dataset")
+    if variable_data_source == 'gdas':
+        stats_ds = xr.open_mfdataset(files, combine='nested')
+    else:
+        stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')
+    print("done")
 
     POD_array = np.empty([num_front_types, num_iterations, 5, 100])  # Probability of detection
     SR_array = np.empty([num_front_types, num_iterations, 5, 100])  # Success ratio
@@ -815,13 +903,19 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
 
     selectable_indices = range(num_files)
 
-    front_names, _ = data_utils.reformat_fronts(front_types, return_names=True)
-
     for front_no, front_label in enumerate(labels):
 
         true_positives = stats_ds[f'tp_{front_label}'].values
         false_positives = stats_ds[f'fp_{front_label}'].values
         false_negatives = stats_ds[f'fn_{front_label}'].values
+
+        tp_fp_fn_array_shape = np.shape(true_positives)
+
+        if variable_data_source == 'gdas':
+            true_positives = true_positives.reshape(tp_fp_fn_array_shape[0] * tp_fp_fn_array_shape[1], *[dim_size for dim_size in tp_fp_fn_array_shape[2:]])
+            false_positives = false_positives.reshape(tp_fp_fn_array_shape[0] * tp_fp_fn_array_shape[1], *[dim_size for dim_size in tp_fp_fn_array_shape[2:]])
+            false_negatives = false_negatives.reshape(tp_fp_fn_array_shape[0] * tp_fp_fn_array_shape[1], *[dim_size for dim_size in tp_fp_fn_array_shape[2:]])
+
         thresholds = stats_ds['threshold'].values
 
         true_positives_sum = np.sum(true_positives, axis=0)
@@ -946,35 +1040,48 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
 
         fontdict = {'fontsize': 14}
 
-        model_text = f"Model type: {len(model_properties['input_size']) - 1}D "
+        model_text = f"Model type: {num_dimensions}D "
         if model_properties['model_type'] == 'unet_3plus':
             model_text += 'U-Net 3+'
-        plt.text(1.2, -0.25, model_text, fontdict=fontdict)
+        plt.text(1.2, -0.2, model_text, fontdict=fontdict)
 
         kernel_text = 'Kernel size: %s' % model_properties['kernel_size']
-        for dim in range(len(model_properties['input_size']) - 2):
+        for dim in range(num_dimensions - 1):
             kernel_text += 'x%s' % model_properties['kernel_size']
 
         front_text = 'Front type: '
         if front_types == 'F_BIN':
             front_text += 'Binary (front / no front)**'
-            plt.text(1.2, -1.55, '** binary: cold, warm, stationary, and occluded fronts all treated as one type')
+            plt.text(1.2, -1.85, '** binary: cold, warm, stationary, and occluded fronts all treated as one type')
         elif type(front_types) == list:
-            front_text += front_names[front_no]
+            front_text += settings.DEFAULT_FRONT_NAMES[front_label]
 
         domain_text = 'Domain: '
         if domain == 'conus':
-            domain_text += domain.upper() + f' ({int(domain_images[0] * domain_images[1])} images per stitched map)'
+            domain_text += 'CONUS'
+        else:
+            domain_text += domain
+        domain_text += f' ({int(domain_images[0] * domain_images[1])} images per stitched map)'
 
-        plt.text(1.2, -0.5, kernel_text, fontdict=fontdict)
-        plt.text(1.2, -0.75, front_text, fontdict=fontdict)
-        plt.text(1.2, -1, domain_text, fontdict=fontdict)
+        data_text = 'Data source: ' + variable_data_source.upper()
+        sample_text = f'# samples: {len(files)}'
+
+        # TODO: Add ability to select specific datasets
+        dataset = 'test'
+        dataset_text = f'Dataset: {dataset}'
+
+        plt.text(1.2, -0.43, kernel_text, fontdict=fontdict)
+        plt.text(1.2, -0.66, front_text, fontdict=fontdict)
+        plt.text(1.2, -0.89, domain_text, fontdict=fontdict)
+        plt.text(1.2, -1.12, data_text, fontdict=fontdict)
+        plt.text(1.2, -1.35, dataset_text, fontdict=fontdict)
+        plt.text(1.2, -1.58, sample_text, fontdict=fontdict)
 
         for cell in stats_table._cells:
             stats_table._cells[cell].set_alpha(.7)
 
         plt.tight_layout()
-        plt.savefig("%s/model_%d/%s_performance_%s.png" % (model_dir, model_number, stats_plot_base, front_label), bbox_inches='tight')
+        plt.savefig(f"%s/model_%d/%s_performance_%s_{variable_data_source}.png" % (model_dir, model_number, stats_plot_base, front_label), bbox_inches='tight', dpi=200)
         plt.close()
 
 
@@ -1001,7 +1108,7 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
         - Must be a multiple of 0.1, greater than 0, and no greater than 0.9.
     """
 
-    extent = DEFAULT_DOMAIN_EXTENTS[domain]
+    extent = settings.DEFAULT_DOMAIN_EXTENTS[domain]
 
     year, month, day, hour = int(timestep[0]), int(timestep[1]), int(timestep[2]), int(timestep[3])
 
@@ -1021,7 +1128,6 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
     probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
 
-    print(fronts_file)
     fronts = xr.open_mfdataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
     probs_ds = xr.open_mfdataset(probs_file)
 
@@ -1030,9 +1136,12 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
     # Model properties
-    image_size = model_properties['input_size'][:-1]  # The image size does not include the last dimension of the input size as it only represents the number of channels
+    image_size = model_properties['image_size']  # The image size does not include the last dimension of the input size as it only represents the number of channels
     front_types = model_properties['front_types']
+
     num_dimensions = len(image_size)
+    if model_number not in [7805504, 7866106, 7961517]:
+        num_dimensions += 1
 
     if num_dimensions == 2:
         probability_mask = probability_mask_2D
@@ -1049,14 +1158,19 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
     probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN")).isel(time=0)
 
-    fronts, names, labels, colors_types, colors_probs = data_utils.reformat_fronts(fronts, front_types, return_names=True, return_colors=True)
+    fronts, labels = data_utils.reformat_fronts(front_types, fronts)
+
+    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in labels]
+    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
+    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in labels]
+
     fronts = data_utils.expand_fronts(fronts)
     fronts = xr.where(fronts == 0, float('NaN'), fronts)
 
-    cmap_front = colors.ListedColormap(colors_types, name='from_list', N=len(names))
-    norm_front = colors.Normalize(vmin=1, vmax=len(names) + 1)
+    cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_names_by_type))
+    norm_front = colors.Normalize(vmin=1, vmax=len(front_names_by_type) + 1)
 
-    for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(names) + 1), list(probs_ds.keys()), names, labels, colors_probs):
+    for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, labels, contour_maps_by_type):
         if variable_data_source == 'gdas':
             fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
             plot_background(extent, ax=ax, linewidth=0.5)
@@ -1347,6 +1461,7 @@ if __name__ == '__main__':
     parser.add_argument('--domain_trim', type=int, nargs=2, default=[0, 0],
                         help='Number of pixels to trim the images by along each dimension for stitching before taking the '
                              'maximum across overlapping pixels.')
+    parser.add_argument('--forecast_hour', type=int, help='Forecast hour for the GDAS data')
     parser.add_argument('--find_matches', action='store_true', help='Find matches for stitching predictions?')
     parser.add_argument('--generate_predictions', action='store_true', help='Generate prediction plots?')
     parser.add_argument('--calculate_stats', action='store_true', help='generate stats')
@@ -1362,6 +1477,7 @@ if __name__ == '__main__':
     parser.add_argument('--variables_netcdf_indir', type=str, help='Main directory for the netcdf files containing variable data.')
     parser.add_argument('--plot_performance_diagrams', action='store_true', help='Plot performance diagrams for a model?')
     parser.add_argument('--prediction_method', type=str, help="Prediction method. Options are: 'datetime', 'random', 'all'")
+    parser.add_argument('--prediction_plot', action='store_true', help='Create plot')
     parser.add_argument('--random_variables', type=str, nargs="+", default=None, help="Variables to randomize when generating predictions.")
     parser.add_argument('--save_map', action='store_true', help='Save maps of the model predictions?')
     parser.add_argument('--save_probabilities', action='store_true', help='Save model prediction data out to netcdf files?')
@@ -1397,25 +1513,45 @@ if __name__ == '__main__':
             raise errors.MissingArgumentError("'datetime' argument must be passed: 'prediction_method' was set to 'datetime' ")
 
         model_properties = pd.read_pickle(f"{args.model_dir}/model_{args.model_number}/model_{args.model_number}_properties.pkl")
-        image_size = model_properties['input_size'][0:2]  # We are only concerned about longitude and latitude when checking compatibility
+        image_size = model_properties['image_size']  # We are only concerned about longitude and latitude when checking compatibility
+
+        domain_indices = settings.DEFAULT_DOMAIN_INDICES[args.domain]
+        domain_images = settings.DEFAULT_DOMAIN_IMAGES[args.domain]
 
         # Verify the compatibility of image stitching arguments
-        # find_matches_for_domain(args.domain_size, image_size, compatibility_mode=True, compat_images=args.domain_images)
+        find_matches_for_domain((domain_indices[1] - domain_indices[0], domain_indices[3] - domain_indices[2]), image_size, compatibility_mode=True, compat_images=domain_images)
 
-        generate_predictions(args.model_number, args.model_dir, args.variables_netcdf_indir, args.fronts_netcdf_indir, args.prediction_method,
+        generate_predictions(args.model_number, args.model_dir, args.variables_netcdf_indir, args.prediction_method,
             domain=args.domain, domain_images=args.domain_images, domain_trim=args.domain_trim, dataset=args.dataset,
-            datetime=args.datetime, num_rand_predictions=args.num_rand_predictions, random_variables=args.random_variables,
-            variable_data_source=args.variable_data_source)
+            datetime=args.datetime, random_variables=args.random_variables, variable_data_source=args.variable_data_source)
 
     if args.calculate_stats:
         required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'timestep', 'domain_images', 'domain_trim']
-        for hour in range(0, 24, 3):
-            timestep = (args.timestep[0], args.timestep[1], args.timestep[2], hour)
-            calculate_performance_stats(args.model_number, args.model_dir, args.fronts_netcdf_indir, timestep, args.domain,
-                args.domain_images, args.domain_trim)
+
+        if args.domain == 'full':
+            hours = range(0, 24, 6)
+        else:
+            hours = range(0, 24, 3)
+
+        for hour in hours:
+            if args.variable_data_source == 'gdas':
+                for forecast_hour in range(0, 12, 3):
+                    timestep = (args.timestep[0], args.timestep[1], args.timestep[2], hour)
+                    calculate_performance_stats(args.model_number, args.model_dir, args.fronts_netcdf_indir, timestep, args.domain,
+                        args.domain_images, args.domain_trim, forecast_hour)
+            else:
+                timestep = (args.timestep[0], args.timestep[1], args.timestep[2], hour)
+                calculate_performance_stats(args.model_number, args.model_dir, args.fronts_netcdf_indir, timestep, args.domain,
+                    args.domain_images, args.domain_trim)
+
+    if args.prediction_plot:
+        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'datetime', 'domain_images', 'domain_trim']
+        prediction_plot(args.model_number, args.model_dir, args.fronts_netcdf_indir, args.datetime, args.domain,
+            args.domain_images, args.domain_trim, args.forecast_hour)
 
     if args.plot_performance_diagrams:
         required_arguments = ['model_number', 'model_dir', 'domain', 'domain_images']
         check_arguments(provided_arguments, required_arguments)
         plot_performance_diagrams(args.model_dir, args.model_number, args.domain, args.domain_images, args.domain_trim,
-            random_variables=args.random_variables, bootstrap=args.bootstrap, num_iterations=args.num_iterations)
+            random_variables=args.random_variables, variable_data_source=args.variable_data_source, bootstrap=args.bootstrap,
+            num_iterations=args.num_iterations)
