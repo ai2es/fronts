@@ -2,7 +2,9 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 10/25/2022 9:23 AM CT
+Last updated: 12/24/2022 5:39 PM CT
+
+TODO: Clean up front expansion code to make it easier for numpy arrays to be used
 """
 
 import math
@@ -82,7 +84,7 @@ normalization_parameters = {'T_surface': [326.3396, 192.2074, 278.8511],
 
 def expand_fronts(ds_fronts, iterations=1):
     """
-    Expands fronts by 1 pixel in all directions.
+    Expands fronts in all directions.
 
     Parameters
     ----------
@@ -103,7 +105,7 @@ def expand_fronts(ds_fronts, iterations=1):
 
     try:
         identifier = ds_fronts['identifier'].values
-    except:
+    except KeyError:
         identifier = ds_fronts.values
 
     for iteration in range(iterations):
@@ -208,7 +210,7 @@ def expand_fronts(ds_fronts, iterations=1):
 
     try:
         ds_fronts['identifier'].values = identifier
-    except:
+    except KeyError:
         ds_fronts.values = identifier
 
     return ds_fronts
