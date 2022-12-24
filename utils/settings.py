@@ -3,7 +3,7 @@ Default settings
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 10/9/2022 11:18 PM CT
+Last updated: 12/18/2022 9:11 PM CT
 """
 
 DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains
@@ -15,13 +15,14 @@ DEFAULT_FRONT_COLORS = {'CF': 'blue', 'WF': 'red', 'SF': 'limegreen', 'OF': 'dar
                         'SF-F': 'darkgreen', 'OF-F': 'darkmagenta', 'CF-D': 'lightskyblue', 'WF-D': 'lightcoral', 'SF-D': 'lightgreen',
                         'OF-D': 'violet', 'OFB': 'gold', 'TROF': 'goldenrod', 'TT': 'orange', 'DL': 'chocolate', 'CF-WF-SF-OF': 'tab:red',
                         'CF_any': 'blue', 'WF_any': 'red', 'SF_any': 'limegreen', 'OF_any': 'darkviolet', 'CF-WF-SF-OF_any': 'gray',
-                        'TR_any': 'brown'}
+                        'TR_any': 'brown', 'F_BIN': 'tab:red'}
 
 # colormaps of probability contours for front predictions
 DEFAULT_CONTOUR_CMAPS = {'CF': 'Blues', 'WF': 'Reds', 'SF': 'Greens', 'OF': 'Purples', 'CF-F': 'Blues', 'WF-F': 'Reds',
                          'SF-F': 'Greens', 'OF-F': 'Purples', 'CF-D': 'Blues', 'WF-D': 'Reds', 'SF-D': 'Greens', 'OF-D': 'Purples',
                          'OFB': 'YlOrBr', 'TROF': 'YlOrRed', 'TT': 'Oranges', 'DL': 'copper_r', 'CF-WF-SF-OF': 'Reds', 'CF_any': 'Blues',
-                         'WF_any': 'Reds', 'SF_any': 'Greens', 'OF_any': 'Purples', 'CF-WF-SF-OF_any': 'Greys', 'TR_any': 'YlOrBr'}
+                         'WF_any': 'Reds', 'SF_any': 'Greens', 'OF_any': 'Purples', 'CF-WF-SF-OF_any': 'Greys', 'TR_any': 'YlOrBr',
+                         'F_BIN': 'Reds'}
 
 # names of front types
 DEFAULT_FRONT_NAMES = {'CF': 'Cold front', 'WF': 'Warm front', 'SF': 'Stationary front', 'OF': 'Occluded front', 'CF-F': 'Cold front (forming)',
@@ -29,7 +30,7 @@ DEFAULT_FRONT_NAMES = {'CF': 'Cold front', 'WF': 'Warm front', 'SF': 'Stationary
                        'CF-D': 'Cold front (dying)', 'WF-D': 'Warm front (dying)', 'SF-D': 'Stationary front (dying)', 'OF-D': 'Occluded front (dying)',
                        'OFB': 'Outflow boundary', 'TROF': 'Trough', 'TT': 'Tropical trough', 'DL': 'Dryline', 'CF-WF-SF-OF': 'CF, WF, SF, OF',
                        'CF_any': 'Cold front (any)', 'WF_any': 'Warm front (any)', 'SF_any': 'Stationary front (any)', 'OF_any': 'Occluded front (any)',
-                       'CF-WF-SF-OF_any': 'CF, WF, SF, OF (any)', 'TR_any': 'Trough (any)'}
+                       'CF-WF-SF-OF_any': 'CF, WF, SF, OF (any)', 'TR_any': 'Trough (any)', 'F_BIN': 'Binary front (front / no front)'}
 
 """ 
 TIMESTEP_PREDICT_SIZE is the number of timesteps for which predictions will be processed at the same time. In other words, 
@@ -61,3 +62,10 @@ NOTES:
         and GPU failure.
 """
 GPU_PREDICT_BATCH_SIZE = 8
+
+"""
+MAX_FILE_CHUNK_SIZE is the maximum number of ERA5, GDAS, and/or GFS netCDF files that will be loaded into an xarray dataset at one
+time. Loading too many files / too much data into one xarray dataset can take a very long time and may lead to segmentation errors.
+If segmentation errors are occurring, consider lowering this parameter until the error disappears.
+"""
+MAX_FILE_CHUNK_SIZE = 2500
