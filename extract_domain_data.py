@@ -2,10 +2,13 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 10/4/2022 8:00 PM CT
+Last updated: 12/24/2022 5:58 PM CT
+
+TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
 """
 
 import argparse
+import time
 import urllib.error
 import warnings
 import requests
@@ -274,8 +277,8 @@ def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
                                 fronttype[i][j] = 16
 
         filename_netcdf = "FrontObjects_%04d%02d%02d%02d_full.nc" % (year, month, day, hour)
-        fronts_ds = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)}, coords={"latitude": lats, "longitude": lons, "time": time})
-        fronts_ds.to_netcdf(path="%s/%d/%02d/%02d/%s" % (netcdf_outdir, year, month, day, filename_netcdf), engine='scipy', mode='w')
+        fronts_ds = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)}, coords={"latitude": lats, "longitude": lons, "time": time}).astype('float32')
+        fronts_ds.to_netcdf(path="%s/%d/%02d/%02d/%s" % (netcdf_outdir, year, month, day, filename_netcdf), engine='netcdf4', mode='w')
 
 
 def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
@@ -457,9 +460,6 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
 
         full_era5_dataset.to_netcdf(path='%s/%d/%02d/%02d/era5_%d%02d%02d%02d_full.nc' % (netcdf_outdir, year, month, day, year, month, day, hour), mode='w', engine='netcdf4')
 
-        # for variable in list(full_era5_dataset.keys()):
-        #     full_era5_dataset[variable].to_netcdf(path='%s/%d/%02d/%02d/era5_%s_%d%02d%02d%02d_full.nc' % (netcdf_outdir, year, month, day, variable, year, month, day, hour), mode='w', engine='scipy')
-
 
 def download_ncep_has_order(ncep_has_order_number, ncep_has_outdir):
     """
@@ -488,13 +488,14 @@ def download_ncep_has_order(ncep_has_order_number, ncep_has_outdir):
                 pass
 
 
-def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
+def download_model_grib_files(grib_outdir, year, model='gdas', day_range=(0, 364)):
     """
-    Download GDAS grib files for a given timestep from the AWS server.
+    Download grib files containing data for a NWP model from the AWS server.
+    """
 
-    gdas_outdir: str
-        Main directory for the GDAS grib files.
-    """
+    model_lowercase = model.lower()
+
+    forecast_hours = np.arange(0, 10, 3)
 
     if year % 4 == 0:
         month_2_days = 29  # Leap year
@@ -512,13 +513,13 @@ def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
     for day_index in range(day_range[0], day_range[1] + 1):
 
         month, day = date_list[day_index][1], date_list[day_index][2]
-        hours = np.arange(0, 24, 6)  # Hours that the GDAS model runs forecasts for
+        hours = np.arange(0, 24, 6)[::-1]  # Hours that the GDAS model runs forecasts for
 
-        daily_directory = gdas_grib_outdir + '/%d%02d%02d' % (year, month, day)  # Directory for the GDAS grib files for the given day
+        daily_directory = grib_outdir + '/%d%02d%02d' % (year, month, day)  # Directory for the GDAS grib files for the given day
 
         # GDAS files have different naming patterns based on which year the data is for
         if year < 2014:
-            forecast_hours = np.arange(0, 12, 3)
+
             files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.{year}%02d%02d/%02d/gdas1.t%02dz.pgrbf%02d.grib2' % (month, day, hour, hour, forecast_hour)
                      for hour in hours
                      for forecast_hour in forecast_hours]
@@ -526,9 +527,7 @@ def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
                                for hour in hours
                                for forecast_hour in forecast_hours]
 
-        elif 2014 < year < 2018:
-
-            forecast_hours = np.arange(0, 10)  # Forecast hours 0-9
+        elif year < 2021:
 
             files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.{year}%02d%02d/%02d/gdas1.t%02dz.pgrb2.0p25.f%03d' % (month, day, hour, hour, forecast_hour)
                      for hour in hours
@@ -537,15 +536,13 @@ def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
                                for hour in hours
                                for forecast_hour in forecast_hours]
 
-        elif year > 2018:
+        else:
 
-            forecast_hours = np.arange(0, 10)  # Forecast hours 0-9
-
-            files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.{year}%02d%02d/%02d/gdas.t%02dz.pgrb2.0p25.f%03d' % (month, day, hour, hour, forecast_hour)
+            files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/{model_lowercase}.{year}%02d%02d/%02d/atmos/{model_lowercase}.t%02dz.pgrb2.0p25.f%03d' % (month, day, hour, hour, forecast_hour)
                      for hour in hours
                      for forecast_hour in forecast_hours]
 
-            local_filenames = ['gdas.t%02dz.pgrb2.0p25.f%03d' % (hour, forecast_hour)
+            local_filenames = [f'{model}.t%02dz.pgrb2.0p25.f%03d' % (hour, forecast_hour)
                                for hour in hours
                                for forecast_hour in forecast_hours]
 
@@ -553,7 +550,7 @@ def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
 
             ### If the directory does not exist, check to see if the file link is valid. If the file link is NOT valid, then the directory will not be created since it will be empty. ###
             if not os.path.isdir(daily_directory):
-                if requests.head(file).status_code == requests.codes.ok:
+                if requests.head(file).status_code == requests.codes.ok or requests.head(file.replace('/atmos', '')).status_code == requests.codes.ok:
                     os.mkdir(daily_directory)
 
             full_file_path = f'{daily_directory}/{local_filename}'
@@ -562,58 +559,62 @@ def download_gdas_grib_files(gdas_grib_outdir, year, day_range=(0, 364)):
                 try:
                     wget.download(file, out=full_file_path)
                 except urllib.error.HTTPError:
-                    print(f"Error downloading {file}")
-                    pass
+                    try:
+                        wget.download(file.replace('/atmos', ''), out=full_file_path)
+                    except urllib.error.HTTPError:
+                        print(f"Error downloading {file}")
+                        pass
 
             elif not os.path.isdir(daily_directory):
                 warnings.warn(f"Unknown problem encountered when creating the following directory: {daily_directory}, "
                               f"Consider checking the AWS server to make sure that data exists for the given day ({year}-%02d-%02d): "
-                              f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/index.html#gdas.{year}%02d%02d" % (date_list[day_index][1], date_list[day_index][2], date_list[day_index][1], date_list[day_index][2]))
+                              f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/index.html#{model_lowercase}.{year}%02d%02d" % (date_list[day_index][1], date_list[day_index][2], date_list[day_index][1], date_list[day_index][2]))
                 break
 
             elif os.path.isfile(full_file_path):
                 print(f"{full_file_path} already exists, skipping file....")
 
 
-def download_latest_gdas_data(gdas_grib_outdir):
+def download_latest_model_data(grib_outdir, model='gdas'):
     """
-    Download the latest GDAS grib files from NCEP.
-
-    gdas_outdir: str
-        Main directory for the GDAS grib files.
+    Download the latest model grib files from NCEP.
     """
 
-    print(f"Updating GDAS files in directory: {gdas_grib_outdir}")
+    model_uppercase = model.upper()
+    model_lowercase = model.lower()
 
-    print("Connecting to main GDAS source")
+    print(f"Updating {model_uppercase} files in directory: {grib_outdir}")
+
+    print(f"Connecting to main {model_uppercase} source")
     url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/'
     page = requests.get(url).text
     soup = BeautifulSoup(page, 'html.parser')
-    gdas_folders_by_day = [url + node.get('href') for node in soup.find_all('a') if 'gdas' in node.get('href')]
-    timesteps_available = [folder[-9:-1] for folder in gdas_folders_by_day if 'prod/gdas' in folder][::-1]
+    gdas_folders_by_day = [url + node.get('href') for node in soup.find_all('a') if model_lowercase in node.get('href')]
+    timesteps_available = [folder[-9:-1] for folder in gdas_folders_by_day if f'prod/{model_lowercase}' in folder][::-1]
 
     files_added = 0
 
     for timestep in timesteps_available:
 
         year, month, day = timestep[:4], timestep[4:6], timestep[6:]
-        daily_directory = '%s/%s' % (gdas_grib_outdir, timestep)
+        daily_directory = '%s/%s' % (grib_outdir, timestep)
 
-        url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gdas.{timestep}/'
+        url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/{model_lowercase}.{timestep}/'
         page = requests.get(url).text
         soup = BeautifulSoup(page, 'html.parser')
 
         gdas_folders_by_hour = [url + node.get('href') for node in soup.find_all('a')]
         hours_available = [folder[-3:-1] for folder in gdas_folders_by_hour if any(hour in folder[-3:-1] for hour in ['00', '06', '12', '18'])][::-1]
+        forecast_hours = np.arange(10)
 
         for hour in hours_available:
 
             print(f"\nSearching for available data: {year}-{month}-{day}-%02dz" % float(hour))
 
-            url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gdas.{timestep}/%02d/atmos/' % float(hour)
+            url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/{model_lowercase}.{timestep}/%02d/atmos/' % float(hour)
             page = requests.get(url).text
             soup = BeautifulSoup(page, 'html.parser')
-            files = [url + node.get('href') for node in soup.find_all('a') if 'pgrb2.0p25' in node.get('href')]
+            files = [url + node.get('href') for node in soup.find_all('a') if any('pgrb2.0p25.f%03d' % forecast_hour in node.get('href') for forecast_hour in forecast_hours)]
 
             if not os.path.isdir(daily_directory):
                 os.mkdir(daily_directory)
@@ -631,71 +632,13 @@ def download_latest_gdas_data(gdas_grib_outdir):
                 else:
                     print(f"{full_file_path} already exists")
 
-    print("GDAS directory update complete, %d files added" % files_added)
+    print(f"{model_uppercase} directory update complete, %d files added" % files_added)
 
 
-def download_latest_gfs_data(gfs_grib_outdir):
+def grib_to_netcdf(year, month, day, hour, grib_indir, netcdf_outdir, overwrite_grib=False, model='GDAS', delete_original_grib=False,
+    resolution=0.25):
     """
-    Download the latest GFS grib files from NCEP.
-
-    gfs_outdir: str
-        Main directory for the GFS grib files.
-    """
-
-    print(f"Updating GFS files in directory: {gfs_grib_outdir}")
-
-    print("Connecting to main GFS source")
-    url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/'
-    page = requests.get(url).text
-    soup = BeautifulSoup(page, 'html.parser')
-    gfs_folders_by_day = [url + node.get('href') for node in soup.find_all('a') if 'gfs' in node.get('href')]
-    timesteps_available = [folder[-9:-1] for folder in gfs_folders_by_day if 'prod/gfs' in folder][::-1]
-
-    files_added = 0
-
-    for timestep in timesteps_available:
-
-        year, month, day = timestep[:4], timestep[4:6], timestep[6:]
-        daily_directory = '%s/%s' % (gfs_grib_outdir, timestep)
-
-        url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.{timestep}/'
-        page = requests.get(url).text
-        soup = BeautifulSoup(page, 'html.parser')
-
-        gfs_folders_by_hour = [url + node.get('href') for node in soup.find_all('a')]
-        hours_available = [folder[-3:-1] for folder in gfs_folders_by_hour if any(hour in folder[-3:-1] for hour in ['00', '06', '12', '18'])][::-1]
-
-        for hour in hours_available:
-
-            print(f"\nSearching for available data: {year}-{month}-{day}-%02dz" % float(hour))
-
-            url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.{timestep}/%02d/atmos/' % float(hour)
-            page = requests.get(url).text
-            soup = BeautifulSoup(page, 'html.parser')
-            files = [url + node.get('href') for node in soup.find_all('a') if 'pgrb2.0p25.f00' in node.get('href')]
-
-            if not os.path.isdir(daily_directory):
-                os.mkdir(daily_directory)
-
-            for file in files:
-                local_filename = file.replace(url, '')
-                full_file_path = f'{daily_directory}/{local_filename}'
-                if not os.path.isfile(full_file_path):
-                    try:
-                        wget.download(file, out=full_file_path)
-                        files_added += 1
-                    except urllib.error.HTTPError:
-                        print(f"Error downloading {url}{file}")
-                        pass
-                else:
-                    print(f"{full_file_path} already exists")
-
-    print("GFS directory update complete, %d files added" % files_added)
-
-
-def gdas_grib_to_netcdf(year, month, day, hour, gdas_grib_indir, netcdf_outdir, forecast_hour=6):
-    """
-    Create GDAS netcdf files from the grib files.
+    Create GDAS or GFS netcdf files from the grib files.
 
     Parameters
     ----------
@@ -703,68 +646,109 @@ def gdas_grib_to_netcdf(year, month, day, hour, gdas_grib_indir, netcdf_outdir, 
     month: month
     day: day
     hour: hour
-    gdas_grib_indir: Directory where the GDAS grib files are stored.
+    grib_indir: Directory where the GDAS grib files are stored.
     netcdf_outdir: Directory where the created GDAS or GFS netcdf files will be stored.
-    forecast_hour: Hour for the forecast.
+    model: 'GDAS' or 'GFS'
     """
+
+    model = model.lower()
+
+    keys_to_extract = ['gh', 'mslet', 'r', 'sp', 't', 'u', 'v']
+
+    pressure_level_file_indices = [0, 2, 4, 5, 6]
+    surface_data_file_indices = [2, 4, 5, 6]
+    raw_pressure_data_file_index = 3
+    mslp_data_file_index = 1
 
     # all lon/lat values in degrees
     start_lon, end_lon = 130, 370  # western boundary, eastern boundary
     start_lat, end_lat = 80, 0  # northern boundary, southern boundary
+    unified_longitude_indices = np.append(np.arange(start_lon / resolution, (end_lon - 10) / resolution), np.arange(0, (end_lon - 360) / resolution + 1)).astype(int)
+    unified_latitude_indices = np.arange((90 - start_lat) / resolution, (90 - end_lat) / resolution + 1).astype(int)
+    lon_coords_360 = np.arange(start_lon, end_lon + resolution, resolution)
 
-    # coordinate indices for the unified surface analysis domain in the GDAS datasets
-    unified_longitude_indices = np.append(np.arange(start_lon * 4, (end_lon - 10) * 4), np.arange(0, (end_lon - 360) * 4 + 1))
-    unified_latitude_indices = np.arange((90 - start_lat) * 4, (90 - end_lat) * 4 + 1)
+    domain_indices_isel = {'longitude': unified_longitude_indices,
+                           'latitude': unified_latitude_indices}
 
-    gdas_file_formats = ['%s/%d%02d%02d/gdas1.t%02dz.pgrb2.0p25.f%03d' % (gdas_grib_indir, year, month, day, hour, forecast_hour),
-                         '%s/%d%02d%02d/gdas.t%02dz.pgrb2.0p25.f%03d' % (gdas_grib_indir, year, month, day, hour, forecast_hour)]
+    isobaricInhPa_isel = [0, 1, 2, 3, 4, 5, 6]  # Dictionary to unpack for selecting indices in the datasets
 
-    ###############################################################################################################
-    ############################################# Pressure level data #############################################
-    ###############################################################################################################
+    chunk_sizes = {'latitude': 321, 'longitude': 961}
 
-    file_found = False
+    dataset_dimensions = ('forecast_hour', 'pressure_level', 'latitude', 'longitude')
 
-    attempt_no = 0
-    max_attempts = len(gdas_file_formats)
+    if year > 2014:
+        grib_filename_format = f'%s/%d%02d%02d/{model.lower()}*.t%02dz.pgrb2.0p25.f*' % (grib_indir, year, month, day, hour)
+    else:
+        grib_filename_format = f'%s/%d%02d%02d/{model.lower()}*1.t%02dz.pgrbf*.grib2' % (grib_indir, year, month, day, hour)
 
-    while file_found is False and attempt_no < max_attempts:
-        if not os.path.isfile(gdas_file_formats[attempt_no]):
-            attempt_no += 1
-            if attempt_no == max_attempts:
-                raise FileNotFoundError(f"No GDAS file found for {year}-%02d-%02d-%02dz f%03d" % (month, day, hour, forecast_hour))
-            else:
-                pass
-        else:
-            file_found = True
-            pressure_level_data = xr.open_dataset(gdas_file_formats[attempt_no], engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks={'latitude': 721, 'longitude': 1440})
-            surface_data = xr.open_dataset(gdas_file_formats[attempt_no], engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks={'latitude': 721, 'longitude': 1440})
-            raw_pressure_data = xr.open_dataset(gdas_file_formats[attempt_no], engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks={'latitude': 721, 'longitude': 1440})
-            mslp_data = xr.open_dataset(gdas_file_formats[attempt_no], engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks={'latitude': 721, 'longitude': 1440})
+    individual_variable_filename_format = f'%s/%d%02d%02d/{model.lower()}.*.t%02dz.pgrb2.0p25' % (grib_indir, year, month, day, hour)
 
-    sp = raw_pressure_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)['sp'].values / 100  # select unified surface analysis domain
-    unified_surface_data = surface_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
-    unified_mslp_data = mslp_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices)  # select unified surface analysis domain
+    ### Split grib files into one file per variable ###
+    grib_files = sorted(glob.glob(grib_filename_format))
+    grib_files = [file for file in grib_files if 'idx' not in file]
 
-    print("generating GDAS pressure level data for %d-%02d-%02d-%02dz" % (year, month, day, hour))
+    for key in keys_to_extract:
+        output_file = f'%s/%d%02d%02d/{model.lower()}.%s.t%02dz.pgrb2.0p25' % (grib_indir, year, month, day, key, hour)
+        if (os.path.isfile(output_file) and overwrite_grib) or not os.path.isfile(output_file):
+            os.system(f'grib_copy -w shortName={key} {" ".join(grib_files)} {output_file}')
 
-    pressure_level_indices = np.array([0, 1, 2, 3, 4, 5, 8])
+    if delete_original_grib:
+        [os.remove(file) for file in grib_files]
 
-    unified_pressure_level_data = pressure_level_data.isel(longitude=unified_longitude_indices, latitude=unified_latitude_indices, isobaricInhPa=pressure_level_indices).drop_vars(['valid_time', 'step'])  # unified surface analysis domain
-    unified_pressure_level_data['longitude'] = np.arange(start_lon, end_lon + 0.25, 0.25)  # reformat longitude coordinates to a 360 degree system
+    time.sleep(5)  # Pause the code for 5 seconds to ensure that all contents of the individual files are preserved
 
-    # Change data type of the coordinates and pressure levels to reduce the size of the data
-    unified_pressure_level_data['longitude'] = unified_pressure_level_data['longitude'].values.astype('float32')
-    unified_pressure_level_data['latitude'] = unified_pressure_level_data['latitude'].values.astype('float32')
-    unified_pressure_level_data['isobaricInhPa'] = unified_pressure_level_data['isobaricInhPa'].values.astype('float32')
+    # grib files by variable
+    grib_files = sorted(glob.glob(individual_variable_filename_format))
 
-    pressure_levels = unified_pressure_level_data['isobaricInhPa'].values
-    P = np.empty(shape=(len(pressure_level_indices), (start_lat - end_lat) * 4 + 1, (end_lon - start_lon) * 4 + 1))  # create 3D array of pressure levels to match the shape of variable arrays
-    for pressure_level in range(len(pressure_level_indices)):
-        P[pressure_level, :, :] = pressure_levels[pressure_level] * 100
+    pressure_level_files = [grib_files[index] for index in pressure_level_file_indices]
+    surface_data_files = [grib_files[index] for index in surface_data_file_indices]
 
-    T_pl = unified_pressure_level_data['t'].values
-    RH_pl = unified_pressure_level_data['r'].values / 100
+    raw_pressure_data_file = grib_files[raw_pressure_data_file_index]
+    if 'mslp_data_file_index' in locals():
+        mslp_data_file = grib_files[mslp_data_file_index]
+        mslp_data = xr.open_dataset(mslp_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks={'latitude': 721, 'longitude': 1440}).isel(**domain_indices_isel).drop_vars(['step'])
+
+    pressure_levels = [1000, 975, 950, 925, 900, 850, 700]
+
+    # Open the datasets
+    pressure_level_data = xr.open_mfdataset(pressure_level_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks=chunk_sizes, combine='nested').isel(isobaricInhPa=isobaricInhPa_isel, **domain_indices_isel).drop_vars(['step'])
+    surface_data = xr.open_mfdataset(surface_data_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
+    raw_pressure_data = xr.open_dataset(raw_pressure_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
+
+    # Calculate the forecast hours using the surface_data dataset
+    try:
+        run_time = surface_data['time'].values.astype('int64')
+    except KeyError:
+        run_time = surface_data['run_time'].values.astype('int64')
+
+    valid_time = surface_data['valid_time'].values.astype('int64')
+    forecast_hours = np.array((valid_time - int(run_time)) / 3.6e12, dtype='int32')
+
+    try:
+        num_forecast_hours = len(forecast_hours)
+    except TypeError:
+        num_forecast_hours = 1
+        forecast_hours = [forecast_hours, ]
+
+    # Reformat the longitude coordinates to the 360 degree system
+    if model in ['gdas', 'gfs']:
+        pressure_level_data['longitude'] = lon_coords_360
+        surface_data['longitude'] = lon_coords_360
+        raw_pressure_data['longitude'] = lon_coords_360
+        mslp_data['longitude'] = lon_coords_360
+
+        mslp = mslp_data['mslet'].values  # mean sea level pressure (eta model reduction)
+        mslp_z = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+        mslp_z[:, 0, :, :] = mslp / 100  # convert to hectopascals
+
+    P = np.empty(shape=(num_forecast_hours, len(pressure_levels), chunk_sizes['latitude'], chunk_sizes['longitude']))  # create 3D array of pressure levels to match the shape of variable arrays
+    for pressure_level_index, pressure_level in enumerate(pressure_levels):
+        P[:, pressure_level_index, :, :] = pressure_level * 100
+
+    print("Generating pressure level variables")
+
+    T_pl = pressure_level_data['t'].values
+    RH_pl = pressure_level_data['r'].values / 100
     vap_pres_pl = RH_pl * variables.vapor_pressure(T_pl)
     Td_pl = variables.dewpoint_from_vapor_pressure(vap_pres_pl)
     Tv_pl = variables.virtual_temperature_from_dewpoint(T_pl, Td_pl, P)
@@ -775,107 +759,113 @@ def gdas_grib_to_netcdf(year, month, day, hour, gdas_grib_indir, netcdf_outdir, 
     theta_e_pl = variables.equivalent_potential_temperature(T_pl, Td_pl, P)
     theta_v_pl = variables.virtual_potential_temperature(T_pl, Td_pl, P)
     theta_w_pl = variables.wet_bulb_potential_temperature(T_pl, Td_pl, P)
-    z = unified_pressure_level_data['gh'].values / 10  # Convert to dam
-    u_pl = unified_pressure_level_data['u'].values
-    v_pl = unified_pressure_level_data['v'].values
+    z = pressure_level_data['gh'].values / 10  # Convert to dam
+    u_pl = pressure_level_data['u'].values
+    v_pl = pressure_level_data['v'].values
 
-    ################################################################################################################
-    ################################# Surface data (MSLP and sigma coordinate data) ################################
-    ################################################################################################################
-
-    print("generating GDAS surface data for %d-%02d-%02d-%02dz" % (year, month, day, hour))
+    if 'mslp_data_file_index' in locals():
+        mslp_z[:, 1:, :, :] = z
 
     # Create arrays of coordinates for the surface data
-    surface_data_longitudes = np.arange(start_lon, end_lon + 0.25, 0.25).astype('float32')
-    surface_data_latitudes = unified_surface_data['latitude'].values.astype('float32')
+    surface_data_latitudes = pressure_level_data['latitude'].values
 
-    mslp = unified_mslp_data['mslet'].values  # mean sea level pressure (eta model reduction)
-    T_sigma = unified_surface_data['t'].values
-    RH_sigma = unified_surface_data['r'].values / 100
+    print("Generating surface variables")
+
+    sp = raw_pressure_data['sp'].values
+    T_sigma = surface_data['t'].values
+    RH_sigma = surface_data['r'].values / 100
     vap_pres_sigma = RH_sigma * variables.vapor_pressure(T_sigma)
     Td_sigma = variables.dewpoint_from_vapor_pressure(vap_pres_sigma)
-    Tv_sigma = variables.virtual_temperature_from_dewpoint(T_sigma, Td_sigma, mslp)
+    Tv_sigma = variables.virtual_temperature_from_dewpoint(T_sigma, Td_sigma, sp)
     Tw_sigma = variables.wet_bulb_temperature(T_sigma, Td_sigma)
-    r_sigma = variables.mixing_ratio_from_dewpoint(Td_sigma, mslp) * 1000  # Convert to g/kg
-    q_sigma = variables.specific_humidity_from_dewpoint(Td_sigma, mslp) * 1000  # Convert to g/kg
-    theta_sigma = variables.potential_temperature(T_sigma, mslp)
-    theta_e_sigma = variables.equivalent_potential_temperature(T_sigma, Td_sigma, mslp)
-    theta_v_sigma = variables.virtual_potential_temperature(T_sigma, Td_sigma, mslp)
-    theta_w_sigma = variables.wet_bulb_potential_temperature(T_sigma, Td_sigma, mslp)
-    u_sigma = unified_surface_data['u'].values
-    v_sigma = unified_surface_data['v'].values
+    r_sigma = variables.mixing_ratio_from_dewpoint(Td_sigma, sp) * 1000  # Convert to g/kg
+    q_sigma = variables.specific_humidity_from_dewpoint(Td_sigma, sp) * 1000  # Convert to g/kg
+    theta_sigma = variables.potential_temperature(T_sigma, sp)
+    theta_e_sigma = variables.equivalent_potential_temperature(T_sigma, Td_sigma, sp)
+    theta_v_sigma = variables.virtual_potential_temperature(T_sigma, Td_sigma, sp)
+    theta_w_sigma = variables.wet_bulb_potential_temperature(T_sigma, Td_sigma, sp)
+    u_sigma = surface_data['u'].values
+    v_sigma = surface_data['v'].values
 
-    T = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    Td = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    Tv = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    Tw = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    theta = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    theta_e = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    theta_v = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    theta_w = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    RH = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    r = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    q = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    u = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    v = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    mslp_z = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
-    sp_z = np.empty(shape=(len(pressure_level_indices) + 1, len(surface_data_latitudes), len(surface_data_longitudes)))
+    T = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    Td = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    Tv = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    Tw = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    theta = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    theta_e = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    theta_v = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    theta_w = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    RH = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    r = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    q = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    u = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    v = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    sp_z = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
 
-    T[0, :, :] = T_sigma
-    T[1:, :, :] = T_pl
-    Td[0, :, :] = Td_sigma
-    Td[1:, :, :] = Td_pl
-    Tv[0, :, :] = Tv_sigma
-    Tv[1:, :, :] = Tv_pl
-    Tw[0, :, :] = Tw_sigma
-    Tw[1:, :, :] = Tw_pl
-    theta[0, :, :] = theta_sigma
-    theta[1:, :, :] = theta_pl
-    theta_e[0, :, :] = theta_e_sigma
-    theta_e[1:, :, :] = theta_e_pl
-    theta_v[0, :, :] = theta_v_sigma
-    theta_v[1:, :, :] = theta_v_pl
-    theta_w[0, :, :] = theta_w_sigma
-    theta_w[1:, :, :] = theta_w_pl
-    RH[0, :, :] = RH_sigma
-    RH[1:, :, :] = RH_pl
-    r[0, :, :] = r_sigma
-    r[1:, :, :] = r_pl
-    q[0, :, :] = q_sigma
-    q[1:, :, :] = q_pl
-    u[0, :, :] = u_sigma
-    u[1:, :, :] = u_pl
-    v[0, :, :] = v_sigma
-    v[1:, :, :] = v_pl
-    mslp_z[0, :, :] = mslp
-    mslp_z[1:, :, :] = z
-    sp_z[0, :, :] = sp
-    sp_z[1:, :, :] = z
+    T[:, 0, :, :] = T_sigma
+    T[:, 1:, :, :] = T_pl
+    Td[:, 0, :, :] = Td_sigma
+    Td[:, 1:, :, :] = Td_pl
+    Tv[:, 0, :, :] = Tv_sigma
+    Tv[:, 1:, :, :] = Tv_pl
+    Tw[:, 0, :, :] = Tw_sigma
+    Tw[:, 1:, :, :] = Tw_pl
+    theta[:, 0, :, :] = theta_sigma
+    theta[:, 1:, :, :] = theta_pl
+    theta_e[:, 0, :, :] = theta_e_sigma
+    theta_e[:, 1:, :, :] = theta_e_pl
+    theta_v[:, 0, :, :] = theta_v_sigma
+    theta_v[:, 1:, :, :] = theta_v_pl
+    theta_w[:, 0, :, :] = theta_w_sigma
+    theta_w[:, 1:, :, :] = theta_w_pl
+    RH[:, 0, :, :] = RH_sigma
+    RH[:, 1:, :, :] = RH_pl
+    r[:, 0, :, :] = r_sigma
+    r[:, 1:, :, :] = r_pl
+    q[:, 0, :, :] = q_sigma
+    q[:, 1:, :, :] = q_pl
+    u[:, 0, :, :] = u_sigma
+    u[:, 1:, :, :] = u_pl
+    v[:, 0, :, :] = v_sigma
+    v[:, 1:, :, :] = v_pl
+    sp_z[:, 0, :, :] = sp / 100
+    sp_z[:, 1:, :, :] = z
 
-    pressure_levels = ['surface', 1000, 975, 950, 925, 900, 850, 700]
+    pressure_levels = ['surface', '1000', '975', '950', '925', '900', '850', '700']
 
-    full_gdas_dataset = xr.Dataset(data_vars=dict(T=(('pressure_level', 'latitude', 'longitude'), T),
-                                                  Td=(('pressure_level', 'latitude', 'longitude'), Td),
-                                                  Tv=(('pressure_level', 'latitude', 'longitude'), Tv),
-                                                  Tw=(('pressure_level', 'latitude', 'longitude'), Tw),
-                                                  theta=(('pressure_level', 'latitude', 'longitude'), theta),
-                                                  theta_e=(('pressure_level', 'latitude', 'longitude'), theta_e),
-                                                  theta_v=(('pressure_level', 'latitude', 'longitude'), theta_v),
-                                                  theta_w=(('pressure_level', 'latitude', 'longitude'), theta_w),
-                                                  RH=(('pressure_level', 'latitude', 'longitude'), RH),
-                                                  r=(('pressure_level', 'latitude', 'longitude'), r),
-                                                  q=(('pressure_level', 'latitude', 'longitude'), q),
-                                                  u=(('pressure_level', 'latitude', 'longitude'), u),
-                                                  v=(('pressure_level', 'latitude', 'longitude'), v),
-                                                  mslp_z=(('pressure_level', 'latitude', 'longitude'), mslp_z),
-                                                  sp_z=(('pressure_level', 'latitude', 'longitude'), sp_z)),
-                                   coords=dict(pressure_level=pressure_levels, latitude=surface_data_latitudes, longitude=surface_data_longitudes)).astype('float32')
+    print("Building final dataset")
 
-    full_gdas_dataset = full_gdas_dataset.expand_dims({'time': np.atleast_1d(unified_pressure_level_data['time'].values),
-                                                       'forecast_hour': np.atleast_1d(forecast_hour)})
+    full_dataset_coordinates = dict(forecast_hour=forecast_hours, pressure_level=pressure_levels)
 
-    for variable in list(full_gdas_dataset.keys()):
-        full_gdas_dataset[variable].to_netcdf(path='%s/%d/%02d/%02d/gdas_%s_%d%02d%02d%02d_f%03d_full.nc' % (netcdf_outdir, year, month, day, variable, year, month, day, hour, forecast_hour), mode='w', engine='scipy')
+    full_dataset_variables = dict(T=(dataset_dimensions, T),
+                                  Td=(dataset_dimensions, Td),
+                                  Tv=(dataset_dimensions, Tv),
+                                  Tw=(dataset_dimensions, Tw),
+                                  theta=(dataset_dimensions, theta),
+                                  theta_e=(dataset_dimensions, theta_e),
+                                  theta_v=(dataset_dimensions, theta_v),
+                                  theta_w=(dataset_dimensions, theta_w),
+                                  RH=(dataset_dimensions, RH),
+                                  r=(dataset_dimensions, r),
+                                  q=(dataset_dimensions, q),
+                                  u=(dataset_dimensions, u),
+                                  v=(dataset_dimensions, v),
+                                  sp_z=(dataset_dimensions, sp_z))
+
+    if 'mslp_data_file_index' in locals():
+        full_dataset_variables['mslp_z'] = (('forecast_hour', 'pressure_level', 'latitude', 'longitude'), mslp_z)
+
+    full_dataset_coordinates['latitude'] = surface_data_latitudes
+    full_dataset_coordinates['longitude'] = lon_coords_360
+
+    full_grib_dataset = xr.Dataset(data_vars=full_dataset_variables,
+                                   coords=full_dataset_coordinates).astype('float32')
+
+    full_grib_dataset = full_grib_dataset.expand_dims({'time': np.atleast_1d(pressure_level_data['time'].values)})
+
+    for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
+        if forecast_hour in [0, 3, 6, 9]:
+            full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/%d/%02d/%02d/{model.lower()}_%d%02d%02d%02d_f%03d_full.nc' % (netcdf_outdir, year, month, day, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
 
 
 if __name__ == "__main__":
@@ -885,14 +875,13 @@ if __name__ == "__main__":
     parser.add_argument('--fronts', action='store_true', help="Generate front object data files")
     parser.add_argument('--xml_indir', type=str, help="input directory for front XML files")
     parser.add_argument('--download_ncep_has_order', action='store_true', help='Download GDAS tarfiles')
-    parser.add_argument('--download_gdas_grib_files', action='store_true', help='Download GDAS grib files for a specific date and time')
-    parser.add_argument('--download_latest_gdas_data', action='store_true', help='Download GDAS grib files from NCEP.')
-    parser.add_argument('--download_latest_gfs_data', action='store_true', help='Download GFS grib files from NCEP.')
+    parser.add_argument('--download_model_grib_files', action='store_true', help='Download model grib files for a specific date and time')
+    parser.add_argument('--download_latest_model_data', action='store_true', help='Download latest model grib files from NCEP.')
     parser.add_argument('--ncep_has_order_number', type=str, help='HAS order number')
-    parser.add_argument('--gdas_grib_to_netcdf', action='store_true', help="Generate GDAS netcdf files")
-    parser.add_argument('--gdas_grib_outdir', type=str, help='Output directory for GDAS grib files downloaded from NCEP.')
-    parser.add_argument('--gfs_grib_outdir', type=str, help='Output directory for GFS grib files downloaded from NCEP.')
-    parser.add_argument('--gdas_grib_indir', type=str, help="input directory for the GDAS grib files")
+    parser.add_argument('--grib_to_netcdf', action='store_true', help="Generate GDAS netcdf files")
+    parser.add_argument('--grib_outdir', type=str, help='Output directory for GDAS grib files downloaded from NCEP.')
+    parser.add_argument('--grib_indir', type=str, help="input directory for the GDAS grib files")
+    parser.add_argument('--model', type=str, help="model of the data for which grib files will be split: 'GDAS' or 'GFS'")
     parser.add_argument('--ncep_has_outdir', type=str, help='Output directory for downloaded files from the HAS order.')
     parser.add_argument('--netcdf_outdir', type=str, help="output directory for netcdf files")
     parser.add_argument('--day_range', type=int, nargs=2, default=[0, 364], help="Start and end days of the year for grabbing grib files")
@@ -913,25 +902,24 @@ if __name__ == "__main__":
         check_arguments(provided_arguments, required_arguments)
         check_directory(args.netcdf_outdir, args.year, args.month, args.day)
         front_xmls_to_netcdf(args.year, args.month, args.day, args.xml_indir, args.netcdf_outdir)
-    if args.gdas_grib_to_netcdf:
-        required_arguments = ['year', 'month', 'day', 'hour', 'gdas_grib_indir', 'netcdf_outdir']
+    if args.grib_to_netcdf:
+        required_arguments = ['year', 'month', 'day', 'grib_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
         check_directory(args.netcdf_outdir, args.year, args.month, args.day)
-        for forecast_hour in range(10):
-            gdas_grib_to_netcdf(args.year, args.month, args.day, args.hour, args.gdas_grib_indir, args.netcdf_outdir, forecast_hour=forecast_hour)
+        for hour in range(0, 24, 6):
+            try:
+                grib_to_netcdf(args.year, args.month, args.day, hour, args.grib_indir, args.netcdf_outdir, model=args.model)
+            except IndexError:
+                pass
     if args.download_ncep_has_order:
         required_arguments = ['ncep_has_order_number', 'ncep_has_outdir']
         check_arguments(provided_arguments, required_arguments)
         download_ncep_has_order(args.ncep_has_order_number, args.ncep_has_outdir)
-    if args.download_gdas_grib_files:
-        required_arguments = ['year', 'day_range', 'gdas_grib_outdir']
+    if args.download_model_grib_files:
+        required_arguments = ['year', 'day_range', 'grib_outdir', 'model']
         check_arguments(provided_arguments, required_arguments)
-        download_gdas_grib_files(args.gdas_grib_outdir, args.year, args.day_range)
-    if args.download_latest_gdas_data:
-        required_arguments = ['gdas_grib_outdir']
+        download_model_grib_files(args.grib_outdir, args.year, args.model, args.day_range)
+    if args.download_latest_model_data:
+        required_arguments = ['grib_outdir', 'model']
         check_arguments(provided_arguments, required_arguments)
-        download_latest_gdas_data(args.gdas_grib_outdir)
-    if args.download_latest_gfs_data:
-        required_arguments = ['gfs_grib_outdir']
-        check_arguments(provided_arguments, required_arguments)
-        download_latest_gfs_data(args.gfs_grib_outdir)
+        download_latest_model_data(args.grib_outdir, args.model)
