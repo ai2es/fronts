@@ -3,7 +3,7 @@ Plotting tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 7/1/2022 2:35 PM CDT
+Last updated: 12/24/2022 5:44 PM CDT
 """
 
 import cartopy.feature as cfeature
@@ -42,7 +42,7 @@ def plot_background(extent, ax=None, linewidth=0.5):
     return ax
 
 
-def create_colorbar_for_fronts(names, cmap, norm, axis_loc=(0.7765, 0.11, 0.015, 0.77)):
+def create_colorbar_for_fronts(names, cmap, norm, axis_loc=(0.8465, 0.11, 0.015, 0.77)):
     """
     Create colorbar for given front types.
 
@@ -61,4 +61,4 @@ def create_colorbar_for_fronts(names, cmap, norm, axis_loc=(0.7765, 0.11, 0.015,
     cbar_ax = plt.axes(axis_loc)  # Create an axis for the colorbar to the right of the plot
     cbar = plt.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax)  # Create the colorbar
     cbar.set_ticks(np.arange(1, number_of_front_types + 1) + 0.5)  # Place ticks in the middle of each color
-    cbar.set_ticklabels(names)  # Label each tick with its respective front type
+    cbar.set_ticklabels([name.replace(' front', '') for name in names])  # Label each tick with its respective front type
