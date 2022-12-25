@@ -6,20 +6,19 @@ Code for generating various plots:
     - NCEP front analysis
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
+Last updated: 12/24/2022 7:34 PM CDT
 
-Last updated: 8/6/2022 11:04 AM CDT
+TODO: Simplify code, everything is messy
 """
 
 from matplotlib.colors import Normalize, ListedColormap
-from metpy.plots import SkewT
 import xarray as xr
-from utils import plotting_utils, data_utils
+from utils import plotting_utils, data_utils, settings
 from glob import glob
 import argparse
 from errors import check_arguments
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
-from metpy.units import units
 import numpy as np
 import pandas as pd
 
@@ -43,18 +42,20 @@ ANALYSIS_TEMPERATURE_CONTOURS = {'surface': np.arange(-100, 55, 5), 925: np.aran
 ANALYSIS_DEWPOINT_CONTOURS = {'surface': np.arange(0, 40, 2), 925: np.arange(12, 80, 2), 850: np.arange(8, 80, 2), 700: np.arange(4, 80, 2)}
 
 
-def frequency_plots(fronts_pickle_indir, image_outdir):
+def frequency_plots(fronts_netcdf_indir, image_outdir):
     """
     Generate plots of the frequencies of different front types.
 
     Parameters
     ----------
-    fronts_pickle_indir: str
+    fronts_netcdf_indir: str
         Input directory for pickle files containing frontal objects.
     image_outdir: str
         Output directory for the soundings.
     """
-    front_files = sorted(glob(f'{fronts_pickle_indir}/*/*/*/FrontObjects*full.pkl'))
+    front_files = sorted(glob(f'{fronts_netcdf_indir}/*/*/*/FrontObjects*full.nc'))
+    front_files = [file for file in front_files if any(year in file for year in
+        ['_2008', '_2009', '_2010', '_2011', '_2012', '_2013', '_2014', '_2015', '_2016', '_2017', '_2018', '_2019', '_2020'])]
 
     cold_front_frequency = np.zeros(shape=(321, 961))
     warm_front_frequency = np.zeros(shape=(321, 961))
@@ -64,6 +65,7 @@ def frequency_plots(fronts_pickle_indir, image_outdir):
     cold_front_form_frequency = np.zeros(shape=(321, 961))
     warm_front_form_frequency = np.zeros(shape=(321, 961))
     stationary_front_form_frequency = np.zeros(shape=(321, 961))
+
     occluded_front_form_frequency = np.zeros(shape=(321, 961))
 
     cold_front_diss_frequency = np.zeros(shape=(321, 961))
@@ -84,7 +86,7 @@ def frequency_plots(fronts_pickle_indir, image_outdir):
 
     for file_no in range(num_files):
         print(f"File {file_no+1}/{num_files}", end='\r')
-        fronts = pd.read_pickle(front_files[file_no])
+        fronts = xr.open_dataset(front_files[file_no])
         cold_front_frequency += np.where(fronts['identifier'].values == 1, 1, 0)
         warm_front_frequency += np.where(fronts['identifier'].values == 2, 1, 0)
         stationary_front_frequency += np.where(fronts['identifier'].values == 3, 1, 0)
@@ -115,114 +117,39 @@ def frequency_plots(fronts_pickle_indir, image_outdir):
 
     crs = ccrs.LambertConformal(central_longitude=250)
 
-    fig, axs = plt.subplots(2, 2, figsize=(12, 7), subplot_kw={'projection': crs})
+    fig, axs = plt.subplots(2, 2, figsize=(16, 8), subplot_kw={'projection': crs})
     axlist = axs.flatten()
     for ax in axlist:
         plotting_utils.plot_background(extent, ax=ax)
-    test_file = pd.read_pickle(front_files[0])
+    test_file = xr.open_dataset(front_files[0])
     test_file['cold_frequency'] = (['latitude', 'longitude'], cold_front_frequency)
     test_file['warm_frequency'] = (['latitude', 'longitude'], warm_front_frequency)
     test_file['stationary_frequency'] = (['latitude', 'longitude'], stationary_front_frequency)
     test_file['occluded_frequency'] = (['latitude', 'longitude'], occluded_front_frequency)
     test_file = test_file.drop('identifier')
 
-    test_file = test_file.sel(latitude=slice(1.0, 80.0))
+    frequency_cbar_kwargs = {'label': 'Frequency',
+                             'shrink': 0.96,
+                             'pad': 0.01}
+
+    test_file = test_file.sel(latitude=slice(80.0, 1.0))
     test_file = xr.where(test_file == 0, float("NaN"), test_file)
-    test_file['cold_frequency'].plot(ax=axlist[0], cmap='plasma', x='longitude', y='latitude', transform=ccrs.PlateCarree())
-    test_file['warm_frequency'].plot(ax=axlist[1], cmap='plasma', x='longitude', y='latitude', transform=ccrs.PlateCarree())
-    test_file['stationary_frequency'].plot(ax=axlist[2], cmap='plasma', x='longitude', y='latitude', transform=ccrs.PlateCarree())
-    test_file['occluded_frequency'].plot(ax=axlist[3], cmap='plasma', x='longitude', y='latitude', transform=ccrs.PlateCarree())
-    axlist[0].set_title("Cold front frequency: 2008-2020")
-    axlist[1].set_title("Warm front frequency: 2008-2020")
-    axlist[2].set_title("Stationary front frequency: 2008-2020")
-    axlist[3].set_title("Occluded front frequency: 2008-2020")
-    plt.savefig(f"{image_outdir}/total_front_frequency.png", bbox_inches='tight', dpi=200)
+    test_file['cold_frequency'].plot(ax=axlist[0], cmap='gnuplot2', x='longitude', y='latitude', alpha=0.4, transform=ccrs.PlateCarree(), cbar_kwargs=frequency_cbar_kwargs)
+    test_file['warm_frequency'].plot(ax=axlist[1], cmap='gnuplot2', x='longitude', y='latitude', alpha=0.4, transform=ccrs.PlateCarree(), cbar_kwargs=frequency_cbar_kwargs)
+    test_file['stationary_frequency'].plot(ax=axlist[2], cmap='gnuplot2', x='longitude', y='latitude', alpha=0.4, transform=ccrs.PlateCarree(), cbar_kwargs=frequency_cbar_kwargs)
+    test_file['occluded_frequency'].plot(ax=axlist[3], cmap='gnuplot2', x='longitude', y='latitude', alpha=0.4, transform=ccrs.PlateCarree(), cbar_kwargs=frequency_cbar_kwargs)
+    axlist[0].set_title("a) Cold front")
+    axlist[1].set_title("b) Warm front")
+    axlist[2].set_title("c) Stationary front")
+    axlist[3].set_title("d) Occluded front")
+    plt.suptitle('Frequency of front types: 2008-2020', fontsize=20)
+    plt.subplots_adjust(top=0.9, bottom=0, right=1, left=0, hspace=0.1, wspace=0)
+    plt.tight_layout()
+    plt.savefig(f"{image_outdir}/total_front_frequency.png", bbox_inches='tight', dpi=400)
     plt.close()
 
 
-def gdas_sounding(year, month, day, hour, lat, lon, gdas_pickle_indir, sounding_outdir):
-    """
-    Plot sounding using GDAS data with a given set of coordinates.
-
-    Parameters
-    ----------
-    year: year
-    month: month
-    day: day
-    hour: hour
-    lat: latitude (degrees)
-    lon: longitude (degrees, 0-360 system)
-    gdas_pickle_indir: str
-        Directory where the pickle files containing GDAS data are stored.
-    sounding_outdir: str
-        Output directory for the soundings.
-    """
-    available_files = sorted(glob(f'{gdas_pickle_indir}/{year}/%02d/%02d/gdas_*_{year}%02d%02d%02d_full.pkl' % (month, day, month, day, hour)))
-
-    num_pressure_levels = len(available_files)
-
-    P = np.empty(num_pressure_levels)
-    T = np.empty(num_pressure_levels)
-    Td = np.empty(num_pressure_levels)
-    Tv = np.empty(num_pressure_levels)
-    u = np.empty(num_pressure_levels)
-    v = np.empty(num_pressure_levels)
-
-    for file in range(num_pressure_levels):
-        current_dataset = pd.read_pickle(available_files[file]).sel(latitude=lat, longitude=lon)
-
-        P[file] = current_dataset['pressure_level'].values
-        T[file] = current_dataset['T'].values
-        Td[file] = current_dataset['Td'].values
-        Tv[file] = current_dataset['Tv'].values
-        u[file] = current_dataset['u'].values * 1.944
-        v[file] = current_dataset['v'].values * 1.944
-
-    P, T, Td, Tv, u, v = zip(*sorted(zip(P, T, Td, Tv, u, v))[::-1])  # sort all arrays so that pressure is in descending order
-
-    # 1000 mb (treating as surface) temperature and dewpoint in fahrenheit
-    sfct_f = int((T[0] - 273.15) * 1.8 + 32)
-    sfctd_f = int((Td[0] - 273.15) * 1.8 + 32)
-
-    P = P * units['hPa']
-    T = T * units['kelvin']
-    Td = Td * units['kelvin']
-    Tv = Tv * units['kelvin']
-    u = u * units['knots']
-    v = v * units['knots']
-
-    fig = plt.figure(figsize=(9, 9), dpi=300)
-    skew = SkewT(fig, rotation=35)
-
-    skew.plot(P, T, 'r')  # Temperature profile
-    skew.plot(P, Td, 'g')  # Dewpoint profile
-    skew.plot(P, Tv, color='darkred', linestyle='--', linewidth=0.8)  # Virtual temperature profile
-    skew.plot_barbs(P, u, v)  # Wind barbs
-    skew.ax.set_ylim(1070, 100)  # Bottom of sounding set to 1070 mb to have space for 1000 mb temperature and dewpoint text
-    skew.ax.set_xlim(-40, 50)
-
-    # Isotherms
-    skew.ax.axvline(0, color='blue', linestyle='--', linewidth=1, alpha=0.2)  # 0 celsius isotherm
-    skew.ax.axvline(-20, color='blue', linestyle='--', linewidth=1, alpha=0.2)  # -20 celsius isotherm
-
-    skew.plot_dry_adiabats(alpha=0.2, linestyles='-', colors='gray')  # Dry adiabats
-    skew.plot_moist_adiabats(alpha=0.2, linestyles='--', colors='gray')  # Moist adiabats
-    skew.plot_mixing_lines(alpha=0.2)  # Lines of constant mixing ratio
-
-    # 1000 mb temperature and dewpoint text
-    plt.text((sfct_f - 32) * 5/9 + 2, 1060, s=f'{sfct_f}F', color='red', bbox=dict(facecolor='white', edgecolor='red', pad=1.5), fontsize=10)
-    plt.text((sfctd_f - 32) * 5/9 - 2, 1060, s=f'{sfctd_f}F', color='green', bbox=dict(facecolor='white', edgecolor='green', pad=1.5), fontsize=10)
-
-    plt.xlabel("Temperature (C)")
-    plt.ylabel("Pressure (hPa)")
-    plt.title(f'GDAS {year}-%02d-%02d-%02dz ({lat}N, {lon}E)' % (month, day, hour))
-
-    sounding_filename = f'{year}-%02d-%02d-%02dz_{lat}_{lon}' % (month, day, hour)
-    plt.savefig(f'{sounding_outdir}/sounding_{sounding_filename}.png', bbox_inches='tight')
-    plt.close()
-
-
-def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pickle_indir, fronts_pickle_indir, image_outdir, forecast_hour=6, slice_dataset=False, add_wind_barbs=True):
+def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_netcdf_indir, fronts_netcdf_indir, image_outdir, forecast_hour=6, slice_dataset=False, add_wind_barbs=True):
     """
     Plot variable in GDAS data.
 
@@ -238,9 +165,9 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
         Pressure level in hPa.
     extent: iterable
         Extent of the plot: [MIN_LON, MAX_LON, MIN_LAT, MAX_LAT]
-    gdas_pickle_indir: str
+    gdas_netcdf_indir: str
         Input directory for pickle files containing GDAS data.
-    fronts_pickle_indir: str
+    fronts_netcdf_indir: str
         Input directory for pickle files containing frontal objects.
     image_outdir: str
         Output directory for the soundings.
@@ -256,8 +183,8 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
     timestep = '%d%02d%02d%02d' % (year, month, day, hour)
     forecast_timestep = data_utils.add_or_subtract_hours_to_timestep(timestep, forecast_hour)
 
-    fronts_file = '%s\\%s\\%s\\%s\\FrontObjects_%s_full.pkl' % (fronts_pickle_indir, forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep)
-    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_f%03d_full.pkl' % (gdas_pickle_indir, year, month, day, pressure_level, year, month, day, hour, forecast_hour)
+    fronts_file = '%s\\%s\\%s\\%s\\FrontObjects_%s_full.pkl' % (fronts_netcdf_indir, forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep)
+    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_f%03d_full.pkl' % (gdas_netcdf_indir, year, month, day, pressure_level, year, month, day, hour, forecast_hour)
 
     # Open the files, and slice the datasets if 'slice_dataset' is True
     fronts_dataset = pd.read_pickle(fronts_file)
@@ -294,7 +221,7 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
 
         # Interval at which to plot the wind barbs. This value divided by 4 equals the spatial grid on which the barbs are plotted.
         # ex: if step equals 8, the barbs are plotted on an 8/4 degree x 8/4 degree (2 degree x 2 degree) grid.
-        step = 32
+        step = 4
 
         lons_barbs = gdas_dataset['longitude'].values[::step]
         lats_barbs = gdas_dataset['latitude'].values[::step]
@@ -313,7 +240,7 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_pick
     plt.close()
 
 
-def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_indir, fronts_pickle_indir, image_outdir, forecast_hour=6):
+def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_netcdf_indir, fronts_netcdf_indir, image_outdir, forecast_hour=6):
     """
     Create an analysis with GDAS data at a given timestep and pressure level.
 
@@ -327,9 +254,9 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
         Pressure level in hPa.
     extent: iterable
         Extent of the plot: [MIN_LON, MAX_LON, MIN_LAT, MAX_LAT]
-    gdas_pickle_indir: str
+    gdas_netcdf_indir: str
         Input directory for pickle files containing GDAS data.
-    fronts_pickle_indir: str
+    fronts_netcdf_indir: str
         Input directory for pickle files containing frontal objects.
     image_outdir: str
         Output directory for the soundings.
@@ -340,8 +267,8 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
     timestep = '%d%02d%02d%02d' % (year, month, day, hour)
     forecast_timestep = data_utils.add_or_subtract_hours_to_timestep(timestep, forecast_hour)
 
-    fronts_file = '%s\\%s\\%s\\%s\\FrontObjects_%s_full.pkl' % (fronts_pickle_indir, forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep)
-    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_f%03d_full.pkl' % (gdas_pickle_indir, year, month, day, pressure_level, year, month, day, hour, forecast_hour)
+    fronts_file = '%s\\%s\\%s\\%s\\FrontObjects_%s_full.pkl' % (fronts_netcdf_indir, forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep)
+    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_f%03d_full.pkl' % (gdas_netcdf_indir, year, month, day, pressure_level, year, month, day, hour, forecast_hour)
 
     fronts_dataset = pd.read_pickle(fronts_file)
     gdas_dataset = pd.read_pickle(gdas_file)
@@ -422,7 +349,7 @@ def gdas_analysis(year, month, day, hour, pressure_level, extent, gdas_pickle_in
     plt.close()
 
 
-def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts_pickle_indir, image_outdir, slice_dataset=False, add_wind_barbs=False):
+def era5_map(year, month, day, hour, variable, extent, era5_netcdf_indir, fronts_netcdf_indir, image_outdir, slice_dataset=False, add_wind_barbs=True):
     """
     Plot variable in ERA5 data.
 
@@ -436,9 +363,9 @@ def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts
         Variable to plot.
     extent: iterable
         Extent of the plot: [MIN_LON, MAX_LON, MIN_LAT, MAX_LAT]
-    era5_pickle_indir: str
+    era5_netcdf_indir: str
         Input directory for pickle files containing ERA5 data.
-    fronts_pickle_indir: str
+    fronts_netcdf_indir: str
         Input directory for pickle files containing frontal objects.
     image_outdir: str
         Output directory for the soundings.
@@ -449,56 +376,62 @@ def era5_map(year, month, day, hour, variable, extent, era5_pickle_indir, fronts
         Plot wind barbs.
     """
 
-    fronts_file = '%s\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.pkl' % (fronts_pickle_indir, year, month, day, year, month, day, hour)
-    era5_file = '%s\\%d\\%02d\\%02d\\Data_60var_%d%02d%02d%02d_full.pkl' % (era5_pickle_indir, year, month, day, year, month, day, hour)
+    fronts_file = '%s\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_indir, year, month, day, year, month, day, hour)
+    era5_file = '%s\\%d\\%02d\\%02d\\era5_%d%02d%02d%02d_full.nc' % (era5_netcdf_indir, year, month, day, year, month, day, hour)
 
     # Open the files, and slice the datasets if 'slice_dataset' is True
-    fronts_dataset = pd.read_pickle(fronts_file)
-    era5_dataset = pd.read_pickle(era5_file)
+    fronts_dataset = xr.open_dataset(fronts_file)
+    era5_dataset = xr.open_dataset(era5_file).sel(pressure_level=str(args.pressure_level)).isel(time=0)
     if slice_dataset:
         min_lon, max_lon, min_lat, max_lat = extent[0], extent[1], extent[2], extent[3]
         fronts_dataset = fronts_dataset.isel(latitude=slice(int((80-max_lat)*4), int((80-min_lat)*4)), longitude=slice(int((min_lon-130)*4), int((max_lon-130)*4)))
         era5_dataset = era5_dataset.isel(latitude=slice(int((80-max_lat)*4), int((80-min_lat)*4)), longitude=slice(int((min_lon-130)*4), int((max_lon-130)*4)))
 
     variable_dataset = era5_dataset[variable]
+    pressure_dataset = era5_dataset['sp_z']
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 6), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=250)})
     plotting_utils.plot_background(extent, ax=ax, linewidth=0.2)  # Plot the background with country and state borders
-    fronts_dataset, names, _, colors_types, _ = data_utils.reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
+    fronts_dataset, labels = data_utils.reformat_fronts(['CF', 'WF', 'SF', 'OF'], fronts_dataset)  # Return colors and names for the front types for making the colorbar
     fronts_dataset = data_utils.expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
     fronts_dataset = fronts_dataset['identifier'].where(fronts_dataset['identifier'] > 0)  # Turn all zeros to NaNs so they don't show up in the plot
 
+    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
+    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in labels]
+
     """ Add colorbar for fronts """
-    cmap_fronts = ListedColormap(colors_types, name='from_list', N=len(names))  # Colormap for fronts
-    norm_fronts = Normalize(vmin=1, vmax=len(names) + 1)  # Colorbar normalization
-    plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts)  # Create the colorbar
+    cmap_fronts = ListedColormap(front_colors_by_type, name='from_list', N=len(front_names_by_type))  # Colormap for fronts
+    norm_fronts = Normalize(vmin=1, vmax=len(front_names_by_type) + 1)  # Colorbar normalization
+    plotting_utils.create_colorbar_for_fronts(front_names_by_type, cmap_fronts, norm_fronts)  # Create the colorbar
 
     if add_wind_barbs:
         # Interval at which to plot the wind barbs. This value divided by 4 equals the spatial grid on which the barbs are plotted.
         # ex: if step equals 8, the barbs are plotted on an 8/4 degree x 8/4 degree (2 degree x 2 degree) grid.
-        step = 16
+        step = 4
 
         # Wind values are converted from meters per second to knots
         # 1.94384 knots = 1 meter per second
-        u_wind = era5_dataset['u10'].values[::step, ::step] * 1.94384
-        v_wind = era5_dataset['v10'].values[::step, ::step] * 1.94384
+        u_wind = era5_dataset['u'].values[::step, ::step] * 1.94384
+        v_wind = era5_dataset['v'].values[::step, ::step] * 1.94384
 
         lons_barbs = era5_dataset['longitude'].values[::step]
         lats_barbs = era5_dataset['latitude'].values[::step]
 
         ax.barbs(lons_barbs, lats_barbs, u_wind, v_wind, color='black', length=4, linewidth=0.3, sizes={'height': 0.5, 'width': 0}, transform=ccrs.PlateCarree())
 
-    variable_dataset.plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(), levels=10, cmap='hot', cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})  # Plot ERA5 variable
+    variable_dataset.plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.8, transform=ccrs.PlateCarree(), levels=20, cmap='terrain_r', cbar_kwargs={'label': '2m AGL Mixing Ratio [$g_{H_{2}O}/kg_{air}$]',
+                                                                                                                                                          'pad': 0.015})  # Plot ERA5 variable
+
+    # pressure_dataset.plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), levels=30, colors='black')  # Plot ERA5 variable
+
     fronts_dataset.plot(ax=ax, x='longitude', y='latitude',  extend='neither', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
 
-    ax.set_title('', loc='center')
-    ax.set_title(f"ERA5 re-analysis: {variable}", loc='left', fontsize=6, pad=3)
-    ax.set_title(f"Valid: {year}-%02d-%02d-%02dz" % (month, day, hour), loc='right', fontsize=6, pad=3)
+    ax.set_title(f"ERA5 near-surface analysis and analyzed fronts: {year}-%02d-%02d-%02dz" % (month, day, hour), pad=4)
     plt.savefig('%s\\era5_%s_%d%02d%02d%02d.png' % (image_outdir, variable, year, month, day, hour), dpi=500, bbox_inches='tight')
     plt.close()
 
 
-def fronts_only(year, month, day, hour, extent, fronts_pickle_indir, image_outdir, slice_dataset=False):
+def fronts_only(year, month, day, hour, extent, fronts_netcdf_indir, image_outdir, slice_dataset=False):
     """
     Plot variable in ERA5 data.
 
@@ -510,7 +443,7 @@ def fronts_only(year, month, day, hour, extent, fronts_pickle_indir, image_outdi
     hour: hour
     extent: iterable
         Extent of the plot: [MIN_LON, MAX_LON, MIN_LAT, MAX_LAT]
-    fronts_pickle_indir: str
+    fronts_netcdf_indir: str
         Input directory for pickle files containing frontal objects.
     image_outdir: str
         Output directory for the soundings.
@@ -519,7 +452,7 @@ def fronts_only(year, month, day, hour, extent, fronts_pickle_indir, image_outdi
         but the plot will be zoomed in around the given extent.
     """
 
-    fronts_file = '%s\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.pkl' % (fronts_pickle_indir, year, month, day, year, month, day, hour)
+    fronts_file = '%s\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.pkl' % (fronts_netcdf_indir, year, month, day, year, month, day, hour)
 
     # Open the files, and slice the datasets if 'slice_dataset' is True
     fronts_dataset = pd.read_pickle(fronts_file)
@@ -554,12 +487,10 @@ if __name__ == '__main__':
     parser.add_argument('--gdas_map', action='store_true', help='Plot GDAS data over a domain')
     parser.add_argument('--gdas_analysis', action='store_true', help='GDAS analysis over a domain')
     parser.add_argument('--pressure_level', default='surface', help="Pressure level (hPa) or 'surface'.")
-    parser.add_argument('--gdas_sounding', action='store_true', help='Plot GDAS sounding at a given point.')
-    parser.add_argument('--gdas_pickle_indir', type=str, help='Input directory for the GDAS pickle files.')
-    parser.add_argument('--sounding_coords', type=float, nargs=2, help='Coordinates for the GDAS sounding. [Lat, Lon]')
+    parser.add_argument('--gdas_netcdf_indir', type=str, help='Input directory for the GDAS pickle files.')
     parser.add_argument('--era5_map', action='store_true', help='Plot ERA5 data over a domain')
-    parser.add_argument('--era5_pickle_indir', type=str, help='Input directory for the ERA5 pickle files.')
-    parser.add_argument('--fronts_pickle_indir', type=str, help='Input directory for the front object files.')
+    parser.add_argument('--era5_netcdf_indir', type=str, help='Input directory for the ERA5 pickle files.')
+    parser.add_argument('--fronts_netcdf_indir', type=str, help='Input directory for the front object files.')
     parser.add_argument('--variable', type=str, help='Variable to plot')
     parser.add_argument('--extent', type=float, nargs=4, help='Extent of the plot. [MIN_LON, MAX_LON, MIN_LAT, MAX_LAT]')
     parser.add_argument('--station_plot', action='store_true', help='Generate map of ASOS station plots across the CONUS.')
@@ -577,34 +508,28 @@ if __name__ == '__main__':
         args.pressure_level = int(args.pressure_level)
 
     if args.frequency_plots:
-        required_arguments = ['fronts_pickle_indir', 'image_outdir']
+        required_arguments = ['fronts_netcdf_indir', 'image_outdir']
         check_arguments(provided_arguments, required_arguments)
-        frequency_plots(args.fronts_pickle_indir, args.image_outdir)
+        frequency_plots(args.fronts_netcdf_indir, args.image_outdir)
 
     if args.gdas_map:
-        required_arguments = ['gdas_pickle_indir', 'fronts_pickle_indir', 'variable', 'pressure_level', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
+        required_arguments = ['gdas_netcdf_indir', 'fronts_netcdf_indir', 'variable', 'pressure_level', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
         check_arguments(provided_arguments, required_arguments)
-        gdas_map(args.year, args.month, args.day, args.hour, args.variable, args.pressure_level, args.extent, args.gdas_pickle_indir,
-                 args.fronts_pickle_indir, args.image_outdir)
+        gdas_map(args.year, args.month, args.day, args.hour, args.variable, args.pressure_level, args.extent, args.gdas_netcdf_indir,
+                 args.fronts_netcdf_indir, args.image_outdir)
 
     if args.gdas_analysis:
-        required_arguments = ['gdas_pickle_indir', 'fronts_pickle_indir', 'pressure_level', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
+        required_arguments = ['gdas_netcdf_indir', 'fronts_netcdf_indir', 'pressure_level', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
         check_arguments(provided_arguments, required_arguments)
-        gdas_analysis(args.year, args.month, args.day, args.hour, args.pressure_level, args.extent, args.gdas_pickle_indir,
-                      args.fronts_pickle_indir, args.image_outdir)
-
-    if args.gdas_sounding:
-        required_arguments = ['gdas_pickle_indir', 'sounding_coords', 'image_outdir', 'year', 'month', 'day', 'hour']
-        check_arguments(provided_arguments, required_arguments)
-        lat, lon = args.sounding_coords[0], args.sounding_coords[1]
-        gdas_sounding(args.year, args.month, args.day, args.hour, lat, lon, args.gdas_pickle_indir, args.image_outdir)
+        gdas_analysis(args.year, args.month, args.day, args.hour, args.pressure_level, args.extent, args.gdas_netcdf_indir,
+                      args.fronts_netcdf_indir, args.image_outdir)
 
     if args.era5_map:
-        required_arguments = ['era5_pickle_indir', 'fronts_pickle_indir', 'variable', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
+        required_arguments = ['era5_netcdf_indir', 'fronts_netcdf_indir', 'variable', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
         check_arguments(provided_arguments, required_arguments)
-        era5_map(args.year, args.month, args.day, args.hour, args.variable, args.extent, args.era5_pickle_indir, args.fronts_pickle_indir, args.image_outdir)
+        era5_map(args.year, args.month, args.day, args.hour, args.variable, args.extent, args.era5_netcdf_indir, args.fronts_netcdf_indir, args.image_outdir)
 
     if args.fronts_only:
-        required_arguments = ['fronts_pickle_indir', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
+        required_arguments = ['fronts_netcdf_indir', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
         check_arguments(provided_arguments, required_arguments)
-        fronts_only(args.year, args.month, args.day, args.hour, args.extent, args.fronts_pickle_indir, args.image_outdir)
+        fronts_only(args.year, args.month, args.day, args.hour, args.extent, args.fronts_netcdf_indir, args.image_outdir)
