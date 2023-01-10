@@ -2,8 +2,7 @@
 Default settings
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 12/18/2022 9:11 PM CT
+Last updated: 1/10/2023 5:42 PM CT
 """
 
 DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains
@@ -22,7 +21,7 @@ DEFAULT_CONTOUR_CMAPS = {'CF': 'Blues', 'WF': 'Reds', 'SF': 'Greens', 'OF': 'Pur
                          'SF-F': 'Greens', 'OF-F': 'Purples', 'CF-D': 'Blues', 'WF-D': 'Reds', 'SF-D': 'Greens', 'OF-D': 'Purples',
                          'OFB': 'YlOrBr', 'TROF': 'YlOrRed', 'TT': 'Oranges', 'DL': 'copper_r', 'CF-WF-SF-OF': 'Reds', 'CF_any': 'Blues',
                          'WF_any': 'Reds', 'SF_any': 'Greens', 'OF_any': 'Purples', 'CF-WF-SF-OF_any': 'Greys', 'TR_any': 'YlOrBr',
-                         'F_BIN': 'Reds'}
+                         'F_BIN': 'Greys'}
 
 # names of front types
 DEFAULT_FRONT_NAMES = {'CF': 'Cold front', 'WF': 'Warm front', 'SF': 'Stationary front', 'OF': 'Occluded front', 'CF-F': 'Cold front (forming)',
