@@ -2,15 +2,18 @@
 Code for generating various plots:
     - ERA5/GDAS variable maps with fronts
     - Frequency plots
-    - GDAS soundings
     - NCEP front analysis
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 12/24/2022 7:34 PM CDT
+Last updated: 1/10/2023 5:44 PM CT
 
-TODO: Simplify code, everything is messy
+TODO:
+    * Simplify code, everything is messy
+    * Remove GDAS analysis and sounding code
+    * Update documentation
 """
 
+import matplotlib
 from matplotlib.colors import Normalize, ListedColormap
 import xarray as xr
 from utils import plotting_utils, data_utils, settings
@@ -149,7 +152,7 @@ def frequency_plots(fronts_netcdf_indir, image_outdir):
     plt.close()
 
 
-def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_netcdf_indir, fronts_netcdf_indir, image_outdir, forecast_hour=6, slice_dataset=False, add_wind_barbs=True):
+def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_netcdf_indir, fronts_netcdf_indir, image_outdir, forecast_hour=0, slice_dataset=True, add_wind_barbs=True):
     """
     Plot variable in GDAS data.
 
@@ -183,27 +186,27 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_netc
     timestep = '%d%02d%02d%02d' % (year, month, day, hour)
     forecast_timestep = data_utils.add_or_subtract_hours_to_timestep(timestep, forecast_hour)
 
-    fronts_file = '%s\\%s\\%s\\%s\\FrontObjects_%s_full.pkl' % (fronts_netcdf_indir, forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep)
-    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%s_%d%02d%02d%02d_f%03d_full.pkl' % (gdas_netcdf_indir, year, month, day, pressure_level, year, month, day, hour, forecast_hour)
+    fronts_file = '%s\\%s\\%s\\%s\\FrontObjects_%s_full.nc' % (fronts_netcdf_indir, forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep)
+    gdas_file = '%s\\%d\\%02d\\%02d\\gdas_%d%02d%02d%02d_f%03d_full.nc' % (gdas_netcdf_indir, year, month, day, year, month, day, hour, forecast_hour)
 
     # Open the files, and slice the datasets if 'slice_dataset' is True
-    fronts_dataset = pd.read_pickle(fronts_file)
-    gdas_dataset = pd.read_pickle(gdas_file)
+    fronts_dataset = xr.open_dataset(fronts_file)
+    gdas_dataset = xr.open_dataset(gdas_file).sel(pressure_level=pressure_level, forecast_hour=0).isel(time=0)
     if slice_dataset:
-        min_lon, max_lon, min_lat, max_lat = extent[0], extent[1], extent[2], extent[3]
-        fronts_dataset = fronts_dataset.isel(latitude=slice(int((80-max_lat)*4), int((80-min_lat)*4)), longitude=slice(int((min_lon-130)*4), int((max_lon-130)*4)))
-        gdas_dataset = gdas_dataset.isel(latitude=slice(int((80-max_lat)*4), int((80-min_lat)*4)), longitude=slice(int((min_lon-130)*4), int((max_lon-130)*4)))
+        fronts_dataset = fronts_dataset.sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
+        gdas_dataset = gdas_dataset.sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 6), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=250)})
     plotting_utils.plot_background(extent, ax=ax)  # Plot the background with country and state borders
-    fronts_dataset, names, _, colors_types, _ = data_utils.reformat_fronts(fronts_dataset, front_types='ALL', return_colors=True, return_names=True)  # Return colors and names for the front types for making the colorbar
-    fronts_dataset = data_utils.expand_fronts(fronts_dataset)  # Expand the fronts by one pixel in all direction
+    fronts_dataset = data_utils.reformat_fronts(fronts_dataset, front_types=['SF', 'OF'])  # Return colors and names for the front types for making the colorbar
     fronts_dataset = fronts_dataset['identifier'].where(fronts_dataset['identifier'] > 0)  # Turn all zeros to NaNs so they don't show up in the plot
 
     """ Add colorbar for fronts """
-    cmap_fronts = ListedColormap(colors_types, name='from_list', N=len(names))  # Colormap for fronts
-    norm_fronts = Normalize(vmin=1, vmax=len(names) + 1)  # Colorbar normalization
-    plotting_utils.create_colorbar_for_fronts(names, cmap_fronts, norm_fronts)  # Create the colorbar
+    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in ['SF', 'OF']]
+    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in ['SF', 'OF']]
+
+    cmap_front = matplotlib.colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
+    norm_front = matplotlib.colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
     height_contours = ANALYSIS_PRESSURE_CONTOURS[pressure_level]  # Select height contours for the given pressure level
 
@@ -213,15 +216,15 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_netc
         pressure_variable = 'z'
 
     # gdas_dataset[pressure_variable].plot.contour(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), linewidths=0.6, levels=height_contours, colors='black')  # Plot height contours
-    gdas_dataset[variable].plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(), levels=20, cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})  # Plot GDAS variable contours
-    fronts_dataset.plot(ax=ax, x='longitude', y='latitude', cmap=cmap_fronts, norm=norm_fronts, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
+    # gdas_dataset[variable].plot.contourf(ax=ax, x='longitude', y='latitude', alpha=0.5, transform=ccrs.PlateCarree(), levels=20, cbar_kwargs={'orientation': 'horizontal', 'shrink': 0.5})  # Plot GDAS variable contours
+    fronts_dataset.plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)  # Plot fronts
 
     # Plot wind barbs
     if add_wind_barbs:
 
         # Interval at which to plot the wind barbs. This value divided by 4 equals the spatial grid on which the barbs are plotted.
         # ex: if step equals 8, the barbs are plotted on an 8/4 degree x 8/4 degree (2 degree x 2 degree) grid.
-        step = 4
+        step = 8
 
         lons_barbs = gdas_dataset['longitude'].values[::step]
         lats_barbs = gdas_dataset['latitude'].values[::step]
@@ -230,6 +233,8 @@ def gdas_map(year, month, day, hour, variable, pressure_level, extent, gdas_netc
         # 1.94384 knots = 1 meter per second
         u_wind = gdas_dataset['u'].values[::step, ::step] * 1.94384
         v_wind = gdas_dataset['v'].values[::step, ::step] * 1.94384
+
+        print(np.shape(lons_barbs), np.shape(lats_barbs), np.shape(u_wind), np.shape(v_wind))
 
         ax.barbs(lons_barbs, lats_barbs, u_wind, v_wind, color='black', length=4, linewidth=0.3, sizes={'height': 0.5, 'width': 0}, transform=ccrs.PlateCarree())
 
