@@ -59,6 +59,6 @@ def create_colorbar_for_fronts(names, cmap, norm, axis_loc=(0.8465, 0.11, 0.015,
     """
     number_of_front_types = len(names)
     cbar_ax = plt.axes(axis_loc)  # Create an axis for the colorbar to the right of the plot
-    cbar = plt.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax)  # Create the colorbar
+    cbar = plt.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax, orientation='horizontal')  # Create the colorbar
     cbar.set_ticks(np.arange(1, number_of_front_types + 1) + 0.5)  # Place ticks in the middle of each color
     cbar.set_ticklabels([name.replace(' front', '') for name in names])  # Label each tick with its respective front type
