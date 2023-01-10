@@ -2,7 +2,10 @@
 Functions in this code manage data files.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 11/30/2022 10:26 PM CT
+Last updated: 1/10/2022 5:39 PM CT
+
+TODO:
+    * Condense functions into one???? (too much repetitive code)
 """
 
 from glob import glob
@@ -986,6 +989,255 @@ class GFSfiles:
         self.front_files = front_files_list
 
         self.__sort_files_by_dataset(gfs_timesteps_used)  # Modify lists for training, validation, and test datasets
+
+
+class SpatialCSIfiles:
+    """
+    Object that loads and manages netCDF files containing model predictions and front files
+    """
+    def __init__(self, model_number: int, model_dir: str, domain: str, domain_images: tuple, domain_trim=(0, 0), variable_data_source='era5', forecast_hour=None):
+        """
+        When the SpatialCSIfiles object is created, open all model prediction netCDF files
+        """
+
+        self.__variable_data_source = variable_data_source
+        self.__forecast_hour = forecast_hour
+        self.probs_dir = f"%s/model_%d/probabilities/{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim" % (model_dir, model_number)
+
+        if variable_data_source != 'era5':
+            self._all_probs_netcdf_files = sorted(glob(f"%s/model_{model_number}*{domain}_{variable_data_source}_f%03d_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities*.nc" % (self.probs_dir, forecast_hour)))  # All probability files without filtering
+        else:
+            self._all_probs_netcdf_files = sorted(glob(f"%s/model_{model_number}*{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities*.nc" % self.probs_dir))  # All probability files without filtering
+
+        ### All available options for specific filters ###
+        self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
+
+        self.reset_all_filters()  # Resetting the filters simply creates the probability file lists
+
+        ### Current values for the filters used in the files ###
+        self._training_years = self._all_years
+        self._validation_years = self._all_years
+        self._test_years = self._all_years
+
+    def reset_all_filters(self):
+        """
+        Reset the lists of probs netCDF files and front object files
+        """
+
+        self.probs_files = self._all_probs_netcdf_files
+        self.probs_files_training = [probs_file for probs_file in self._all_probs_netcdf_files if any('_%s' % str(year) in probs_file for year in self._all_years[:11])]
+        self.probs_files_validation = [probs_file for probs_file in self._all_probs_netcdf_files if any('_%s' % str(year) in probs_file for year in self._all_years[11:14])]
+        self.probs_files_test = [probs_file for probs_file in self._all_probs_netcdf_files if any('_%s' % str(year) in probs_file for year in self._all_years[14:])]
+
+        ### If front files have been loaded to be paired with probs files, reset the front file lists ###
+        if hasattr(self, '_all_front_files'):
+            self.front_files = self._all_front_files
+            self.front_files_training = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[:11])]
+            self.front_files_validation = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[11:14])]
+            self.front_files_test = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[14:])]
+
+    ####################################################################################################################
+
+    def __get_training_years(self):
+        """
+        Return the list of training years used
+        """
+
+        return self._training_years
+
+    def __set_training_years(self, training_years: tuple or list):
+        """
+        Select the training years to load
+        """
+
+        self.__reset_training_years()  # Return file list to last state before training years were modified (no effect is this is first training year selection)
+
+        self._training_years = training_years
+
+        ### Check that all selected probs training years are valid ###
+        invalid_training_years = [year for year in training_years if year not in self._all_years]
+        if len(invalid_training_years) > 0:
+            raise TypeError(f"The following training years are not valid: {','.join(sorted(invalid_training_years))}")
+
+        self._training_years_not_in_data = [year for year in self._all_years if year not in training_years]
+
+        ### Remove unwanted years from the list of files ###
+        for year in self._training_years_not_in_data:
+            self.probs_files_training = [file for file in self.probs_files_training if '_%s' % str(year) not in file]
+
+    def __reset_training_years(self):
+        """
+        Reset training years in the probs files
+        """
+
+        if not hasattr(self, '_filtered_probs_files_before_training_year_selection'):  # If the training_years have not been selected yet
+            self._filtered_probs_files_before_training_year_selection = self.probs_files_training
+        else:
+            self.probs_files_training = self._filtered_probs_files_before_training_year_selection  # Return file list to last state before training_years were modified
+
+    training_years = property(__get_training_years, __set_training_years)  # Property method for setting training years
+
+    ####################################################################################################################
+
+    def __get_validation_years(self):
+        """
+        Return the list of validation years used
+        """
+
+        return self._validation_years
+
+    def __set_validation_years(self, validation_years: tuple or list):
+        """
+        Select the validation years to load
+        """
+
+        self.__reset_validation_years()  # Return file list to last state before validation years were modified (no effect is this is first validation year selection)
+
+        self._validation_years = validation_years
+
+        ### Check that all selected probs validation years are valid ###
+        invalid_validation_years = [year for year in validation_years if year not in self._all_years]
+        if len(invalid_validation_years) > 0:
+            raise TypeError(f"The following validation years are not valid: {','.join(sorted(invalid_validation_years))}")
+
+        self._validation_years_not_in_data = [year for year in self._all_years if year not in validation_years]
+
+        ### Remove unwanted years from the list of files ###
+        for year in self._validation_years_not_in_data:
+            self.probs_files_validation = [file for file in self.probs_files_validation if '_%s' % str(year) not in file]
+
+    def __reset_validation_years(self):
+        """
+        Reset validation years in the probs files
+        """
+
+        if not hasattr(self, '_filtered_probs_files_before_validation_year_selection'):  # If the validation_years have not been selected yet
+            self._filtered_probs_files_before_validation_year_selection = self.probs_files_validation
+        else:
+            self.probs_files_validation = self._filtered_probs_files_before_validation_year_selection  # Return file list to last state before validation_years were modified
+
+    validation_years = property(__get_validation_years, __set_validation_years)  # Property method for setting validation years
+
+    ####################################################################################################################
+
+    def __get_test_years(self):
+        """
+        Return the list of test years used
+        """
+
+        return self._test_years
+
+    def __set_test_years(self, test_years: tuple or list):
+        """
+        Select the test years to load
+        """
+
+        self.__reset_test_years()  # Return file list to last state before test years were modified (no effect is this is first test year selection)
+
+        self._test_years = test_years
+
+        ### Check that all selected probs test years are valid ###
+        invalid_test_years = [year for year in test_years if year not in self._all_years]
+        if len(invalid_test_years) > 0:
+            raise TypeError(f"The following test years are not valid: {','.join(sorted(invalid_test_years))}")
+
+        self._test_years_not_in_data = [year for year in self._all_years if year not in test_years]
+
+        ### Remove unwanted years from the list of files ###
+        for year in self._test_years_not_in_data:
+            self.probs_files_test = [file for file in self.probs_files_test if '_%s' % str(year) not in file]
+
+    def __reset_test_years(self):
+        """
+        Reset test years in the probs files
+        """
+
+        if not hasattr(self, '_filtered_probs_files_before_test_year_selection'):  # If the test_years have not been selected yet
+            self._filtered_probs_files_before_test_year_selection = self.probs_files_test
+        else:
+            self.probs_files_test = self._filtered_probs_files_before_test_year_selection  # Return file list to last state before test_years were modified
+
+    test_years = property(__get_test_years, __set_test_years)  # Property method for setting test years
+
+    ####################################################################################################################
+
+    def __sort_files_by_dataset(self, probs_timesteps_used, sort_fronts=False):
+        """
+        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'probs_timesteps_used' list.
+
+        probs_timesteps_used: list
+            List of timesteps used when sorting probs and/or frontal object files.
+        sort_fronts: bool
+            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both probs and frontal object files at the
+            same time.
+        """
+
+        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected probs files ###
+        training_indices = [index for index, timestep in enumerate(probs_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
+        validation_indices = [index for index, timestep in enumerate(probs_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
+        test_indices = [index for index, timestep in enumerate(probs_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
+
+        ### Create new probs file lists for training, validation, and test datasets using the indices pulled from above ###
+        self.probs_files_training = [self.probs_files[index] for index in training_indices]
+        self.probs_files_validation = [self.probs_files[index] for index in validation_indices]
+        self.probs_files_test = [self.probs_files[index] for index in test_indices]
+
+        if sort_fronts:
+            ### Create new frontal object file lists for training, validation, and test datasets using the indices pulled from above ###
+            self.front_files_training = [self.front_files[index] for index in training_indices]
+            self.front_files_validation = [self.front_files[index] for index in validation_indices]
+            self.front_files_test = [self.front_files[index] for index in test_indices]
+
+    def pair_with_fronts(self, front_indir, synoptic_only=True, sort_fronts=False):
+        """
+        Pair all of the probs timesteps with frontal object files containing timesteps for the given forecast hours
+
+        front_indir: str
+            - Directory where the frontal object files are stored.
+        synoptic_only: bool
+            - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
+        """
+
+        self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
+        self.front_files = self._all_front_files
+
+        front_files_list = []
+        probs_files_list = []
+        timesteps_in_probs_files = []
+
+        ### Find all timesteps in the probs files ###
+        for j in range(len(self.probs_files)):
+            timestep_str = self.probs_files[j].replace(self.probs_dir, '')[15:28]
+            timesteps_in_probs_files.append(timestep_str)
+
+        unique_timesteps_in_probs_files = list(np.unique(timesteps_in_probs_files))
+        unique_forecast_timesteps = []
+
+        ### Filter out non-synotpic hours (3, 9, 15, 21z) ###
+        for unique_timestep in unique_timesteps_in_probs_files:
+            if synoptic_only and any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
+                unique_timesteps_in_probs_files.pop(unique_timesteps_in_probs_files.index(unique_timestep))
+            if self.__forecast_hour is not None and self.__variable_data_source != 'era5':
+                unique_forecast_timesteps.append(data_utils.add_or_subtract_hours_to_timestep(unique_timestep.replace('-', ''), self.__forecast_hour))
+            else:
+                unique_forecast_timesteps.append(unique_timestep.replace('-', ''))
+
+        # List of probs timesteps used when adding files to the final list. If an incomplete set of probs or front files was discovered for a
+        # timestep in 'unique_timesteps_in_probs_files', then the files for that timestep will not be added to the final list.
+        probs_timesteps_used = []
+
+        for probs_timestep, forecast_timestep in zip(unique_timesteps_in_probs_files, unique_forecast_timesteps):
+            probs_files_for_timestep = list(filter(lambda filename: probs_timestep in filename, self.probs_files))
+            front_file_for_timestep = list(filter(lambda filename: forecast_timestep in filename, self.front_files))
+            if len(front_file_for_timestep) == 1:
+                probs_files_list.append(probs_files_for_timestep[0])
+                front_files_list.append(front_file_for_timestep[0])
+                probs_timesteps_used.append(probs_timestep)
+
+        self.probs_files = probs_files_list
+        self.front_files = front_files_list
+
+        self.__sort_files_by_dataset(probs_timesteps_used, sort_fronts)  # Modify lists for training, validation, and test datasets
 
 
 def extract_gdas_tarfile(gdas_tar_indir: str, gdas_grib_outdir: str, year: int, month: int, day: int, string_to_find: str = None, remove_tarfile: bool = True):
