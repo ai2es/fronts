@@ -2,9 +2,12 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 12/24/2022 5:55 PM CT
+Last updated: 1/10/2022 5:38 PM CT
 
-TODO: Clean up code (much needed)
+TODO:
+    * Clean up code (much needed)
+    * Remove the need for separate pickle files to be generated for spatial CSI maps
+    * Add more documentation
 """
 
 import itertools
@@ -22,7 +25,8 @@ from errors import check_arguments
 import tensorflow as tf
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
 from matplotlib.animation import FuncAnimation
-from utils import data_utils, settings
+from matplotlib.ticker import FixedLocator
+from utils import data_utils, settings, plotting_utils
 from utils.plotting_utils import plot_background
 from glob import glob
 from matplotlib.font_manager import FontProperties
@@ -230,41 +234,25 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
 
     fronts_ds = xr.open_dataset(fronts_file).isel(longitude=slice(settings.DEFAULT_DOMAIN_INDICES[domain][0], settings.DEFAULT_DOMAIN_INDICES[domain][1]),
                                                   latitude=slice(settings.DEFAULT_DOMAIN_INDICES[domain][2], settings.DEFAULT_DOMAIN_INDICES[domain][3]))
-    fronts_ds, _ = data_utils.reformat_fronts(front_types, fronts_ds)
+    fronts_ds = data_utils.reformat_fronts(fronts_ds, front_types)
+    num_front_types = fronts_ds.attrs['num_types']
 
     probs_ds = xr.open_dataset(probs_file)
-
-    if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
-        num_front_types = 1
-
-    elif front_types == 'MERGED-F':
-        num_front_types = 4
-
-    elif front_types == 'MERGED-ALL':
-        num_front_types = 7
-
-    else:
-        num_front_types = len(front_types)
-
-    if type(front_types) == str:
-        front_types = [front_types, ]
-
-    if len(front_types) == 1:
-        front_types_arg_reformat = front_types[0]
-    else:
-        front_types_arg_reformat = front_types
 
     bool_tn_fn_dss = dict({front: xr.where(fronts_ds == front_no + 1, 1, 0)['identifier'] for front_no, front in enumerate(front_types)})
     bool_tp_fp_dss = dict({front: None for front in front_types})
     probs_dss = dict({front: probs_ds[front] for front in front_types})
 
-    tp_array = np.zeros(shape=[num_front_types, 5, 100])
-    fp_array = np.zeros(shape=[num_front_types, 5, 100])
-    tn_array = np.zeros(shape=[num_front_types, 5, 100])
-    fn_array = np.zeros(shape=[num_front_types, 5, 100])
+    # Cumulative statistics arrays (no spatial dimension)
+    tp_array = np.zeros(shape=[num_front_types, 5, 100]).astype('int32')
+    fp_array = np.zeros(shape=[num_front_types, 5, 100]).astype('int32')
+    tn_array = np.zeros(shape=[num_front_types, 5, 100]).astype('int32')
+    fn_array = np.zeros(shape=[num_front_types, 5, 100]).astype('int32')
 
     thresholds = np.linspace(0.01, 1, 100)  # Probability thresholds for calculating performance statistics
     boundaries = np.array([50, 100, 150, 200, 250])  # Boundaries for checking whether or not a front is present (kilometers)
+
+    performance_ds = xr.Dataset(coords={'boundary': boundaries, 'threshold': thresholds})
 
     for front_no, front_type in enumerate(front_types):
         for i in range(100):
@@ -279,7 +267,7 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
         for boundary in range(5):
             new_fronts_ds = xr.open_dataset(fronts_file).isel(longitude=slice(settings.DEFAULT_DOMAIN_INDICES[domain][0], settings.DEFAULT_DOMAIN_INDICES[domain][1]),
                                                               latitude=slice(settings.DEFAULT_DOMAIN_INDICES[domain][2], settings.DEFAULT_DOMAIN_INDICES[domain][3]))
-            new_fronts, _ = data_utils.reformat_fronts(front_types_arg_reformat, new_fronts_ds)
+            new_fronts = data_utils.reformat_fronts(new_fronts_ds, front_types)
             front_identifier = data_utils.expand_fronts(new_fronts, iterations=int(2*(boundary+1)))  # Expand fronts
             bool_tp_fp_dss[front_type] = xr.where(front_identifier == front_no + 1, 1, 0)['identifier']  # 1 = cold front, 0 = not a cold front
             for i in range(100):
@@ -290,17 +278,10 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
                 tp_array[front_no, boundary, i] = len(np.where((probs_dss[front_type] > thresholds[i]) & (bool_tp_fp_dss[front_type] == 1))[0])
                 fp_array[front_no, boundary, i] = len(np.where((probs_dss[front_type] > thresholds[i]) & (bool_tp_fp_dss[front_type] == 0))[0])
 
-        if front_no == 0:
-            performance_ds = xr.Dataset({"tp_%s" % front_type: (["boundary", "threshold"], tp_array[front_no]),
-                                         "fp_%s" % front_type: (["boundary", "threshold"], fp_array[front_no]),
-                                         "tn_%s" % front_type: (["boundary", "threshold"], tn_array[front_no]),
-                                         "fn_%s" % front_type: (["boundary", "threshold"], fn_array[front_no])},
-                                        coords={"boundary": boundaries, "threshold": thresholds})
-        else:
-            performance_ds["tp_%s" % front_type] = (('boundary', 'threshold'), tp_array[front_no])
-            performance_ds["fp_%s" % front_type] = (('boundary', 'threshold'), fp_array[front_no])
-            performance_ds["tn_%s" % front_type] = (('boundary', 'threshold'), tn_array[front_no])
-            performance_ds["fn_%s" % front_type] = (('boundary', 'threshold'), fn_array[front_no])
+        performance_ds["tp_%s" % front_type] = (('boundary', 'threshold'), tp_array[front_no])
+        performance_ds["fp_%s" % front_type] = (('boundary', 'threshold'), fp_array[front_no])
+        performance_ds["tn_%s" % front_type] = (('boundary', 'threshold'), tn_array[front_no])
+        performance_ds["fn_%s" % front_type] = (('boundary', 'threshold'), fn_array[front_no])
 
     performance_ds = performance_ds.expand_dims({'time': np.atleast_1d(probs_ds['time'].values)})
     if forecast_hour is not None:
@@ -583,6 +564,8 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
         else:
             variable_files = getattr(gdas_gfs_files_obj, '%s_files' % variable_data_source)
 
+    variable_files = variable_files[-224:]
+
     dataset_kwargs = {'engine': 'netcdf4'}
     coords_isel_kwargs = {'longitude': slice(domain_extent_indices[0], domain_extent_indices[1]), 'latitude': slice(domain_extent_indices[2], domain_extent_indices[3])}
 
@@ -823,8 +806,8 @@ def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, fr
     return probs_ds
 
 
-def plot_performance_diagrams(model_dir, model_number, domain, domain_images, domain_trim, bootstrap=True, random_variables=None,
-    variable_data_source='era5', calibrated=False, num_iterations=10000, case_study=None):
+def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, domain, domain_images, domain_trim, bootstrap=True, random_variables=None,
+    variable_data_source='era5', calibrated=False, num_iterations=10000, forecast_hour=None):
     """
     Plots CSI performance diagram for different front types.
 
@@ -861,11 +844,6 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     else:
         num_dimensions = 3
 
-    if num_front_types > 1:
-        _, labels = data_utils.reformat_fronts(front_types)
-    else:
-        labels = [front_types, ]
-
     subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
     stats_plot_base = 'model_%d_%s_%dx%dimages_%dx%dtrim' % (model_number, domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
     if random_variables is not None:
@@ -874,42 +852,57 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
     domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[domain]
     coords_isel_kwargs = {'longitude': slice(domain_extent_indices[0], domain_extent_indices[1]), 'latitude': slice(domain_extent_indices[2], domain_extent_indices[3])}
 
-    probs = xr.open_dataset(random.choice(sorted(glob(f'%s\\model_%d\\probabilities\\%s\\*{case_study[0]}-%02d-%02d-%02dz_{domain}_{domain_images[0]}x*probabilities.nc' % (model_dir, model_number, subdir_base, case_study[1], case_study[2], case_study[3])))))
-    fronts = xr.open_dataset(random.choice(sorted(glob(f'I:\\netcdf\\%d\\%02d\\%02d\\FrontObjects_%d%02d%02d%02d_full.nc' % (case_study[0], case_study[1], case_study[2], case_study[0], case_study[1], case_study[2], case_study[3]))))).isel(**coords_isel_kwargs)
-    fronts, _ = data_utils.reformat_fronts(front_types, fronts)
-
-    if num_dimensions == 2:
-        probability_mask = 0.05
-        vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 0.55, 0.025, 20, 11
-        levels = np.arange(0, 0.6, 0.05)
-    else:
-        probability_mask = 0.10
-        vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1, 0.05, 10, 11
-        levels = np.arange(0, 1.1, 0.1)
-    probs = xr.where(probs < probability_mask, float("NaN"), probs)
-
-    if len(front_types) > 1 and type(front_types) == list:
-        _, labels = data_utils.reformat_fronts(front_types)
-    else:
-        labels = [front_types, ]
-
     if variable_data_source != 'era5':
-        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*_f006_*statistics.nc' % (model_dir, model_number, subdir_base)))
+        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*_{variable_data_source}_f%03d_*statistics.nc' % (model_dir, model_number, subdir_base, forecast_hour)))
     else:
         files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*{domain}_{domain_images[0]}x*statistics.nc' % (model_dir, model_number, subdir_base)))
 
     # If evaluating over the full domain, remove non-synoptic hours (3z, 9z, 15z, 21z)
     if domain == 'full':
-        hours_to_remove = [3, 9, 15, 21]
-        for hour in hours_to_remove:
-            string = '%02dz_' % hour
-            files = list(filter(lambda hour: string not in hour, files))
+        if variable_data_source == 'era5':
+            hours_to_remove = [3, 9, 15, 21]
+            for hour in hours_to_remove:
+                string = '%02dz_' % hour
+                files = list(filter(lambda hour: string not in hour, files))
+        else:
+            forecast_hours_to_remove = [3, 9]
+            for hour in forecast_hours_to_remove:
+                string = '_f%03d_' % hour
+                files = list(filter(lambda hour: string not in hour, files))
 
-    print("opening dataset")
+        synoptic_only = True
+    else:
+        synoptic_only = False
+
+    print("opening datasets")
     if variable_data_source != 'era5':
         stats_ds = xr.open_mfdataset(files, combine='nested').isel(forecast_hour=0).transpose('time', 'boundary', 'threshold')
     else:
         stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')
+
+    spatial_csi_obj = fm.SpatialCSIfiles(model_number, model_dir, domain, domain_images, domain_trim, variable_data_source, forecast_hour)
+    spatial_csi_obj.pair_with_fronts(front_indir=fronts_netcdf_indir, synoptic_only=synoptic_only, sort_fronts=True)
+    spatial_csi_obj.test_years = [2019, 2020]
+    probs_files = spatial_csi_obj.probs_files_test
+
+    probs_ds = xr.open_mfdataset(probs_files)
+
+    if front_types == ['CF', 'WF']:
+        filename_str = 'CFWF'
+    elif front_types == ['SF', 'OF']:
+        filename_str = 'SFOF'
+    else:
+        filename_str = 'F_BIN'
+
+    start_lon, end_lon = domain_extent_indices[0], domain_extent_indices[1]
+    start_lat, end_lat = domain_extent_indices[2], domain_extent_indices[3]
+
+    expanded_fronts_array = pd.read_pickle(f'expanded_fronts_{filename_str}.pkl')[:, start_lon:end_lon, start_lat:end_lat]
+    fronts_array = pd.read_pickle(f'fronts_{filename_str}.pkl')[0, :, start_lon:end_lon, start_lat:end_lat]
+
+    if domain != 'conus':
+        expanded_fronts_array = expanded_fronts_array[::2, :, :]
+        fronts_array = fronts_array[::2, :, :]
     print("done")
 
     key = list(stats_ds.keys())[0]
@@ -930,29 +923,14 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
 
     selectable_indices = range(num_files)
 
-    for front_no, front_label in enumerate(labels):
+    if type(front_types) == str:
+        front_types = [front_types, ]
 
-        if num_dimensions == 2 or front_label == 'OF':
-            probability_mask = 0.05
-            vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 0.55, 0.025, 20, 11
-            levels = np.arange(0, 0.6, 0.05)
-        else:
-            probability_mask = 0.10
-            vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1, 0.05, 10, 11
-            levels = np.arange(0, 1.1, 0.1)
-
-        probs[front_label].values = xr.where(probs[front_label].values < probability_mask, float("NaN"), probs[front_label].values)
+    for front_no, front_label in enumerate(front_types):
 
         true_positives = stats_ds[f'tp_{front_label}'].values
         false_positives = stats_ds[f'fp_{front_label}'].values
         false_negatives = stats_ds[f'fn_{front_label}'].values
-
-        # tp_fp_fn_array_shape = np.shape(true_positives)
-
-        # if variable_data_source == 'gdas':
-        #     true_positives = true_positives.reshape(tp_fp_fn_array_shape[0] * tp_fp_fn_array_shape[1], *[dim_size for dim_size in tp_fp_fn_array_shape[2:]])
-        #     false_positives = false_positives.reshape(tp_fp_fn_array_shape[0] * tp_fp_fn_array_shape[1], *[dim_size for dim_size in tp_fp_fn_array_shape[2:]])
-        #     false_negatives = false_negatives.reshape(tp_fp_fn_array_shape[0] * tp_fp_fn_array_shape[1], *[dim_size for dim_size in tp_fp_fn_array_shape[2:]])
 
         thresholds = stats_ds['threshold'].values
 
@@ -1028,14 +1006,12 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         for boundary, color in enumerate(boundary_colors):
             csi = np.power((1/sr[boundary]) + (1/pod[boundary]) - 1, -1)
             max_CSI_scores_by_boundary[boundary] = np.nanmax(csi)
-            print(np.nanmax(csi))
             max_CSI_index = np.where(csi == max_CSI_scores_by_boundary[boundary])[0]
             max_CSI_threshold = thresholds[max_CSI_index][0]
             max_CSI_pod = pod[boundary][max_CSI_index][0]  # POD where CSI is maximized
             max_CSI_sr = sr[boundary][max_CSI_index][0]  # SR where CSI is maximized
             max_CSI_fb = max_CSI_pod / max_CSI_sr
 
-            print(max_CSI_threshold)
             cell_text.append(['%.2f' % max_CSI_threshold, '%.2f' % max_CSI_scores_by_boundary[boundary], '%.2f' % max_CSI_pod, '%.2f' % max_CSI_sr, '%.2f' % (1 - max_CSI_sr), '%.2f' % max_CSI_fb])
 
             axarr[0].plot(max_CSI_sr, max_CSI_pod, color=color, marker='*', markersize=10)
@@ -1077,34 +1053,67 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
         stats_table = table_axis.table(cellText=cell_text, rowLabels=rows, rowColours=boundary_colors, colLabels=columns, cellLoc='center')
         stats_table.scale(1, 3)
 
-        cbar_kwargs = {'label': 'Probability (uncalibrated)'}
+        for cell in stats_table._cells:
+            stats_table._cells[cell].set_alpha(.7)
+            stats_table._cells[cell].set_text_props(fontproperties=FontProperties(size='xx-large', stretch='expanded'))
 
+        ####### Spatial CSI map ######
+
+        probs_array = probs_ds[front_label].values
+
+        front_label_classes = {'CF': 1, 'WF': 2, 'SF': 1, 'OF': 2, 'F_BIN': 1}
+
+        spatial_tp = np.where((probs_array >= thresholds[max_CSI_index]) & (expanded_fronts_array == front_label_classes[front_label]), 1, 0).sum(0)
+        spatial_fp = np.where((probs_array >= thresholds[max_CSI_index]) & (expanded_fronts_array != front_label_classes[front_label]), 1, 0).sum(0)
+        spatial_fn = np.where((probs_array < thresholds[max_CSI_index]) & (fronts_array == front_label_classes[front_label]), 1, 0).sum(0)
+
+        spatial_csi = spatial_tp / (spatial_tp + spatial_fp + spatial_fn)
+
+        spatial_stats_ds = xr.Dataset(coords={'latitude': probs_ds['latitude'].values, 'longitude': probs_ds['longitude'].values})
+        spatial_stats_ds['CSI'] = (('longitude', 'latitude'), spatial_csi)
+
+        cbar_kwargs = {'label': 'CSI'}
         if domain == 'conus':
-            domain_axis_extent = [0.52, -0.59, 0.48, 0.555]
+            domain_axis_extent = [0.52, -0.59, 0.48, 0.535]
             cbar_kwargs['pad'] = 0
+            domain_plot_xlabels = [-140, -105, -70]
+            domain_plot_ylabels = [30, 40, 50]
+            right_labels = False
+            top_labels = True
+            left_labels = True
+            bottom_labels = False
         else:
             domain_axis_extent = [0.538, -0.6, 0.48, 0.577]
             cbar_kwargs['shrink'] = 0.862
             cbar_kwargs['pad'] = 0
+            domain_plot_xlabels = [-150, -120, -90, -60, -30, 0, 120, 150, 180]
+            domain_plot_ylabels = [0, 20, 40, 60, 80]
+            right_labels = False
+            top_labels = True
+            left_labels = True
+            bottom_labels = True
 
         domain_axis = plt.axes(domain_axis_extent, projection=ccrs.LambertConformal(central_longitude=250))
-        domain_axis_title_text = f'd) {settings.DEFAULT_FRONT_NAMES[front_label]} predictions and analyzed fronts: {str(probs.isel(time=0)["time"].values)[:-6].replace("T", "-")}z'
+        domain_axis_title_text = f''
 
-        new_fronts = xr.where(fronts == front_no + 1, fronts, float("NaN"))
-
-        front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
-        front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in labels]
-
-        cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_names_by_type))
-        norm_front = colors.Normalize(vmin=1, vmax=len(front_names_by_type) + 1)
+        spatial_stats_ds = xr.where(spatial_stats_ds > 0.1, spatial_stats_ds, float("NaN"))
 
         extent = settings.DEFAULT_DOMAIN_EXTENTS[domain]
         plot_background(extent=extent, ax=domain_axis)
-        cmap_probs, norm_probs = cm.get_cmap(settings.DEFAULT_CONTOUR_CMAPS[front_label], n_colors), colors.Normalize(vmin=0, vmax=vmax)
-        probs[front_label].plot(ax=domain_axis, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs,
-                         transform=ccrs.PlateCarree(), alpha=0.75, cbar_kwargs=cbar_kwargs)
-        new_fronts['identifier'].plot(ax=domain_axis, x='longitude', y='latitude', norm=norm_front, cmap=cmap_front, transform=ccrs.PlateCarree(), add_colorbar=False)
+        norm_probs = colors.Normalize(vmin=0.1, vmax=1)
+        spatial_stats_ds['CSI'].plot(ax=domain_axis, x='longitude', y='latitude', norm=norm_probs, cmap='gnuplot2', transform=ccrs.PlateCarree(), alpha=0.35, cbar_kwargs=cbar_kwargs)
+        print(spatial_stats_ds['CSI'].mean())
+        print(spatial_stats_ds['CSI'].max())
         domain_axis.set_title(domain_axis_title_text)
+        gl = domain_axis.gridlines(draw_labels=True, zorder=0, dms=True, x_inline=False, y_inline=False)
+        gl.right_labels = right_labels
+        gl.top_labels = top_labels
+        gl.left_labels = left_labels
+        gl.bottom_labels = bottom_labels
+        gl.xlocator = FixedLocator(domain_plot_xlabels)
+        gl.ylocator = FixedLocator(domain_plot_ylabels)
+        gl.xlabel_style = {'size': 7}
+        gl.ylabel_style = {'size': 8}
 
         ### Title text ###
         kernel_text = '%s' % model_properties['kernel_size']
@@ -1113,10 +1122,10 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
 
         front_text = settings.DEFAULT_FRONT_NAMES[front_label]
 
-        if type(front_types) == list:
+        if type(front_types) == list and front_types != ['F_BIN']:
             front_text += 's'
-        elif front_types == 'F_BIN':
-            front_text = front_text.replace('Binary front', 'Binary fronts')
+        elif front_types == ['F_BIN']:
+            front_text = 'Binary fronts (front / no front)'
 
         if domain == 'conus':
             domain_text = 'CONUS'
@@ -1126,12 +1135,15 @@ def plot_performance_diagrams(model_dir, model_number, domain, domain_images, do
 
         plt.suptitle(f'{num_dimensions}D U-Net 3+ ({kernel_text} kernel): {front_text} over {domain_text}', fontsize=20)
 
-        for cell in stats_table._cells:
-            stats_table._cells[cell].set_alpha(.7)
-            stats_table._cells[cell].set_text_props(fontproperties=FontProperties(size='xx-large', stretch='expanded'))
+        ##################################### end CSI map #####################################
+
+        if variable_data_source != 'era5':
+            filename = f"%s/model_%d/%s_performance_%s_{variable_data_source}_f%03d.png" % (model_dir, model_number, stats_plot_base, front_label, forecast_hour)
+        else:
+            filename = f"%s/model_%d/%s_performance_%s_{variable_data_source}.png" % (model_dir, model_number, stats_plot_base, front_label)
 
         plt.tight_layout()
-        plt.savefig(f"%s/model_%d/%s_performance_%s_{variable_data_source}.png" % (model_dir, model_number, stats_plot_base, front_label), bbox_inches='tight', dpi=200)
+        plt.savefig(filename, bbox_inches='tight', dpi=300)
         plt.close()
 
 
@@ -1180,7 +1192,8 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
     probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
 
-    # fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
+    fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
+
     probs_ds = xr.open_mfdataset(probs_file)
 
     crs = ccrs.LambertConformal(central_longitude=250)
@@ -1190,6 +1203,12 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     # Model properties
     image_size = model_properties['image_size']  # The image size does not include the last dimension of the input size as it only represents the number of channels
     front_types = model_properties['front_types']
+
+    fronts = data_utils.reformat_fronts(fronts, front_types=['SF', 'OF'])
+    fronts = xr.where(fronts == 0, float('NaN'), fronts)
+
+    if type(front_types) == str:
+        front_types = [front_types, ]
 
     num_dimensions = len(image_size)
     if model_number not in [7805504, 7866106, 7961517]:
@@ -1208,18 +1227,12 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
         cbar_ticks = np.arange(probability_mask, 1.1, 0.1)
         cbar_tick_labels = [None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
-    _, labels = data_utils.reformat_fronts(front_types)
+    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in front_types]
+    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in ['SF', 'OF']]
+    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in ['SF', 'OF']]
 
-    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in labels]
-    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
-    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in labels]
-
-    # fronts = data_utils.expand_fronts(fronts)
-    # fronts = xr.where(fronts > 4, float('NaN'), fronts)
-    # fronts = xr.where(fronts == 0, float('NaN'), fronts)
-
-    # cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
-    # norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
+    cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
+    norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
     if same_map:
 
@@ -1242,17 +1255,16 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
         plot_background(extent, ax=ax, linewidth=0.5)
         # ax.gridlines(draw_labels=True, zorder=0)
 
-        for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, labels, contour_maps_by_type):
+        for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, front_types, contour_maps_by_type):
             if variable_data_source != 'era5':
-                # current_fronts = fronts
-                # current_fronts = xr.where(current_fronts != front_no, float("NaN"), front_no)
+                current_fronts = fronts
                 cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
                 probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
-                # current_fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
+                current_fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
                 valid_time = data_utils.add_or_subtract_hours_to_timestep(f'{year}%02d%02d%02d' % (month, day, hour), num_hours=forecast_hour)
-                ax.set_title(f'Cold/Warm Front Predictions')
+                ax.set_title(f'Stationary/Occluded Front Predictions')
                 ax.set_title(f'Run: {variable_data_source.upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour), loc='left')
-                # ax.set_title(f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z', loc='right')
+                ax.set_title(f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z', loc='right')
             else:
                 current_fronts = fronts
                 # current_fronts = xr.where(current_fronts != front_no, float("NaN"), front_no)
@@ -1262,9 +1274,14 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
                 current_fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
                 ax.set_title(f'{front_name} predictions')
 
-            cbar_ax = fig.add_axes([0.7865 + (front_no * 0.015), 0.11, 0.015, 0.77])
+            cbar_ax = fig.add_axes([0.7265 + (front_no * 0.015), 0.11, 0.015, 0.77])
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
             cbar.set_ticklabels([])
+        #
+        # cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, orientation='horizontal', shrink=0.5, pad=0.02)
+        # cbar_front.set_ticks([1.5, 2.5, 3.5, 4.5])
+        # cbar_front.set_ticklabels(['Cold', 'Warm', 'Stationary', 'Occluded'])
+        # cbar_front.set_label('Front type')
 
         # ax.set_title(f'Front predictions')
         # ax.set_title(f'Run: {variable_data_source.upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour), loc='left')
@@ -1696,8 +1713,8 @@ if __name__ == '__main__':
             args.domain_images, args.domain_trim, forecast_hour=args.forecast_hour, variable_data_source=args.variable_data_source)
 
     if args.plot_performance_diagrams:
-        required_arguments = ['model_number', 'model_dir', 'domain', 'domain_images']
+        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'domain', 'domain_images']
         check_arguments(provided_arguments, required_arguments)
-        plot_performance_diagrams(args.model_dir, args.model_number, args.domain, args.domain_images, args.domain_trim,
-            random_variables=args.random_variables, variable_data_source=args.variable_data_source, bootstrap=args.bootstrap,
-            num_iterations=args.num_iterations, case_study=args.case_study)
+        plot_performance_diagrams(args.model_dir, args.model_number, args.fronts_netcdf_indir, args.domain, args.domain_images,
+            args.domain_trim, random_variables=args.random_variables, variable_data_source=args.variable_data_source, bootstrap=args.bootstrap,
+            num_iterations=args.num_iterations, forecast_hour=args.forecast_hour)
