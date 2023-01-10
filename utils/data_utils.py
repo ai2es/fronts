@@ -2,9 +2,11 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 12/24/2022 5:39 PM CT
+Last updated: 1/10/2022 5:30 PM CT
 
-TODO: Clean up front expansion code to make it easier for numpy arrays to be used
+TODO:
+    * Clean up front expansion code to make it easier for numpy arrays to be used
+    * Add more documentation
 """
 
 import math
@@ -294,18 +296,16 @@ def redistribute_vertices(xy_linestring, distance):
         raise ValueError('unhandled geometry %s', (xy_linestring.geom_type,))
 
 
-def reformat_fronts(front_types, fronts_ds=None):
+def reformat_fronts(fronts_ds, front_types):
     """
-    Reformat a frontal object dataset along with its respective colors and labels for plotting, or just return the colors and labels
-    for the given front types.
+    Reformat a front dataset with a given set of front types.
 
     Parameters
     ----------
     front_types: str or list of strs
-        - Code(s) that determine how the dataset or array will be reformatted.
-    fronts_ds: xr.Dataset or np.array or None
+        - Code(s) that determine how the dataset will be reformatted.
+    fronts_ds: xr.Dataset
         - Dataset containing the front data.
-        - If left as None, no dataset will be returned.
         '''
         Available options for individual front types (cannot be passed with any special codes):
 
@@ -334,7 +334,7 @@ def reformat_fronts(front_types, fronts_ds=None):
         F_BIN (1 class): 1-4, but treat all front types as one type.
             (1): CF, WF, SF, OF
 
-        MERGED-F (4 classes): 1-12, but treat forming and dissipating fronts as a standard front.
+        MERGED-F (4 classes): 1-12, but treat forming and dissipating fronts as standard fronts.
             (1): CF, CF-F, CF-D
             (2): WF, WF-F, WF-D
             (3): SF, SF-F, SF-D
@@ -360,10 +360,8 @@ def reformat_fronts(front_types, fronts_ds=None):
 
     Returns
     -------
-    fronts_ds: xr.Dataset or np.array
-        Reformatted dataset or array based on the provided code(s).
-    labels: list
-        List of labels for the front types that will be used to name the files.
+    fronts_ds: xr.Dataset
+        Reformatted dataset based on the provided code(s).
     """
 
     front_types_classes = {'CF': 1, 'WF': 2, 'SF': 3, 'OF': 4, 'CF-F': 5, 'WF-F': 6, 'SF-F': 7, 'OF-F': 8, 'CF-D': 9, 'WF-D': 10,
@@ -376,6 +374,7 @@ def reformat_fronts(front_types, fronts_ds=None):
             fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Merge 1-4 into one class
 
         labels = ['CF-WF-SF-OF', ]
+        num_types = 1
 
     elif front_types == 'MERGED-F':
 
@@ -391,6 +390,7 @@ def reformat_fronts(front_types, fronts_ds=None):
             fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Remove all other fronts
 
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any']
+        num_types = 4
 
     elif front_types == 'MERGED-F_BIN':
 
@@ -399,6 +399,7 @@ def reformat_fronts(front_types, fronts_ds=None):
             fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Classes 1-12 are merged into one class
 
         labels = ['CF-WF-SF-OF_any', ]
+        num_types = 1
 
     elif front_types == 'MERGED-T':
 
@@ -412,6 +413,7 @@ def reformat_fronts(front_types, fronts_ds=None):
             fronts_ds = xr.where(fronts_ds == 16, 0, fronts_ds)  # Remove drylines
 
         labels = ['TR_any', ]
+        num_types = 1
 
     elif front_types == 'MERGED-ALL':
 
@@ -433,6 +435,7 @@ def reformat_fronts(front_types, fronts_ds=None):
             fronts_ds = xr.where(fronts_ds == 16, 7, fronts_ds)  # Move drylines to class 7
 
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any', 'TR_any', 'OFB', 'DL']
+        num_types = 7
 
     elif type(front_types) == list:
 
@@ -454,8 +457,13 @@ def reformat_fronts(front_types, fronts_ds=None):
     else:
 
         labels = list(front_types_classes.keys())
+        num_types = 1
 
-    return fronts_ds, labels
+    fronts_ds.attrs['front_types'] = front_types
+    fronts_ds.attrs['num_types'] = num_types
+    fronts_ds.attrs['labels'] = labels
+
+    return fronts_ds
 
 
 def add_or_subtract_hours_to_timestep(timestep, num_hours):
