@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 1/10/2022 5:30 PM CT
+Last updated: 1/22/2023 7:21 PM CT
 
 TODO:
     * Clean up front expansion code to make it easier for numpy arrays to be used
@@ -14,6 +14,7 @@ import pandas as pd
 from shapely.geometry import LineString
 import numpy as np
 import xarray as xr
+import tensorflow as tf
 
 
 # Each variable has parameters in the format of [max, min, mean]
@@ -91,124 +92,137 @@ def expand_fronts(ds_fronts, iterations=1):
     Parameters
     ----------
     ds_fronts: xr.Dataset
-        Dataset that contains frontal objects.
+        - Dataset that contains frontal objects.
     iterations: int
-        Number of pixels that the fronts will be expanded by in all directions, determined by the number of iterations across this expansion method.
+        - Number of pixels that the fronts will be expanded by in all directions, determined by the number of iterations across this expansion method.
 
     Returns
     -------
     ds_fronts: xr.Dataset
         Dataset that contains expanded frontal objects.
     """
-    lats = ds_fronts.latitude.values
-    lons = ds_fronts.longitude.values
-    len_lats = len(lats)
-    len_lons = len(lons)
-
     try:
         identifier = ds_fronts['identifier'].values
     except KeyError:
         identifier = ds_fronts.values
 
+    identifier_temp = np.empty(shape=np.shape(identifier))
+    identifier_temp[:, :, :] = identifier[:, :, :]
+    identifier = identifier_temp
+
+    max_lat_index = np.shape(identifier)[1] - 1
+    max_lon_index = np.shape(identifier)[2] - 1
+    
     for iteration in range(iterations):
+        
+        # Indices where fronts are located
         indices = np.where(identifier != 0)
-        for i in range(len(indices[0])):
-            front_value = identifier[indices[0][i]][indices[1][i]]
-            if lats[indices[0][i]] == lats[0]:
+        num_indices = np.shape(indices)[-1]
+
+        timestep_ind = indices[0]
+        lats_ind = indices[1]
+        lons_ind = indices[2]
+
+        for index in range(num_indices):
+
+            timestep, lat, lon = timestep_ind[index], lats_ind[index], lons_ind[index]
+            front_value = identifier[timestep, lat, lon]
+
+            if lat == 0:
                 # If the front pixel is at the north end of the domain (max lat), and there is no front directly
                 # to the south, expand the front 1 pixel south.
-                if identifier[indices[0][i]][indices[1][i]] == 0:
-                    identifier[indices[0][i]][indices[1][i]] = front_value
+                if identifier[timestep][lat][lon] == 0:
+                    identifier[timestep][lat][lon] = front_value
                 # If the front pixel is at the northwest end of the domain (max/min lat/lon), check the pixels to the
                 # southeast and east for fronts, and expand the front there if no other fronts are already present.
-                if lons[indices[1][i]] == lons[0]:
-                    if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i] + 1][indices[1][i] + 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] + 1] = front_value
+                if lon == 0:
+                    if identifier[timestep][lat + 1][lon + 1] == 0:
+                        identifier[timestep][lat + 1][lon + 1] = front_value
+                    if identifier[timestep][lat][lon + 1] == 0:
+                        identifier[timestep][lat][lon + 1] = front_value
                 # If the front pixel is at the northeast end of the domain (max/max lat/lon), check the pixels to the
                 # southwest and west for fronts, and expand the front there if no other fronts are already present.
-                elif lons[indices[1][i]] == lons[len_lons - 1]:
-                    if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i] + 1][indices[1][i] - 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] - 1] = front_value
+                elif lon == max_lon_index:
+                    if identifier[timestep][lat + 1][lon - 1] == 0:
+                        identifier[timestep][lat + 1][lon - 1] = front_value
+                    if identifier[timestep][lat][lon - 1] == 0:
+                        identifier[timestep][lat][lon - 1] = front_value
                 # If the front pixel is at the north end of the domain (max lat), but not at the west or east end (min lon
                 # or max lon) check the pixels to the west and east for fronts, and expand the front there if no other
                 # fronts are already present.
                 else:
-                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] - 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] + 1] = front_value
-            elif lats[-1] < lats[indices[0][i]] < lats[len_lats - 1]:
+                    if identifier[timestep][lat][lon - 1] == 0:
+                        identifier[timestep][lat][lon - 1] = front_value
+                    if identifier[timestep][lat][lon + 1] == 0:
+                        identifier[timestep][lat][lon + 1] = front_value
+            elif 0 < lat < max_lat_index:
                 # If there is no front directly to the south, expand the front 1 pixel south.
-                if identifier[indices[0][i] + 1][indices[1][i]] == 0:
-                    identifier[indices[0][i]][indices[1][i]] = front_value
+                if identifier[timestep][lat + 1][lon] == 0:
+                    identifier[timestep][lat + 1][lon] = front_value
                 # If there is no front directly to the north, expand the front 1 pixel north.
-                if identifier[indices[0][i] - 1][indices[1][i]] == 0:
-                    identifier[indices[0][i] - 1][indices[1][i]] = front_value
+                if identifier[timestep][lat - 1][lon] == 0:
+                    identifier[timestep][lat - 1][lon] = front_value
                 # If the front pixel is at the west end of the domain (min lon), check the pixels to the southeast,
                 # east, and northeast for fronts, and expand the front there if no other fronts are already present.
-                if lons[indices[1][i]] == lons[0]:
-                    if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i] + 1][indices[1][i] + 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] + 1] = front_value
-                    if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i] - 1][indices[1][i] + 1] = front_value
+                if lon == 0:
+                    if identifier[timestep][lat + 1][lon + 1] == 0:
+                        identifier[timestep][lat + 1][lon + 1] = front_value
+                    if identifier[timestep][lat][lon + 1] == 0:
+                        identifier[timestep][lat][lon + 1] = front_value
+                    if identifier[timestep][lat - 1][lon + 1] == 0:
+                        identifier[timestep][lat - 1][lon + 1] = front_value
                 # If the front pixel is at the east end of the domain (min lon), check the pixels to the southwest,
                 # west, and northwest for fronts, and expand the front there if no other fronts are already present.
-                elif lons[indices[1][i]] == lons[len_lons - 1]:
-                    if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i] + 1][indices[1][i] - 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] - 1] = front_value
-                    if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i] - 1][indices[1][i] - 1] = front_value
+                elif lon == max_lon_index:
+                    if identifier[timestep][lat + 1][lon - 1] == 0:
+                        identifier[timestep][lat + 1][lon - 1] = front_value
+                    if identifier[timestep][lat][lon - 1] == 0:
+                        identifier[timestep][lat][lon - 1] = front_value
+                    if identifier[timestep][lat - 1][lon - 1] == 0:
+                        identifier[timestep][lat - 1][lon - 1] = front_value
                 # If the front pixel is not at the end of the domain in any direction, check the northeast, east,
                 # southeast, northwest, west, and southwest for fronts, and expand the front there if no other fronts
                 # are already present.
                 else:
-                    if identifier[indices[0][i] + 1][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i] + 1][indices[1][i] + 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] + 1] = front_value
-                    if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i] - 1][indices[1][i] + 1] = front_value
-                    if identifier[indices[0][i] + 1][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i] + 1][indices[1][i] - 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] - 1] = front_value
-                    if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i] - 1][indices[1][i] - 1] = front_value
+                    if identifier[timestep][lat + 1][lon + 1] == 0:
+                        identifier[timestep][lat + 1][lon + 1] = front_value
+                    if identifier[timestep][lat][lon + 1] == 0:
+                        identifier[timestep][lat][lon + 1] = front_value
+                    if identifier[timestep][lat - 1][lon + 1] == 0:
+                        identifier[timestep][lat - 1][lon + 1] = front_value
+                    if identifier[timestep][lat + 1][lon - 1] == 0:
+                        identifier[timestep][lat + 1][lon - 1] = front_value
+                    if identifier[timestep][lat][lon - 1] == 0:
+                        identifier[timestep][lat][lon - 1] = front_value
+                    if identifier[timestep][lat - 1][lon - 1] == 0:
+                        identifier[timestep][lat - 1][lon - 1] = front_value
             else:
                 # If the front pixel is at the south end of the domain (max lat), and there is no front directly
                 # to the north, expand the front 1 pixel north.
-                if identifier[indices[0][i] - 1][indices[1][i]] == 0:
-                    identifier[indices[0][i] - 1][indices[1][i]] = front_value
+                if identifier[timestep][lat - 1][lon] == 0:
+                    identifier[timestep][lat - 1][lon] = front_value
                 # If the front pixel is at the southwest end of the domain (max/min lat/lon), check the pixels to the
                 # northeast and east for fronts, and expand the front there if no other fronts are already present.
-                if lons[indices[1][i]] == lons[0]:
-                    if identifier[indices[0][i] - 1][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i] - 1][indices[1][i] + 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] + 1] = front_value
+                if lon == 0:
+                    if identifier[timestep][lat - 1][lon + 1] == 0:
+                        identifier[timestep][lat - 1][lon + 1] = front_value
+                    if identifier[timestep][lat][lon + 1] == 0:
+                        identifier[timestep][lat][lon + 1] = front_value
                 # If the front pixel is at the southeast end of the domain (max/max lat/lon), check the pixels to the
                 # northwest and west for fronts, and expand the front there if no other fronts are already present.
-                elif lons[indices[1][i]] == lons[len_lons - 1]:
-                    if identifier[indices[0][i] - 1][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i] - 1][indices[1][i] - 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] - 1] = front_value
+                elif lon == max_lon_index:
+                    if identifier[timestep][lat - 1][lon - 1] == 0:
+                        identifier[timestep][lat - 1][lon - 1] = front_value
+                    if identifier[timestep][lat][lon - 1] == 0:
+                        identifier[timestep][lat][lon - 1] = front_value
                 # If the front pixel is at the south end of the domain (max lat), but not at the west or east end (min lon
                 # or max lon) check the pixels to the west and east for fronts, and expand the front there if no other
                 # fronts are already present.
                 else:
-                    if identifier[indices[0][i]][indices[1][i] - 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] - 1] = front_value
-                    if identifier[indices[0][i]][indices[1][i] + 1] == 0:
-                        identifier[indices[0][i]][indices[1][i] + 1] = front_value
+                    if identifier[timestep][lat][lon - 1] == 0:
+                        identifier[timestep][lat][lon - 1] = front_value
+                    if identifier[timestep][lat][lon + 1] == 0:
+                        identifier[timestep][lat][lon + 1] = front_value
 
     try:
         ds_fronts['identifier'].values = identifier
@@ -296,15 +310,15 @@ def redistribute_vertices(xy_linestring, distance):
         raise ValueError('unhandled geometry %s', (xy_linestring.geom_type,))
 
 
-def reformat_fronts(fronts_ds, front_types):
+def reformat_fronts(fronts, front_types):
     """
-    Reformat a front dataset with a given set of front types.
+    Reformat a front dataset, tensor, or array with a given set of front types.
 
     Parameters
     ----------
     front_types: str or list of strs
         - Code(s) that determine how the dataset will be reformatted.
-    fronts_ds: xr.Dataset
+    fronts: xarray Dataset or DataArray, tensor, or np.ndarray
         - Dataset containing the front data.
         '''
         Available options for individual front types (cannot be passed with any special codes):
@@ -364,75 +378,84 @@ def reformat_fronts(fronts_ds, front_types):
         Reformatted dataset based on the provided code(s).
     """
 
+    fronts_argument_type = type(fronts)
+
+    if fronts_argument_type == xr.DataArray or fronts_argument_type == xr.Dataset:
+        where_function = xr.where
+    elif fronts_argument_type == np.ndarray:
+        where_function = np.where
+    else:
+        where_function = tf.where
+
     front_types_classes = {'CF': 1, 'WF': 2, 'SF': 3, 'OF': 4, 'CF-F': 5, 'WF-F': 6, 'SF-F': 7, 'OF-F': 8, 'CF-D': 9, 'WF-D': 10,
                            'SF-D': 11, 'OF-D': 12, 'OFB': 13, 'TROF': 14, 'TT': 15, 'DL': 16}
 
     if front_types == 'F_BIN':
 
-        if fronts_ds is not None:
-            fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Classes 5-16 are removed
-            fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Merge 1-4 into one class
+        if fronts is not None:
+            fronts = where_function(fronts > 4, 0, fronts)  # Classes 5-16 are removed
+            fronts = where_function(fronts > 0, 1, fronts)  # Merge 1-4 into one class
 
         labels = ['CF-WF-SF-OF', ]
         num_types = 1
 
     elif front_types == 'MERGED-F':
 
-        if fronts_ds is not None:
-            fronts_ds = xr.where(fronts_ds == 5, 1, fronts_ds)  # Forming cold front ---> cold front
-            fronts_ds = xr.where(fronts_ds == 6, 2, fronts_ds)  # Forming warm front ---> warm front
-            fronts_ds = xr.where(fronts_ds == 7, 3, fronts_ds)  # Forming stationary front ---> stationary front
-            fronts_ds = xr.where(fronts_ds == 8, 4, fronts_ds)  # Forming occluded front ---> occluded front
-            fronts_ds = xr.where(fronts_ds == 9, 1, fronts_ds)  # Dying cold front ---> cold front
-            fronts_ds = xr.where(fronts_ds == 10, 2, fronts_ds)  # Dying warm front ---> warm front
-            fronts_ds = xr.where(fronts_ds == 11, 3, fronts_ds)  # Dying stationary front ---> stationary front
-            fronts_ds = xr.where(fronts_ds == 12, 4, fronts_ds)  # Dying occluded front ---> occluded front
-            fronts_ds = xr.where(fronts_ds > 4, 0, fronts_ds)  # Remove all other fronts
+        if fronts is not None:
+            fronts = where_function(fronts == 5, 1, fronts)  # Forming cold front ---> cold front
+            fronts = where_function(fronts == 6, 2, fronts)  # Forming warm front ---> warm front
+            fronts = where_function(fronts == 7, 3, fronts)  # Forming stationary front ---> stationary front
+            fronts = where_function(fronts == 8, 4, fronts)  # Forming occluded front ---> occluded front
+            fronts = where_function(fronts == 9, 1, fronts)  # Dying cold front ---> cold front
+            fronts = where_function(fronts == 10, 2, fronts)  # Dying warm front ---> warm front
+            fronts = where_function(fronts == 11, 3, fronts)  # Dying stationary front ---> stationary front
+            fronts = where_function(fronts == 12, 4, fronts)  # Dying occluded front ---> occluded front
+            fronts = where_function(fronts > 4, 0, fronts)  # Remove all other fronts
 
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any']
         num_types = 4
 
     elif front_types == 'MERGED-F_BIN':
 
-        if fronts_ds is not None:
-            fronts_ds = xr.where(fronts_ds > 12, 0, fronts_ds)  # Classes 13-16 are removed
-            fronts_ds = xr.where(fronts_ds > 0, 1, fronts_ds)  # Classes 1-12 are merged into one class
+        if fronts is not None:
+            fronts = where_function(fronts > 12, 0, fronts)  # Classes 13-16 are removed
+            fronts = where_function(fronts > 0, 1, fronts)  # Classes 1-12 are merged into one class
 
         labels = ['CF-WF-SF-OF_any', ]
         num_types = 1
 
     elif front_types == 'MERGED-T':
 
-        if fronts_ds is not None:
-            fronts_ds = xr.where(fronts_ds < 14, 0, fronts_ds)  # Remove classes 1-13
+        if fronts is not None:
+            fronts = where_function(fronts < 14, 0, fronts)  # Remove classes 1-13
 
             # Merge troughs into one class
-            fronts_ds = xr.where(fronts_ds == 14, 1, fronts_ds)
-            fronts_ds = xr.where(fronts_ds == 15, 1, fronts_ds)
+            fronts = where_function(fronts == 14, 1, fronts)
+            fronts = where_function(fronts == 15, 1, fronts)
 
-            fronts_ds = xr.where(fronts_ds == 16, 0, fronts_ds)  # Remove drylines
+            fronts = where_function(fronts == 16, 0, fronts)  # Remove drylines
 
         labels = ['TR_any', ]
         num_types = 1
 
     elif front_types == 'MERGED-ALL':
 
-        if fronts_ds is not None:
-            fronts_ds = xr.where(fronts_ds == 5, 1, fronts_ds)  # Forming cold front ---> cold front
-            fronts_ds = xr.where(fronts_ds == 6, 2, fronts_ds)  # Forming warm front ---> warm front
-            fronts_ds = xr.where(fronts_ds == 7, 3, fronts_ds)  # Forming stationary front ---> stationary front
-            fronts_ds = xr.where(fronts_ds == 8, 4, fronts_ds)  # Forming occluded front ---> occluded front
-            fronts_ds = xr.where(fronts_ds == 9, 1, fronts_ds)  # Dying cold front ---> cold front
-            fronts_ds = xr.where(fronts_ds == 10, 2, fronts_ds)  # Dying warm front ---> warm front
-            fronts_ds = xr.where(fronts_ds == 11, 3, fronts_ds)  # Dying stationary front ---> stationary front
-            fronts_ds = xr.where(fronts_ds == 12, 4, fronts_ds)  # Dying occluded front ---> occluded front
+        if fronts is not None:
+            fronts = where_function(fronts == 5, 1, fronts)  # Forming cold front ---> cold front
+            fronts = where_function(fronts == 6, 2, fronts)  # Forming warm front ---> warm front
+            fronts = where_function(fronts == 7, 3, fronts)  # Forming stationary front ---> stationary front
+            fronts = where_function(fronts == 8, 4, fronts)  # Forming occluded front ---> occluded front
+            fronts = where_function(fronts == 9, 1, fronts)  # Dying cold front ---> cold front
+            fronts = where_function(fronts == 10, 2, fronts)  # Dying warm front ---> warm front
+            fronts = where_function(fronts == 11, 3, fronts)  # Dying stationary front ---> stationary front
+            fronts = where_function(fronts == 12, 4, fronts)  # Dying occluded front ---> occluded front
 
             # Merge troughs together into class 5
-            fronts_ds = xr.where(fronts_ds == 14, 5, fronts_ds)
-            fronts_ds = xr.where(fronts_ds == 15, 5, fronts_ds)
+            fronts = where_function(fronts == 14, 5, fronts)
+            fronts = where_function(fronts == 15, 5, fronts)
 
-            fronts_ds = xr.where(fronts_ds == 13, 6, fronts_ds)  # Move outflow boundaries to class 6
-            fronts_ds = xr.where(fronts_ds == 16, 7, fronts_ds)  # Move drylines to class 7
+            fronts = where_function(fronts == 13, 6, fronts)  # Move outflow boundaries to class 6
+            fronts = where_function(fronts == 16, 7, fronts)  # Move drylines to class 7
 
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any', 'TR_any', 'OFB', 'DL']
         num_types = 7
@@ -444,13 +467,13 @@ def reformat_fronts(fronts_ds, front_types):
         front_types, num_types = list(filtered_front_types.keys()), len(filtered_front_types.keys())
 
         for i in range(num_types):
-            if fronts_ds is not None:
+            if fronts is not None:
                 if i + 1 != front_types_classes[front_types[i]]:
-                    fronts_ds = xr.where(fronts_ds == i + 1, 0, fronts_ds)
-                    fronts_ds = xr.where(fronts_ds == front_types_classes[front_types[i]], i + 1, fronts_ds)  # Reformat front classes
+                    fronts = where_function(fronts == i + 1, 0, fronts)
+                    fronts = where_function(fronts == front_types_classes[front_types[i]], i + 1, fronts)  # Reformat front classes
 
-        if fronts_ds is not None:
-            fronts_ds = xr.where(fronts_ds > num_types, 0, fronts_ds)  # Remove unused front types
+        if fronts is not None:
+            fronts = where_function(fronts > num_types, 0, fronts)  # Remove unused front types
 
         labels = front_types
 
@@ -459,11 +482,12 @@ def reformat_fronts(fronts_ds, front_types):
         labels = list(front_types_classes.keys())
         num_types = 1
 
-    fronts_ds.attrs['front_types'] = front_types
-    fronts_ds.attrs['num_types'] = num_types
-    fronts_ds.attrs['labels'] = labels
+    if fronts_argument_type == xr.Dataset or fronts_argument_type == xr.DataArray:
+        fronts.attrs['front_types'] = front_types
+        fronts.attrs['num_types'] = num_types
+        fronts.attrs['labels'] = labels
 
-    return fronts_ds
+    return fronts
 
 
 def add_or_subtract_hours_to_timestep(timestep, num_hours):
@@ -557,18 +581,21 @@ def normalize_variables(variable_ds):
     variable_list = list(variable_ds.keys())
     pressure_levels = variable_ds['pressure_level'].values
 
-    for j in range(len(variable_list)):
+    new_var_shape = np.shape(variable_ds[variable_list[0]].values)
 
-        new_values_for_variable = np.empty(shape=np.shape(variable_ds[variable_list[0]].values))
-        var = variable_list[j]
+    for var in variable_list:
+
+        new_values_for_variable = np.empty(shape=new_var_shape)
 
         for pressure_level_index in range(len(pressure_levels)):
-            norm_var = variable_list[j] + '_' + pressure_levels[pressure_level_index]
+
+            norm_var = '%s_%s' % (var, pressure_levels[pressure_level_index])
 
             # Min-max normalization
             if len(np.shape(new_values_for_variable)) == 4:
                 new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - normalization_parameters[norm_var][1]) /
                                                                                        (normalization_parameters[norm_var][0] - normalization_parameters[norm_var][1]))
+
             elif len(np.shape(new_values_for_variable)) == 5:  # If forecast hours are in the dataset
                 new_values_for_variable[:, :, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, :, pressure_level_index] - normalization_parameters[norm_var][1]) /
                                                                                           (normalization_parameters[norm_var][0] - normalization_parameters[norm_var][1]))

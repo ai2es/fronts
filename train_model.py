@@ -16,17 +16,22 @@ import file_manager as fm
 import os
 import custom_losses
 import models
-from utils.data_utils import expand_fronts, reformat_fronts
+from utils import data_utils, settings
 import xarray as xr
 import datetime
-import itertools
+import time
+import sys
 
+# tf.config.experimental.enable_tensor_float_32_execution(False)
 
-class FrontsDataGenerator(tf.keras.utils.Sequence):
-    """
-    Data generator for 2D U-Net models that grabs random files for training and validation.
-    """
-    print("generator code will go here")
+def combine_datasets(dataset_files):
+
+    complete_dataset = tf.data.Dataset.load(dataset_files.pop(0))
+    for dataset_file in dataset_files:
+        dataset = tf.data.Dataset.load(dataset_file)
+        complete_dataset = complete_dataset.concatenate(dataset)
+
+    return complete_dataset
 
 
 if __name__ == "__main__":
@@ -35,11 +40,10 @@ if __name__ == "__main__":
     parser.add_argument('--model_dir', type=str, required=True, help='Directory where the models are or will be saved to.')
     parser.add_argument('--model_number', type=int, help='Number that the model will be assigned.')
     parser.add_argument('--model_type', type=str, help='Model type.')
-    parser.add_argument('--era5_netcdf_dir', type=str, required=True, help='Directory where the ERA5 netcdf files are stored.')
-    parser.add_argument('--fronts_netcdf_dir', type=str, required=True, help='Directory where the fronts netcdf files are stored.')
+    parser.add_argument('--era5_tf_indir', type=str, required=True, help='Directory where the tensorflow datasets are stored.')
 
     ### GPU arguments ###
-    parser.add_argument('--gpu_device', type=int, help='GPU device numbers.')
+    parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth for GPUs')
 
     ### Hyperparameters ###
@@ -59,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument('--filter_num_aggregate', type=int, help='Number of filters in aggregated feature maps')
     parser.add_argument('--filter_num_skip', type=int, help='Number of filters in full-scale skip connections')
     parser.add_argument('--first_encoder_connections', action='store_true', help='Enable first encoder connections in the U-Net 3+')
-    parser.add_argument('--image_size', type=int, nargs='+', required=True, help='Size of the U-Net input images.')
+    parser.add_argument('--image_size', type=int, nargs='+', required=False, default=(128, 128), help='Size of the U-Net input images.')
     parser.add_argument('--kernel_size', type=int, required=True, help='Size of the convolution kernels.')
     parser.add_argument('--levels', type=int, required=True, help='Number of levels in the U-Net.')
     parser.add_argument('--loss', type=str, required=True, help='Loss function for the U-Net')
@@ -84,8 +88,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.variables = sorted(args.variables)
+    num_pressure_levels = len(args.pressure_levels)
 
-    available_years = np.arange(2006, 2021)
+    available_years = np.arange(2008, 2021)
     np.random.shuffle(available_years)
 
     if args.num_validation_years is not None:
@@ -115,27 +120,13 @@ if __name__ == "__main__":
     else:
         front_types = args.front_types
 
-    print(front_types)
-
     if args.gpu_device is not None:
-        gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-        tf.config.experimental.set_visible_devices(devices=gpus[args.gpu_device], device_type='GPU')
+        gpus = tf.config.list_physical_devices(device_type='GPU')
+        tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args.gpu_device], device_type='GPU')
 
         # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
         if args.memory_growth:
-            tf.config.experimental.set_memory_growth(device=gpus[args.gpu_device], enable=True)
-
-    print("Loading files")
-    ### Load the data ###
-    era5_files_obj = fm.ERA5files(args.era5_netcdf_dir)
-    era5_files_obj.variables = args.variables
-    era5_files_obj.training_years = training_years
-    era5_files_obj.validation_years = validation_years
-    era5_files_obj.test_years = test_years
-    era5_files_obj.pair_with_fronts(front_indir=args.fronts_netcdf_dir)
-
-    era5_files_training, front_files_training = era5_files_obj.era5_files_training, era5_files_obj.front_files_training
-    era5_files_validation, front_files_validation = era5_files_obj.era5_files_validation, era5_files_obj.front_files_validation
+            tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args.gpu_device][0], enable=True)
 
     if front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T' or front_types == 'F_BIN':
         num_classes = 2
@@ -183,18 +174,10 @@ if __name__ == "__main__":
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')  # ModelCheckpoint: saves model at a specified interval
-    early_stopping = EarlyStopping('val_loss', patience=250, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
+    early_stopping = EarlyStopping('val_loss', patience=150, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
-    print("Building generators")
-    training_dataset = tf.data.Dataset.from_generator(FrontsDataGenerator, args=[era5_files_obj.era5_files_training, era5_files_obj.front_files_training,
-        args.image_size, args.train_valid_batch_size[0], front_types, num_classes, args.pixel_expansion, args.pressure_levels, args.variables,
-        args.train_valid_domain[0]], output_types=(tf.float16, tf.float16), output_shapes=(tf.TensorShape([None for dim in range(5)]), tf.TensorShape([None for dim in range(5)])))
-    validation_dataset = tf.data.Dataset.from_generator(FrontsDataGenerator, args=[era5_files_obj.era5_files_validation, era5_files_obj.front_files_validation,
-        args.image_size, args.train_valid_batch_size[1], front_types, num_classes, args.pixel_expansion, args.pressure_levels, args.variables,
-        args.train_valid_domain[1]], output_types=(tf.float16, tf.float16), output_shapes=(tf.TensorShape([None for dim in range(5)]), tf.TensorShape([None for dim in range(5)])))
-
-    full_image_size = (args.image_size[0], args.image_size[1], len(args.pressure_levels), len(args.variables))
+    full_image_size = (None, None, None, 12)
 
     print("Building model")
     ### Select the model ###
@@ -209,16 +192,45 @@ if __name__ == "__main__":
         unet_kwargs['first_encoder_connections'] = args.first_encoder_connections
 
     unet_model = getattr(models, args.model_type)
-    model = unet_model(full_image_size, num_classes, args.pool_size, args.upsample_size, args.levels, args.filter_num, **unet_kwargs)
 
-    loss_function = custom_losses.make_fractions_skill_score(args.fss_mask_size, c=args.fss_c)
+    strategy = tf.distribute.MirroredStrategy()
 
-    adam = Adam(learning_rate=args.learning_rate)
-    model.compile(loss=loss_function, optimizer=adam)
+    with strategy.scope():
+
+        model = unet_model(full_image_size, num_classes, args.pool_size, args.upsample_size, args.levels, args.filter_num, **unet_kwargs)
+
+        loss_function = custom_losses.make_fractions_skill_score(args.fss_mask_size, c=args.fss_c)
+
+        adam = Adam(learning_rate=args.learning_rate)
+        model.compile(loss=loss_function, optimizer=adam)
 
     model.summary()
 
+    print("Building datasets")
+    era5_files_obj = fm.ERA5files(args.era5_tf_indir, file_type='tensorflow')
+    era5_files_obj.training_years = training_years
+    era5_files_obj.validation_years = validation_years
+
+    ### Training dataset ###
+    print(" ---> training")
+    start_time = time.time()
+    training_dataset_files = era5_files_obj.era5_files_training
+    training_dataset = combine_datasets(training_dataset_files)
+    training_dataset = training_dataset.shuffle(buffer_size=len(training_dataset))
+    training_dataset = training_dataset.batch(args.train_valid_batch_size[0], drop_remainder=True, num_parallel_calls=20)
+    training_dataset = training_dataset.prefetch(32)
+    print(f"time elapsed: {time.time() - start_time}")
+
+    ### Validation dataset ###
+    print(" ---> validation")
+    start_time = time.time()
+    validation_dataset_files = era5_files_obj.era5_files_validation
+    validation_dataset = combine_datasets(validation_dataset_files)
+    validation_dataset = validation_dataset.batch(args.train_valid_batch_size[1], drop_remainder=True, num_parallel_calls=20)
+    validation_dataset = validation_dataset.prefetch(32)
+    print(f"time elapsed: {time.time() - start_time}")
+
     print("Fitting model")
     model.fit(training_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=args.valid_freq,
-        epochs=args.epochs, steps_per_epoch=args.train_valid_steps[0], validation_steps=args.train_valid_steps[1], callbacks=[early_stopping,
-        checkpoint, history_logger], verbose=2, workers=8, use_multiprocessing=True, max_queue_size=10000)
+        epochs=args.epochs, steps_per_epoch=args.train_valid_steps[0], validation_steps=args.train_valid_steps[1], callbacks=[early_stopping, checkpoint, history_logger],
+        verbose=2)

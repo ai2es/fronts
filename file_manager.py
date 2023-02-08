@@ -7,7 +7,7 @@ Last updated: 1/10/2022 5:39 PM CT
 TODO:
     * Condense functions into one???? (too much repetitive code)
 """
-
+import shutil
 from glob import glob
 import tarfile
 import argparse
@@ -18,6 +18,44 @@ from tensorflow.keras.models import load_model as lm
 import custom_losses
 from errors import check_arguments
 from utils import data_utils
+
+
+def create_subdirectories(main_dir, start_year=2008, end_year=2020, period='yearly'):
+    """
+    Check if a given directory for data exists, and then make the directory if it does not exist.
+
+    main_dir: str
+    period: 'yearly', 'monthly', 'daily'
+    """
+
+    for year in range(start_year, end_year + 1):
+
+        print("Creating directories for %d" % year)
+
+        directory_to_make = '%s/%d' % (main_dir, year)
+        if not os.path.isdir(directory_to_make):
+            os.mkdir(directory_to_make)
+
+        if year % 4 == 0:  # Check if the current year is a leap year
+            month_2_days = 29
+        else:
+            month_2_days = 28
+
+        days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+        if period == 'monthly' or period == 'daily':
+
+            for month in range(1, 13):
+                directory_to_make = '%s/%d/%02d' % (main_dir, year, month)
+                if not os.path.isdir(directory_to_make):
+                    os.mkdir(directory_to_make)
+
+                if period == 'daily':
+
+                    for day in range(1, days_per_month[month - 1] + 1):
+                        directory_to_make = '%s/%d/%02d/%02d' % (main_dir, year, month, day)
+                        if not os.path.isdir(directory_to_make):
+                            os.mkdir(directory_to_make)
 
 
 def compress_files(main_dir, glob_file_string, tar_filename, remove_files=False, status_printout=True):
@@ -125,7 +163,10 @@ def delete_grouped_files(main_dir, glob_file_string, num_subdir):
     # Delete all the files
     print("Deleting %d files...." % len(files_to_delete), end='')
     for file in files_to_delete:
-        os.remove(file)
+        try:
+            os.remove(file)
+        except PermissionError:
+            shutil.rmtree(file)
     print("done")
 
 
@@ -163,15 +204,30 @@ class ERA5files:
     """
     Object that loads and manages ERA5 netCDF files and datasets
     """
-    def __init__(self, era5_netcdf_indir: str):
+    def __init__(self, era5_indir: str, file_type: str):
         """
-        When the ERA5files object is created, open all ERA5 netCDF files
+        When the ERA5files object is created, find all ERA5 netcdf files or tensorflow datasets
 
-        era5_netcdf_indir: str
+        era5_indir: str
             - Input directory for the ERA5 netCDF files.
+        file_type: str
+            - 'netcdf' or 'tensorflow' (case-insensitive)
         """
 
-        self._all_era5_netcdf_files = sorted(glob("%s/*/*/*/era5*.nc" % era5_netcdf_indir))  # All ERA5 files without filtering
+        self.file_type = file_type.lower()
+
+        if self.file_type == 'netcdf':
+            file_prefix = 'era5'
+            file_extension = '.nc'
+            subdir_glob = '/*/*/*/'
+        elif self.file_type == 'tensorflow':
+            file_prefix = 'era5'
+            file_extension = '_tf'
+            subdir_glob = '/'
+        else:
+            raise TypeError("Invalid file type: '%s'. Valid types are 'netcdf' or 'tensorflow'" % self.file_type)
+
+        self._all_era5_netcdf_files = sorted(glob("%s%s%s*%s" % (era5_indir, subdir_glob, file_prefix, file_extension)))  # All ERA5 files without filtering
 
         ### All available options for specific filters ###
         self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
@@ -361,6 +417,9 @@ class ERA5files:
             - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
         """
 
+        if self.file_type == 'tensorflow':
+            raise AttributeError("ERA5/front tensorflow datasets cannot be paired with front netCDF files")
+
         self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
         self.front_files = self._all_front_files
 
@@ -370,12 +429,12 @@ class ERA5files:
 
         ### Find all timesteps in the ERA5 files ###
         for j in range(len(self.era5_files)):
-            timesteps_in_era5_files.append(self.era5_files[j][5:15])
+            timesteps_in_era5_files.append(self.era5_files[j][-18:-8])
 
         unique_timesteps_in_era5_files = list(np.unique(timesteps_in_era5_files))
 
         if synoptic_only:
-            ### Filter out non-synotpic hours (3, 9, 15, 21z) ###
+            ### Filter out non-synoptic hours (3, 9, 15, 21z) ###
             for unique_timestep in unique_timesteps_in_era5_files:
                 if any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
                     unique_timesteps_in_era5_files.pop(unique_timesteps_in_era5_files.index(unique_timestep))
@@ -389,7 +448,7 @@ class ERA5files:
             era5_files_for_timestep = sorted(filter(lambda filename: timestep in filename, self.era5_files))
             front_file_for_timestep = list(filter(lambda filename: timestep in filename, self.front_files))
             if len(front_file_for_timestep) == 1:
-                era5_files_list.append(era5_files_for_timestep)
+                era5_files_list.append(era5_files_for_timestep[0])
                 front_files_list.append(front_file_for_timestep[0])
                 era5_timesteps_used.append(timestep)
 
@@ -1432,6 +1491,7 @@ if __name__ == '__main__':
     """
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('--create_subdirectories', action='store_true', help='Create daily subdirectories')
     parser.add_argument('--compress_files', action='store_true', help='Compress files')
     parser.add_argument('--delete_grouped_files', action='store_true', help='Delete a set of files')
     parser.add_argument('--extract_gdas_tarfile', action='store_true', help='Remove non-0.25 degree grid files from a GDAS TAR file')
@@ -1445,6 +1505,9 @@ if __name__ == '__main__':
     parser.add_argument('--timestep_for_gdas_extraction', type=int, nargs=3, help='Year, month, and day for the GDAS TAR files that will be modified.')
     args = parser.parse_args()
     provided_arguments = vars(args)
+
+    if args.create_subdirectories:
+        create_subdirectories(args.main_dir)
     
     if args.compress_files:
         required_arguments = ['main_dir', 'glob_file_string', 'tar_filename']

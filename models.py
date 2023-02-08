@@ -972,6 +972,6 @@ def unet_3plus(input_shape, num_classes, pool_size, upsample_size, levels, filte
         for feature_map in range(1, decoder - 1):
             tensors[f'{decoder}---{feature_map}_feature'] = aggregated_feature_map(tensors[f'De{decoder}'], level1=decoder, level2=feature_map, name=f'{decoder}---{feature_map}_feature', **aggregated_kwargs)
 
-    model = Model(inputs=tensors['input'], outputs=tensors_with_supervision, name=f'unet_3plus_{ndims}D')
+    model = Model(inputs=tensors['input'], outputs=tensors_with_supervision[::-1], name=f'unet_3plus_{ndims}D')
 
     return model
