@@ -4,6 +4,7 @@ Default settings
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 Last updated: 2/9/2023 12:13 PM CT
 """
+import platform
 
 DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains
 DEFAULT_DOMAIN_INDICES = {'full': [0, 961, 0, 320], 'conus': [392, 680, 93, 221]}  # indices corresponding to default extents of domains
@@ -78,4 +79,4 @@ memory, set this parameter to a value no larger than 16 * 150 ≈ 2,500). Deviat
 to a larger value is fine if you find that there is more free RAM as Tensorflow is shuffling the training dataset. Values larger 
 than 170,000 for Linux machines can cause crashes, but this appears to be a bug and is currently being looked into.
 """
-MAX_TRAIN_BUFFER_SIZE = {'Windows': 5000, 'Linux': 170000}
+MAX_TRAIN_BUFFER_SIZE = {'Windows': 5000, 'Linux': 170000}[platform.uname().system]
