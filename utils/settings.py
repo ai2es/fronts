@@ -2,7 +2,7 @@
 Default settings
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 1/21/2023 2:45 PM CT
+Last updated: 2/9/2023 12:13 PM CT
 """
 
 DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains
@@ -68,3 +68,14 @@ time. Loading too many files / too much data into one xarray dataset can take a 
 If segmentation errors are occurring, consider lowering this parameter until the error disappears.
 """
 MAX_FILE_CHUNK_SIZE = 2500
+
+"""
+MAX_TRAIN_BUFFER_SIZE is the maximum number of elements within the training dataset that can be shuffled at one time. Tensorflow 
+does not efficiently use RAM during shuffling on Windows machines and can lead to system crashes, so the buffer size should be 
+relatively small. It is important to monitor RAM usage if you are training a model on Windows. On Windows, I recommend using 
+a buffer size no larger than 150 times the size of your total system RAM in gigabytes (e.g. if you have 16 GB of total system 
+memory, set this parameter to a value no larger than 16 * 150 ≈ 2,500). Deviating from this "rule" and setting the parameter
+to a larger value is fine if you find that there is more free RAM as Tensorflow is shuffling the training dataset. Values larger 
+than 170,000 for Linux machines can cause crashes, but this appears to be a bug and is currently being looked into.
+"""
+MAX_TRAIN_BUFFER_SIZE = {'Windows': 5000, 'Linux': 170000}
