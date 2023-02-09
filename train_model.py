@@ -1,11 +1,10 @@
 """
-Function that trains a new or imported U-Net model.
+Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 9/28/2022 8:25 PM CDT
+Last updated: 2/9/2023 1:48 PM CT
 """
 
-import random
 import argparse
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
@@ -16,16 +15,26 @@ import file_manager as fm
 import os
 import custom_losses
 import models
-from utils import data_utils, settings
-import xarray as xr
 import datetime
-import time
-import sys
+from utils import settings
 
-# tf.config.experimental.enable_tensor_float_32_execution(False)
+tf.config.experimental.enable_tensor_float_32_execution(False)  # Disable TensorFloat32 for matrix multiplication (saves memory)
+
 
 def combine_datasets(dataset_files):
+    """
+    Combine many tensorflow datasets into one entire dataset.
 
+    Parameters
+    ----------
+    dataset_files: list
+        - List of tensorflow dataset file paths, generated from the fm.ERA5Files object.
+
+    Returns
+    -------
+    complete_dataset: tf.data.Dataset object
+        - Concatenated tensorflow dataset.
+    """
     complete_dataset = tf.data.Dataset.load(dataset_files.pop(0))
     for dataset_file in dataset_files:
         dataset = tf.data.Dataset.load(dataset_file)
@@ -77,11 +86,10 @@ if __name__ == "__main__":
 
     ### Data arguments ###
     parser.add_argument('--front_types', type=str, nargs='+', required=True, help='Front types that the model will be trained on.')
-    parser.add_argument('--pixel_expansion', type=int, default=1, help='Number of pixels to expand the fronts by.')
     parser.add_argument('--pressure_levels', type=str, nargs='+', required=True, help='Pressure levels to use')
     parser.add_argument('--variables', type=str, nargs='+', required=True, help='Variables to use')
-    parser.add_argument('--num_test_years', type=int, help='Number of years for the test set.')
-    parser.add_argument('--test_years', type=int, nargs="+", help='Years for the test set.')
+    parser.add_argument('--num_training_years', type=int, help='Number of years for the training dataset.')
+    parser.add_argument('--training_years', type=int, nargs="+", help='Years for the training dataset.')
     parser.add_argument('--num_validation_years', type=int, help='Number of years for the validation set.')
     parser.add_argument('--validation_years', type=int, nargs="+", help='Years for the validation set.')
 
@@ -90,22 +98,30 @@ if __name__ == "__main__":
     args.variables = sorted(args.variables)
     num_pressure_levels = len(args.pressure_levels)
 
-    available_years = np.arange(2008, 2021)
-    np.random.shuffle(available_years)
+    all_years = np.arange(2008, 2021)
+
+    if args.num_training_years is not None:
+        if args.training_years is not None:
+            raise TypeError("Cannot explicitly declare the training years if --num_training_years is passed")
+        training_years = list(sorted(np.random.choice(all_years, args.num_training_years, replace=False)))
+    else:
+        if args.training_years is None:
+            raise TypeError("Must pass one of the following arguments: --training_years, --num_training_years")
+        training_years = list(sorted(args.training_years))
 
     if args.num_validation_years is not None:
-        num_training_years = len(available_years) - args.num_validation_years - args.num_test_years
-        training_years = sorted(available_years[:num_training_years])
-        validation_years = sorted(available_years[num_training_years:num_training_years + args.num_validation_years])
-        test_years = sorted(available_years[-args.num_test_years:])
+        if args.validation_years is not None:
+            raise TypeError("Cannot explicitly declare the validation years if --num_validation_years is passed")
+        validation_years = list(sorted(np.random.choice([year for year in all_years if year not in training_years], args.num_validation_years, replace=False)))
     else:
-        validation_indices = [np.where(available_years == val_year)[0][0] for val_year in args.validation_years if val_year in available_years]
-        validation_years = sorted([available_years[index] for index in validation_indices])
-        available_years = np.delete(available_years, validation_indices)
+        if args.validation_years is None:
+            raise TypeError("Must pass one of the following arguments: --validation_years, --num_validation_years")
+        validation_years = list(sorted(args.validation_years))
 
-        test_indices = [np.where(available_years == test_year)[0][0] for test_year in args.test_years if test_year in available_years]
-        test_years = sorted([available_years[index] for index in test_indices])
-        training_years = sorted(np.delete(available_years, test_indices))
+    if len(training_years) + len(validation_years) > 12:
+        raise ValueError("No testing years are available: the total number of training and validation years cannot be greater than 12")
+
+    test_years = [year for year in all_years if year not in training_years + validation_years]
 
     if args.model_number is None:  # If no model number is provided, select a number based on the current date and time
         model_number = int(datetime.datetime.now().timestamp())
@@ -151,7 +167,6 @@ if __name__ == "__main__":
     model_properties['learning_rate'] = args.learning_rate
     model_properties['image_size'] = args.image_size
     model_properties['kernel_size'] = args.kernel_size
-    model_properties['pixel_expansion'] = args.pixel_expansion
     model_properties['normalization'] = 'min-max'
     model_properties['loss_function'] = args.loss
     model_properties['fss_mask_c'] = (args.fss_mask_size, args.fss_c)
@@ -212,23 +227,18 @@ if __name__ == "__main__":
     era5_files_obj.validation_years = validation_years
 
     ### Training dataset ###
-    print(" ---> training")
-    start_time = time.time()
     training_dataset_files = era5_files_obj.era5_files_training
     training_dataset = combine_datasets(training_dataset_files)
-    training_dataset = training_dataset.shuffle(buffer_size=len(training_dataset))
+    training_buffer_size = np.min([len(training_dataset), settings.MAX_TRAIN_BUFFER_SIZE])
+    training_dataset = training_dataset.shuffle(buffer_size=training_buffer_size)
     training_dataset = training_dataset.batch(args.train_valid_batch_size[0], drop_remainder=True, num_parallel_calls=20)
-    training_dataset = training_dataset.prefetch(32)
-    print(f"time elapsed: {time.time() - start_time}")
+    training_dataset = training_dataset.prefetch(tf.data.AUTOTUNE)
 
     ### Validation dataset ###
-    print(" ---> validation")
-    start_time = time.time()
     validation_dataset_files = era5_files_obj.era5_files_validation
     validation_dataset = combine_datasets(validation_dataset_files)
     validation_dataset = validation_dataset.batch(args.train_valid_batch_size[1], drop_remainder=True, num_parallel_calls=20)
-    validation_dataset = validation_dataset.prefetch(32)
-    print(f"time elapsed: {time.time() - start_time}")
+    validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
 
     print("Fitting model")
     model.fit(training_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=args.valid_freq,
