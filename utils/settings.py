@@ -2,13 +2,13 @@
 Default settings
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/9/2023 12:13 PM CT
+Last updated: 2/9/2023 12:24 PM CT
 """
 import platform
 
-DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains
-DEFAULT_DOMAIN_INDICES = {'full': [0, 961, 0, 320], 'conus': [392, 680, 93, 221]}  # indices corresponding to default extents of domains
-DEFAULT_DOMAIN_IMAGES = {'full': [8, 3], 'conus': [3, 1]}  # default values for the number of images to use when making predictions
+DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains [start lon, end lon, start lat, end lat]
+DEFAULT_DOMAIN_INDICES = {'full': [0, 961, 0, 320], 'conus': [392, 680, 93, 221]}  # indices corresponding to default extents of domains [start lon, end lon, start lat, end lat]
+DEFAULT_DOMAIN_IMAGES = {'full': [8, 3], 'conus': [3, 1]}  # default values for the number of images to use when making predictions [lon, lat]
 
 # colors for plotted ground truth fronts
 DEFAULT_FRONT_COLORS = {'CF': 'blue', 'WF': 'red', 'SF': 'limegreen', 'OF': 'darkviolet', 'CF-F': 'darkblue', 'WF-F': 'darkred',
