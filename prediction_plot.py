@@ -22,7 +22,7 @@ from utils import data_utils, settings
 from utils.plotting_utils import plot_background
 
 
-def prediction_plot(model_number, model_dir, init_time, forecast_hours, domain, domain_images, variable_data_source='gdas',
+def prediction_plot(model_number, model_dir, plot_dir, init_time, forecast_hours, domain, domain_images, variable_data_source='gdas',
     probability_mask_2D=0.05, probability_mask_3D=0.10, same_map=True):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
@@ -53,7 +53,6 @@ def prediction_plot(model_number, model_dir, init_time, forecast_hours, domain, 
     probs_dir = f'{model_dir}/model_{model_number}/predictions'
 
     for forecast_hour in forecast_hours:
-        forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
         filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_f%03d_%s_%dx%d' % (model_number, month, day, hour, variable_data_source, forecast_hour, domain, domain_images[0], domain_images[1])
 
         probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
@@ -126,7 +125,7 @@ def prediction_plot(model_number, model_dir, init_time, forecast_hours, domain, 
             ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
             ax.set_title(data_title, loc='left')
 
-            plt.savefig('%s/model_%d/predictions/%s-same.png' % (model_dir, model_number, filename_base), bbox_inches='tight', dpi=300)
+            plt.savefig('%s/%s.png' % (plot_dir, filename_base), bbox_inches='tight', dpi=300)
             plt.close()
 
         else:
@@ -146,7 +145,7 @@ def prediction_plot(model_number, model_dir, init_time, forecast_hours, domain, 
                 cbar.set_label('Probability (uncalibrated)', rotation=90)
                 cbar.set_ticks(cbar_ticks)
                 cbar.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-                plt.savefig('%s/model_%d/predictions/%s-%s.png' % (model_dir, model_number, filename_base, front_label), bbox_inches='tight', dpi=300)
+                plt.savefig('%s/%s-%s.png' % (plot_dir, filename_base, front_label), bbox_inches='tight', dpi=300)
                 plt.close()
 
 
@@ -164,6 +163,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
+    parser.add_argument('--plot_dir', type=str, help='plot directory')
 
     parser.add_argument('--variable_data_source', type=str, default='gdas', help='Data source for variables')
 
@@ -174,5 +174,5 @@ if __name__ == '__main__':
     else:
         domain_images = args.domain_images
 
-    prediction_plot(args.model_number, args.model_dir, args.init_time, args.forecast_hours, args.domain,
+    prediction_plot(args.model_number, args.model_dir, args.plot_dir, args.init_time, args.forecast_hours, args.domain,
         domain_images, variable_data_source=args.variable_data_source)
