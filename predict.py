@@ -8,10 +8,10 @@ Last updated: 2/9/2023 11:46 PM CT
 import argparse
 import pandas as pd
 import numpy as np
-import file_manager as fm
 import xarray as xr
 import tensorflow as tf
 from utils import data_utils, settings
+from glob import glob
 
 
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
@@ -277,7 +277,7 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
         print(f"Compatible latitude images: {lat_image_matches}")
 
 
-def generate_predictions(model_number, model_dir, variables_netcdf_indir, init_time, forecast_hours, domain='full', domain_images='min',
+def generate_predictions(model_number, model_dir, netcdf_indir, init_time, domain='full', domain_images='min',
     variable_data_source='gdas'):
     """
     Generate predictions with a model.
@@ -288,12 +288,10 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, init_t
         - Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
         - Main directory for the models.
-    variables_netcdf_indir: str
+    netcdf_indir: str
         - Input directory for the netcdf files.
     init_time: iterable object with 4 integers
         - 4 values for the date and time: year, month, day, hour
-    forecast_hours: int or tuple of ints
-        - Forecast hours to make predictions with if making predictions with GDAS data.
     domain: str
         - Domain over which the predictions will be made. Options are: 'conus', 'full'. Default is 'full'.
     domain_images: str or iterable object with 2 ints
@@ -341,15 +339,10 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, init_t
     model = fm.load_model(model_number, model_dir)
 
     ### Load variable files ###
-    variable_files_obj = getattr(fm, '%sfiles' % variable_data_source.upper())  # Initialize the object for variable files
-    variable_files_obj = variable_files_obj(variables_netcdf_indir, file_type='netcdf')
-    variable_files = variable_files_obj.variable_files
+    variable_files = glob(f'%s/{variable_data_source}_%d%02d%02d%02d_f*.nc' % (netcdf_indir, init_time[0], init_time[1], init_time[2], init_time[3]))
 
     dataset_kwargs = {'engine': 'netcdf4'}  # Keyword arguments for loading variable files with xarray
     coords_isel_kwargs = {'longitude': slice(domain_extent_indices[0], domain_extent_indices[1]), 'latitude': slice(domain_extent_indices[2], domain_extent_indices[3])}
-
-    timestep_str = '%d%02d%02d%02d' % (init_time[0], init_time[1], init_time[2], init_time[3])
-    variable_files = [file for file in variable_files if timestep_str in file]
 
     num_files = len(variable_files)
 
@@ -433,7 +426,7 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, init_t
                     gdas_variable_ds_new_shape = np.shape(variable_batch_ds_new)
                     variable_batch_ds_new = variable_batch_ds_new.reshape(gdas_variable_ds_new_shape[0] * gdas_variable_ds_new_shape[1], *[dim_size for dim_size in gdas_variable_ds_new_shape[2:]])
 
-                    prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE)
+                    prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE, verbose=0)
 
                     if num_dimensions == 2:
                         if model_type == 'unet_3plus':
@@ -531,7 +524,7 @@ if __name__ == '__main__':
     parser.add_argument('--domain_images', type=int, nargs=2, required=False, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
 
     ### Model / data arguments ###
-    parser.add_argument('--variables_netcdf_indir', type=str, help='Main directory for the netcdf files containing variable data.')
+    parser.add_argument('--netcdf_indir', type=str, help='Main directory for the netcdf files containing variable data.')
     parser.add_argument('--variable_data_source', type=str, default='gdas', help='Data source for variables')
     parser.add_argument('--model_dir', type=str, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, help='Model number.')
@@ -562,5 +555,5 @@ if __name__ == '__main__':
     # Verify the compatibility of image stitching arguments
     find_matches_for_domain((domain_indices[1] - domain_indices[0], domain_indices[3] - domain_indices[2]), image_size, compatibility_mode=True, compat_images=domain_images)
 
-    generate_predictions(args.model_number, args.model_dir, args.variables_netcdf_indir, args.init_time,
+    generate_predictions(args.model_number, args.model_dir, args.netcdf_indir, args.init_time,
         args.forecast_hours, domain=args.domain, domain_images=domain_images, variable_data_source=args.variable_data_source)

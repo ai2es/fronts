@@ -1,17 +1,14 @@
 """
-Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
+Download GDAS/GFS data and convert it to netCDF format
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 12/24/2022 5:58 PM CT
-
-TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
+Last updated: 2/10/2023 9:44 AM CT
 """
 
 import argparse
 import time
 import urllib.error
 import requests
-from bs4 import BeautifulSoup
 import xarray as xr
 import glob
 import numpy as np
@@ -21,10 +18,17 @@ import variables
 import sys
 
 
-def bar_progress(current, total):
-  progress_message = "Downloading: %d%% [%.1f / %.1f] MB" % (current / total * 100, current / 1e6, total / 1e6)
+def bar_progress(current, total, width=0.8):
+  progress_message = "Downloading: %d%% [%d/%d] MB" % (current / total * 100, current / 1e6, total / 1e6)
   sys.stdout.write("\r" + progress_message)
   sys.stdout.flush()
+
+
+def get_current_time():
+    current_time = time.gmtime(time.time())
+
+    return f"{current_time.tm_year}-%02d-%02d %d:%02d:%02d" % (current_time.tm_mon, current_time.tm_mday,
+        current_time.tm_hour, current_time.tm_min, current_time.tm_sec)
 
 
 if __name__ == "__main__":
@@ -49,6 +53,8 @@ if __name__ == "__main__":
     local_grib_filenames = [f'{args.model}_{year}%02d%02d%02d_f%03d.grib' % (month, day, hour, forecast_hour)
                             for forecast_hour in forecast_hours]
 
+    print(f"{get_current_time()} ===> Downloading data files")
+
     for file, local_filename in zip(files, local_grib_filenames):
 
         ### If the directory does not exist, check to see if the file link is valid. If the file link is NOT valid, then the directory will not be created since it will be empty. ###
@@ -60,7 +66,7 @@ if __name__ == "__main__":
 
         if not os.path.isfile(full_file_path) and os.path.isdir(netcdf_outdir):
             try:
-                wget.download(file, out=full_file_path)
+                wget.download(file, out=full_file_path, bar=bar_progress)
             except urllib.error.HTTPError:
                 try:
                     wget.download(file.replace('/atmos', ''), out=full_file_path, bar=bar_progress)
@@ -71,8 +77,6 @@ if __name__ == "__main__":
         elif os.path.isfile(full_file_path):
             print(f"{full_file_path} already exists, skipping file....")
     ####################################################################################################################
-
-    print(stop)
 
     ################################################ Convert to netCDF #################################################
     keys_to_extract = ['gh', 'mslet', 'r', 'sp', 't', 'u', 'v']
@@ -100,16 +104,13 @@ if __name__ == "__main__":
     grib_files = [f'%s/{model}_%d%02d%02d%02d_f%03d.grib' % (netcdf_outdir, year, month, day, hour, forecast_hour)
                   for forecast_hour in forecast_hours]
 
-    individual_variable_filename_format = f'%s/{model}_*_%d%02d%02d%02d_*.grib' % (netcdf_outdir, year, month, day, hour)
+    individual_variable_filename_format = f'%s/{model}_*_%d%02d%02d%02d.grib' % (netcdf_outdir, year, month, day, hour)
 
+    print(f"\n{get_current_time()} ===> Splitting grib datasets")
     ### Split grib files into one file per variable ###
     for key in keys_to_extract:
-        output_file = f'%s{model}.%s.t%02dz.pgrb2.0p25' % (grib_indir, year, month, day, key, hour)
-        if (os.path.isfile(output_file) and overwrite_grib) or not os.path.isfile(output_file):
-            os.system(f'grib_copy -w shortName={key} {" ".join(grib_files)} {output_file}')
-
-    if delete_original_grib:
-        [os.remove(file) for file in grib_files]
+        output_file = f'%s/{model}_%s_%d%02d%02d%02d.grib' % (netcdf_outdir, key, year, month, day, hour)
+        os.system(f'grib_copy -w shortName={key} {" ".join(grib_files)} {output_file}')
 
     time.sleep(5)  # Pause the code for 5 seconds to ensure that all contents of the individual files are preserved
 
@@ -126,6 +127,7 @@ if __name__ == "__main__":
 
     pressure_levels = [1000, 975, 950, 925, 900, 850, 700]
 
+    print(f"{get_current_time()} ===> Opening new grib datasets")
     # Open the datasets
     pressure_level_data = xr.open_mfdataset(pressure_level_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks=chunk_sizes, combine='nested').isel(isobaricInhPa=isobaricInhPa_isel, **domain_indices_isel).drop_vars(['step'])
     surface_data = xr.open_mfdataset(surface_data_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
@@ -146,22 +148,20 @@ if __name__ == "__main__":
         num_forecast_hours = 1
         forecast_hours = [forecast_hours, ]
 
-    # Reformat the longitude coordinates to the 360 degree system
-    if model in ['gdas', 'gfs']:
-        pressure_level_data['longitude'] = lon_coords_360
-        surface_data['longitude'] = lon_coords_360
-        raw_pressure_data['longitude'] = lon_coords_360
-        mslp_data['longitude'] = lon_coords_360
+    pressure_level_data['longitude'] = lon_coords_360
+    surface_data['longitude'] = lon_coords_360
+    raw_pressure_data['longitude'] = lon_coords_360
+    mslp_data['longitude'] = lon_coords_360
 
-        mslp = mslp_data['mslet'].values  # mean sea level pressure (eta model reduction)
-        mslp_z = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
-        mslp_z[:, 0, :, :] = mslp / 100  # convert to hectopascals
+    mslp = mslp_data['mslet'].values  # mean sea level pressure (eta model reduction)
+    mslp_z = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
+    mslp_z[:, 0, :, :] = mslp / 100  # convert to hectopascals
 
     P = np.empty(shape=(num_forecast_hours, len(pressure_levels), chunk_sizes['latitude'], chunk_sizes['longitude']))  # create 3D array of pressure levels to match the shape of variable arrays
     for pressure_level_index, pressure_level in enumerate(pressure_levels):
         P[:, pressure_level_index, :, :] = pressure_level * 100
 
-    print("Generating pressure level variables")
+    print(f"{get_current_time()} ===> Generating pressure level data")
 
     T_pl = pressure_level_data['t'].values
     RH_pl = pressure_level_data['r'].values / 100
@@ -185,7 +185,7 @@ if __name__ == "__main__":
     # Create arrays of coordinates for the surface data
     surface_data_latitudes = pressure_level_data['latitude'].values
 
-    print("Generating surface variables")
+    print(f"{get_current_time()} ===> Generating surface data")
 
     sp = raw_pressure_data['sp'].values
     T_sigma = surface_data['t'].values
@@ -249,7 +249,7 @@ if __name__ == "__main__":
 
     pressure_levels = ['surface', '1000', '975', '950', '925', '900', '850', '700']
 
-    print("Building final dataset")
+    print(f"{get_current_time()} ===> Building final datasets")
 
     full_dataset_coordinates = dict(forecast_hour=forecast_hours, pressure_level=pressure_levels)
 
@@ -279,5 +279,14 @@ if __name__ == "__main__":
 
     full_grib_dataset = full_grib_dataset.expand_dims({'time': np.atleast_1d(pressure_level_data['time'].values)})
 
+    print(f"{get_current_time()} ===> Saving netCDF files to: {netcdf_outdir}")
     for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
-        full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/{model}_%d%02d%02d%02d_f%03d.nc' % (netcdf_outdir, year, month, day, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
+        full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/{model}_%d%02d%02d%02d_f%03d.nc' % (netcdf_outdir, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
+
+    print(f"{get_current_time()} ===> Removing grib files")
+
+    grib_files_to_delete = glob.glob('%s/*.grib*' % netcdf_outdir)
+    for file in grib_files_to_delete:
+        os.remove(file)
+
+    print(f"{get_current_time()} ===> Data download completed.")
