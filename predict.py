@@ -14,6 +14,121 @@ from utils import data_utils, settings
 from glob import glob
 
 
+def load_model(model_number, model_dir):
+    """
+    Load a saved model.
+
+    Parameters
+    ----------
+    model_number: int
+        - Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        - Main directory for the models.
+    """
+
+    model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
+
+    loss = model_properties['loss_function']
+    metric = model_properties['metric']
+
+    if loss == 'cce' and metric == 'auc':
+        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
+    else:
+        if loss == 'fss':
+            fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
+            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
+            loss_string = 'fractions_skill_score'
+        elif loss == 'bss':
+            loss_string = 'brier_skill_score'
+            loss_function = custom_losses.brier_skill_score
+        else:
+            loss_string = None
+            loss_function = None
+
+        if metric == 'fss':
+            fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
+            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
+            metric_string = 'fractions_skill_score'
+        elif metric == 'bss':
+            metric_string = 'brier_skill_score'
+            metric_function = custom_losses.brier_skill_score
+        else:
+            metric_string = None
+            metric_function = None
+
+        model_loaded = False  # Boolean flag that will become True once a model successfully loads
+        print("Loading model %d" % model_number)
+        if loss_string is not None:
+            if metric_string is not None:
+
+                ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
+                while model_loaded is False:
+                    try:
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+                    except ValueError:
+
+                        if 'fractions' in loss_string or 'FSS' in loss_string:
+                            if loss_string == 'fractions_skill_score':
+                                loss_string = 'FSS_loss_2D'
+                            elif loss_string == 'FSS_loss_2D':
+                                loss_string = 'FSS_loss_3D'
+                            else:
+                                # Load the model normally to return the ValueError message for unknown loss function
+                                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+
+                        if 'fractions' in metric_string or 'FSS' in metric_string:
+                            if metric_string == 'fractions_skill_score':
+                                metric_string = 'FSS_loss_2D'
+                            elif metric_string == 'FSS_loss_2D':
+                                metric_string = 'FSS_loss_3D'
+                            else:
+                                # Load the model normally to return the ValueError message for unknown metric
+                                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+
+                    else:
+                        model_loaded = True
+
+            else:
+
+                ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
+                while model_loaded is False:
+                    try:
+                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
+                    except ValueError:
+
+                        if 'fractions' in loss_string or 'FSS' in loss_string:
+                            if loss_string == 'fractions_skill_score':
+                                loss_string = 'FSS_loss_2D'
+                            elif loss_string == 'FSS_loss_2D':
+                                loss_string = 'FSS_loss_3D'
+                            else:
+                                # Load the model normally to return the ValueError message for unknown loss function
+                                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
+
+                    else:
+                        model_loaded = True
+
+        else:
+
+            ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
+            while model_loaded is False:
+                try:
+                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
+                except ValueError:
+                    if 'fractions' in metric_string or 'FSS' in metric_string:
+                        if metric_string == 'fractions_skill_score':
+                            metric_string = 'FSS_loss_2D'
+                        elif metric_string == 'FSS_loss_2D':
+                            metric_string = 'FSS_loss_3D'
+                        else:
+                            # Load the model normally to return the ValueError message for unknown loss function
+                            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
+
+                else:
+                    model_loaded = True
+
+    return model
+
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
     image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing):
     """
