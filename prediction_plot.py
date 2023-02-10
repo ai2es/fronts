@@ -45,12 +45,15 @@ def prediction_plot(model_number, model_dir, plot_dir, init_time, forecast_hours
     """
 
     variable_data_source = variable_data_source.lower()
-
     extent = settings.DEFAULT_DOMAIN_EXTENTS[domain]
 
     year, month, day, hour = int(init_time[0]), int(init_time[1]), int(init_time[2]), int(init_time[3])
-
     probs_dir = f'{model_dir}/model_{model_number}/predictions'
+
+    if domain == 'conus':
+        cbar_loc = 0.7365
+    elif domain == 'full':
+        cbar_loc = 0.8965
 
     for forecast_hour in forecast_hours:
         filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_f%03d_%s_%dx%d' % (model_number, month, day, hour, variable_data_source, forecast_hour, domain, domain_images[0], domain_images[1])
@@ -59,7 +62,7 @@ def prediction_plot(model_number, model_dir, plot_dir, init_time, forecast_hours
 
         probs_ds = xr.open_mfdataset(probs_file)
 
-        crs = ccrs.LambertConformal(central_longitude=250)
+        crs = ccrs.PlateCarree(central_longitude=250)
 
         model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
@@ -107,14 +110,14 @@ def prediction_plot(model_number, model_dir, plot_dir, init_time, forecast_hours
 
             fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
             plot_background(extent, ax=ax, linewidth=0.5)
-            # ax.gridlines(draw_labels=True, zorder=0)
+            ax.gridlines(draw_labels=True, zorder=0, alpha=0.4)
 
             for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, front_types, contour_maps_by_type):
 
                 cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
                 probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
 
-                cbar_ax = fig.add_axes([0.7365 + (front_no * 0.015), 0.11, 0.015, 0.77])
+                cbar_ax = fig.add_axes([cbar_loc + (front_no * 0.015), 0.11, 0.015, 0.77])
                 cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
                 cbar.set_ticklabels([])
 
