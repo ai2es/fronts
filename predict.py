@@ -6,12 +6,15 @@ Last updated: 2/9/2023 11:46 PM CT
 """
 
 import argparse
+import os.path
+
 import pandas as pd
 import numpy as np
 import xarray as xr
 import tensorflow as tf
 from utils import data_utils, settings
 from glob import glob
+import custom_losses
 
 
 def load_model(model_number, model_dir):
@@ -128,6 +131,7 @@ def load_model(model_number, model_dir):
                     model_loaded = True
 
     return model
+
 
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
     image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing):
@@ -451,7 +455,7 @@ def generate_predictions(model_number, model_dir, netcdf_indir, init_time, domai
     else:
         lat_image_spacing = 0
 
-    model = fm.load_model(model_number, model_dir)
+    model = load_model(model_number, model_dir)
 
     ### Load variable files ###
     variable_files = glob(f'%s/{variable_data_source}_%d%02d%02d%02d_f*.nc' % (netcdf_indir, init_time[0], init_time[1], init_time[2], init_time[3]))
@@ -561,13 +565,16 @@ def generate_predictions(model_number, model_dir, netcdf_indir, init_time, domai
                     if map_created is True:
 
                         for timestep_no, timestep in enumerate(timesteps):
-                            time = f'{timestep[:4]}-%s-%s-%sz' % (timestep[5:7], timestep[8:10], timestep[11:13])
-                            probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no], image_lats, image_lons, front_types)
-                            probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep)})
-                            filename_base = 'model_%d_%s_%s_%dx%d' % (model_number, time, domain, domain_images_lon, domain_images_lat)
+                            for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
+                                time = f'{init_time[0]}-%02d-%02d-%02dz' % (init_time[1], init_time[2], init_time[3])
+                                probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no][fcst_hr_index], image_lats, image_lons, front_types)
+                                probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep)})
+                                filename_base = 'model_%d_%s_f%03d_%s_%dx%d' % (model_number, time, forecast_hour, domain, domain_images_lon, domain_images_lat)
 
-                            outfile = '%s/model_%d/probabilities/predictions/%s_probabilities.nc' % (model_dir, model_number, filename_base)
-                            probs_ds.to_netcdf(path=outfile, engine='netcdf4', mode='w')
+                                if not os.path.isdir('%s/model_%d/predictions' % (model_dir, model_number)):
+                                    os.mkdir('%s/model_%d/predictions' % (model_dir, model_number))
+                                outfile = '%s/model_%d/predictions/%s_probabilities.nc' % (model_dir, model_number, filename_base)
+                                probs_ds.to_netcdf(path=outfile, engine='netcdf4', mode='w')
 
 
 def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, front_types: str or list):
@@ -630,19 +637,18 @@ if __name__ == '__main__':
     """
     parser = argparse.ArgumentParser()
 
-    ### Initialization time & forecast hour ###
-    parser.add_argument('--init_time', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
-    parser.add_argument('--forecast_hours', type=int, nargs='+', help='Forecast hour for the GDAS data')
+    ### Initialization time ###
+    parser.add_argument('--init_time', type=int, nargs=4, required=True, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
 
     ### Domain arguments ###
-    parser.add_argument('--domain', type=str, help='Domain of the data.')
-    parser.add_argument('--domain_images', type=int, nargs=2, required=False, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
+    parser.add_argument('--domain', type=str, required=True, help='Domain of the data.')
+    parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
 
     ### Model / data arguments ###
-    parser.add_argument('--netcdf_indir', type=str, help='Main directory for the netcdf files containing variable data.')
-    parser.add_argument('--variable_data_source', type=str, default='gdas', help='Data source for variables')
-    parser.add_argument('--model_dir', type=str, help='Directory for the models.')
-    parser.add_argument('--model_number', type=int, help='Model number.')
+    parser.add_argument('--netcdf_indir', type=str, required=True, help='Main directory for the netcdf files containing variable data.')
+    parser.add_argument('--variable_data_source', type=str, required=True, help='Data source for variables (GDAS or GFS)')
+    parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
+    parser.add_argument('--model_number', type=int, required=True, help='Model number.')
 
     ### GPU arguments ###
     parser.add_argument('--gpu_device', type=int, help='GPU device number.')
@@ -671,4 +677,4 @@ if __name__ == '__main__':
     find_matches_for_domain((domain_indices[1] - domain_indices[0], domain_indices[3] - domain_indices[2]), image_size, compatibility_mode=True, compat_images=domain_images)
 
     generate_predictions(args.model_number, args.model_dir, args.netcdf_indir, args.init_time,
-        args.forecast_hours, domain=args.domain, domain_images=domain_images, variable_data_source=args.variable_data_source)
+        domain=args.domain, domain_images=domain_images, variable_data_source=args.variable_data_source)
