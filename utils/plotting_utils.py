@@ -2,7 +2,6 @@
 Plotting tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
 Last updated: 12/24/2022 5:44 PM CDT
 """
 

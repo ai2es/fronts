@@ -569,7 +569,7 @@ def generate_predictions(model_number, model_dir, netcdf_indir, init_time, domai
                                 time = f'{init_time[0]}-%02d-%02d-%02dz' % (init_time[1], init_time[2], init_time[3])
                                 probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no][fcst_hr_index], image_lats, image_lons, front_types)
                                 probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep)})
-                                filename_base = 'model_%d_%s_f%03d_%s_%dx%d' % (model_number, time, forecast_hour, domain, domain_images_lon, domain_images_lat)
+                                filename_base = f'model_%d_%s_{variable_data_source}_f%03d_%s_%dx%d' % (model_number, time, forecast_hour, domain, domain_images_lon, domain_images_lat)
 
                                 if not os.path.isdir('%s/model_%d/predictions' % (model_dir, model_number)):
                                     os.mkdir('%s/model_%d/predictions' % (model_dir, model_number))
