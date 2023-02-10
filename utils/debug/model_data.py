@@ -2,8 +2,7 @@
 Debug tools for model data (predictions, statistics, etc.)
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 10/22/2022 7:11 PM CT
+Last updated: 2/9/2023 10:52 PM CT
 """
 
 import numpy as np
@@ -12,7 +11,7 @@ import os
 from utils.debug import debug_utils
 
 
-def find_missing_statistics(model_dir, model_number, domain, domain_images, domain_trim, variables_data_source, variables_netcdf_indir,
+def find_missing_statistics(model_dir, model_number, domain, domain_images, variables_data_source, variables_netcdf_indir,
     fronts_netcdf_indir, fronts_xml_indir, dataset=None, years=None, report_outdir=None):
     """
     Search through a folder containing model statistics to find timesteps for which files are missing.
@@ -28,8 +27,6 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
         - Domain of the data.
     domain_images: iterable object with 2 ints
         - Number of images along each dimension of the final stitched map (lon lat).
-    domain_trim: iterable object with 2 ints
-        - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
     variables_data_source: str
         - Data used when making the predictions that were used for calculating the statistics.
     variables_netcdf_indir: str
@@ -77,11 +74,10 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
     else:
         assert os.path.isdir(report_outdir)  # Check that the output directory for the text file is valid
 
-    report_file_path = f'%s/model_{model_number}_conus_%dx%dimages_%dx%dtrim_statistics_debug.txt' % \
-                       (report_outdir, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+    report_file_path = f'%s/model_{model_number}_conus_%dx%d_statistics_debug.txt' % (report_outdir, domain_images[0], domain_images[1])
     report_file = open(report_file_path, 'w')
 
-    stats_folder_to_analyze = '%s/statistics/%s_%dx%dimages_%dx%dtrim' % (model_folder, domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+    stats_folder_to_analyze = '%s/statistics/%s_%dx%d' % (model_folder, domain, domain_images[0], domain_images[1])
 
     assert os.path.isdir(stats_folder_to_analyze)  # Check that the stats folder is valid
 
@@ -105,7 +101,7 @@ def find_missing_statistics(model_dir, model_number, domain, domain_images, doma
         missing_front_netcdf_file = False
         missing_front_xml_file = False
 
-        stats_file = f'%s/model_{model_number}_%d-%02d-%02d-%02dz_{domain}_%dx%dimages_%dx%dtrim_statistics.nc' % (stats_folder_to_analyze, timestep[0], timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        stats_file = f'%s/model_{model_number}_%d-%02d-%02d-%02dz_{domain}_%dx%d_statistics.nc' % (stats_folder_to_analyze, timestep[0], timestep[1], timestep[2], timestep[3], domain_images[0], domain_images[1])
         probs_file = stats_file.replace('statistics', 'probabilities')
 
         if not os.path.isfile(stats_file):

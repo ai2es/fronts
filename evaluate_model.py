@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 1/10/2022 5:38 PM CT
+Last updated: 2/9/2023 10:49 PM CT
 
 TODO:
     * Clean up code (much needed)
@@ -24,17 +24,15 @@ import xarray as xr
 from errors import check_arguments
 import tensorflow as tf
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
-from matplotlib.animation import FuncAnimation
 from matplotlib.ticker import FixedLocator
-from utils import data_utils, settings, plotting_utils
+from utils import data_utils, settings
 from utils.plotting_utils import plot_background
 from glob import glob
 from matplotlib.font_manager import FontProperties
 
 
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
-    image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing,
-    lon_pixels_per_image, lat_pixels_per_image):
+    image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing):
     """
     Add model prediction to the stitched map.
 
@@ -58,18 +56,10 @@ def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images
         - Number of pixels along the longitude dimension of the model predictions.
     image_size_lat: int
         - Number of pixels along the latitude dimension of the model predictions.
-    domain_trim_lon: int
-        - Number of pixels by which the images will be trimmed along the longitude dimension before taking the maximum of overlapping pixels.
-    domain_trim_lat: int
-        - Number of pixels by which the images will be trimmed along the latitude dimension before taking the maximum of overlapping pixels.
     lon_image_spacing: int
         - Number of pixels between each image along the longitude dimension.
     lat_image_spacing: int
         - Number of pixels between each image along the latitude dimension.
-    lon_pixels_per_image: int
-        - Number of pixels along the longitude dimension of each image.
-    lat_pixels_per_image: int
-        - Number of pixels along the latitude dimension of each image.
 
     Returns
     -------
@@ -82,34 +72,34 @@ def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images
     if lon_image == 0:  # If the image is on the western edge of the domain
         if lat_image == 0:  # If the image is on the northern edge of the domain
             # Add first image to map
-            stitched_map_probs[:, 0: image_size_lon - domain_trim_lon, 0: image_size_lat - domain_trim_lat] = \
-                image_probs[:, domain_trim_lon: image_size_lon, domain_trim_lat: image_size_lat]
+            stitched_map_probs[:, 0: image_size_lon, 0: image_size_lat] = \
+                image_probs[:, :image_size_lon, :image_size_lat]
 
             if domain_images_lon == 1 and domain_images_lat == 1:
                 map_created = True
 
         elif lat_image != domain_images_lat - 1:  # If the image is not on the northern nor the southern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant latitude
-            stitched_map_probs[:, 0: image_size_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                np.maximum(stitched_map_probs[:, 0: image_size_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image],
-                           image_probs[:, domain_trim_lon: image_size_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+            stitched_map_probs[:, 0: image_size_lon, int(lat_image * lat_image_spacing):int((lat_image-1)*lat_image_spacing) + image_size_lat] = \
+                np.maximum(stitched_map_probs[:, 0: image_size_lon, int(lat_image * lat_image_spacing):int((lat_image-1)*lat_image_spacing) + image_size_lat],
+                           image_probs[:, :image_size_lon, :image_size_lat - lat_image_spacing])
 
             # Add the remaining pixels of the current image to the map
-            stitched_map_probs[:, 0: image_size_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                image_probs[:, domain_trim_lon: image_size_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+            stitched_map_probs[:, 0: image_size_lon, int(lat_image_spacing * (lat_image-1)) + image_size_lat:int(lat_image_spacing * lat_image) + image_size_lat] = \
+                image_probs[:, :image_size_lon, image_size_lat - lat_image_spacing:image_size_lat]
 
             if domain_images_lon == 1 and domain_images_lat == 2:
                 map_created = True
 
         else:  # If the image is on the southern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant latitude
-            stitched_map_probs[:, 0: image_size_lon - domain_trim_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image] = \
-                np.maximum(stitched_map_probs[:, domain_trim_lon: image_size_lon, int(lat_image*lat_image_spacing):int((lat_image-1)*lat_image_spacing) + lat_pixels_per_image],
-                           image_probs[:, domain_trim_lon: image_size_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+            stitched_map_probs[:, 0: image_size_lon, int(lat_image * lat_image_spacing):int((lat_image-1)*lat_image_spacing) + image_size_lat] = \
+                np.maximum(stitched_map_probs[:, :image_size_lon, int(lat_image * lat_image_spacing):int((lat_image-1)*lat_image_spacing) + image_size_lat],
+                           image_probs[:, :image_size_lon, :image_size_lat - lat_image_spacing])
 
             # Add the remaining pixels of the current image to the map
-            stitched_map_probs[:, 0: image_size_lon - domain_trim_lon, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                image_probs[:, domain_trim_lon: image_size_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:image_size_lat-domain_trim_lat]
+            stitched_map_probs[:, 0: image_size_lon, int(lat_image_spacing * (lat_image-1)) + image_size_lat:] = \
+                image_probs[:, :image_size_lon,  image_size_lat - lat_image_spacing:image_size_lat]
 
             if domain_images_lon == 1 and domain_images_lat > 2:
                 map_created = True
@@ -117,101 +107,101 @@ def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images
     elif lon_image != domain_images_lon - 1:  # If the image is not on the western nor the eastern edge of the domain
         if lat_image == 0:  # If the image is on the northern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant longitude
-            stitched_map_probs[:, int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: image_size_lat - domain_trim_lat] = \
-                np.maximum(stitched_map_probs[:, int(lon_image*lon_image_spacing):int((lon_image-1)*lon_image_spacing) + lon_pixels_per_image, 0: image_size_lat - domain_trim_lat],
-                           image_probs[:, domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: image_size_lat])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):int((lon_image-1)*lon_image_spacing) + image_size_lon, 0: image_size_lat] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int((lon_image-1)*lon_image_spacing) + image_size_lon, 0: image_size_lat],
+                           image_probs[:, :image_size_lon - lon_image_spacing, :image_size_lat])
 
             # Add the remaining pixels of the current image to the map
-            stitched_map_probs[:, int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, 0: image_size_lat - domain_trim_lat] = \
-                image_probs[:, domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat: image_size_lat]
+            stitched_map_probs[:, int(lon_image_spacing * (lon_image-1)) + image_size_lon:lon_image_spacing * lon_image + image_size_lon, 0: image_size_lat] = \
+                image_probs[:, image_size_lon - lon_image_spacing:image_size_lon, :image_size_lat]
 
             if domain_images_lon == 2 and domain_images_lat == 1:
                 map_created = True
 
         elif lat_image != domain_images_lat - 1:  # If the image is not on the northern nor the southern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant longitude
-            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+image_size_lat-domain_trim_lat] = \
-                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+image_size_lat-domain_trim_lat],
-                           image_probs[:, domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:image_size_lat-domain_trim_lat])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing * (lon_image-1)) + image_size_lon, int(lat_image * lat_image_spacing):int(lat_image * lat_image_spacing) + image_size_lat] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing * (lon_image-1)) + image_size_lon, int(lat_image * lat_image_spacing):int(lat_image * lat_image_spacing) + image_size_lat],
+                           image_probs[:, :image_size_lon - lon_image_spacing, :image_size_lat])
 
             # Take the maximum of the overlapping pixels along sets of constant latitude
-            stitched_map_probs[:, int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+image_size_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                np.maximum(stitched_map_probs[:, int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+image_size_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image],
-                           image_probs[:, domain_trim_lon:image_size_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing): int(lon_image * lon_image_spacing) + image_size_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing * (lat_image-1)) + image_size_lat] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing): int(lon_image * lon_image_spacing) + image_size_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing * (lat_image-1)) + image_size_lat],
+                           image_probs[:, :image_size_lon, :image_size_lat - lat_image_spacing])
 
             # Add the remaining pixels of the current image to the map
-            stitched_map_probs[:, int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                image_probs[:, domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+            stitched_map_probs[:, int(lon_image_spacing * (lon_image-1)) + image_size_lon:lon_image_spacing * lon_image + image_size_lon, int(lat_image_spacing * (lat_image-1)) + image_size_lat:int(lat_image_spacing * lat_image) + image_size_lat] = \
+                image_probs[:, image_size_lon - lon_image_spacing:image_size_lon, image_size_lat - lat_image_spacing:image_size_lat]
 
             if domain_images_lon == 2 and domain_images_lat == 2:
                 map_created = True
 
         else:  # If the image is on the southern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant longitude
-            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):] = \
-                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing):],
-                           image_probs[:, domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:image_size_lat-domain_trim_lat])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing * (lon_image-1)) + image_size_lon, int(lat_image * lat_image_spacing):] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing * (lon_image-1)) + image_size_lon, int(lat_image * lat_image_spacing):],
+                           image_probs[:, :image_size_lon - lon_image_spacing, :image_size_lat])
 
             # Take the maximum of the overlapping pixels along sets of constant latitude
-            stitched_map_probs[:, int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+image_size_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                np.maximum(stitched_map_probs[:, int(lon_image*lon_image_spacing):int(lon_image*lon_image_spacing)+image_size_lon-domain_trim_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image],
-                           image_probs[:, domain_trim_lon:image_size_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image * lon_image_spacing) + image_size_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing * (lat_image-1)) + image_size_lat] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image * lon_image_spacing) + image_size_lon, int(lat_image * lat_image_spacing):int(lat_image_spacing * (lat_image-1)) + image_size_lat],
+                           image_probs[:, :image_size_lon, :image_size_lat - lat_image_spacing])
 
             # Add the remaining pixels of the current image to the map
-            stitched_map_probs[:, int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:lon_image_spacing * lon_image + lon_pixels_per_image, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:] = \
-                image_probs[:, domain_trim_lon + lon_pixels_per_image - lon_image_spacing:domain_trim_lon + lon_pixels_per_image, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+            stitched_map_probs[:, int(lon_image_spacing * (lon_image-1)) + image_size_lon:lon_image_spacing * lon_image + image_size_lon, int(lat_image_spacing * (lat_image-1)) + image_size_lat:] = \
+                image_probs[:, image_size_lon - lon_image_spacing:image_size_lon, image_size_lat - lat_image_spacing:image_size_lat]
 
             if domain_images_lon == 2 and domain_images_lat > 2:
                 map_created = True
     else:
         if lat_image == 0:  # If the image is on the northern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant longitude
-            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, 0: image_size_lat - domain_trim_lat] = \
-                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, 0: image_size_lat - domain_trim_lat],
-                           image_probs[:, domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat: image_size_lat])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing * (lon_image-1)) + image_size_lon, 0: image_size_lat] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing * (lon_image-1)) + image_size_lon, 0: image_size_lat],
+                           image_probs[:, :image_size_lon - lon_image_spacing, :image_size_lat])
 
             # Add the remaining pixels of the current image to the map
-            stitched_map_probs[:, int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, 0: image_size_lat - domain_trim_lat] = \
-                image_probs[:, domain_trim_lon + lon_pixels_per_image - lon_image_spacing:image_size_lon-domain_trim_lon, domain_trim_lat: image_size_lat]
+            stitched_map_probs[:, int(lon_image_spacing * (lon_image-1)) + image_size_lon:, 0: image_size_lat] = \
+                image_probs[:, image_size_lon - lon_image_spacing:image_size_lon, :image_size_lat]
 
             if domain_images_lon > 2 and domain_images_lat == 1:
                 map_created = True
 
         elif lat_image != domain_images_lat - 1:  # If the image is not on the northern nor the southern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant longitude
-            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+image_size_lat-domain_trim_lat] = \
-                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image, int(lat_image*lat_image_spacing)+domain_trim_lat:int(lat_image)*int(lat_image_spacing)+image_size_lat-domain_trim_lat], image_probs[:, domain_trim_lon:domain_trim_lon + lon_pixels_per_image - lon_image_spacing, domain_trim_lat:image_size_lat-domain_trim_lat])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing * (lon_image-1)) + image_size_lon, int(lat_image * lat_image_spacing):int(lat_image * lat_image_spacing) + image_size_lat] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):int(lon_image_spacing * (lon_image-1)) + image_size_lon, int(lat_image * lat_image_spacing):int(lat_image * lat_image_spacing) + image_size_lat], image_probs[:, :image_size_lon - lon_image_spacing, :image_size_lat])
 
             # Take the maximum of the overlapping pixels along sets of constant latitude
-            stitched_map_probs[:, int(lon_image*lon_image_spacing):, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                np.maximum(stitched_map_probs[:, int(lon_image*lon_image_spacing):, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image], image_probs[:, domain_trim_lon:image_size_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):, int(lat_image * lat_image_spacing):int(lat_image_spacing * (lat_image-1)) + image_size_lat] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):, int(lat_image * lat_image_spacing):int(lat_image_spacing * (lat_image-1)) + image_size_lat], image_probs[:, :image_size_lon, :image_size_lat - lat_image_spacing])
 
             # Add the remaining pixels of the current image to the map
-            stitched_map_probs[:, int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = image_probs[:, domain_trim_lon + lon_pixels_per_image - lon_image_spacing:image_size_lon-domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+            stitched_map_probs[:, int(lon_image_spacing * (lon_image-1)) + image_size_lon:, int(lat_image_spacing * (lat_image-1)) + image_size_lat:int(lat_image_spacing * lat_image) + image_size_lat] = image_probs[:, image_size_lon - lon_image_spacing:image_size_lon, image_size_lat - lat_image_spacing:image_size_lat]
 
             if domain_images_lon > 2 and domain_images_lat == 2:
                 map_created = True
         else:  # If the image is on the southern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant longitude
-            stitched_map_probs[:, int(lon_image * lon_image_spacing):, int(lat_image*lat_image_spacing):] = \
-                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):, int(lat_image*lat_image_spacing):],
-                           image_probs[:, domain_trim_lon:image_size_lon-domain_trim_lon, domain_trim_lat:image_size_lat-domain_trim_lat])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):, int(lat_image * lat_image_spacing):] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):, int(lat_image * lat_image_spacing):],
+                           image_probs[:, :image_size_lon, :image_size_lat])
 
             # Take the maximum of the overlapping pixels along sets of constant latitude
-            stitched_map_probs[:, int(lon_image*lon_image_spacing):, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image] = \
-                np.maximum(stitched_map_probs[:, int(lon_image*lon_image_spacing):, int(lat_image * lat_image_spacing):int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image],
-                           image_probs[:, domain_trim_lon:image_size_lon-domain_trim_lon, domain_trim_lat:domain_trim_lat + lat_pixels_per_image - lat_image_spacing])
+            stitched_map_probs[:, int(lon_image * lon_image_spacing):, int(lat_image * lat_image_spacing):int(lat_image_spacing * (lat_image-1)) + image_size_lat] = \
+                np.maximum(stitched_map_probs[:, int(lon_image * lon_image_spacing):, int(lat_image * lat_image_spacing):int(lat_image_spacing * (lat_image-1)) + image_size_lat],
+                           image_probs[:, :image_size_lon, :image_size_lat - lat_image_spacing])
 
             # Add the remaining pixels of the current image to the map
-            stitched_map_probs[:, int(lon_image_spacing*(lon_image-1)) + lon_pixels_per_image:, int(lat_image_spacing*(lat_image-1)) + lat_pixels_per_image:lat_image_spacing * lat_image + lat_pixels_per_image] = \
-                image_probs[:, domain_trim_lon + lon_pixels_per_image - lon_image_spacing:image_size_lon-domain_trim_lon, domain_trim_lat + lat_pixels_per_image - lat_image_spacing:domain_trim_lat + lat_pixels_per_image]
+            stitched_map_probs[:, int(lon_image_spacing * (lon_image-1)) + image_size_lon:, int(lat_image_spacing * (lat_image-1)) + image_size_lat:int(lat_image_spacing * lat_image) + image_size_lat] = \
+                image_probs[:, image_size_lon - lon_image_spacing:image_size_lon, image_size_lat - lat_image_spacing:image_size_lat]
 
             map_created = True
 
     return stitched_map_probs, map_created
 
 
-def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, domain_trim, forecast_hour=None, variable_data_source='era5'):
+def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, forecast_hour=None, variable_data_source='era5'):
     """
     Calculate performance statistics (true positives, false positives, false negatives, true negatives) for a model over a specified domain.
 
@@ -229,8 +219,6 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
         - Domain of the data.
     domain_images: iterable object with 2 ints
         - Number of images along each dimension of the final stitched map (lon lat).
-    domain_trim: iterable object with 2 ints
-        - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
     variable_data_source: str
         - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
     forecast_hour: int
@@ -240,8 +228,8 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
     year, month, day, hour = timestep[0], timestep[1], timestep[2], timestep[3]
 
     # Grab the model predictions/probabilities for the current timestep
-    probs_dir = f'{model_dir}/model_{model_number}/probabilities/{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim'
-    probs_file = f'{probs_dir}/model_{model_number}_{year}-%02d-%02d-%02dz_{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities.nc' % (month, day, hour)
+    probs_dir = f'{model_dir}/model_{model_number}/probabilities/{domain}_{domain_images[0]}x{domain_images[1]}'
+    probs_file = f'{probs_dir}/model_{model_number}_{year}-%02d-%02d-%02dz_{domain}_{domain_images[0]}x{domain_images[1]}_probabilities.nc' % (month, day, hour)
 
     if forecast_hour is not None:
         forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
@@ -323,7 +311,7 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
     """
     Function that outputs the number of images that can be stitched together with the specified domain length and the length
     of the domain dimension output by the model. This is also used to determine the compatibility of declared image and
-    trim parameters for model predictions.
+    parameters for model predictions.
 
     Parameters
     ----------
@@ -413,8 +401,7 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
 
 
 def generate_predictions(model_number, model_dir, variables_netcdf_indir, prediction_method, domain='full',
-    domain_images='min', domain_trim=(0, 0), dataset=None, datetime=None, random_variables=None,
-    variable_data_source='gdas', forecast_hours=None):
+    domain_images='min', dataset=None, datetime=None, random_variables=None, variable_data_source='gdas', forecast_hours=None):
     """
     Generate predictions with a model.
 
@@ -434,8 +421,6 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
             * 'balanced' chooses the number of images that creates the closest possible balance of images in the longitude and latitude direction.
             * 'max' chooses the maximum number of images that can be stitched together (NOT RECOMMENDED)
         - If an iterable with 2 integers, values represent the number of images in the longitude and latitude dimensions.
-    domain_trim: None or iterable object with 2 ints
-        - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
     prediction_method: str
         - Prediction method. Options are: 'datetime', 'random', 'all'
     domain: str
@@ -476,12 +461,7 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
     ### Properties of the final map made from stitched images ###
     domain_images_lon, domain_images_lat = domain_images[0], domain_images[1]
     domain_size_lon, domain_size_lat = domain_extent_indices[1] - domain_extent_indices[0], domain_extent_indices[3] - domain_extent_indices[2]
-    domain_trim_lon, domain_trim_lat = domain_trim[0], domain_trim[1]
     image_size_lon, image_size_lat = image_size[0], image_size[1]  # Dimensions of the model's predictions
-    domain_size_lon_trimmed = domain_size_lon - 2*domain_trim_lon  # Longitude dimension of the full stitched map after trimming
-    domain_size_lat_trimmed = domain_size_lat - 2*domain_trim_lat  # Latitude dimension of the full stitched map after trimming
-    lon_pixels_per_image = int(image_size_lon - 2*domain_trim_lon)  # Longitude dimension of each image after trimming
-    lat_pixels_per_image = int(image_size_lat - 2*domain_trim_lat)  # Latitude dimension of each image after trimming
 
     if domain_images_lon > 1:
         lon_image_spacing = int((domain_size_lon - image_size_lon)/(domain_images_lon-1))
@@ -518,7 +498,7 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
         else:
             variable_files = [file for file in variable_files if timestep_str in file]
 
-    subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+    subdir_base = '%s_%dx%d' % (domain, domain_images[0], domain_images[1])
     if random_variables is not None:
         subdir_base += '_' + '-'.join(sorted(random_variables))
 
@@ -546,8 +526,8 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
         if model_number in [7805504, 7866106, 7961517]:
             variable_ds = variable_ds.isel(pressure_level=[0, 4, 3, 2, 1])
 
-        image_lats = variable_ds.latitude.values[domain_trim_lat:domain_size_lat-domain_trim_lat]
-        image_lons = variable_ds.longitude.values[domain_trim_lon:domain_size_lon-domain_trim_lon]
+        image_lats = variable_ds.latitude.values[:domain_size_lat]
+        image_lons = variable_ds.longitude.values[:domain_size_lon]
 
         # Randomize variable
         if random_variables is not None:
@@ -575,15 +555,15 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
             map_created = False  # Boolean that determines whether or not the final stitched map has been created
 
             if variable_data_source == 'era5':
-                stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
+                stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, classes-1, domain_size_lon, domain_size_lat])
             else:
-                stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, len(forecast_hours), classes-1, domain_size_lon_trimmed, domain_size_lat_trimmed])
+                stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, len(forecast_hours), classes-1, domain_size_lon, domain_size_lat])
 
             for lat_image in range(domain_images_lat):
-                lat_index = int(lat_image*lat_image_spacing)
+                lat_index = int(lat_image * lat_image_spacing)
                 for lon_image in range(domain_images_lon):
                     print(f"image %d/%d" % (int(lat_image*domain_images_lon) + lon_image + 1, int(domain_images_lon*domain_images_lat)))
-                    lon_index = int(lon_image*lon_image_spacing)
+                    lon_index = int(lon_image * lon_image_spacing)
 
                     # Select the current image
                     variable_batch_ds_new = variable_batch_ds[variables].isel(longitude=slice(lon_index, lon_index + image_size[0]),
@@ -645,12 +625,12 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
                         for timestep in range(num_timesteps_in_batch):
                             for fcst_hr_index in range(num_forecast_hours):
                                 stitched_map_probs[timestep][fcst_hr_index], map_created = add_image_to_map(stitched_map_probs[timestep][fcst_hr_index], image_probs[timestep * num_forecast_hours + fcst_hr_index], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
-                                    image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing, lon_pixels_per_image, lat_pixels_per_image)
+                                    image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
 
                     else:  # if variable_data_source == 'era5'
                         for timestep in range(num_timesteps_in_batch):
                             stitched_map_probs[timestep], map_created = add_image_to_map(stitched_map_probs[timestep], image_probs[timestep], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
-                                image_size_lon, image_size_lat, domain_trim_lon, domain_trim_lat, lon_image_spacing, lat_image_spacing, lon_pixels_per_image, lat_pixels_per_image)
+                                image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
                     ####################################################################################################
 
                     if map_created is True:
@@ -674,7 +654,7 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
                                     time = f'{timestep[:4]}-%s-%s-%sz' % (timestep[5:7], timestep[8:10], timestep[11:13])
                                     probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no][fcst_hr_index], image_lats, image_lons, front_types)
                                     probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep), 'forecast_hour': np.atleast_1d(forecast_hours[fcst_hr_index])})
-                                    filename_base = 'model_%d_%s_%s_%s_f%03d_%dx%dimages_%dx%dtrim' % (model_number, time, domain, variable_data_source, forecast_hours[fcst_hr_index], domain_images_lon, domain_images_lat, domain_trim_lon, domain_trim_lat)
+                                    filename_base = 'model_%d_%s_%s_%s_f%03d_%dx%d' % (model_number, time, domain, variable_data_source, forecast_hours[fcst_hr_index], domain_images_lon, domain_images_lat)
                                     if random_variables is not None:
                                         filename_base += '_' + '-'.join(sorted(random_variables))
 
@@ -687,7 +667,7 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
                                 time = f'{timestep[:4]}-%s-%s-%sz' % (timestep[5:7], timestep[8:10], timestep[11:13])
                                 probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no], image_lats, image_lons, front_types)
                                 probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep)})
-                                filename_base = 'model_%d_%s_%s_%dx%dimages_%dx%dtrim' % (model_number, time, domain, domain_images_lon, domain_images_lat, domain_trim_lon, domain_trim_lat)
+                                filename_base = 'model_%d_%s_%s_%dx%d' % (model_number, time, domain, domain_images_lon, domain_images_lat)
                                 if random_variables is not None:
                                     filename_base += '_' + '-'.join(sorted(random_variables))
 
@@ -749,7 +729,7 @@ def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, fr
     return probs_ds
 
 
-def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, domain, domain_images, domain_trim, bootstrap=True, random_variables=None,
+def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, domain, domain_images, bootstrap=True, random_variables=None,
     variable_data_source='era5', calibrated=False, num_iterations=10000, forecast_hour=None):
     """
     Plots CSI performance diagram for different front types.
@@ -764,8 +744,6 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
         - Domain of the data.
     domain_images: iterable object with 2 ints
         - Number of images along each dimension of the final stitched map (lon lat).
-    domain_trim: iterable object with 2 ints
-        - Number of pixels to trim each image by along each dimension before taking the maximum of the overlapping pixels (lon lat).
     bootstrap: bool
         - Setting this to true will plot confidence intervals onto the performance diagrams.
     random_variables: str or list of strs
@@ -789,17 +767,17 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
     else:
         num_dimensions = 3
 
-    subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
-    stats_plot_base = 'model_%d_%s_%dx%dimages_%dx%dtrim' % (model_number, domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+    subdir_base = '%s_%dx%d' % (domain, domain_images[0], domain_images[1])
+    stats_plot_base = 'model_%d_%s_%dx%d' % (model_number, domain, domain_images[0], domain_images[1])
     if random_variables is not None:
         subdir_base += '_' + '-'.join(sorted(random_variables))
 
     domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[domain]
 
     if variable_data_source != 'era5':
-        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*_{variable_data_source}_f%03d_*statistics.nc' % (model_dir, model_number, subdir_base, forecast_hour)))
+        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*_{variable_data_source}_f%03d_{domain}_{domain_images[0]}x{domain_images[1]}*statistics.nc' % (model_dir, model_number, subdir_base, forecast_hour)))
     else:
-        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*{domain}_{domain_images[0]}x*statistics.nc' % (model_dir, model_number, subdir_base)))
+        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*{domain}_{domain_images[0]}x{domain_images[1]}*statistics.nc' % (model_dir, model_number, subdir_base)))
 
     ### If evaluating over the full domain, remove non-synoptic hours (3z, 9z, 15z, 21z) ###
     if domain == 'full':
@@ -824,7 +802,7 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
     else:
         stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')
 
-    spatial_csi_obj = fm.SpatialCSIfiles(model_number, model_dir, domain, domain_images, domain_trim, variable_data_source, forecast_hour)
+    spatial_csi_obj = fm.SpatialCSIfiles(model_number, model_dir, domain, domain_images, variable_data_source, forecast_hour)
     spatial_csi_obj.pair_with_fronts(front_indir=fronts_netcdf_indir, synoptic_only=synoptic_only, sort_fronts=True)
     spatial_csi_obj.test_years = [2019, 2020]
     probs_files = spatial_csi_obj.probs_files_test
@@ -1094,7 +1072,7 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
         plt.close()
 
 
-def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, domain_trim, forecast_hour=None,
+def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, forecast_hour=None,
     variable_data_source='era5', probability_mask_2D=0.05, probability_mask_3D=0.10, same_map=True):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
@@ -1124,17 +1102,17 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
     year, month, day, hour = int(timestep[0]), int(timestep[1]), int(timestep[2]), int(timestep[3])
 
-    subdir_base = '%s_%dx%dimages_%dx%dtrim' % (domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+    subdir_base = '%s_%dx%d' % (domain, domain_images[0], domain_images[1])
     probs_dir = f'{model_dir}/model_{model_number}/probabilities/{subdir_base}'
 
     if forecast_hour is not None:
         forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
         new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], int(forecast_timestep[8:]) - (int(forecast_timestep[8:]) % 3)
         fronts_file = '%s/%s/%s/%s/FrontObjects_%s%s%s%02d_full.nc' % (fronts_netcdf_dir, new_year, new_month, new_day, new_year, new_month, new_day, new_hour)
-        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%s_f%03d_%dx%dimages_%dx%dtrim' % (model_number, month, day, hour, domain, variable_data_source, forecast_hour, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%s_f%03d_%dx%d' % (model_number, month, day, hour, domain, variable_data_source, forecast_hour, domain_images[0], domain_images[1])
     else:
         fronts_file = '%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_dir, year, month, day, year, month, day, hour)
-        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%dx%dimages_%dx%dtrim' % (model_number, month, day, hour, domain, domain_images[0], domain_images[1], domain_trim[0], domain_trim[1])
+        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%dx%d' % (model_number, month, day, hour, domain, domain_images[0], domain_images[1])
         variable_data_source = 'era5'
 
     probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
@@ -1333,9 +1311,6 @@ if __name__ == '__main__':
     parser.add_argument('--domain', type=str, help='Domain of the data.')
     parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
     parser.add_argument('--domain_size', type=int, nargs=2, help='Lengths of the dimensions of the final stitched map for predictions: lon, lat')
-    parser.add_argument('--domain_trim', type=int, nargs=2, default=[0, 0],
-                        help='Number of pixels to trim the images by along each dimension for stitching before taking the '
-                             'maximum across overlapping pixels.')
     parser.add_argument('--forecast_hour', type=int, help='Forecast hour for the GDAS data')
     parser.add_argument('--find_matches', action='store_true', help='Find matches for stitching predictions?')
     parser.add_argument('--generate_predictions', action='store_true', help='Generate prediction plots?')
@@ -1398,11 +1373,11 @@ if __name__ == '__main__':
         find_matches_for_domain((domain_indices[1] - domain_indices[0], domain_indices[3] - domain_indices[2]), image_size, compatibility_mode=True, compat_images=domain_images)
 
         generate_predictions(args.model_number, args.model_dir, args.variables_netcdf_indir, args.prediction_method,
-            domain=args.domain, domain_images=args.domain_images, domain_trim=args.domain_trim, dataset=args.dataset,
-            datetime=args.datetime, random_variables=args.random_variables, variable_data_source=args.variable_data_source)
+            domain=args.domain, domain_images=args.domain_images, dataset=args.dataset, datetime=args.datetime, 
+            random_variables=args.random_variables, variable_data_source=args.variable_data_source)
 
     if args.calculate_stats:
-        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'timestep', 'domain_images', 'domain_trim']
+        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'timestep', 'domain_images']
 
         if args.domain == 'full' or args.variable_data_source != 'era5':
             hours = range(0, 24, 6)
@@ -1414,20 +1389,20 @@ if __name__ == '__main__':
                 for forecast_hour in range(0, 12, 3):
                     timestep = (args.timestep[0], args.timestep[1], args.timestep[2], hour)
                     calculate_performance_stats(args.model_number, args.model_dir, args.fronts_netcdf_indir, timestep, args.domain,
-                        args.domain_images, args.domain_trim, forecast_hour, args.variable_data_source)
+                        args.domain_images, forecast_hour, args.variable_data_source)
             else:
                 timestep = (args.timestep[0], args.timestep[1], args.timestep[2], hour)
                 calculate_performance_stats(args.model_number, args.model_dir, args.fronts_netcdf_indir, timestep, args.domain,
                     args.domain_images, args.domain_trim)
 
     if args.prediction_plot:
-        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'datetime', 'domain_images', 'domain_trim']
+        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'datetime', 'domain_images']
         prediction_plot(args.model_number, args.model_dir, args.fronts_netcdf_indir, args.datetime, args.domain,
-            args.domain_images, args.domain_trim, forecast_hour=args.forecast_hour, variable_data_source=args.variable_data_source)
+            args.domain_images, forecast_hour=args.forecast_hour, variable_data_source=args.variable_data_source)
 
     if args.plot_performance_diagrams:
         required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'domain', 'domain_images']
         check_arguments(provided_arguments, required_arguments)
         plot_performance_diagrams(args.model_dir, args.model_number, args.fronts_netcdf_indir, args.domain, args.domain_images,
-            args.domain_trim, random_variables=args.random_variables, variable_data_source=args.variable_data_source, bootstrap=args.bootstrap,
+            random_variables=args.random_variables, variable_data_source=args.variable_data_source, bootstrap=args.bootstrap,
             num_iterations=args.num_iterations, forecast_hour=args.forecast_hour)

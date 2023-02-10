@@ -2,8 +2,7 @@
 Script for running debug commands
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 10/1/2022 7:30 PM CT
+Last updated: 2/9/2023 10:53 PM CT
 """
 
 import argparse
@@ -18,9 +17,6 @@ if __name__ == '__main__':
                                                     "'training', 'validation', 'test'")
     parser.add_argument('--domain', type=str, help='Domain of the data.')
     parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
-    parser.add_argument('--domain_trim', type=int, nargs=2, default=[0, 0],
-                        help='Number of pixels to trim the images by along each dimension for stitching before taking the '
-                             'maximum across overlapping pixels.')
     parser.add_argument('--find_missing_statistics', action='store_true', help='Analyze a directory of statistics to find missing data')
     parser.add_argument('--find_missing_era5_files', action='store_true', help='Analyze a directory to find missing ERA5 files')
     parser.add_argument('--find_missing_front_files', action='store_true', help='Analyze a directory to find missing front object files')
@@ -41,10 +37,10 @@ if __name__ == '__main__':
     provided_arguments = vars(args)
 
     if args.find_missing_statistics:
-        required_arguments = ['model_dir', 'model_number', 'domain', 'domain_images', 'domain_trim', 'variables_data_source',
+        required_arguments = ['model_dir', 'model_number', 'domain', 'domain_images', 'variables_data_source',
                               'variables_netcdf_indir', 'netcdf_indir', 'fronts_xml_indir', 'dataset']
         check_arguments(provided_arguments, required_arguments)
-        utils.debug.model_data.find_missing_statistics(args.model_dir, args.model_number, args.domain, args.domain_images, args.domain_trim,
+        utils.debug.model_data.find_missing_statistics(args.model_dir, args.model_number, args.domain, args.domain_images,
             args.variables_data_source, args.variables_netcdf_indir, args.netcdf_indir, args.fronts_xml_indir, dataset=args.dataset)
 
     if args.check_era5_variables:

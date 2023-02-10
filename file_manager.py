@@ -2,11 +2,12 @@
 Functions in this code manage data files.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 1/10/2022 5:39 PM CT
+Last updated: 2/9/2023 10:50 PM CT
 
 TODO:
     * Condense functions into one???? (too much repetitive code)
 """
+
 import shutil
 from glob import glob
 import tarfile
@@ -1054,19 +1055,19 @@ class SpatialCSIfiles:
     """
     Object that loads and manages netCDF files containing model predictions and front files
     """
-    def __init__(self, model_number: int, model_dir: str, domain: str, domain_images: tuple, domain_trim=(0, 0), variable_data_source='era5', forecast_hour=None):
+    def __init__(self, model_number: int, model_dir: str, domain: str, domain_images: tuple, variable_data_source='era5', forecast_hour=None):
         """
         When the SpatialCSIfiles object is created, open all model prediction netCDF files
         """
 
         self.__variable_data_source = variable_data_source
         self.__forecast_hour = forecast_hour
-        self.probs_dir = f"%s/model_%d/probabilities/{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim" % (model_dir, model_number)
+        self.probs_dir = f"%s/model_%d/probabilities/{domain}_{domain_images[0]}x{domain_images[1]}" % (model_dir, model_number)
 
         if variable_data_source != 'era5':
-            self._all_probs_netcdf_files = sorted(glob(f"%s/model_{model_number}*{domain}_{variable_data_source}_f%03d_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities*.nc" % (self.probs_dir, forecast_hour)))  # All probability files without filtering
+            self._all_probs_netcdf_files = sorted(glob(f"%s/model_{model_number}*{domain}_{variable_data_source}_f%03d_{domain_images[0]}x{domain_images[1]}_probabilities*.nc" % (self.probs_dir, forecast_hour)))  # All probability files without filtering
         else:
-            self._all_probs_netcdf_files = sorted(glob(f"%s/model_{model_number}*{domain}_{domain_images[0]}x{domain_images[1]}images_{domain_trim[0]}x{domain_trim[1]}trim_probabilities*.nc" % self.probs_dir))  # All probability files without filtering
+            self._all_probs_netcdf_files = sorted(glob(f"%s/model_{model_number}*{domain}_{domain_images[0]}x{domain_images[1]}_probabilities*.nc" % self.probs_dir))  # All probability files without filtering
 
         ### All available options for specific filters ###
         self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
