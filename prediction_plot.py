@@ -51,7 +51,7 @@ def prediction_plot(model_number, model_dir, plot_dir, init_time, forecast_hours
     probs_dir = f'{model_dir}/model_{model_number}/predictions'
 
     if domain == 'conus':
-        cbar_loc = 0.7365
+        cbar_loc = 0.8365
     elif domain == 'full':
         cbar_loc = 0.8965
 
@@ -104,8 +104,13 @@ def prediction_plot(model_number, model_dir, plot_dir, init_time, forecast_hours
                 for combination in all_possible_front_combinations:
                     probs_ds[combination[0]].values = np.where(data_arrays[combination[0]] > data_arrays[combination[1]] - 0.02, data_arrays[combination[0]], 0)
 
+            probs_ds['CF_obj'] = xr.where(probs_ds['CF'] > 0.38, 1, 0)
+            probs_ds['WF_obj'] = xr.where(probs_ds['WF'] > 0.33, 1, 0)
+            probs_ds['SF_obj'] = xr.where(probs_ds['SF'] > 0.20, 1, 0)
+            probs_ds['OF_obj'] = xr.where(probs_ds['OF'] > 0.21, 1, 0)
+            probs_ds['F_BIN_obj'] = xr.where(probs_ds['F_BIN'] > 0.32, 1, 0)
+
             probs_ds = xr.where(probs_ds > probability_mask, probs_ds, 0).isel(time=0)
-            probs_ds = data_utils.find_front_splines(probs_ds)
             probs_ds = xr.where(probs_ds == 0, float("NaN"), probs_ds)
             valid_time = data_utils.add_or_subtract_hours_to_timestep(f'%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
             data_title = f'Run: {variable_data_source.upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour)
@@ -118,12 +123,11 @@ def prediction_plot(model_number, model_dir, plot_dir, init_time, forecast_hours
 
                 cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
                 probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
+                probs_ds[f'{front_key}_obj'].plot(ax=ax, x='longitude', y='latitude', cmap=settings.DEFAULT_CONTOUR_CMAPS[front_key], transform=ccrs.PlateCarree(), add_colorbar=False)
 
                 cbar_ax = fig.add_axes([cbar_loc + (front_no * 0.015), 0.11, 0.015, 0.77])
                 cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
                 cbar.set_ticklabels([])
-
-            probs_ds['CF_spline'].plot(ax=ax, x='longitude', y='latitude', transform=ccrs.PlateCarree(), add_colorbar=False)
 
             cbar.set_label('Probability (uncalibrated)', rotation=90)
             cbar.set_ticks(cbar_ticks)
