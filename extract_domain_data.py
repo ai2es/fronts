@@ -890,8 +890,8 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
     era5_monthly_directory = '%s/%d/%02d' % (era5_netcdf_indir, year, month)
     fronts_monthly_directory = '%s/%d/%02d' % (fronts_netcdf_indir, year, month)
 
-    era5_netcdf_files = sorted(glob.glob('%s/*/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))[:25]
-    fronts_netcdf_files = sorted(glob.glob('%s/*/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))[:25]
+    era5_netcdf_files = sorted(glob.glob('%s/*/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
+    fronts_netcdf_files = sorted(glob.glob('%s/*/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
 
     files_match_flag = all(era5_file[-18:] == fronts_file[-18:] for era5_file, fronts_file in zip(era5_netcdf_files, fronts_netcdf_files))
 
@@ -927,7 +927,7 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
 
             if fronts:
                 front_tensor = tf.convert_to_tensor(np.tile(front_dataset[start_index:end_index, :, :], (1, 1, 5)), dtype=tf.int32)
-                front_tensor = tf.cast(tf.one_hot(front_tensor, num_front_types), tf.float16)
+                front_tensor = tf.cast(tf.one_hot(front_tensor, num_front_types), tf.int8)
                 front_tensor_for_timestep = tf.data.Dataset.from_tensors(front_tensor)
                 if era5_file == era5_netcdf_files[0] and start_index == 0:
                     front_tensors_for_month = front_tensor_for_timestep
