@@ -2,7 +2,7 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 12/24/2022 5:58 PM CT
+Last updated: 2/11/2023 8:39 PM CT
 
 TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
 """
@@ -11,12 +11,10 @@ import argparse
 import time
 import urllib.error
 import warnings
-import matplotlib.pyplot as plt
 import requests
 from bs4 import BeautifulSoup
 import xarray as xr
 import pandas as pd
-import utils.plotting_utils
 from utils import data_utils, settings
 from errors import check_arguments
 import glob
@@ -26,7 +24,6 @@ import variables
 import wget
 import os
 import tensorflow as tf
-import cartopy.crs as ccrs
 
 
 def check_directory(directory: str, year: int, month: int, day: int):
@@ -872,7 +869,7 @@ def grib_to_netcdf(year, month, day, hour, grib_indir, netcdf_outdir, overwrite_
             full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/%d/%02d/%02d/{model.lower()}_%d%02d%02d%02d_f%03d_full.nc' % (netcdf_outdir, year, month, day, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
 
 
-def era5_fronts_netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir, front_types):
+def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir, front_types, era5: bool, fronts: bool):
     """
     Convert matching ERA5 and front object files to tensorflow datasets
 
@@ -884,13 +881,17 @@ def era5_fronts_netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir
     fronts_netcdf_indir: str
     tf_outdir: str
     front_types: str or list
+    era5: bool
+        - Generate ERA5 tensorflow datasets
+    fronts: bool
+        - Generate fronts tensorflow datasets
     """
 
     era5_monthly_directory = '%s/%d/%02d' % (era5_netcdf_indir, year, month)
     fronts_monthly_directory = '%s/%d/%02d' % (fronts_netcdf_indir, year, month)
 
-    era5_netcdf_files = sorted(glob.glob('%s/*/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
-    fronts_netcdf_files = sorted(glob.glob('%s/*/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
+    era5_netcdf_files = sorted(glob.glob('%s/*/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))[:25]
+    fronts_netcdf_files = sorted(glob.glob('%s/*/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))[:25]
 
     files_match_flag = all(era5_file[-18:] == fronts_file[-18:] for era5_file, fronts_file in zip(era5_netcdf_files, fronts_netcdf_files))
 
@@ -905,26 +906,71 @@ def era5_fronts_netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir
 
     for era5_file, fronts_file, in zip(era5_netcdf_files, fronts_netcdf_files):
 
-        era5_dataset = xr.open_dataset(era5_file, engine='netcdf4')[variables_to_use].isel(**isel_kwargs).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
-        era5_dataset = data_utils.normalize_variables(era5_dataset).isel(time=0).to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable').astype('float16')
-        front_dataset = xr.open_dataset(fronts_file, engine='netcdf4').isel(**isel_kwargs).expand_dims('time', axis=0).astype('float16')
-        front_dataset = data_utils.reformat_fronts(front_dataset, front_types)
-        front_dataset = data_utils.expand_fronts(front_dataset).isel(time=0).to_array().transpose('longitude', 'latitude', 'variable')
+        if era5:
+            era5_dataset = xr.open_dataset(era5_file, engine='netcdf4')[variables_to_use].isel(**isel_kwargs).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
+            era5_dataset = data_utils.normalize_variables(era5_dataset).isel(time=0).to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable').astype('float16')
+        if fronts:
+            front_dataset = xr.open_dataset(fronts_file, engine='netcdf4').isel(**isel_kwargs).expand_dims('time', axis=0).astype('float16')
+            front_dataset = data_utils.reformat_fronts(front_dataset, front_types)
+            num_front_types = front_dataset.attrs['num_types'] + 1
+            front_dataset = data_utils.expand_fronts(front_dataset).isel(time=0).to_array().transpose('longitude', 'latitude', 'variable')
 
         for start_index, end_index in zip(np.arange(0, 161, 20), np.arange(128, 289, 20)):
 
-            era5_tensor = tf.convert_to_tensor(era5_dataset[start_index:end_index, :, :, :], dtype=tf.float16)
-            front_tensor = tf.convert_to_tensor(np.tile(front_dataset[start_index:end_index, :, :], (1, 1, 5)), dtype=tf.int32)
-            front_tensor = tf.cast(tf.one_hot(front_tensor, 5), tf.float16)
+            if era5:
+                era5_tensor = tf.convert_to_tensor(era5_dataset[start_index:end_index, :, :, :], dtype=tf.float16)
+                era5_tensor_for_timestep = tf.data.Dataset.from_tensors(era5_tensor)
+                if era5_file == era5_netcdf_files[0] and start_index == 0:
+                    era5_tensors_for_month = era5_tensor_for_timestep
+                else:
+                    era5_tensors_for_month = era5_tensors_for_month.concatenate(era5_tensor_for_timestep)
 
-            tensor_for_timestep = tf.data.Dataset.from_tensors((era5_tensor, front_tensor))
-            if era5_file == era5_netcdf_files[0] and start_index == 0:
-                tensors_for_month = tensor_for_timestep
-            else:
-                tensors_for_month = tensors_for_month.concatenate(tensor_for_timestep)
+            if fronts:
+                front_tensor = tf.convert_to_tensor(np.tile(front_dataset[start_index:end_index, :, :], (1, 1, 5)), dtype=tf.int32)
+                front_tensor = tf.cast(tf.one_hot(front_tensor, num_front_types), tf.float16)
+                front_tensor_for_timestep = tf.data.Dataset.from_tensors(front_tensor)
+                if era5_file == era5_netcdf_files[0] and start_index == 0:
+                    front_tensors_for_month = front_tensor_for_timestep
+                else:
+                    front_tensors_for_month = front_tensors_for_month.concatenate(front_tensor_for_timestep)
 
-    tf_dataset_folder = f'%s/era5_{"_".join(front_type for front_type in front_types)}_%d%02d_tf' % (tf_outdir, year, month)
-    tf.data.Dataset.save(tensors_for_month, path=tf_dataset_folder)
+            """ Debugging code """
+            # front_dataset = xr.where(front_dataset == 0, float("NaN"), front_dataset)
+            #
+            # fig, axs = plt.subplots(12, 5, figsize=(12, 16), subplot_kw=dict(projection=ccrs.Miller()))
+            # axarr = axs.flatten()
+            #
+            # front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in front_types]
+            #
+            # cmap_front = matplotlib.colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
+            # norm_front = matplotlib.colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
+            #
+            # pressure_levels = era5_dataset['pressure_level'].values
+            #
+            # norm_var = matplotlib.colors.Normalize(vmin=0, vmax=1)
+            #
+            # for ax_num, ax in enumerate(axarr):
+            #     utils.plotting_utils.plot_background([228, 300, 25, 57], ax=ax)
+            #     era5_dataset.isel(pressure_level=ax_num % 5, variable=11 - int(np.floor(ax_num / 5)) % 12, longitude=slice(start_index, end_index)).\
+            #         plot(ax=ax, x='longitude', y='latitude', cmap='jet', norm=norm_var, alpha=0.8, transform=ccrs.PlateCarree(), levels=np.arange(0.1, 1.1, 0.1), add_colorbar=False)
+            #     front_dataset.isel(longitude=slice(start_index, end_index)).plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
+            #     ax.set_title('')
+            #     if ax_num < 5:
+            #         ax.set_title(pressure_levels[ax_num])
+            #     if ax_num % 5 == 0:
+            #         ax.text(x=220, y=41, s=variables_to_use[int(ax_num / 5)], ha='right', transform=ccrs.PlateCarree())
+            #
+            # plt.suptitle(era5_dataset['time'].values, y=0.93, fontsize=20)
+            #
+            # plt.savefig(f"./tf_test_figs/test_fronts_{file_no}_{start_index}.png", bbox_inches='tight', dpi=600)
+            # plt.close()
+
+    if era5:
+        tf_dataset_folder = f'%s/era5_%d%02d_tf' % (tf_outdir, year, month)
+        tf.data.Dataset.save(era5_tensors_for_month, path=tf_dataset_folder)
+    if fronts:
+        tf_dataset_folder = f'%s/fronts_{"_".join(front_type for front_type in front_types)}_%d%02d_tf' % (tf_outdir, year, month)
+        tf.data.Dataset.save(front_tensors_for_month, path=tf_dataset_folder)
 
 
 if __name__ == "__main__":
@@ -950,7 +996,7 @@ if __name__ == "__main__":
     parser.add_argument('--hour', type=int, help='hour for the grib data to be downloaded')
 
     ### Convert netcdf to tensorflow datasets ###
-    parser.add_argument('--era5_fronts_netcdf_to_tf', action='store_true', help="Convert ERA5 netcdf file to a tensorflow dataset")
+    parser.add_argument('--netcdf_to_tf', action='store_true', help="Convert ERA5 and/or front netcdf files to tensorflow datasets")
     parser.add_argument('--era5_netcdf_indir', type=str, help="input directory for ERA5 netcdf files")
     parser.add_argument('--fronts_netcdf_indir', type=str, help="input directory for ERA5 netcdf files")
     parser.add_argument('--tf_outdir', type=str, help="Output directory for tensors")
@@ -959,12 +1005,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     provided_arguments = vars(args)
 
-    if args.ERA5:
+    if args.ERA5 and not args.netcdf_to_tf:
         required_arguments = ['year', 'month', 'day', 'netcdf_ERA5_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
         check_directory(args.netcdf_outdir, args.year, args.month, args.day)
         create_era5_datasets(args.year, args.month, args.day, args.netcdf_ERA5_indir, args.netcdf_outdir)
-    if args.fronts:
+    if args.fronts and not args.netcdf_to_tf:
         required_arguments = ['year', 'month', 'day', 'xml_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
         check_directory(args.netcdf_outdir, args.year, args.month, args.day)
@@ -979,10 +1025,11 @@ if __name__ == "__main__":
             except IndexError:
                 pass
 
-    if args.era5_fronts_netcdf_to_tf:
+    if args.netcdf_to_tf:
         required_arguments = ['year', 'month', 'era5_netcdf_indir', 'fronts_netcdf_indir', 'tf_outdir', 'front_types']
         check_arguments(provided_arguments, required_arguments)
-        era5_fronts_netcdf_to_tf(args.year, args.month, args.era5_netcdf_indir, args.fronts_netcdf_indir, args.tf_outdir, args.front_types)
+        netcdf_to_tf(args.year, args.month, args.era5_netcdf_indir, args.fronts_netcdf_indir, args.tf_outdir, args.front_types,
+                     args.ERA5, args.fronts)
 
     if args.download_ncep_has_order:
         required_arguments = ['ncep_has_order_number', 'ncep_has_outdir']

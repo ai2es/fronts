@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 1/22/2023 7:21 PM CT
+Last updated: 2/11/2023 8:39 PM CT
 
 TODO:
     * Clean up front expansion code to make it easier for numpy arrays to be used
@@ -390,72 +390,67 @@ def reformat_fronts(fronts, front_types):
     front_types_classes = {'CF': 1, 'WF': 2, 'SF': 3, 'OF': 4, 'CF-F': 5, 'WF-F': 6, 'SF-F': 7, 'OF-F': 8, 'CF-D': 9, 'WF-D': 10,
                            'SF-D': 11, 'OF-D': 12, 'OFB': 13, 'TROF': 14, 'TT': 15, 'DL': 16}
 
-    if front_types == 'F_BIN':
+    if front_types == 'F_BIN' or front_types == ['F_BIN']:
 
-        if fronts is not None:
-            fronts = where_function(fronts > 4, 0, fronts)  # Classes 5-16 are removed
-            fronts = where_function(fronts > 0, 1, fronts)  # Merge 1-4 into one class
+        fronts = where_function(fronts > 4, 0, fronts)  # Classes 5-16 are removed
+        fronts = where_function(fronts > 0, 1, fronts)  # Merge 1-4 into one class
 
         labels = ['CF-WF-SF-OF', ]
         num_types = 1
 
-    elif front_types == 'MERGED-F':
+    elif front_types == 'MERGED-F' or front_types == ['MERGED-F']:
 
-        if fronts is not None:
-            fronts = where_function(fronts == 5, 1, fronts)  # Forming cold front ---> cold front
-            fronts = where_function(fronts == 6, 2, fronts)  # Forming warm front ---> warm front
-            fronts = where_function(fronts == 7, 3, fronts)  # Forming stationary front ---> stationary front
-            fronts = where_function(fronts == 8, 4, fronts)  # Forming occluded front ---> occluded front
-            fronts = where_function(fronts == 9, 1, fronts)  # Dying cold front ---> cold front
-            fronts = where_function(fronts == 10, 2, fronts)  # Dying warm front ---> warm front
-            fronts = where_function(fronts == 11, 3, fronts)  # Dying stationary front ---> stationary front
-            fronts = where_function(fronts == 12, 4, fronts)  # Dying occluded front ---> occluded front
-            fronts = where_function(fronts > 4, 0, fronts)  # Remove all other fronts
+        fronts = where_function(fronts == 5, 1, fronts)  # Forming cold front ---> cold front
+        fronts = where_function(fronts == 6, 2, fronts)  # Forming warm front ---> warm front
+        fronts = where_function(fronts == 7, 3, fronts)  # Forming stationary front ---> stationary front
+        fronts = where_function(fronts == 8, 4, fronts)  # Forming occluded front ---> occluded front
+        fronts = where_function(fronts == 9, 1, fronts)  # Dying cold front ---> cold front
+        fronts = where_function(fronts == 10, 2, fronts)  # Dying warm front ---> warm front
+        fronts = where_function(fronts == 11, 3, fronts)  # Dying stationary front ---> stationary front
+        fronts = where_function(fronts == 12, 4, fronts)  # Dying occluded front ---> occluded front
+        fronts = where_function(fronts > 4, 0, fronts)  # Remove all other fronts
 
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any']
         num_types = 4
 
-    elif front_types == 'MERGED-F_BIN':
+    elif front_types == 'MERGED-F_BIN' or front_types == ['MERGED-F_BIN']:
 
-        if fronts is not None:
-            fronts = where_function(fronts > 12, 0, fronts)  # Classes 13-16 are removed
-            fronts = where_function(fronts > 0, 1, fronts)  # Classes 1-12 are merged into one class
+        fronts = where_function(fronts > 12, 0, fronts)  # Classes 13-16 are removed
+        fronts = where_function(fronts > 0, 1, fronts)  # Classes 1-12 are merged into one class
 
         labels = ['CF-WF-SF-OF_any', ]
         num_types = 1
 
-    elif front_types == 'MERGED-T':
+    elif front_types == 'MERGED-T' or front_types == ['MERGED-T']:
 
-        if fronts is not None:
-            fronts = where_function(fronts < 14, 0, fronts)  # Remove classes 1-13
+        fronts = where_function(fronts < 14, 0, fronts)  # Remove classes 1-13
 
-            # Merge troughs into one class
-            fronts = where_function(fronts == 14, 1, fronts)
-            fronts = where_function(fronts == 15, 1, fronts)
+        # Merge troughs into one class
+        fronts = where_function(fronts == 14, 1, fronts)
+        fronts = where_function(fronts == 15, 1, fronts)
 
-            fronts = where_function(fronts == 16, 0, fronts)  # Remove drylines
+        fronts = where_function(fronts == 16, 0, fronts)  # Remove drylines
 
         labels = ['TR_any', ]
         num_types = 1
 
-    elif front_types == 'MERGED-ALL':
+    elif front_types == 'MERGED-ALL' or front_types == ['MERGED-ALL']:
 
-        if fronts is not None:
-            fronts = where_function(fronts == 5, 1, fronts)  # Forming cold front ---> cold front
-            fronts = where_function(fronts == 6, 2, fronts)  # Forming warm front ---> warm front
-            fronts = where_function(fronts == 7, 3, fronts)  # Forming stationary front ---> stationary front
-            fronts = where_function(fronts == 8, 4, fronts)  # Forming occluded front ---> occluded front
-            fronts = where_function(fronts == 9, 1, fronts)  # Dying cold front ---> cold front
-            fronts = where_function(fronts == 10, 2, fronts)  # Dying warm front ---> warm front
-            fronts = where_function(fronts == 11, 3, fronts)  # Dying stationary front ---> stationary front
-            fronts = where_function(fronts == 12, 4, fronts)  # Dying occluded front ---> occluded front
+        fronts = where_function(fronts == 5, 1, fronts)  # Forming cold front ---> cold front
+        fronts = where_function(fronts == 6, 2, fronts)  # Forming warm front ---> warm front
+        fronts = where_function(fronts == 7, 3, fronts)  # Forming stationary front ---> stationary front
+        fronts = where_function(fronts == 8, 4, fronts)  # Forming occluded front ---> occluded front
+        fronts = where_function(fronts == 9, 1, fronts)  # Dying cold front ---> cold front
+        fronts = where_function(fronts == 10, 2, fronts)  # Dying warm front ---> warm front
+        fronts = where_function(fronts == 11, 3, fronts)  # Dying stationary front ---> stationary front
+        fronts = where_function(fronts == 12, 4, fronts)  # Dying occluded front ---> occluded front
 
-            # Merge troughs together into class 5
-            fronts = where_function(fronts == 14, 5, fronts)
-            fronts = where_function(fronts == 15, 5, fronts)
+        # Merge troughs together into class 5
+        fronts = where_function(fronts == 14, 5, fronts)
+        fronts = where_function(fronts == 15, 5, fronts)
 
-            fronts = where_function(fronts == 13, 6, fronts)  # Move outflow boundaries to class 6
-            fronts = where_function(fronts == 16, 7, fronts)  # Move drylines to class 7
+        fronts = where_function(fronts == 13, 6, fronts)  # Move outflow boundaries to class 6
+        fronts = where_function(fronts == 16, 7, fronts)  # Move drylines to class 7
 
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any', 'TR_any', 'OFB', 'DL']
         num_types = 7
@@ -467,13 +462,11 @@ def reformat_fronts(fronts, front_types):
         front_types, num_types = list(filtered_front_types.keys()), len(filtered_front_types.keys())
 
         for i in range(num_types):
-            if fronts is not None:
-                if i + 1 != front_types_classes[front_types[i]]:
-                    fronts = where_function(fronts == i + 1, 0, fronts)
-                    fronts = where_function(fronts == front_types_classes[front_types[i]], i + 1, fronts)  # Reformat front classes
+            if i + 1 != front_types_classes[front_types[i]]:
+                fronts = where_function(fronts == i + 1, 0, fronts)
+                fronts = where_function(fronts == front_types_classes[front_types[i]], i + 1, fronts)  # Reformat front classes
 
-        if fronts is not None:
-            fronts = where_function(fronts > num_types, 0, fronts)  # Remove unused front types
+        fronts = where_function(fronts > num_types, 0, fronts)  # Remove unused front types
 
         labels = front_types
 
