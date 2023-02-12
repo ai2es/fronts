@@ -890,8 +890,8 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
     era5_monthly_directory = '%s/%d/%02d' % (era5_netcdf_indir, year, month)
     fronts_monthly_directory = '%s/%d/%02d' % (fronts_netcdf_indir, year, month)
 
-    era5_netcdf_files = sorted(glob.glob('%s/*/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))[:100]
-    fronts_netcdf_files = sorted(glob.glob('%s/*/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))[:100]
+    era5_netcdf_files = sorted(glob.glob('%s/*/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
+    fronts_netcdf_files = sorted(glob.glob('%s/*/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
 
     files_match_flag = all(era5_file[-18:] == fronts_file[-18:] for era5_file, fronts_file in zip(era5_netcdf_files, fronts_netcdf_files))
 
