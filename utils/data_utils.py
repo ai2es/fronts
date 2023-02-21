@@ -2,11 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/11/2023 8:39 PM CT
-
-TODO:
-    * Clean up front expansion code to make it easier for numpy arrays to be used
-    * Add more documentation
+Last updated: 2/20/2023 6:57 PM CT
 """
 
 import math
@@ -234,7 +230,7 @@ def expand_fronts(ds_fronts, iterations=1):
 
 def haversine(lons, lats):
     """
-    lat/lon ----> cartesian coordinates
+    lat/lon ----> cartesian coordinates (km)
     """
     if type(lons) == list:
         lons = np.array(lons)
@@ -248,7 +244,7 @@ def haversine(lons, lats):
 
 def reverse_haversine(xs, ys):
     """
-    Cartesian coordinates ---> lat/lon
+    Cartesian coordinates (km) ---> lat/lon
     """
     if type(xs) == list:
         xs = np.array(xs)
@@ -556,14 +552,16 @@ def add_or_subtract_hours_to_timestep(timestep, num_hours):
     return '%d%02d%02d%02d' % (new_year, new_month, new_day, new_hour)
 
 
-def normalize_variables(variable_ds):
+def normalize_variables(variable_ds, normalization_parameters=normalization_parameters):
     """
     Function that normalizes GDAS variables via min-max normalization.
 
     Parameters
     ----------
     variable_ds: xr.Dataset
-        - Dataset containing ERA5 or GDAS variable data.
+        - Dataset containing ERA5, GDAS, or GFS variable data.
+    normalization_parameters: dict
+        - Dictionary containing parameters for normalization.
 
     Returns
     -------
