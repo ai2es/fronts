@@ -12,6 +12,7 @@ TODO:
 
 import itertools
 import os
+import pickle
 import random
 import argparse
 import pandas as pd
@@ -29,6 +30,10 @@ from utils import data_utils, settings
 from utils.plotting_utils import plot_background
 from glob import glob
 from matplotlib.font_manager import FontProperties
+from sklearn.isotonic import IsotonicRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
 
 
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
@@ -447,6 +452,7 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
     classes = model_properties['classes']
     variables = model_properties['variables']
     pressure_levels = model_properties['pressure_levels']
+    normalization_parameters = model_properties['normalization_parameters']
 
     num_dimensions = len(image_size)
     if model_number not in [7805504, 7866106, 7961517]:  # The model numbers in this list have 2D kernels
@@ -548,7 +554,7 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
             print(f"======== Chunk {chunk_no + 1}/{num_chunks}: batch {batch_no + 1}/{num_batches} ========")
 
             variable_batch_ds = variable_ds.isel(time=slice(batch_no * timestep_predict_size, (batch_no + 1) * timestep_predict_size))  # Select timesteps for the current batch
-            variable_batch_ds = data_utils.normalize_variables(variable_batch_ds).astype('float16')
+            variable_batch_ds = data_utils.normalize_variables(variable_batch_ds, normalization_parameters).astype('float16')
 
             timesteps = variable_batch_ds['time'].values
             num_timesteps_in_batch = len(timesteps)
@@ -598,7 +604,7 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
                     ##################################### Generate the predictions #####################################
                     if variable_data_source == 'era5':
 
-                        prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE)
+                        prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE, verbose=0)
 
                         if num_dimensions == 2:
                             if model_type == 'unet_3plus':
@@ -606,7 +612,8 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
                         else:  # if num_dimensions == 3
                             if model_type == 'unet_3plus':
                                 image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
-
+                            elif model_type == 'unet':
+                                image_probs = np.transpose(np.amax(prediction[:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
                     else:
 
                         ### Combine time and forecast hour into one dimension ###
@@ -729,6 +736,115 @@ def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, fr
     return probs_ds
 
 
+def calibrate_model(model_number, model_dir, domain, domain_images, variable_data_source):
+
+    model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (model_dir, model_number, model_number))
+    front_types = model_properties['front_types']
+
+    if type(front_types) == str:
+        front_types = [front_types, ]
+    
+    try:
+        _ = model_properties['calibration_models']  # Check to see if the model has already been calibrated before
+    except KeyError:
+        model_properties['calibration_models'] = dict()
+
+    model_properties['calibration_models']['%s_%dx%d' % (domain, domain_images[0], domain_images[1])] = dict()
+
+    subdir_base = '%s_%dx%d' % (domain, domain_images[0], domain_images[1])
+
+    if variable_data_source != 'era5':
+        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*_{variable_data_source}_f%03d_{domain}_{domain_images[0]}x{domain_images[1]}*statistics.nc' % (model_dir, model_number, subdir_base, forecast_hour)))
+    else:
+        files = sorted(glob(f'%s\\model_%d\\statistics\\%s\\*{domain}_{domain_images[0]}x{domain_images[1]}*statistics.nc' % (model_dir, model_number, subdir_base)))
+
+    ### If evaluating over the full domain, remove non-synoptic hours (3z, 9z, 15z, 21z) ###
+    if domain == 'full':
+        if variable_data_source == 'era5':
+            hours_to_remove = [3, 9, 15, 21]
+            for hour in hours_to_remove:
+                string = '%02dz_' % hour
+                files = list(filter(lambda hour: string not in hour, files))
+        else:
+            forecast_hours_to_remove = [3, 9]
+            for hour in forecast_hours_to_remove:
+                string = '_f%03d_' % hour
+                files = list(filter(lambda hour: string not in hour, files))
+
+    print("opening datasets")
+    if variable_data_source != 'era5':
+        stats_ds = xr.open_mfdataset(files, combine='nested').isel(forecast_hour=0).transpose('time', 'boundary', 'threshold')
+    else:
+        stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')
+
+    axis_ticks = np.arange(0.1, 1.1, 0.1)
+
+    for front_label in front_types:
+
+        model_properties['calibration_models']['%s_%dx%d' % (domain, domain_images[0], domain_images[1])][front_label] = dict()
+
+        true_positives = stats_ds[f'tp_{front_label}'].values
+        false_positives = stats_ds[f'fp_{front_label}'].values
+
+        thresholds = stats_ds['threshold'].values
+
+        ### Sum the true positives along the 'time' axis ###
+        true_positives_sum = np.sum(true_positives, axis=0)
+        false_positives_sum = np.sum(false_positives, axis=0)
+
+        ### Find the number of true positives and false positives in each probability bin ###
+        true_positives_diff = np.abs(np.diff(true_positives_sum))
+        false_positives_diff = np.abs(np.diff(false_positives_sum))
+        observed_relative_frequency = np.divide(true_positives_diff, true_positives_diff + false_positives_diff)
+
+        boundary_colors = ['red', 'purple', 'brown', 'darkorange', 'darkgreen']
+
+        calibrated_probabilities = []
+
+        fig, axs = plt.subplots(1, 2, figsize=(14, 6))
+        axs[0].plot(thresholds, thresholds, color='black', linestyle='--', linewidth=0.5, label='Perfect Reliability')
+
+        for boundary, color in enumerate(boundary_colors):
+
+            ####################### Test different calibration methods to see which performs best ######################
+
+            x = [threshold for threshold, frequency in zip(thresholds[1:], observed_relative_frequency[boundary]) if not np.isnan(frequency)]
+            y = [frequency for threshold, frequency in zip(thresholds[1:], observed_relative_frequency[boundary]) if not np.isnan(frequency)]
+
+            ### Isotonic Regression ###
+            ir = IsotonicRegression(out_of_bounds='clip')
+            ir.fit_transform(x, y)
+            calibrated_probabilities.append(ir.predict(x))
+            r_squared = r2_score(y, calibrated_probabilities[boundary])
+
+            axs[0].plot(x, y, color=color, linewidth=1, label='%d km' % ((boundary + 1) * 50))
+            axs[1].plot(x, calibrated_probabilities[boundary], color=color, linestyle='--', linewidth=1, label=r'%d km ($R^2$ = %.3f)' % ((boundary + 1) * 50, r_squared))
+            model_properties['calibration_models']['%s_%dx%d' % (domain, domain_images[0], domain_images[1])][front_label]['%d km' % ((boundary + 1) * 50)] = ir
+
+        for ax in axs:
+
+            axs[0].set_xlabel("Forecast Probability (uncalibrated)")
+            ax.set_xticks(axis_ticks)
+            ax.set_yticks(axis_ticks)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.grid()
+            ax.legend()
+
+        axs[0].set_title('Reliability Diagram')
+        axs[1].set_title('Calibration (isotonic regression)')
+        axs[0].set_ylabel("Observed Relative Frequency")
+        axs[1].set_ylabel("Forecast Probability (calibrated)")
+
+        with open('%s/model_%d/model_%d_properties.pkl' % (model_dir, model_number, model_number), 'wb') as f:
+            pickle.dump(model_properties, f)
+
+        plt.suptitle(f'Model {model_number} reliability/calibration: {settings.DEFAULT_FRONT_NAMES[front_label]}')
+        plt.savefig(f'%s/model_%d/model_%d_calibration_%s_%dx%d_%s.png' % (model_dir, model_number, model_number, domain, domain_images[0], domain_images[1], front_label),
+                    bbox_inches='tight', dpi=300)
+        plt.close()
+
+
 def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, domain, domain_images, bootstrap=True, random_variables=None,
     variable_data_source='era5', calibrated=False, num_iterations=10000, forecast_hour=None):
     """
@@ -802,12 +918,12 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
     else:
         stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')
 
-    spatial_csi_obj = fm.SpatialCSIfiles(model_number, model_dir, domain, domain_images, variable_data_source, forecast_hour)
-    spatial_csi_obj.pair_with_fronts(front_indir=fronts_netcdf_indir, synoptic_only=synoptic_only, sort_fronts=True)
-    spatial_csi_obj.test_years = [2019, 2020]
-    probs_files = spatial_csi_obj.probs_files_test
-
-    probs_ds = xr.open_mfdataset(probs_files)
+    # spatial_csi_obj = fm.SpatialCSIfiles(model_number, model_dir, domain, domain_images, variable_data_source, forecast_hour)
+    # spatial_csi_obj.pair_with_fronts(front_indir=fronts_netcdf_indir, synoptic_only=synoptic_only, sort_fronts=True)
+    # spatial_csi_obj.test_years = [2019, 2020]
+    # probs_files = spatial_csi_obj.probs_files_test
+    #
+    # probs_ds = xr.open_mfdataset(probs_files)
 
     if front_types == ['CF', 'WF']:
         filename_str = 'CFWF'
@@ -985,59 +1101,59 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
         ################################################################################################################
 
         ########################################## Spatial CSI map (panel d) ###########################################
-        probs_array = probs_ds[front_label].values
-
-        front_label_classes = {'CF': 1, 'WF': 2, 'SF': 1, 'OF': 2, 'F_BIN': 1}
-
-        ### Calculate true positives (TP), false positives (FP), and false negatives (FN) for the CSI ###
-        spatial_tp = np.where((probs_array >= thresholds[max_CSI_index]) & (expanded_fronts_array == front_label_classes[front_label]), 1, 0).sum(0)
-        spatial_fp = np.where((probs_array >= thresholds[max_CSI_index]) & (expanded_fronts_array != front_label_classes[front_label]), 1, 0).sum(0)
-        spatial_fn = np.where((probs_array < thresholds[max_CSI_index]) & (fronts_array == front_label_classes[front_label]), 1, 0).sum(0)
-        spatial_csi = spatial_tp / (spatial_tp + spatial_fp + spatial_fn)
-
-        # Create CSI dataset
-        spatial_stats_ds = xr.Dataset(data_vars={'CSI': (('longitude', 'latitude'), spatial_csi)},
-                                      coords={'latitude': probs_ds['latitude'].values, 'longitude': probs_ds['longitude'].values})
+        # probs_array = probs_ds[front_label].values
+        #
+        # front_label_classes = {'CF': 1, 'WF': 2, 'SF': 1, 'OF': 2, 'F_BIN': 1}
+        #
+        # ### Calculate true positives (TP), false positives (FP), and false negatives (FN) for the CSI ###
+        # spatial_tp = np.where((probs_array >= thresholds[max_CSI_index]) & (expanded_fronts_array == front_label_classes[front_label]), 1, 0).sum(0)
+        # spatial_fp = np.where((probs_array >= thresholds[max_CSI_index]) & (expanded_fronts_array != front_label_classes[front_label]), 1, 0).sum(0)
+        # spatial_fn = np.where((probs_array < thresholds[max_CSI_index]) & (fronts_array == front_label_classes[front_label]), 1, 0).sum(0)
+        # spatial_csi = spatial_tp / (spatial_tp + spatial_fp + spatial_fn)
+        #
+        # # Create CSI dataset
+        # spatial_stats_ds = xr.Dataset(data_vars={'CSI': (('longitude', 'latitude'), spatial_csi)},
+        #                               coords={'latitude': probs_ds['latitude'].values, 'longitude': probs_ds['longitude'].values})
 
         # Colorbar keyword arguments
-        cbar_kwargs = {'label': 'CSI', 'pad': 0}
-
-        # Adjust the spatial CSI plot based on the domain
-        if domain == 'conus':
-            spatial_axis_extent = [0.52, -0.59, 0.48, 0.535]
-            spatial_plot_xlabels = [-140, -105, -70]
-            spatial_plot_ylabels = [30, 40, 50]
-            bottom_labels = False  # Disable longitude labels on the bottom of the subplot
-        else:
-            spatial_axis_extent = [0.538, -0.6, 0.48, 0.577]
-            cbar_kwargs['shrink'] = 0.862
-            spatial_plot_xlabels = [-150, -120, -90, -60, -30, 0, 120, 150, 180]
-            spatial_plot_ylabels = [0, 20, 40, 60, 80]
-            bottom_labels = True  # Longitude labels on the bottom of the subplot
-
-        right_labels = False  # Disable latitude labels on the right side of the subplot
-        top_labels = True  # Longitude labels on top of the subplot
-        left_labels = True  # Latitude labels on the left side of the subplot
-
-        spatial_stats_ds = xr.where(spatial_stats_ds > 0.1, spatial_stats_ds, float("NaN"))  # Mask out CSI scores less than 0.1
+        # cbar_kwargs = {'label': 'CSI', 'pad': 0}
+        #
+        # # Adjust the spatial CSI plot based on the domain
+        # if domain == 'conus':
+        #     spatial_axis_extent = [0.52, -0.59, 0.48, 0.535]
+        #     spatial_plot_xlabels = [-140, -105, -70]
+        #     spatial_plot_ylabels = [30, 40, 50]
+        #     bottom_labels = False  # Disable longitude labels on the bottom of the subplot
+        # else:
+        #     spatial_axis_extent = [0.538, -0.6, 0.48, 0.577]
+        #     cbar_kwargs['shrink'] = 0.862
+        #     spatial_plot_xlabels = [-150, -120, -90, -60, -30, 0, 120, 150, 180]
+        #     spatial_plot_ylabels = [0, 20, 40, 60, 80]
+        #     bottom_labels = True  # Longitude labels on the bottom of the subplot
+        #
+        # right_labels = False  # Disable latitude labels on the right side of the subplot
+        # top_labels = True  # Longitude labels on top of the subplot
+        # left_labels = True  # Latitude labels on the left side of the subplot
+        #
+        # spatial_stats_ds = xr.where(spatial_stats_ds > 0.1, spatial_stats_ds, float("NaN"))  # Mask out CSI scores less than 0.1
 
         ### Set up the spatial CSI plot ###
-        extent = settings.DEFAULT_DOMAIN_EXTENTS[domain]
-        spatial_axis = plt.axes(spatial_axis_extent, projection=ccrs.LambertConformal(central_longitude=250))
-        spatial_axis_title_text = '250 km CSI map'
-        plot_background(extent=extent, ax=spatial_axis)
-        norm_probs = colors.Normalize(vmin=0.1, vmax=1)
-        spatial_stats_ds['CSI'].plot(ax=spatial_axis, x='longitude', y='latitude', norm=norm_probs, cmap='gnuplot2', transform=ccrs.PlateCarree(), alpha=0.35, cbar_kwargs=cbar_kwargs)
-        spatial_axis.set_title(spatial_axis_title_text)
-        gl = spatial_axis.gridlines(draw_labels=True, zorder=0, dms=True, x_inline=False, y_inline=False)
-        gl.right_labels = right_labels
-        gl.top_labels = top_labels
-        gl.left_labels = left_labels
-        gl.bottom_labels = bottom_labels
-        gl.xlocator = FixedLocator(spatial_plot_xlabels)
-        gl.ylocator = FixedLocator(spatial_plot_ylabels)
-        gl.xlabel_style = {'size': 7}
-        gl.ylabel_style = {'size': 8}
+        # extent = settings.DEFAULT_DOMAIN_EXTENTS[domain]
+        # spatial_axis = plt.axes(spatial_axis_extent, projection=ccrs.LambertConformal(central_longitude=250))
+        # spatial_axis_title_text = '250 km CSI map'
+        # plot_background(extent=extent, ax=spatial_axis)
+        # norm_probs = colors.Normalize(vmin=0.1, vmax=1)
+        # spatial_stats_ds['CSI'].plot(ax=spatial_axis, x='longitude', y='latitude', norm=norm_probs, cmap='gnuplot2', transform=ccrs.PlateCarree(), alpha=0.35, cbar_kwargs=cbar_kwargs)
+        # spatial_axis.set_title(spatial_axis_title_text)
+        # gl = spatial_axis.gridlines(draw_labels=True, zorder=0, dms=True, x_inline=False, y_inline=False)
+        # gl.right_labels = right_labels
+        # gl.top_labels = top_labels
+        # gl.left_labels = left_labels
+        # gl.bottom_labels = bottom_labels
+        # gl.xlocator = FixedLocator(spatial_plot_xlabels)
+        # gl.ylocator = FixedLocator(spatial_plot_ylabels)
+        # gl.xlabel_style = {'size': 7}
+        # gl.ylabel_style = {'size': 8}
         ################################################################################################################
 
         ###################################### Generate title for the whole plot #######################################
@@ -1073,7 +1189,7 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
 
 
 def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, forecast_hour=None,
-    variable_data_source='era5', probability_mask_2D=0.05, probability_mask_3D=0.10, same_map=True):
+    variable_data_source='era5', probability_mask=(0.10, 0.10), calibration_km=None, same_map=True):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
     subplots.
@@ -1088,13 +1204,27 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
         - Input directory for the front object netcdf files.
     timestep: str
         - Timestring for the prediction plot title.
-    probability_mask_2D: float
-        - Mask for front probabilities with 2D models. Any probabilities smaller than this number will not be plotted.
-        - Must be a multiple of 0.05, greater than 0, and no greater than 0.45.
-    probability_mask_3D: float
-        - Mask for front probabilities with 3D models. Any probabilities smaller than this number will not be plotted.
-        - Must be a multiple of 0.1, greater than 0, and no greater than 0.9.
+    domain: str
+        - Domain of the data.
+    domain_images: iterable object with 2 ints
+        - Number of images along each dimension of the final stitched map (lon lat).
+    forecast_hour: int or None
+        - Forecast hour for the timestep to plot. Has no effect if plotting predictions from ERA5 data.
+    variable_data_source: str
+        - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
+    probability_mask: tuple with 2 floats
+        - Probability mask and the step/interval for the probability contours. Probabilities smaller than the mask will
+            not be plotted.
+    calibration_km: int or None
+        - Neighborhood calibration distance in kilometers. Possible neighborhoods are 50, 100, 150, 200, and 250 km.
+    same_map: bool
+        - Plot the model predictions on the same map.
     """
+
+    DEFAULT_COLORBAR_POSITION = {'conus': 0.76, 'full': 0.83}
+    cbar_position = DEFAULT_COLORBAR_POSITION[domain]
+
+    model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
     variable_data_source = variable_data_source.lower()
 
@@ -1118,12 +1248,9 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
 
     fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
-
     probs_ds = xr.open_mfdataset(probs_file)
 
     crs = ccrs.LambertConformal(central_longitude=250)
-
-    model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
     image_size = model_properties['image_size']  # The image size does not include the last dimension of the input size as it only represents the number of channels
     front_types = model_properties['front_types']
@@ -1134,26 +1261,14 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     if type(front_types) == str:
         front_types = [front_types, ]
 
-    num_dimensions = len(image_size)
-    if model_number not in [7805504, 7866106, 7961517]:
-        num_dimensions += 1
+    mask, prob_int = probability_mask[0], probability_mask[1]  # Probability mask, contour interval for probabilities
+    vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1, prob_int, 10, 11
+    levels = np.around(np.arange(0, 1 + prob_int, prob_int), 2)
+    cbar_ticks = np.around(np.arange(mask, 1 + prob_int, prob_int), 2)
 
-    if num_dimensions == 2:
-        probability_mask = probability_mask_2D
-        vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 0.55, 0.025, 20, 11
-        levels = np.arange(0, 0.6, 0.05)
-        cbar_ticks = np.arange(probability_mask, 0.6, 0.05)
-        cbar_tick_labels = [None, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55]
-    else:
-        probability_mask = probability_mask_3D
-        vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1, 0.05, 10, 11
-        levels = np.arange(0, 1.1, 0.1)
-        cbar_ticks = np.arange(probability_mask, 1.1, 0.1)
-        cbar_tick_labels = [None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-
-    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in ['CF', 'WF', 'SF', 'OF']]
-    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in ['CF', 'WF', 'SF', 'OF']]
-    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in ['CF', 'WF', 'SF', 'OF']]
+    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in front_types]
+    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in front_types]
+    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in front_types]
 
     cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
@@ -1164,19 +1279,26 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
             data_arrays = {}
             for key in list(probs_ds.keys()):
-                data_arrays[key] = probs_ds[key].values
+                if calibration_km is not None:
+                    ir_model = model_properties['calibration_models']['%s_%dx%d' % (domain, domain_images[0], domain_images[1])][key]['%d km' % calibration_km]
+                    original_shape = np.shape(probs_ds[key].values)
+                    data_arrays[key] = ir_model.predict(probs_ds[key].values.flatten()).reshape(original_shape)
+                    cbar_label = 'Probability (calibrated - %d km)' % calibration_km
+                else:
+                    data_arrays[key] = probs_ds[key].values
+                    cbar_label = 'Probability (uncalibrated)'
 
             all_possible_front_combinations = itertools.permutations(front_types, r=2)
             for combination in all_possible_front_combinations:
                 probs_ds[combination[0]].values = np.where(data_arrays[combination[0]] > data_arrays[combination[1]] - 0.02, data_arrays[combination[0]], 0)
 
         if variable_data_source != 'era5':
-            probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=forecast_hour)
+            probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=forecast_hour)
             valid_time = data_utils.add_or_subtract_hours_to_timestep(f'%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
             data_title = f'Run: {variable_data_source.upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour)
             fronts_valid_title = f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z'
         else:
-            probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN")).isel(time=0)
+            probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0)
             data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz' % (year, month, day, hour)
             fronts_valid_title = f'Fronts valid: %d-%02d-%02d-%02dz' % (year, month, day, hour)
 
@@ -1190,13 +1312,13 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
             probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
             fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
 
-            cbar_ax = fig.add_axes([0.7365 + (front_no * 0.015), 0.11, 0.015, 0.77])
+            cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.11, 0.015, 0.77])
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
             cbar.set_ticklabels([])
 
-        cbar.set_label('Probability (uncalibrated)', rotation=90)
+        cbar.set_label(cbar_label, rotation=90)
         cbar.set_ticks(cbar_ticks)
-        cbar.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
+        cbar.set_ticklabels(cbar_ticks)
 
         ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
         ax.set_title(data_title, loc='left')
@@ -1248,7 +1370,7 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
                 plt.close()
 
 
-def learning_curve(model_number, model_dir, include_validation_plots=True):
+def learning_curve(model_number, model_dir):
     """
     Function that plots learning curves for the specified model.
 
@@ -1283,15 +1405,24 @@ def learning_curve(model_number, model_dir, include_validation_plots=True):
     else:
         loss_title = None
 
+    min_loss_epoch = np.where(history['loss'] == np.min(history['loss']))[0][0] + 1
+    min_val_loss_epoch = np.where(history['val_loss'] == np.min(history['val_loss']))[0][0] + 1
+
+    num_epochs = len(history['val_loss'])
+
     plt.subplots(1, 1, dpi=300)
 
     plt.title(loss_title)
-    
-    plt.plot(history['loss'], color='blue', label='Training loss')
-    plt.plot(history['val_loss'], color='red', label='Validation loss')
-    plt.legend(loc='best')
-    plt.xlim(xmin=0)
+    plt.plot(np.arange(1, num_epochs + 1), history['loss'], color='blue', label='Training loss')
+    plt.plot(np.arange(1, num_epochs + 1), history['val_loss'], color='red', label='Validation loss')
+    plt.hlines(y=history['loss'][min_loss_epoch - 1], xmin=0, xmax=num_epochs + 2, linestyle='--', linewidths=0.6, color='blue')
+    plt.hlines(y=history['val_loss'][min_val_loss_epoch - 1], xmin=0, xmax=num_epochs + 2, linestyle='--', linewidths=0.6, color='red')
+    plt.text(x=num_epochs + 2, y=history['loss'][min_loss_epoch - 1], s='%.4e (%d)' % (history['loss'][min_loss_epoch - 1], min_loss_epoch), color='blue', va='center', fontdict=dict(fontsize=7))
+    plt.text(x=num_epochs + 2, y=history['val_loss'][min_val_loss_epoch - 1], s='%.4e (%d)' % (history['val_loss'][min_val_loss_epoch - 1], min_val_loss_epoch), color='red', va='center', fontdict=dict(fontsize=7))
+    plt.xlim(xmin=0, xmax=len(history['val_loss']) + 1)
     plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend(loc='best')
     plt.grid()
     plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
@@ -1315,6 +1446,7 @@ if __name__ == '__main__':
     parser.add_argument('--find_matches', action='store_true', help='Find matches for stitching predictions?')
     parser.add_argument('--generate_predictions', action='store_true', help='Generate prediction plots?')
     parser.add_argument('--calculate_stats', action='store_true', help='generate stats')
+    parser.add_argument('--calibrate_model', action='store_true', help='Calibrate model')
     parser.add_argument('--gpu_device', type=int, help='GPU device number.')
     parser.add_argument('--image_size', type=int, nargs=2, help="Number of pixels along each dimension of the model's output: lon, lat")
     parser.add_argument('--learning_curve', action='store_true', help='Plot learning curve')
@@ -1394,6 +1526,10 @@ if __name__ == '__main__':
                 timestep = (args.timestep[0], args.timestep[1], args.timestep[2], hour)
                 calculate_performance_stats(args.model_number, args.model_dir, args.fronts_netcdf_indir, timestep, args.domain,
                     args.domain_images, args.domain_trim)
+
+    if args.calibrate_model:
+
+        calibrate_model(args.model_number, args.model_dir, args.domain, args.domain_images, args.variable_data_source)
 
     if args.prediction_plot:
         required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'datetime', 'domain_images']

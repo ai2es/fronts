@@ -2,7 +2,7 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 2/11/2023 8:39 PM CT
+Last updated: 2/22/2023 1:02 PM CT
 
 TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
 """
@@ -38,8 +38,6 @@ def check_directory(directory: str, year: int, month: int, day: int):
     month: int
     day: int
     """
-
-    assert os.path.isdir(directory)  # Check to see if the main directory is valid
 
     year_dir = '%s/%d' % (directory, year)
     month_dir = '%s/%02d' % (year_dir, month)
@@ -615,7 +613,7 @@ def download_latest_model_data(grib_outdir, model='gdas'):
             url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/{model_lowercase}.{timestep}/%02d/atmos/' % float(hour)
             page = requests.get(url).text
             soup = BeautifulSoup(page, 'html.parser')
-            files = [url + node.get('href') for node in soup.find_all('a') if any('pgrb2.0p25.f%03d' % forecast_hour in node.get('href') for forecast_hour in forecast_hours)]
+            files = [url + node.get('href') for node in soup.find_all('a') if any('.pgrb2.0p25.f%03d' % forecast_hour in node.get('href') for forecast_hour in forecast_hours)]
 
             if not os.path.isdir(daily_directory):
                 os.mkdir(daily_directory)

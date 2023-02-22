@@ -2,7 +2,7 @@
 Functions in this code manage data files.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/9/2023 10:50 PM CT
+Last updated: 2/22/2023 12:59 PM CT
 
 TODO:
     * Condense functions into one???? (too much repetitive code)
@@ -17,6 +17,7 @@ import os
 import pandas as pd
 from tensorflow.keras.models import load_model as lm
 import custom_losses
+import custom_metrics
 from errors import check_arguments
 from utils import data_utils
 
@@ -218,17 +219,17 @@ class ERA5files:
         self.file_type = file_type.lower()
 
         if self.file_type == 'netcdf':
-            file_prefix = 'era5'
-            file_extension = '.nc'
-            subdir_glob = '/*/*/*/'
+            self.file_prefix = 'era5'
+            self.file_extension = '.nc'
+            self.subdir_glob = '/*/*/*/'
         elif self.file_type == 'tensorflow':
-            file_prefix = 'era5'
-            file_extension = '_tf'
-            subdir_glob = '/'
+            self.file_prefix = 'era5'
+            self.file_extension = '_tf'
+            self.subdir_glob = '/'
         else:
             raise TypeError("Invalid file type: '%s'. Valid types are 'netcdf' or 'tensorflow'" % self.file_type)
 
-        self._all_era5_netcdf_files = sorted(glob("%s%s%s*%s" % (era5_indir, subdir_glob, file_prefix, file_extension)))  # All ERA5 files without filtering
+        self._all_era5_netcdf_files = sorted(glob("%s%s%s*%s" % (era5_indir, self.subdir_glob, self.file_prefix, self.file_extension)))  # All ERA5 files without filtering
 
         ### All available options for specific filters ###
         self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
@@ -408,7 +409,7 @@ class ERA5files:
             self.front_files_validation = [self.front_files[index] for index in validation_indices]
             self.front_files_test = [self.front_files[index] for index in test_indices]
 
-    def pair_with_fronts(self, front_indir, synoptic_only=False):
+    def pair_with_fronts(self, front_indir, front_types=None, synoptic_only=False):
         """
         Pair all of the ERA5 timesteps with frontal object files containing matching timesteps
 
@@ -418,10 +419,18 @@ class ERA5files:
             - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
         """
 
-        if self.file_type == 'tensorflow':
-            raise AttributeError("ERA5/front tensorflow datasets cannot be paired with front netCDF files")
+        if self.file_type == 'netcdf':
+            if front_types is not None:
+                raise UserWarning("Declaring front types has no effect when loading netCDF files")
+            file_prefix = 'FrontObjects'
+            timestep_indices = [-18, -8]
+        elif self.file_type == 'tensorflow':
+            if front_types is None:
+                raise TypeError("Front types must be declared if loading tensorflow datasets")
+            file_prefix = f"fronts_{'_'.join(front_types)}"
+            timestep_indices = [-9, -3]
 
-        self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
+        self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self.subdir_glob, file_prefix, self.file_extension)))  # All front files without filtering
         self.front_files = self._all_front_files
 
         front_files_list = []
@@ -430,7 +439,7 @@ class ERA5files:
 
         ### Find all timesteps in the ERA5 files ###
         for j in range(len(self.era5_files)):
-            timesteps_in_era5_files.append(self.era5_files[j][-18:-8])
+            timesteps_in_era5_files.append(self.era5_files[j][timestep_indices[0]:timestep_indices[1]])
 
         unique_timesteps_in_era5_files = list(np.unique(timesteps_in_era5_files))
 
@@ -1384,28 +1393,32 @@ def load_model(model_number, model_dir):
 
     loss = model_properties['loss_function']
     metric = model_properties['metric']
+    num_dimensions = 3
 
     if loss == 'cce' and metric == 'auc':
         model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
     else:
         if loss == 'fss':
             fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
-            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
+            loss_function = custom_losses.fractions_skill_score(int(fss_mask_size), num_dimensions, fss_c)
             loss_string = 'fractions_skill_score'
         elif loss == 'bss':
-            loss_string = 'brier_skill_score'
-            loss_function = custom_losses.brier_skill_score
+            loss_string = '_bss_loss'
+            loss_function = custom_losses.brier_skill_score()
+        elif loss == 'csi':
+            loss_string = '_csi_loss'
+            loss_function = custom_losses.critical_success_index()
         else:
             loss_string = None
             loss_function = None
 
         if metric == 'fss':
             fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
-            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
+            loss_function = custom_metrics.fractions_skill_score(fss_mask_size, num_dimensions, fss_c)
             metric_string = 'fractions_skill_score'
         elif metric == 'bss':
-            metric_string = 'brier_skill_score'
-            metric_function = custom_losses.brier_skill_score
+            metric_string = '_bss_loss'
+            metric_function = custom_metrics._bss_loss
         else:
             metric_string = None
             metric_function = None
