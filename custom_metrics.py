@@ -1,5 +1,5 @@
 """
-Custom loss functions for U-Net models.
+Custom metrics for U-Net models.
     - Brier Skill Score (BSS)
     - Critical Success Index (CSI)
     - Fractions Skill Score (FSS)
@@ -12,14 +12,14 @@ import tensorflow as tf
 
 def brier_skill_score(class_weights=None):
     """
-    Brier skill score (BSS) loss function.
+    Brier skill score (BSS).
 
     class_weights: list of values or None
         - List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
     """
 
     @tf.function
-    def _bss_loss(y_true, y_pred):
+    def _bss(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -27,21 +27,20 @@ def brier_skill_score(class_weights=None):
             - Tensor containing model predictions.
         """
 
-        losses = tf.math.square(tf.subtract(y_true, y_pred))
+        squared_errors = tf.math.square(tf.subtract(y_true, y_pred))
 
         if class_weights is not None:
             relative_class_weights = tf.cast(class_weights / tf.math.reduce_sum(class_weights), tf.float32)
-            losses *= relative_class_weights
+            squared_errors *= relative_class_weights
 
-        brier_score_loss = tf.math.reduce_sum(losses) / tf.size(losses)
-        return brier_score_loss
+        return 1 - tf.math.reduce_sum(squared_errors) / tf.size(squared_errors)
 
-    return _bss_loss
+    return _bss
 
 
 def critical_success_index(threshold=None, class_weights=None):
     """
-    Critical Success Index (CSI) loss function.
+    Critical success index (CSI).
 
     y_true: tf.Tensor
         - One-hot encoded tensor containing labels.
@@ -56,7 +55,7 @@ def critical_success_index(threshold=None, class_weights=None):
     """
 
     @tf.function
-    def _csi_loss(y_true, y_pred):
+    def _csi(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -82,14 +81,14 @@ def critical_success_index(threshold=None, class_weights=None):
         else:
             csi = tf.math.divide(tf.math.reduce_sum(true_positives), tf.math.reduce_sum(true_positives) + tf.math.reduce_sum(false_negatives) + tf.math.reduce_sum(false_positives))
 
-        return 1 - csi
+        return csi
 
-    return _csi_loss
+    return _csi
 
 
 def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_discretization=False, class_weights=None):
     """
-    Fractions skill score loss function. Visit https://github.com/CIRA-ML/custom_loss_functions for documentation.
+    Fractions skill score. Visit https://github.com/CIRA-ML/custom_loss_functions for documentation.
 
     Parameters
     ----------
@@ -125,7 +124,7 @@ def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_disc
         pool2 = tf.keras.layers.AveragePooling3D(**pool_kwargs)
 
     @tf.function
-    def _fss_loss(y_true, y_pred):
+    def _fss(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -165,10 +164,10 @@ def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_disc
 
         if want_hard_discretization:
             if MSE_n_ref == 0:
-                return MSE_n
+                return 1 - MSE_n
             else:
-                return MSE_n / MSE_n_ref
+                return 1 - (MSE_n / MSE_n_ref)
         else:
-            return MSE_n / (MSE_n_ref + my_epsilon)
+            return 1 - (MSE_n / (MSE_n_ref + my_epsilon))
 
-    return _fss_loss
+    return _fss
