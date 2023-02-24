@@ -2,7 +2,7 @@
 Download GDAS/GFS data and convert it to netCDF format
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 2/10/2023 9:44 AM CT
+Last updated: 2/23/2023 7:54 PM CT
 """
 
 import argparse
@@ -18,10 +18,9 @@ import variables
 import sys
 
 
-def bar_progress(current, total, width=0.8):
-  progress_message = "Downloading: %d%% [%d/%d] MB" % (current / total * 100, current / 1e6, total / 1e6)
+def bar_progress(current, total, width=None):
+  progress_message = "Downloading: %d%% [%d/%d] MB       " % (current / total * 100, current / 1e6, total / 1e6)
   sys.stdout.write("\r" + progress_message)
-  sys.stdout.flush()
 
 
 def get_current_time():
