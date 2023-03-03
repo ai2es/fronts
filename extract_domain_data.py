@@ -1,7 +1,7 @@
 """
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
-Code written by: Andrew Justin (andrewjustin@ou.edu)
+Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 Last updated: 2/22/2023 1:02 PM CT
 
 TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)

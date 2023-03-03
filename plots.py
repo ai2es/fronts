@@ -4,7 +4,7 @@ Code for generating various plots:
     - Frequency plots
     - NCEP front analysis
 
-Code written by: Andrew Justin (andrewjustin@ou.edu)
+Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 Last updated: 1/10/2023 5:44 PM CT
 
 TODO:
