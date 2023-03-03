@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/20/2023 6:57 PM CT
+Last updated: 3/3/2023 1:23 PM CT
 """
 
 import math
@@ -102,12 +102,16 @@ def expand_fronts(ds_fronts, iterations=1):
     except KeyError:
         identifier = ds_fronts.values
 
-    identifier_temp = np.empty(shape=np.shape(identifier))
-    identifier_temp[:, :, :] = identifier[:, :, :]
+    identifier_temp = identifier
     identifier = identifier_temp
 
-    max_lat_index = np.shape(identifier)[1] - 1
-    max_lon_index = np.shape(identifier)[2] - 1
+    num_dims = len(np.shape(identifier))
+
+    if num_dims == 2:
+        identifier = np.expand_dims(identifier, axis=0)
+
+    max_lat_index = np.shape(identifier)[num_dims - 2] - 1
+    max_lon_index = np.shape(identifier)[num_dims - 1] - 1
     
     for iteration in range(iterations):
         
@@ -219,6 +223,9 @@ def expand_fronts(ds_fronts, iterations=1):
                         identifier[timestep][lat][lon - 1] = front_value
                     if identifier[timestep][lat][lon + 1] == 0:
                         identifier[timestep][lat][lon + 1] = front_value
+
+    if num_dims == 2:
+        identifier = identifier[0]
 
     try:
         ds_fronts['identifier'].values = identifier
@@ -374,6 +381,9 @@ def reformat_fronts(fronts, front_types):
         Reformatted dataset based on the provided code(s).
     """
 
+    if type(front_types) == str:
+        front_types = [front_types, ]
+
     fronts_argument_type = type(fronts)
 
     if fronts_argument_type == xr.DataArray or fronts_argument_type == xr.Dataset:
@@ -386,7 +396,7 @@ def reformat_fronts(fronts, front_types):
     front_types_classes = {'CF': 1, 'WF': 2, 'SF': 3, 'OF': 4, 'CF-F': 5, 'WF-F': 6, 'SF-F': 7, 'OF-F': 8, 'CF-D': 9, 'WF-D': 10,
                            'SF-D': 11, 'OF-D': 12, 'OFB': 13, 'TROF': 14, 'TT': 15, 'DL': 16}
 
-    if front_types == 'F_BIN' or front_types == ['F_BIN']:
+    if front_types == ['F_BIN', ]:
 
         fronts = where_function(fronts > 4, 0, fronts)  # Classes 5-16 are removed
         fronts = where_function(fronts > 0, 1, fronts)  # Merge 1-4 into one class
@@ -394,7 +404,7 @@ def reformat_fronts(fronts, front_types):
         labels = ['CF-WF-SF-OF', ]
         num_types = 1
 
-    elif front_types == 'MERGED-F' or front_types == ['MERGED-F']:
+    elif front_types == ['MERGED-F']:
 
         fronts = where_function(fronts == 5, 1, fronts)  # Forming cold front ---> cold front
         fronts = where_function(fronts == 6, 2, fronts)  # Forming warm front ---> warm front
@@ -409,7 +419,7 @@ def reformat_fronts(fronts, front_types):
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any']
         num_types = 4
 
-    elif front_types == 'MERGED-F_BIN' or front_types == ['MERGED-F_BIN']:
+    elif front_types == ['MERGED-F_BIN']:
 
         fronts = where_function(fronts > 12, 0, fronts)  # Classes 13-16 are removed
         fronts = where_function(fronts > 0, 1, fronts)  # Classes 1-12 are merged into one class
@@ -417,7 +427,7 @@ def reformat_fronts(fronts, front_types):
         labels = ['CF-WF-SF-OF_any', ]
         num_types = 1
 
-    elif front_types == 'MERGED-T' or front_types == ['MERGED-T']:
+    elif front_types == ['MERGED-T']:
 
         fronts = where_function(fronts < 14, 0, fronts)  # Remove classes 1-13
 
@@ -430,7 +440,7 @@ def reformat_fronts(fronts, front_types):
         labels = ['TR_any', ]
         num_types = 1
 
-    elif front_types == 'MERGED-ALL' or front_types == ['MERGED-ALL']:
+    elif front_types == ['MERGED-ALL']:
 
         fronts = where_function(fronts == 5, 1, fronts)  # Forming cold front ---> cold front
         fronts = where_function(fronts == 6, 2, fronts)  # Forming warm front ---> warm front
@@ -451,7 +461,7 @@ def reformat_fronts(fronts, front_types):
         labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any', 'TR_any', 'OFB', 'DL']
         num_types = 7
 
-    elif type(front_types) == list:
+    else:
 
         # Select the front types that are being used to pull their class identifiers
         filtered_front_types = dict(sorted(dict([(i, front_types_classes[i]) for i in front_types_classes if i in set(front_types)]).items(), key=lambda item: item[1]))
@@ -465,11 +475,6 @@ def reformat_fronts(fronts, front_types):
         fronts = where_function(fronts > num_types, 0, fronts)  # Remove unused front types
 
         labels = front_types
-
-    else:
-
-        labels = list(front_types_classes.keys())
-        num_types = 1
 
     if fronts_argument_type == xr.Dataset or fronts_argument_type == xr.DataArray:
         fronts.attrs['front_types'] = front_types
