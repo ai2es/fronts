@@ -2,12 +2,11 @@
 Generate predictions with a U-Net model
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/9/2023 11:46 PM CT
+Last updated: 3/17/2023 4:28 PM CT
 """
 
 import argparse
 import os.path
-
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -15,6 +14,7 @@ import tensorflow as tf
 from utils import data_utils, settings
 from glob import glob
 import custom_losses
+import custom_metrics
 
 
 def load_model(model_number, model_dir):
@@ -29,108 +29,33 @@ def load_model(model_number, model_dir):
         - Main directory for the models.
     """
 
+    model_path = f"{model_dir}/model_{model_number}/model_{model_number}.h5"
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
-    loss = model_properties['loss_function']
-    metric = model_properties['metric']
+    try:
+        loss_string = model_properties['loss_string']
+    except KeyError:
+        loss_string = model_properties['loss']  # Error in the training sometimes resulted in the incorrect key ('loss' instead of 'loss_string')
+    loss_args = model_properties['loss_args']
 
-    if loss == 'cce' and metric == 'auc':
-        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
-    else:
-        if loss == 'fss':
-            fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
-            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
-            loss_string = 'fractions_skill_score'
-        elif loss == 'bss':
-            loss_string = 'brier_skill_score'
-            loss_function = custom_losses.brier_skill_score
-        else:
-            loss_string = None
-            loss_function = None
+    try:
+        metric_string = model_properties['metric_string']
+    except KeyError:
+        metric_string = model_properties['metric']  # Error in the training sometimes resulted in the incorrect key ('metric' instead of 'metric_string')
+    metric_args = model_properties['metric_args']
 
-        if metric == 'fss':
-            fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
-            loss_function = custom_losses.make_fractions_skill_score(fss_mask_size, fss_c)
-            metric_string = 'fractions_skill_score'
-        elif metric == 'bss':
-            metric_string = 'brier_skill_score'
-            metric_function = custom_losses.brier_skill_score
-        else:
-            metric_string = None
-            metric_function = None
+    custom_objects = {}
 
-        model_loaded = False  # Boolean flag that will become True once a model successfully loads
-        print("Loading model %d" % model_number)
-        if loss_string is not None:
-            if metric_string is not None:
+    if 'fss' in loss_string.lower():
+        custom_objects[loss_string] = custom_losses.fractions_skill_score(**loss_args)
 
-                ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
-                while model_loaded is False:
-                    try:
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
-                    except ValueError:
+    if 'brier' in metric_string.lower():
+        custom_objects[metric_string] = custom_metrics.brier_skill_score(**metric_args)
 
-                        if 'fractions' in loss_string or 'FSS' in loss_string:
-                            if loss_string == 'fractions_skill_score':
-                                loss_string = 'FSS_loss_2D'
-                            elif loss_string == 'FSS_loss_2D':
-                                loss_string = 'FSS_loss_3D'
-                            else:
-                                # Load the model normally to return the ValueError message for unknown loss function
-                                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
+    if 'csi' in metric_string.lower():
+        custom_objects[metric_string] = custom_metrics.critical_success_index(**metric_args)
 
-                        if 'fractions' in metric_string or 'FSS' in metric_string:
-                            if metric_string == 'fractions_skill_score':
-                                metric_string = 'FSS_loss_2D'
-                            elif metric_string == 'FSS_loss_2D':
-                                metric_string = 'FSS_loss_3D'
-                            else:
-                                # Load the model normally to return the ValueError message for unknown metric
-                                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
-
-                    else:
-                        model_loaded = True
-
-            else:
-
-                ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
-                while model_loaded is False:
-                    try:
-                        model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
-                    except ValueError:
-
-                        if 'fractions' in loss_string or 'FSS' in loss_string:
-                            if loss_string == 'fractions_skill_score':
-                                loss_string = 'FSS_loss_2D'
-                            elif loss_string == 'FSS_loss_2D':
-                                loss_string = 'FSS_loss_3D'
-                            else:
-                                # Load the model normally to return the ValueError message for unknown loss function
-                                model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
-
-                    else:
-                        model_loaded = True
-
-        else:
-
-            ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
-            while model_loaded is False:
-                try:
-                    model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
-                except ValueError:
-                    if 'fractions' in metric_string or 'FSS' in metric_string:
-                        if metric_string == 'fractions_skill_score':
-                            metric_string = 'FSS_loss_2D'
-                        elif metric_string == 'FSS_loss_2D':
-                            metric_string = 'FSS_loss_3D'
-                        else:
-                            # Load the model normally to return the ValueError message for unknown loss function
-                            model = tf.keras.models.load_model('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
-
-                else:
-                    model_loaded = True
-
-    return model
+    return tf.keras.models.load_model(model_path, custom_objects=custom_objects)
 
 
 def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
@@ -308,7 +233,6 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
     Function that outputs the number of images that can be stitched together with the specified domain length and the length
     of the domain dimension output by the model. This is also used to determine the compatibility of declared image and
     parameters for model predictions.
-
     Parameters
     ----------
     domain_size: iterable object with 2 integers
@@ -337,7 +261,7 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
     lon_image_matches = []
     lat_image_matches = []
 
-    for lon_images in range(1, domain_size[0]-image_size[0]):  # Image counter for longitude dimension
+    for lon_images in range(1, domain_size[0]-image_size[0] + 2):  # Image counter for longitude dimension
         if lon_images > 1:
             lon_spacing = (domain_size[0]-image_size[0])/(lon_images-1)  # Spacing between images in the longitude dimension
         else:
@@ -547,12 +471,19 @@ def generate_predictions(model_number, model_dir, netcdf_indir, init_time, domai
 
                     prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE, verbose=0)
 
-                    if num_dimensions == 2:
-                        if model_type == 'unet_3plus':
-                            image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)
-                    elif num_dimensions == 3:
-                        if model_type == 'unet_3plus':
-                            image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)
+                    num_dims_in_pred = len(np.shape(prediction))
+
+                    if model_type == 'unet':
+                        if num_dims_in_pred == 4:  # 2D labels, prediction shape: (time, lat, lon, front type)
+                            image_probs = np.transpose(prediction[:, :, :, 1:], transpose_indices)  # transpose the predictions
+                        else:  # if num_dims_in_pred == 5; 3D labels, prediction shape: (time, lat, lon, pressure level, front type)
+                            image_probs = np.transpose(np.amax(prediction[:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
+
+                    elif model_type == 'unet_3plus':
+                        if num_dims_in_pred == 5:  # 2D labels, prediction shape: (output level, time, lon, lat, front type)
+                            image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)  # transpose the predictions
+                        else:  # if num_dims_in_pred == 6; 3D labels, prediction shape: (output level, time, lat, lon, pressure level, front type)
+                            image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
 
                     # Add predictions to the map
                     for timestep in range(num_timesteps_in_batch):
@@ -649,6 +580,7 @@ if __name__ == '__main__':
     parser.add_argument('--variable_data_source', type=str, required=True, help='Data source for variables (GDAS or GFS)')
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
+    parser.add_argument('--image_size', type=int, nargs=2, default=(128, 128), help='Image size used for predictions (lon, lat)')
 
     ### GPU arguments ###
     parser.add_argument('--gpu_device', type=int, help='GPU device number.')
@@ -667,11 +599,13 @@ if __name__ == '__main__':
             tf.config.experimental.set_memory_growth(device=gpus[args.gpu_device], enable=True)
 
     model_properties = pd.read_pickle(f"{args.model_dir}/model_{args.model_number}/model_{args.model_number}_properties.pkl")
-    image_size = model_properties['image_size']  # We are only concerned about longitude and latitude when checking compatibility
+    image_size = args.image_size
 
     domain_indices = settings.DEFAULT_DOMAIN_INDICES[args.domain]
     if args.domain_images is None:
         domain_images = settings.DEFAULT_DOMAIN_IMAGES[args.domain]
+    else:
+        domain_images = args.domain_images
 
     # Verify the compatibility of image stitching arguments
     find_matches_for_domain((domain_indices[1] - domain_indices[0], domain_indices[3] - domain_indices[2]), image_size, compatibility_mode=True, compat_images=domain_images)

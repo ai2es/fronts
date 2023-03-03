@@ -2,7 +2,7 @@
 Plotting tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 12/24/2022 5:44 PM CDT
+Last updated: 3/17/2023 4:28 PM CT
 """
 
 import cartopy.feature as cfeature
@@ -12,7 +12,7 @@ from matplotlib.cm import ScalarMappable
 import numpy as np
 
 
-def plot_background(extent, ax=None, linewidth=0.5):
+def plot_background(extent, ax=None, linewidth=0.25):
     """
     Returns new background for the plot.
 
