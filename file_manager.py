@@ -2,7 +2,7 @@
 Functions in this code manage data files.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/22/2023 12:59 PM CT
+Last updated: 3/3/2023 1:35 PM CT
 
 TODO:
     * Condense functions into one???? (too much repetitive code)
@@ -221,7 +221,7 @@ class ERA5files:
         if self.file_type == 'netcdf':
             self.file_prefix = 'era5'
             self.file_extension = '.nc'
-            self.subdir_glob = '/*/*/*/'
+            self.subdir_glob = '/*/'
         elif self.file_type == 'tensorflow':
             self.file_prefix = 'era5'
             self.file_extension = '_tf'
@@ -429,6 +429,8 @@ class ERA5files:
                 raise TypeError("Front types must be declared if loading tensorflow datasets")
             file_prefix = f"fronts_{'_'.join(front_types)}"
             timestep_indices = [-9, -3]
+        else:
+            raise ValueError(f"The available options for 'file_type' are: 'netcdf', 'tensorflow'. Received: {self.file_type}")
 
         self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self.subdir_glob, file_prefix, self.file_extension)))  # All front files without filtering
         self.front_files = self._all_front_files
@@ -1389,112 +1391,26 @@ def load_model(model_number, model_dir):
         - Main directory for the models.
     """
 
+    model_path = f"{model_dir}/model_{model_number}/model_{model_number}.h5"
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
-    loss = model_properties['loss_function']
-    metric = model_properties['metric']
-    num_dimensions = 3
+    loss_string = model_properties['loss_string']
+    loss_args = model_properties['loss_args']
+    metric_string = model_properties['metric_string']
+    metric_args = model_properties['metric_args']
 
-    if loss == 'cce' and metric == 'auc':
-        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number))
-    else:
-        if loss == 'fss':
-            fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
-            loss_function = custom_losses.fractions_skill_score(int(fss_mask_size), num_dimensions, fss_c)
-            loss_string = 'fractions_skill_score'
-        elif loss == 'bss':
-            loss_string = '_bss_loss'
-            loss_function = custom_losses.brier_skill_score()
-        elif loss == 'csi':
-            loss_string = '_csi_loss'
-            loss_function = custom_losses.critical_success_index()
-        else:
-            loss_string = None
-            loss_function = None
+    custom_objects = {}
 
-        if metric == 'fss':
-            fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]  # First element is the mask size, second is the c parameter
-            loss_function = custom_metrics.fractions_skill_score(fss_mask_size, num_dimensions, fss_c)
-            metric_string = 'fractions_skill_score'
-        elif metric == 'bss':
-            metric_string = '_bss_loss'
-            metric_function = custom_metrics._bss_loss
-        else:
-            metric_string = None
-            metric_function = None
+    if 'fss' in loss_string.lower():
+        custom_objects[loss_string] = custom_losses.fractions_skill_score(**loss_args)
 
-        model_loaded = False  # Boolean flag that will become True once a model successfully loads
-        print("Loading model %d" % model_number)
-        if loss_string is not None:
-            if metric_string is not None:
+    if 'brier' in metric_string.lower():
+        custom_objects[metric_string] = custom_metrics.brier_skill_score(**metric_args)
 
-                ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
-                while model_loaded is False:
-                    try:
-                        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
-                    except ValueError:
+    if 'csi' in metric_string.lower():
+        custom_objects[metric_string] = custom_metrics.critical_success_index(**metric_args)
 
-                        if 'fractions' in loss_string or 'FSS' in loss_string:
-                            if loss_string == 'fractions_skill_score':
-                                loss_string = 'FSS_loss_2D'
-                            elif loss_string == 'FSS_loss_2D':
-                                loss_string = 'FSS_loss_3D'
-                            else:
-                                # Load the model normally to return the ValueError message for unknown loss function
-                                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
-
-                        if 'fractions' in metric_string or 'FSS' in metric_string:
-                            if metric_string == 'fractions_skill_score':
-                                metric_string = 'FSS_loss_2D'
-                            elif metric_string == 'FSS_loss_2D':
-                                metric_string = 'FSS_loss_3D'
-                            else:
-                                # Load the model normally to return the ValueError message for unknown metric
-                                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function, metric_string: metric_function})
-
-                    else:
-                        model_loaded = True
-
-            else:
-
-                ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
-                while model_loaded is False:
-                    try:
-                        model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
-                    except ValueError:
-
-                        if 'fractions' in loss_string or 'FSS' in loss_string:
-                            if loss_string == 'fractions_skill_score':
-                                loss_string = 'FSS_loss_2D'
-                            elif loss_string == 'FSS_loss_2D':
-                                loss_string = 'FSS_loss_3D'
-                            else:
-                                # Load the model normally to return the ValueError message for unknown loss function
-                                model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={loss_string: loss_function})
-
-                    else:
-                        model_loaded = True
-
-        else:
-
-            ### Older models contain different strings to represent the FSS loss function, so a few conditions ensure that we grab the FSS function if it was used in the model ###
-            while model_loaded is False:
-                try:
-                    model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
-                except ValueError:
-                    if 'fractions' in metric_string or 'FSS' in metric_string:
-                        if metric_string == 'fractions_skill_score':
-                            metric_string = 'FSS_loss_2D'
-                        elif metric_string == 'FSS_loss_2D':
-                            metric_string = 'FSS_loss_3D'
-                        else:
-                            # Load the model normally to return the ValueError message for unknown loss function
-                            model = lm('%s/model_%d/model_%d.h5' % (model_dir, model_number, model_number), custom_objects={metric_string: metric_function})
-
-                else:
-                    model_loaded = True
-
-    return model
+    return lm(model_path, custom_objects=custom_objects)
 
 
 if __name__ == '__main__':
