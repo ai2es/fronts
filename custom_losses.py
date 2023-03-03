@@ -5,7 +5,7 @@ Custom loss functions for U-Net models.
     - Fractions Skill Score (FSS)
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/22/2022 12:38 PM CT
+Last updated: 3/3/2023 1:12 PM CT
 """
 import tensorflow as tf
 
@@ -87,16 +87,16 @@ def critical_success_index(threshold=None, class_weights=None):
     return _csi_loss
 
 
-def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_discretization=False, class_weights=None):
+def fractions_skill_score(num_dims, mask_size=3, c=1.0, cutoff=0.5, want_hard_discretization=False, class_weights=None):
     """
     Fractions skill score loss function. Visit https://github.com/CIRA-ML/custom_loss_functions for documentation.
 
     Parameters
     ----------
-    mask_size: int or tuple
-        - Size of the mask/pool in the AveragePooling layers.
     num_dims: int
         - Number of dimensions for the mask.
+    mask_size: int or tuple
+        - Size of the mask/pool in the AveragePooling layers.
     c: int or float
         - C parameter in the sigmoid function. This will only be used if 'want_hard_discretization' is False.
     cutoff: float
