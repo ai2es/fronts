@@ -5,7 +5,7 @@ Custom metrics for U-Net models.
     - Fractions Skill Score (FSS)
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/22/2022 12:38 PM CT
+Last updated: 3/3/2022 10:38 AM CT
 """
 import tensorflow as tf
 
@@ -64,7 +64,7 @@ def critical_success_index(threshold=None, class_weights=None):
         """
 
         if threshold is not None:
-            y_pred = tf.where(y_pred >= threshold, 1, 0)
+            y_pred = tf.where(y_pred >= threshold, 1.0, 0.0)
 
         y_pred_neg = 1 - y_pred
         y_true_neg = 1 - y_true
