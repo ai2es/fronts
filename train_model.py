@@ -1,12 +1,11 @@
 """
 Function that trains a new U-Net model.
 
-Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 2/22/2023 1:01 PM CT
+Code written by: Andrew Justin (andrewjustinwx@gmail.com)
+Last updated: 3/3/2023 2:04 PM CT
 """
 
 import argparse
-
 import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
@@ -16,10 +15,11 @@ import numpy as np
 import file_manager as fm
 import os
 import custom_losses
+import custom_metrics
 import models
 import datetime
 import utils.data_utils
-from utils import settings
+from utils import settings, misc
 
 tf.config.experimental.enable_tensor_float_32_execution(False)  # Disable TensorFloat32 for matrix multiplication (saves memory)
 
@@ -48,15 +48,15 @@ if __name__ == "__main__":
     parser.add_argument('--model_dir', type=str, required=True, help='Directory where the models are or will be saved to.')
     parser.add_argument('--model_number', type=int, help='Number that the model will be assigned.')
     parser.add_argument('--era5_tf_indir', type=str, required=True, help='Directory where the tensorflow datasets are stored.')
+    parser.add_argument('--epochs', type=int, required=True, help='Number of epochs for the U-Net training.')
+    parser.add_argument('--patience', type=int, required=True, help='Patience for EarlyStopping callback')
+    parser.add_argument('--verbose', type=int, default=2, help='Model.fit verbose')
 
     ### GPU arguments ###
     parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth for GPUs')
 
     ### Hyperparameters ###
-    parser.add_argument('--epochs', type=int, required=True, help='Number of epochs for the U-Net training.')
-    parser.add_argument('--fss_c', type=float, help='C hyperparameter for the FSS loss sigmoid function.')
-    parser.add_argument('--fss_mask_size', type=int, help='Mask size for the FSS loss function.')
     parser.add_argument('--learning_rate', type=float, help='Learning rate for U-Net optimizer.')
     parser.add_argument('--train_valid_batch_size', type=int, nargs=2, help='Batch sizes for the U-Net.')
     parser.add_argument('--train_valid_domain', type=str, nargs=2, help='Domains for training and validation')
@@ -72,10 +72,14 @@ if __name__ == "__main__":
     parser.add_argument('--filter_num_skip', type=int, help='Number of filters in full-scale skip connections')
     parser.add_argument('--first_encoder_connections', action='store_true', help='Enable first encoder connections in the U-Net 3+')
     parser.add_argument('--image_size', type=int, nargs='+', default=(128, 128), help='Size of the U-Net input images.')
-    parser.add_argument('--kernel_size', type=int, help='Size of the convolution kernels.')
+    parser.add_argument('--kernel_size', type=int, nargs='+', help='Size of the convolution kernels.')
     parser.add_argument('--levels', type=int, help='Number of levels in the U-Net.')
     parser.add_argument('--loss', type=str, help='Loss function for the U-Net')
+    parser.add_argument('--loss_args', type=str, help="String containing arguments for the loss function. See 'utils.misc.string_arg_to_dict' "
+                                                      "for more details.")
     parser.add_argument('--metric', type=str, help='Metric for evaluating the U-Net during training.')
+    parser.add_argument('--metric_args', type=str, help="String containing arguments for the metric. See 'utils.misc.string_arg_to_dict' "
+                                                        "for more details.")
     parser.add_argument('--modules_per_node', type=int, default=5, help='Number of convolution modules in each node')
     parser.add_argument('--padding', type=str, default='same', help='Padding to use in the model')
     parser.add_argument('--pool_size', type=int, nargs='+', help='Pool size for the MaxPooling layers in the U-Net.')
@@ -97,6 +101,16 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    if args.loss_args is not None:
+        loss_args = misc.string_arg_to_dict(args.loss_args)
+    else:
+        loss_args = dict()
+
+    if args.metric_args is not None:
+        metric_args = misc.string_arg_to_dict(args.metric_args)
+    else:
+        metric_args = dict()
+
     if args.gpu_device is not None:
         gpus = tf.config.list_physical_devices(device_type='GPU')
         tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args.gpu_device], device_type='GPU')
@@ -107,8 +121,31 @@ if __name__ == "__main__":
 
     if not args.retrain:
 
+        if args.loss == 'fractions_skill_score':
+            loss_string = '_fss_loss'
+        elif args.loss == 'critical_success_index':
+            loss_string = '_csi_loss'
+        elif args.loss == 'brier_skill_score':
+            loss_string = '_bss_loss'
+        else:
+            loss_string = None
+
+        if args.metric == 'fractions_skill_score':
+            metric_string = '_fss'
+        elif args.metric == 'critical_success_index':
+            metric_string = '_csi'
+        elif args.metric == 'brier_skill_score':
+            metric_string = '_bss'
+        else:
+            metric_string = None
+
+        all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
+        all_pressure_levels = ['surface', '1000', '950', '900', '850']
+
+        variables_to_use = sorted([var for var in all_variables if var in args.variables])
+        pressure_levels = sorted([lvl for lvl in all_pressure_levels if lvl in args.pressure_levels])
+
         args.variables = sorted(args.variables)
-        num_pressure_levels = len(args.pressure_levels)
     
         all_years = np.arange(2008, 2021)
 
@@ -136,17 +173,14 @@ if __name__ == "__main__":
         test_years = [year for year in all_years if year not in training_years + validation_years]
 
         if args.model_number is None:  # If no model number is provided, select a number based on the current date and time
-            model_number = int(datetime.datetime.now().timestamp())
+            model_number = int(datetime.datetime.now().timestamp() - 1677265215)
         else:
             model_number = args.model_number
 
         # Convert pool size and upsample size to tuples
         pool_size, upsample_size = tuple(args.pool_size), tuple(args.upsample_size)
 
-        if len(args.front_types) == 1:
-            front_types = args.front_types[0]
-        else:
-            front_types = args.front_types
+        front_types = args.front_types
 
         if front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T' or front_types == 'F_BIN':
             num_classes = 2
@@ -173,11 +207,12 @@ if __name__ == "__main__":
         model_properties['image_size'] = args.image_size
         model_properties['kernel_size'] = args.kernel_size
         model_properties['normalization_parameters'] = utils.data_utils.normalization_parameters
-        model_properties['loss_function'] = args.loss
-        model_properties['fss_mask_c'] = (args.fss_mask_size, args.fss_c)
-        model_properties['variables'] = sorted(args.variables)
-        model_properties['pressure_levels'] = args.pressure_levels
-        model_properties['metric'] = args.metric
+        model_properties['loss'] = loss_string
+        model_properties['loss_args'] = loss_args
+        model_properties['metric'] = metric_string
+        model_properties['metric_args'] = metric_args
+        model_properties['variables'] = variables_to_use
+        model_properties['pressure_levels'] = pressure_levels
         model_properties['front_types'] = front_types
         model_properties['classes'] = num_classes
         model_properties['model_type'] = args.model_type
@@ -223,7 +258,7 @@ if __name__ == "__main__":
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')  # ModelCheckpoint: saves model at a specified interval
-    early_stopping = EarlyStopping('val_loss', patience=150, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
+    early_stopping = EarlyStopping('val_loss', patience=args.patience, verbose=args.verbose)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     strategy = tf.distribute.MirroredStrategy()
@@ -232,10 +267,11 @@ if __name__ == "__main__":
 
         if not args.retrain:
             print("Building model")
-            model = unet_model((128, 128, 5, 12), num_classes, args.pool_size, args.upsample_size, args.levels, args.filter_num, **unet_kwargs)
-            loss_function = custom_losses.fractions_skill_score(args.fss_mask_size, 3, args.fss_c, class_weight=[1, 69, 209])
+            model = unet_model((None, None, len(args.pressure_levels), len(args.variables)), num_classes, args.pool_size, args.upsample_size, args.levels, args.filter_num, **unet_kwargs)
+            loss_function = getattr(custom_losses, args.loss)(**loss_args)
+            metric_function = getattr(custom_metrics, args.metric)(**metric_args)
             adam = Adam(learning_rate=args.learning_rate)
-            model.compile(loss=loss_function, optimizer=adam)
+            model.compile(loss=loss_function, optimizer=adam, metrics=metric_function)
         else:
             model = fm.load_model(args.model_number, args.model_dir)
 
@@ -253,14 +289,14 @@ if __name__ == "__main__":
     training_dataset = combine_datasets(training_inputs, training_labels)
     training_buffer_size = np.min([len(training_dataset), settings.MAX_TRAIN_BUFFER_SIZE])
     training_dataset = training_dataset.shuffle(buffer_size=training_buffer_size)
-    training_dataset = training_dataset.batch(train_valid_batch_size[0], drop_remainder=True, num_parallel_calls=20)
+    training_dataset = training_dataset.batch(train_valid_batch_size[0], drop_remainder=True, num_parallel_calls=4)
     training_dataset = training_dataset.prefetch(tf.data.AUTOTUNE)
 
     ### Validation dataset ###
     validation_inputs = era5_files_obj.era5_files_validation
     validation_labels = era5_files_obj.front_files_validation
     validation_dataset = combine_datasets(validation_inputs, validation_labels)
-    validation_dataset = validation_dataset.batch(train_valid_batch_size[1], drop_remainder=True, num_parallel_calls=20)
+    validation_dataset = validation_dataset.batch(train_valid_batch_size[1], drop_remainder=True, num_parallel_calls=4)
     validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
 
     if not args.retrain:
