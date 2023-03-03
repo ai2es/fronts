@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/3/2023 2:04 PM CT
+Last updated: 3/3/2023 3:06 PM CT
 """
 
 import argparse
@@ -258,7 +258,7 @@ if __name__ == "__main__":
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(model_filepath, monitor='val_loss', verbose=1, save_best_only=True,
         save_weights_only=False, save_freq='epoch')  # ModelCheckpoint: saves model at a specified interval
-    early_stopping = EarlyStopping('val_loss', patience=args.patience, verbose=args.verbose)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
+    early_stopping = EarlyStopping('val_loss', patience=args.patience, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
     strategy = tf.distribute.MirroredStrategy()
@@ -310,4 +310,4 @@ if __name__ == "__main__":
     print("Fitting model")
     model.fit(training_dataset.repeat(), validation_data=validation_dataset.repeat(), validation_freq=valid_freq,
         epochs=args.epochs, steps_per_epoch=train_valid_steps[0], validation_steps=train_valid_steps[1], callbacks=[early_stopping, checkpoint, history_logger],
-        verbose=1)
+        verbose=args.verbose)
