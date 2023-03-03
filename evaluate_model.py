@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/9/2023 10:49 PM CT
+Last updated: 3/3/2023 2:09 PM CT
 
 TODO:
     * Clean up code (much needed)
@@ -25,14 +25,11 @@ import xarray as xr
 from errors import check_arguments
 import tensorflow as tf
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
-from matplotlib.ticker import FixedLocator
 from utils import data_utils, settings
 from utils.plotting_utils import plot_background
 from glob import glob
 from matplotlib.font_manager import FontProperties
 from sklearn.isotonic import IsotonicRegression
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 
 
@@ -239,10 +236,10 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
     if forecast_hour is not None:
         forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
         new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], forecast_timestep[8:]
-        fronts_file = '%s/%s/%s/%s/FrontObjects_%s%s%s%s_full.nc' % (fronts_netcdf_dir, new_year, new_month, new_day, new_year, new_month, new_day, new_hour)
+        fronts_file = '%s/%s%s/FrontObjects_%s%s%s%s_full.nc' % (fronts_netcdf_dir, new_year, new_month, new_year, new_month, new_day, new_hour)
         probs_file = probs_file.replace(domain, f'{domain}_{variable_data_source}_f%03d' % forecast_hour)
     else:
-        fronts_file = '%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_dir, year, month, day, year, month, day, hour)
+        fronts_file = '%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_dir, year, month, year, month, day, hour)
 
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
     front_types = model_properties['front_types']
@@ -346,7 +343,7 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
     lon_image_matches = []
     lat_image_matches = []
 
-    for lon_images in range(1, domain_size[0]-image_size[0]):  # Image counter for longitude dimension
+    for lon_images in range(1, domain_size[0]-image_size[0] + 2):  # Image counter for longitude dimension
         if lon_images > 1:
             lon_spacing = (domain_size[0]-image_size[0])/(lon_images-1)  # Spacing between images in the longitude dimension
         else:
@@ -406,7 +403,8 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
 
 
 def generate_predictions(model_number, model_dir, variables_netcdf_indir, prediction_method, domain='full',
-    domain_images='min', dataset=None, datetime=None, random_variables=None, variable_data_source='gdas', forecast_hours=None):
+    domain_images='min', image_size=None, dataset=None, datetime=None, random_variables=None, variable_data_source='gdas',
+    forecast_hours=None):
     """
     Generate predictions with a model.
 
@@ -426,6 +424,8 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
             * 'balanced' chooses the number of images that creates the closest possible balance of images in the longitude and latitude direction.
             * 'max' chooses the maximum number of images that can be stitched together (NOT RECOMMENDED)
         - If an iterable with 2 integers, values represent the number of images in the longitude and latitude dimensions.
+    image_size: tuple of 2 ints
+        - Size of the images that will be used for predictions.
     prediction_method: str
         - Prediction method. Options are: 'datetime', 'random', 'all'
     domain: str
@@ -447,7 +447,10 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
     ### Model properties ###
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
     model_type = model_properties['model_type']
-    image_size = model_properties['image_size']  # The image size does not include the last dimension of the input size as it only represents the number of channels
+
+    if image_size is None:
+        image_size = model_properties['image_size']  # The image size does not include the last dimension of the input size as it only represents the number of channels
+
     front_types = model_properties['front_types']
     classes = model_properties['classes']
     variables = model_properties['variables']
@@ -918,6 +921,8 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
     else:
         stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')
 
+
+
     # spatial_csi_obj = fm.SpatialCSIfiles(model_number, model_dir, domain, domain_images, variable_data_source, forecast_hour)
     # spatial_csi_obj.pair_with_fronts(front_indir=fronts_netcdf_indir, synoptic_only=synoptic_only, sort_fronts=True)
     # spatial_csi_obj.test_years = [2019, 2020]
@@ -935,14 +940,14 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
     start_lon, end_lon = domain_extent_indices[0], domain_extent_indices[1]
     start_lat, end_lat = domain_extent_indices[2], domain_extent_indices[3]
 
-    expanded_fronts_array = pd.read_pickle(f'expanded_fronts_{filename_str}.pkl')[:, start_lon:end_lon, start_lat:end_lat]
-    fronts_array = pd.read_pickle(f'fronts_{filename_str}.pkl')[0, :, start_lon:end_lon, start_lat:end_lat]
-
-    # If domain is not CONUS, select timesteps in the fronts arrays only pertaining to synoptic hours
-    if domain != 'conus':
-        expanded_fronts_array = expanded_fronts_array[::2, :, :]
-        fronts_array = fronts_array[::2, :, :]
-    print("done")
+    # expanded_fronts_array = pd.read_pickle(f'expanded_fronts_{filename_str}.pkl')[:, start_lon:end_lon, start_lat:end_lat]
+    # fronts_array = pd.read_pickle(f'fronts_{filename_str}.pkl')[0, :, start_lon:end_lon, start_lat:end_lat]
+    #
+    # # If domain is not CONUS, select timesteps in the fronts arrays only pertaining to synoptic hours
+    # if domain != 'conus':
+    #     expanded_fronts_array = expanded_fronts_array[::2, :, :]
+    #     fronts_array = fronts_array[::2, :, :]
+    # print("done")
 
     num_timesteps = len(stats_ds['time'].values)
 
@@ -1238,10 +1243,10 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     if forecast_hour is not None:
         forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
         new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], int(forecast_timestep[8:]) - (int(forecast_timestep[8:]) % 3)
-        fronts_file = '%s/%s/%s/%s/FrontObjects_%s%s%s%02d_full.nc' % (fronts_netcdf_dir, new_year, new_month, new_day, new_year, new_month, new_day, new_hour)
+        fronts_file = '%s/%s%s/FrontObjects_%s%s%s%02d_full.nc' % (fronts_netcdf_dir, new_year, new_month, new_year, new_month, new_day, new_hour)
         filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%s_f%03d_%dx%d' % (model_number, month, day, hour, domain, variable_data_source, forecast_hour, domain_images[0], domain_images[1])
     else:
-        fronts_file = '%s/%d/%02d/%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_dir, year, month, day, year, month, day, hour)
+        fronts_file = '%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (fronts_netcdf_dir, year, month, year, month, day, hour)
         filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%dx%d' % (model_number, month, day, hour, domain, domain_images[0], domain_images[1])
         variable_data_source = 'era5'
 
@@ -1252,7 +1257,6 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
     crs = ccrs.LambertConformal(central_longitude=250)
 
-    image_size = model_properties['image_size']  # The image size does not include the last dimension of the input size as it only represents the number of channels
     front_types = model_properties['front_types']
 
     fronts = data_utils.reformat_fronts(fronts, front_types=front_types)
@@ -1275,22 +1279,20 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
     if same_map:
 
-        if type(front_types) == list and len(front_types) > 1:
+        data_arrays = {}
+        for key in list(probs_ds.keys()):
+            if calibration_km is not None:
+                ir_model = model_properties['calibration_models']['%s_%dx%d' % (domain, domain_images[0], domain_images[1])][key]['%d km' % calibration_km]
+                original_shape = np.shape(probs_ds[key].values)
+                data_arrays[key] = ir_model.predict(probs_ds[key].values.flatten()).reshape(original_shape)
+                cbar_label = 'Probability (calibrated - %d km)' % calibration_km
+            else:
+                data_arrays[key] = probs_ds[key].values
+                cbar_label = 'Probability (uncalibrated)'
 
-            data_arrays = {}
-            for key in list(probs_ds.keys()):
-                if calibration_km is not None:
-                    ir_model = model_properties['calibration_models']['%s_%dx%d' % (domain, domain_images[0], domain_images[1])][key]['%d km' % calibration_km]
-                    original_shape = np.shape(probs_ds[key].values)
-                    data_arrays[key] = ir_model.predict(probs_ds[key].values.flatten()).reshape(original_shape)
-                    cbar_label = 'Probability (calibrated - %d km)' % calibration_km
-                else:
-                    data_arrays[key] = probs_ds[key].values
-                    cbar_label = 'Probability (uncalibrated)'
-
-            all_possible_front_combinations = itertools.permutations(front_types, r=2)
-            for combination in all_possible_front_combinations:
-                probs_ds[combination[0]].values = np.where(data_arrays[combination[0]] > data_arrays[combination[1]] - 0.02, data_arrays[combination[0]], 0)
+        all_possible_front_combinations = itertools.permutations(front_types, r=2)
+        for combination in all_possible_front_combinations:
+            probs_ds[combination[0]].values = np.where(data_arrays[combination[0]] > data_arrays[combination[1]] - 0.02, data_arrays[combination[0]], 0)
 
         if variable_data_source != 'era5':
             probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=forecast_hour)
@@ -1393,38 +1395,64 @@ def learning_curve(model_number, model_dir):
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
     # Model properties
-    loss = model_properties['loss_function']
+    loss = model_properties['loss']
 
-    if loss == 'fss':
-        fss_mask_size, fss_c = model_properties['fss_mask_c'][0], model_properties['fss_mask_c'][1]
-        loss_title = 'Fractions Skill Score (mask=%d, c=%.1f)' % (fss_mask_size, fss_c)
-    elif loss == 'bss':
-        loss_title = 'Brier Skill Score'
-    elif loss == 'cce':
+    metric_string = model_properties['metric']
+
+    if model_properties['model_type'] == 'unet_3plus':
+        train_metric = history['sup1_Softmax_%s' % metric_string]
+        val_metric = history['val_sup1_Softmax_%s' % metric_string]
+    else:
+        train_metric = history[metric_string]
+        val_metric = history['val_%s' % metric_string]
+
+    if 'fss' in loss.lower():
+        loss_title = 'Fractions Skill Score (loss)'
+    elif 'bss' in loss.lower():
+        loss_title = 'Brier Skill Score (loss)'
+    elif 'csi' in loss.lower():
         loss_title = 'Categorical Cross-Entropy'
     else:
         loss_title = None
 
-    min_loss_epoch = np.where(history['loss'] == np.min(history['loss']))[0][0] + 1
+    if metric_string == '_fss':
+        metric_title = 'Fractions Skill Score'
+    elif metric_string == '_bss':
+        metric_title = 'Brier Skill Score'
+    elif metric_string == '_csi':
+        metric_title = 'Critical Success Index'
+    else:
+        metric_title = None
+
     min_val_loss_epoch = np.where(history['val_loss'] == np.min(history['val_loss']))[0][0] + 1
 
     num_epochs = len(history['val_loss'])
 
-    plt.subplots(1, 1, dpi=300)
+    fig, axs = plt.subplots(2, 1, figsize=(6, 12), dpi=300)
+    axarr = axs.flatten()
 
-    plt.title(loss_title)
-    plt.plot(np.arange(1, num_epochs + 1), history['loss'], color='blue', label='Training loss')
-    plt.plot(np.arange(1, num_epochs + 1), history['val_loss'], color='red', label='Validation loss')
-    plt.hlines(y=history['loss'][min_loss_epoch - 1], xmin=0, xmax=num_epochs + 2, linestyle='--', linewidths=0.6, color='blue')
-    plt.hlines(y=history['val_loss'][min_val_loss_epoch - 1], xmin=0, xmax=num_epochs + 2, linestyle='--', linewidths=0.6, color='red')
-    plt.text(x=num_epochs + 2, y=history['loss'][min_loss_epoch - 1], s='%.4e (%d)' % (history['loss'][min_loss_epoch - 1], min_loss_epoch), color='blue', va='center', fontdict=dict(fontsize=7))
-    plt.text(x=num_epochs + 2, y=history['val_loss'][min_val_loss_epoch - 1], s='%.4e (%d)' % (history['val_loss'][min_val_loss_epoch - 1], min_val_loss_epoch), color='red', va='center', fontdict=dict(fontsize=7))
-    plt.xlim(xmin=0, xmax=len(history['val_loss']) + 1)
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.legend(loc='best')
-    plt.grid()
-    plt.yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
+    axarr[0].set_title(loss_title)
+    axarr[0].plot(np.arange(1, num_epochs + 1), history['loss'], color='blue', label='Training loss')
+    axarr[0].plot(np.arange(1, num_epochs + 1), history['val_loss'], color='red', label='Validation loss')
+    axarr[0].hlines(y=history['loss'][min_val_loss_epoch - 1], xmin=0, xmax=num_epochs + 2, linestyle='--', linewidths=0.6, color='blue')
+    axarr[0].hlines(y=history['val_loss'][min_val_loss_epoch - 1], xmin=0, xmax=num_epochs + 2, linestyle='--', linewidths=0.6, color='red')
+    axarr[0].text(x=num_epochs + 2, y=history['loss'][min_val_loss_epoch - 1], s='%.4e (%d)' % (history['loss'][min_val_loss_epoch - 1], min_val_loss_epoch), color='blue', va='center', fontdict=dict(fontsize=7))
+    axarr[0].text(x=num_epochs + 2, y=history['val_loss'][min_val_loss_epoch - 1], s='%.4e (%d)' % (history['val_loss'][min_val_loss_epoch - 1], min_val_loss_epoch), color='red', va='center', fontdict=dict(fontsize=7))
+    axarr[0].set_xlim(xmin=0, xmax=num_epochs + 1)
+    axarr[0].set_xlabel('Epochs')
+    axarr[0].set_ylabel('Loss')
+    axarr[0].legend(loc='best')
+    axarr[0].grid()
+    axarr[0].set_yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
+
+    axarr[1].set_title(metric_title)
+    axarr[1].plot(np.arange(1, num_epochs + 1), train_metric, color='blue', label='Training')
+    axarr[1].plot(np.arange(1, num_epochs + 1), val_metric, color='red', label='Validation')
+    axarr[1].set_xlim(xmin=0, xmax=num_epochs + 1)
+    axarr[1].set_ylim(ymin=0)
+    axarr[1].set_xlabel('Epochs')
+    axarr[1].legend(loc='best')
+    axarr[1].grid()
 
     plt.savefig("%s/model_%d/model_%d_learning_curve.png" % (model_dir, model_number, model_number), bbox_inches='tight')
 
@@ -1496,16 +1524,24 @@ if __name__ == '__main__':
             raise errors.MissingArgumentError("'datetime' argument must be passed: 'prediction_method' was set to 'datetime' ")
 
         model_properties = pd.read_pickle(f"{args.model_dir}/model_{args.model_number}/model_{args.model_number}_properties.pkl")
-        image_size = model_properties['image_size']  # We are only concerned about longitude and latitude when checking compatibility
+
+        if args.image_size is None:
+            image_size = model_properties['image_size']  # We are only concerned about longitude and latitude when checking compatibility
+        else:
+            image_size = args.image_size
 
         domain_indices = settings.DEFAULT_DOMAIN_INDICES[args.domain]
-        domain_images = settings.DEFAULT_DOMAIN_IMAGES[args.domain]
+
+        if args.domain_images is None:
+            domain_images = settings.DEFAULT_DOMAIN_IMAGES[args.domain]
+        else:
+            domain_images = args.domain_images
 
         # Verify the compatibility of image stitching arguments
         find_matches_for_domain((domain_indices[1] - domain_indices[0], domain_indices[3] - domain_indices[2]), image_size, compatibility_mode=True, compat_images=domain_images)
 
         generate_predictions(args.model_number, args.model_dir, args.variables_netcdf_indir, args.prediction_method,
-            domain=args.domain, domain_images=args.domain_images, dataset=args.dataset, datetime=args.datetime, 
+            domain=args.domain, domain_images=args.domain_images, image_size=image_size, dataset=args.dataset, datetime=args.datetime,
             random_variables=args.random_variables, variable_data_source=args.variable_data_source)
 
     if args.calculate_stats:
@@ -1525,7 +1561,7 @@ if __name__ == '__main__':
             else:
                 timestep = (args.timestep[0], args.timestep[1], args.timestep[2], hour)
                 calculate_performance_stats(args.model_number, args.model_dir, args.fronts_netcdf_indir, timestep, args.domain,
-                    args.domain_images, args.domain_trim)
+                    args.domain_images)
 
     if args.calibrate_model:
 
