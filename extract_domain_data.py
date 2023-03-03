@@ -867,7 +867,8 @@ def grib_to_netcdf(year, month, day, hour, grib_indir, netcdf_outdir, overwrite_
             full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/%d/%02d/%02d/{model.lower()}_%d%02d%02d%02d_f%03d_full.nc' % (netcdf_outdir, year, month, day, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
 
 
-def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir, front_types, era5: bool, fronts: bool):
+def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir, front_types, era5: bool, fronts: bool,
+    variables=None, pressure_levels=None):
     """
     Convert matching ERA5 and front object files to tensorflow datasets
 
@@ -883,13 +884,20 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
         - Generate ERA5 tensorflow datasets
     fronts: bool
         - Generate fronts tensorflow datasets
+    variables: list
+        - List of ERA5 variables to use.
+    pressure_levels: list
+        - List of pressure levels to use.
     """
 
-    era5_monthly_directory = '%s/%d/%02d' % (era5_netcdf_indir, year, month)
-    fronts_monthly_directory = '%s/%d/%02d' % (fronts_netcdf_indir, year, month)
+    all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
+    all_pressure_levels = ['surface', '1000', '950', '900', '850']
 
-    era5_netcdf_files = sorted(glob.glob('%s/*/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
-    fronts_netcdf_files = sorted(glob.glob('%s/*/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
+    era5_monthly_directory = '%s/%d%02d' % (era5_netcdf_indir, year, month)
+    fronts_monthly_directory = '%s/%d%02d' % (fronts_netcdf_indir, year, month)
+
+    era5_netcdf_files = sorted(glob.glob('%s/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
+    fronts_netcdf_files = sorted(glob.glob('%s/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
 
     files_match_flag = all(era5_file[-18:] == fronts_file[-18:] for era5_file, fronts_file in zip(era5_netcdf_files, fronts_netcdf_files))
 
@@ -900,12 +908,20 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
         raise OSError("ERA5/fronts files do not match")
 
     # Normalization parameters are not available for theta_v and theta, so we will only select the following variables
-    variables_to_use = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
+    if variables is None:
+        variables_to_use = all_variables
+    else:
+        variables_to_use = sorted(variables)
+
+    if pressure_levels is None:
+        pressure_levels = ['surface', '1000', '950', '900', '850']
+    else:
+        pressure_levels = [lvl for lvl in all_pressure_levels if lvl in pressure_levels]
 
     for era5_file, fronts_file, in zip(era5_netcdf_files, fronts_netcdf_files):
 
         if era5:
-            era5_dataset = xr.open_dataset(era5_file, engine='netcdf4')[variables_to_use].isel(**isel_kwargs).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
+            era5_dataset = xr.open_dataset(era5_file, engine='netcdf4')[variables_to_use].isel(**isel_kwargs).sel(pressure_level=pressure_levels).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
             era5_dataset = data_utils.normalize_variables(era5_dataset).isel(time=0).to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable').astype('float16')
         if fronts:
             front_dataset = xr.open_dataset(fronts_file, engine='netcdf4').isel(**isel_kwargs).expand_dims('time', axis=0).astype('float16')
@@ -913,55 +929,60 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
             num_front_types = front_dataset.attrs['num_types'] + 1
             front_dataset = data_utils.expand_fronts(front_dataset).isel(time=0).to_array().transpose('longitude', 'latitude', 'variable')
 
-        for start_index, end_index in zip(np.arange(0, 161, 20), np.arange(128, 289, 20)):
+        if np.max(front_dataset) > 0:
 
-            if era5:
-                era5_tensor = tf.convert_to_tensor(era5_dataset[start_index:end_index, :, :, :], dtype=tf.float16)
-                era5_tensor_for_timestep = tf.data.Dataset.from_tensors(era5_tensor)
-                if era5_file == era5_netcdf_files[0] and start_index == 0:
-                    era5_tensors_for_month = era5_tensor_for_timestep
-                else:
-                    era5_tensors_for_month = era5_tensors_for_month.concatenate(era5_tensor_for_timestep)
+            for start_index, end_index in zip(np.arange(0, 161, 20), np.arange(128, 289, 20)):
 
-            if fronts:
-                front_tensor = tf.convert_to_tensor(np.tile(front_dataset[start_index:end_index, :, :], (1, 1, 5)), dtype=tf.int32)
-                front_tensor = tf.cast(tf.one_hot(front_tensor, num_front_types), tf.float16)
-                front_tensor_for_timestep = tf.data.Dataset.from_tensors(front_tensor)
-                if era5_file == era5_netcdf_files[0] and start_index == 0:
-                    front_tensors_for_month = front_tensor_for_timestep
-                else:
-                    front_tensors_for_month = front_tensors_for_month.concatenate(front_tensor_for_timestep)
+                if era5:
+                    era5_tensor = tf.convert_to_tensor(era5_dataset[start_index:end_index, :, :, :], dtype=tf.float16)
+                    era5_tensor_for_timestep = tf.data.Dataset.from_tensors(era5_tensor)
+                    if 'era5_tensors_for_month' not in locals():
+                        era5_tensors_for_month = era5_tensor_for_timestep
+                    else:
+                        era5_tensors_for_month = era5_tensors_for_month.concatenate(era5_tensor_for_timestep)
 
-            """ Debugging code """
-            # front_dataset = xr.where(front_dataset == 0, float("NaN"), front_dataset)
-            #
-            # fig, axs = plt.subplots(12, 5, figsize=(12, 16), subplot_kw=dict(projection=ccrs.Miller()))
-            # axarr = axs.flatten()
-            #
-            # front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in front_types]
-            #
-            # cmap_front = matplotlib.colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
-            # norm_front = matplotlib.colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
-            #
-            # pressure_levels = era5_dataset['pressure_level'].values
-            #
-            # norm_var = matplotlib.colors.Normalize(vmin=0, vmax=1)
-            #
-            # for ax_num, ax in enumerate(axarr):
-            #     utils.plotting_utils.plot_background([228, 300, 25, 57], ax=ax)
-            #     era5_dataset.isel(pressure_level=ax_num % 5, variable=11 - int(np.floor(ax_num / 5)) % 12, longitude=slice(start_index, end_index)).\
-            #         plot(ax=ax, x='longitude', y='latitude', cmap='jet', norm=norm_var, alpha=0.8, transform=ccrs.PlateCarree(), levels=np.arange(0.1, 1.1, 0.1), add_colorbar=False)
-            #     front_dataset.isel(longitude=slice(start_index, end_index)).plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
-            #     ax.set_title('')
-            #     if ax_num < 5:
-            #         ax.set_title(pressure_levels[ax_num])
-            #     if ax_num % 5 == 0:
-            #         ax.text(x=220, y=41, s=variables_to_use[int(ax_num / 5)], ha='right', transform=ccrs.PlateCarree())
-            #
-            # plt.suptitle(era5_dataset['time'].values, y=0.93, fontsize=20)
-            #
-            # plt.savefig(f"./tf_test_figs/test_fronts_{file_no}_{start_index}.png", bbox_inches='tight', dpi=600)
-            # plt.close()
+                if fronts:
+                    front_tensor = tf.convert_to_tensor(np.tile(front_dataset[start_index:end_index, :, :], (1, 1, 5)), dtype=tf.int32)
+                    front_tensor = tf.cast(tf.one_hot(front_tensor, num_front_types), tf.float16)
+                    front_tensor_for_timestep = tf.data.Dataset.from_tensors(front_tensor)
+                    if 'front_tensors_for_month' not in locals():
+                        front_tensors_for_month = front_tensor_for_timestep
+                    else:
+                        front_tensors_for_month = front_tensors_for_month.concatenate(front_tensor_for_timestep)
+
+                """ Debugging code """
+                # front_dataset = xr.where(front_dataset == 0, float("NaN"), front_dataset)
+                #
+                # fig, axs = plt.subplots(12, 5, figsize=(12, 16), subplot_kw=dict(projection=ccrs.Miller()))
+                # axarr = axs.flatten()
+                #
+                # front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in front_types]
+                #
+                # cmap_front = matplotlib.colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
+                # norm_front = matplotlib.colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
+                #
+                # pressure_levels = era5_dataset['pressure_level'].values
+                #
+                # norm_var = matplotlib.colors.Normalize(vmin=0, vmax=1)
+                #
+                # for ax_num, ax in enumerate(axarr):
+                #     utils.plotting_utils.plot_background([228, 300, 25, 57], ax=ax)
+                #     era5_dataset.isel(pressure_level=ax_num % 5, variable=11 - int(np.floor(ax_num / 5)) % 12, longitude=slice(start_index, end_index)).\
+                #         plot(ax=ax, x='longitude', y='latitude', cmap='jet', norm=norm_var, alpha=0.8, transform=ccrs.PlateCarree(), levels=np.arange(0.1, 1.1, 0.1), add_colorbar=False)
+                #     front_dataset.isel(longitude=slice(start_index, end_index)).plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
+                #     ax.set_title('')
+                #     if ax_num < 5:
+                #         ax.set_title(pressure_levels[ax_num])
+                #     if ax_num % 5 == 0:
+                #         ax.text(x=220, y=41, s=variables_to_use[int(ax_num / 5)], ha='right', transform=ccrs.PlateCarree())
+                #
+                # plt.suptitle(era5_dataset['time'].values, y=0.93, fontsize=20)
+                #
+                # plt.savefig(f"./tf_test_figs/test_fronts_{file_no}_{start_index}.png", bbox_inches='tight', dpi=600)
+                # plt.close()
+
+    if not os.path.isdir(tf_outdir):
+        os.mkdir(tf_outdir)
 
     if era5:
         tf_dataset_folder = f'%s/era5_%d%02d_tf' % (tf_outdir, year, month)
@@ -999,6 +1020,8 @@ if __name__ == "__main__":
     parser.add_argument('--fronts_netcdf_indir', type=str, help="input directory for ERA5 netcdf files")
     parser.add_argument('--tf_outdir', type=str, help="Output directory for tensors")
     parser.add_argument('--front_types', type=str, nargs='+', help='Front types')
+    parser.add_argument('--variables', type=str, nargs='+', help='ERA5 variables to select')
+    parser.add_argument('--pressure_levels', type=str, nargs='+', help='ERA5 pressure levels to select')
 
     args = parser.parse_args()
     provided_arguments = vars(args)
@@ -1027,7 +1050,7 @@ if __name__ == "__main__":
         required_arguments = ['year', 'month', 'era5_netcdf_indir', 'fronts_netcdf_indir', 'tf_outdir', 'front_types']
         check_arguments(provided_arguments, required_arguments)
         netcdf_to_tf(args.year, args.month, args.era5_netcdf_indir, args.fronts_netcdf_indir, args.tf_outdir, args.front_types,
-                     args.ERA5, args.fronts)
+                     args.ERA5, args.fronts, args.variables, args.pressure_levels)
 
     if args.download_ncep_has_order:
         required_arguments = ['ncep_has_order_number', 'ncep_has_outdir']
