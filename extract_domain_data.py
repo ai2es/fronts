@@ -2,7 +2,7 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/22/2023 1:02 PM CT
+Last updated: 3/13/2023 9:05 PM CT
 
 TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
 """
@@ -868,7 +868,8 @@ def grib_to_netcdf(year, month, day, hour, grib_indir, netcdf_outdir, overwrite_
 
 
 def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir, front_types, era5: bool, fronts: bool,
-    variables=None, pressure_levels=None):
+    variables=None, pressure_levels=None, num_dims=(3, 3), images=9, shuffle_timesteps=False, shuffle_images=False,
+    front_dilation=1, rotate_chance=0.0, flip_chance_lon=0.0, flip_chance_lat=0.0, status_printout=True):
     """
     Convert matching ERA5 and front object files to tensorflow datasets
 
@@ -885,10 +886,34 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
     fronts: bool
         - Generate fronts tensorflow datasets
     variables: list
-        - List of ERA5 variables to use.
+        - List of ERA5 variables to use. Leaving this argument as None will select all available variables.
     pressure_levels: list
-        - List of pressure levels to use.
+        - List of pressure levels to use. Leaving this argument as None will select all available pressure levels.
+    num_dims: tuple of 2 ints (default = (3, 3))
+        - Number of dimensions in the final output maps for ERA5 and front datasets, respectively. (2 or 3)
+    images: int (default = 9)
+        - Number of images to generate per timestep.
+    shuffle_timesteps: bool (default = False)
+        - Shuffle the timesteps when generating the dataset. This is particularly useful when generating very large datasets
+            that cannot be shuffled on the fly during training.
+    shuffle_images: bool (default = False)
+        - Shuffle the order of the images in each timestep. This does NOT shuffle the entire dataset for the provided
+            month, but rather only the images in each respective timestep. This is particularly useful when generating
+            very large datasets that cannot be shuffled on the fly during training.
+    front_dilation: int (default = 1)
+        - Number of pixels to expand the fronts by in all directions.
+    rotate_chance: float (default = 0.0)
+        - The probability that the current image will be rotated (in any direction, up to 270 degrees). Can be any float
+            0 <= rotate_chance <= 1.
+    flip_chance_lon: float (default = 0.0)
+        - The probability that the current image will have its longitude dimension reversed. Can be any float 0 <= flip_chance_lon <= 1.
+    flip_chance_lat: float (default = 0.0)
+        - The probability that the current image will have its latitude dimension reversed. Can be any float 0 <= flip_chance_lat <= 1.
+    status_printout: bool
+        - Print out the progress of the dataset generation.
     """
+
+    print("Generating tensorflow datasets for %d-%02d" % (year, month))
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
     all_pressure_levels = ['surface', '1000', '950', '900', '850']
@@ -898,6 +923,12 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
 
     era5_netcdf_files = sorted(glob.glob('%s/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
     fronts_netcdf_files = sorted(glob.glob('%s/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
+
+    if shuffle_timesteps:
+        file_order = np.arange(len(era5_netcdf_files))
+        np.random.shuffle(file_order)
+        era5_netcdf_files = era5_netcdf_files[file_order]
+        fronts_netcdf_files = fronts_netcdf_files[file_order]
 
     files_match_flag = all(era5_file[-18:] == fronts_file[-18:] for era5_file, fronts_file in zip(era5_netcdf_files, fronts_netcdf_files))
 
@@ -918,6 +949,9 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
     else:
         pressure_levels = [lvl for lvl in all_pressure_levels if lvl in pressure_levels]
 
+    images_kept = 0
+    images_discarded = 0
+
     for era5_file, fronts_file, in zip(era5_netcdf_files, fronts_netcdf_files):
 
         if era5:
@@ -927,14 +961,51 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
             front_dataset = xr.open_dataset(fronts_file, engine='netcdf4').isel(**isel_kwargs).expand_dims('time', axis=0).astype('float16')
             front_dataset = data_utils.reformat_fronts(front_dataset, front_types)
             num_front_types = front_dataset.attrs['num_types'] + 1
-            front_dataset = data_utils.expand_fronts(front_dataset).isel(time=0).to_array().transpose('longitude', 'latitude', 'variable')
 
-        if np.max(front_dataset) > 0:
+            if front_dilation > 0:
+                front_dataset = data_utils.expand_fronts(front_dataset, iterations=front_dilation)  # expand the front labels
 
-            for start_index, end_index in zip(np.arange(0, 161, 20), np.arange(128, 289, 20)):
+            front_dataset = front_dataset.isel(time=0).to_array().transpose('longitude', 'latitude', 'variable')
+
+        front_bins = np.bincount(front_dataset.values.astype('int64').flatten(), minlength=num_front_types)
+
+        if all([front_count > 0 for front_count in front_bins]) > 0:  # If not all front types are present for the current timestep, move to the next timestep
+
+            image_order = np.arange(images)
+            if shuffle_images:
+                np.random.shuffle(image_order)
+
+            start_indices = np.arange(0, 161, int(160 / (images - 1)))[image_order]
+
+            for start_index in start_indices:
+
+                end_index = start_index + 128
+
+                rotate_image = np.random.randint(1, 101) <= rotate_chance * 100
+                flip_lon = np.random.randint(1, 101) <= flip_chance_lon * 100
+                flip_lat = np.random.randint(1, 101) <= flip_chance_lat * 100
+
+                if rotate_image:
+                    rotation_direction = np.random.randint(0, 2)  # 0 = clockwise, 1 = counter-clockwise
+                    num_rotations = np.random.randint(1, 4)  # n * 90 degrees
 
                 if era5:
+
                     era5_tensor = tf.convert_to_tensor(era5_dataset[start_index:end_index, :, :, :], dtype=tf.float16)
+                    if flip_lon:
+                        era5_tensor = tf.reverse(era5_tensor, axis=[0])  # Reverse values along the longitude dimension
+                    if flip_lat:
+                        era5_tensor = tf.reverse(era5_tensor, axis=[1])  # Reverse values along the latitude dimension
+                    if rotate_image:
+                        for rotation in range(num_rotations):
+                            era5_tensor = tf.reverse(tf.transpose(era5_tensor, perm=[1, 0, 2, 3]), axis=[rotation_direction])  # Rotate image 90 degrees
+
+                    if num_dims[0] == 2:
+                        era5_tensor_shape_3d = era5_tensor.shape
+                        # Combine pressure level and variables dimensions, making the images 2D (excluding the final dimension)
+                        era5_tensor = era5_tensor.reshape([era5_tensor_shape_3d[0], era5_tensor_shape_3d[1],
+                                                           era5_tensor_shape_3d[2] * era5_tensor_shape_3d[3]])
+
                     era5_tensor_for_timestep = tf.data.Dataset.from_tensors(era5_tensor)
                     if 'era5_tensors_for_month' not in locals():
                         era5_tensors_for_month = era5_tensor_for_timestep
@@ -942,18 +1013,38 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
                         era5_tensors_for_month = era5_tensors_for_month.concatenate(era5_tensor_for_timestep)
 
                 if fronts:
-                    front_tensor = tf.convert_to_tensor(np.tile(front_dataset[start_index:end_index, :, :], (1, 1, 5)), dtype=tf.int32)
-                    front_tensor = tf.cast(tf.one_hot(front_tensor, num_front_types), tf.float16)
+
+                    front_tensor = tf.convert_to_tensor(front_dataset[start_index:end_index, :, :], dtype=tf.int32)
+
+                    if flip_lon:
+                        front_tensor = tf.reverse(front_tensor, axis=[0])  # Reverse values along the longitude dimension
+                    if flip_lat:
+                        front_tensor = tf.reverse(front_tensor, axis=[1])  # Reverse values along the latitude dimension
+                    if rotate_image:
+                        for rotation in range(num_rotations):
+                            front_tensor = tf.reverse(tf.transpose(front_tensor, perm=[1, 0, 2]), axis=[rotation_direction])  # Rotate image 90 degrees
+
+                    if num_dims[1] == 3:
+                        # Make the front object images 3D, with the size of the 3rd dimension equal to the number of pressure levels
+                        front_tensor = np.tile(front_dataset[start_index:end_index, :, :], (1, 1, len(pressure_levels)))
+                    else:
+                        front_tensor = front_tensor[:, :, 0]
+
+                    front_tensor = tf.cast(tf.one_hot(front_tensor, num_front_types), tf.float16)  # One-hot encode the labels
                     front_tensor_for_timestep = tf.data.Dataset.from_tensors(front_tensor)
                     if 'front_tensors_for_month' not in locals():
                         front_tensors_for_month = front_tensor_for_timestep
                     else:
                         front_tensors_for_month = front_tensors_for_month.concatenate(front_tensor_for_timestep)
 
-                """ Debugging code """
+                # """ Debugging code """
+                # import matplotlib
+                # import matplotlib.pyplot as plt
+                # import utils.plotting_utils
+                # import cartopy.crs as ccrs
                 # front_dataset = xr.where(front_dataset == 0, float("NaN"), front_dataset)
                 #
-                # fig, axs = plt.subplots(12, 5, figsize=(12, 16), subplot_kw=dict(projection=ccrs.Miller()))
+                # fig, axs = plt.subplots(len(variables), len(pressure_levels), figsize=(12, 16), subplot_kw=dict(projection=ccrs.Miller()))
                 # axarr = axs.flatten()
                 #
                 # front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in front_types]
@@ -967,34 +1058,52 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
                 #
                 # for ax_num, ax in enumerate(axarr):
                 #     utils.plotting_utils.plot_background([228, 300, 25, 57], ax=ax)
-                #     era5_dataset.isel(pressure_level=ax_num % 5, variable=11 - int(np.floor(ax_num / 5)) % 12, longitude=slice(start_index, end_index)).\
+                #     era5_dataset.isel(pressure_level=ax_num % len(pressure_levels), variable=len(variables) - 1 - int(np.floor(ax_num / len(pressure_levels))) % len(variables), longitude=slice(start_index, end_index)).\
                 #         plot(ax=ax, x='longitude', y='latitude', cmap='jet', norm=norm_var, alpha=0.8, transform=ccrs.PlateCarree(), levels=np.arange(0.1, 1.1, 0.1), add_colorbar=False)
                 #     front_dataset.isel(longitude=slice(start_index, end_index)).plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
                 #     ax.set_title('')
-                #     if ax_num < 5:
+                #     if ax_num < len(pressure_levels):
                 #         ax.set_title(pressure_levels[ax_num])
-                #     if ax_num % 5 == 0:
-                #         ax.text(x=220, y=41, s=variables_to_use[int(ax_num / 5)], ha='right', transform=ccrs.PlateCarree())
+                #     if ax_num % len(pressure_levels) == 0:
+                #         ax.text(x=220, y=41, s=variables_to_use[int(ax_num / len(pressure_levels))], ha='right', transform=ccrs.PlateCarree())
                 #
                 # plt.suptitle(era5_dataset['time'].values, y=0.93, fontsize=20)
                 #
-                # plt.savefig(f"./tf_test_figs/test_fronts_{file_no}_{start_index}.png", bbox_inches='tight', dpi=600)
+                # plt.savefig(f"E:/FrontsProjectData/plots/test_fronts_{start_index}.png", bbox_inches='tight', dpi=600)
                 # plt.close()
+                # print(stop)
+
+            images_kept += images
+
+        else:
+            images_discarded += images
+
+        if status_printout:
+            print("Images kept/discarded: %d/%d    (Discard rate: %.1f%s)    " % (images_kept, images_discarded, (images_discarded / (images_kept + images_discarded) * 100), '%'), end='\r')
+
+    if status_printout:
+        print("Images kept/discarded: %d/%d    (Discard rate: %.1f%s)    " % (images_kept, images_discarded, (images_discarded / (images_kept + images_discarded) * 100), '%'))
 
     if not os.path.isdir(tf_outdir):
         os.mkdir(tf_outdir)
 
     if era5:
         tf_dataset_folder = f'%s/era5_%d%02d_tf' % (tf_outdir, year, month)
-        tf.data.Dataset.save(era5_tensors_for_month, path=tf_dataset_folder)
+        try:
+            tf.data.Dataset.save(era5_tensors_for_month, path=tf_dataset_folder)
+        except UnboundLocalError:
+            pass
     if fronts:
         tf_dataset_folder = f'%s/fronts_{"_".join(front_type for front_type in front_types)}_%d%02d_tf' % (tf_outdir, year, month)
-        tf.data.Dataset.save(front_tensors_for_month, path=tf_dataset_folder)
+        try:
+            tf.data.Dataset.save(front_tensors_for_month, path=tf_dataset_folder)
+        except UnboundLocalError:
+            pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ERA5', action='store_true', help="Generate ERA5 data files")
+    parser.add_argument('--era5', action='store_true', help="Generate ERA5 data files")
     parser.add_argument('--netcdf_ERA5_indir', type=str, help="input directory for ERA5 netcdf files")
     parser.add_argument('--fronts', action='store_true', help="Generate front object data files")
     parser.add_argument('--xml_indir', type=str, help="input directory for front XML files")
@@ -1022,11 +1131,28 @@ if __name__ == "__main__":
     parser.add_argument('--front_types', type=str, nargs='+', help='Front types')
     parser.add_argument('--variables', type=str, nargs='+', help='ERA5 variables to select')
     parser.add_argument('--pressure_levels', type=str, nargs='+', help='ERA5 pressure levels to select')
+    parser.add_argument('--num_dims', type=int, nargs=2, default=[3, 3], help='Number of dimensions in the ERA5 and front object images, repsectively.')
+    parser.add_argument('--images', type=int, default=9, help='Number of ERA5/front images to generate for each timestep. Can be any integer from 1 to 161.')
+    parser.add_argument('--shuffle_timesteps', action='store_true',
+        help='Shuffle the timesteps when generating the dataset. This is particularly useful when generating very large '
+             'datasets that cannot be shuffled on the fly during training.')
+    parser.add_argument('--shuffle_images', action='store_true',
+        help='Shuffle the order of the images in each timestep. This does NOT shuffle the entire dataset for the provided '
+             'month, but rather only the images in each respective timestep. This is particularly useful when generating '
+             'very large datasets that cannot be shuffled on the fly during training.')
+    parser.add_argument('--front_dilation', type=float, default=1, help='Number of pixels to expand the fronts by in all directions.')
+    parser.add_argument('--rotate_chance', type=float, default=0.0,
+        help='The probability that the current image will be rotated (in any direction, up to 270 degrees). Can be any float 0 <= x <= 1.')
+    parser.add_argument('--flip_chance_lon', type=float, default=0.0,
+        help='The probability that the current image will have its longitude dimension reversed. Can be any float 0 <= x <= 1.')
+    parser.add_argument('--flip_chance_lat', type=float, default=0.0,
+        help='The probability that the current image will have its latitude dimension reversed. Can be any float 0 <= x <= 1.')
+    parser.add_argument('--status_printout', action='store_true', help='Print out the progress of the dataset generation.')
 
     args = parser.parse_args()
     provided_arguments = vars(args)
 
-    if args.ERA5 and not args.netcdf_to_tf:
+    if args.era5 and not args.netcdf_to_tf:
         required_arguments = ['year', 'month', 'day', 'netcdf_ERA5_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
         check_directory(args.netcdf_outdir, args.year, args.month, args.day)
@@ -1050,7 +1176,9 @@ if __name__ == "__main__":
         required_arguments = ['year', 'month', 'era5_netcdf_indir', 'fronts_netcdf_indir', 'tf_outdir', 'front_types']
         check_arguments(provided_arguments, required_arguments)
         netcdf_to_tf(args.year, args.month, args.era5_netcdf_indir, args.fronts_netcdf_indir, args.tf_outdir, args.front_types,
-                     args.ERA5, args.fronts, args.variables, args.pressure_levels)
+                     args.era5, args.fronts, args.variables, args.pressure_levels, args.num_dims, args.images, args.shuffle_timesteps,
+                     args.shuffle_images, args.front_dilation, args.rotate_chance, args.flip_chance_lon, args.flip_chance_lat,
+                     args.status_printout)
 
     if args.download_ncep_has_order:
         required_arguments = ['ncep_has_order_number', 'ncep_has_outdir']
