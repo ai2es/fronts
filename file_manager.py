@@ -2,7 +2,7 @@
 Functions in this code manage data files.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/3/2023 1:35 PM CT
+Last updated: 3/13/2023 9:18 PM CT
 
 TODO:
     * Condense functions into one???? (too much repetitive code)
@@ -1394,9 +1394,16 @@ def load_model(model_number, model_dir):
     model_path = f"{model_dir}/model_{model_number}/model_{model_number}.h5"
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
-    loss_string = model_properties['loss_string']
+    try:
+        loss_string = model_properties['loss_string']
+    except KeyError:
+        loss_string = model_properties['loss']  # Error in the training sometimes resulted in the incorrect key ('loss' instead of 'loss_string')
     loss_args = model_properties['loss_args']
-    metric_string = model_properties['metric_string']
+
+    try:
+        metric_string = model_properties['metric_string']
+    except KeyError:
+        metric_string = model_properties['metric']  # Error in the training sometimes resulted in the incorrect key ('metric' instead of 'metric_string')
     metric_args = model_properties['metric_args']
 
     custom_objects = {}
