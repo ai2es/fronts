@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/13/2023 9:17 PM CT
+Last updated: 3/14/2023 2:57 PM CT
 
 TODO:
     * Clean up code (much needed)
@@ -606,36 +606,26 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
                     transpose_indices = (0, 3, 1, 2)  # New order of indices for model predictions (time, front type, longitude, latitude)
 
                     ##################################### Generate the predictions #####################################
-                    if variable_data_source == 'era5':
+                    if variable_data_source != 'era5':
 
-                        prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE, verbose=0)
+                        variable_ds_new_shape = np.shape(variable_batch_ds_new)
+                        variable_batch_ds_new = variable_batch_ds_new.reshape(variable_ds_new_shape[0] * variable_ds_new_shape[1], *[dim_size for dim_size in variable_ds_new_shape[2:]])
 
-                        num_dims_in_pred = len(np.shape(prediction))
+                    prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE, verbose=0)
 
-                        if model_type == 'unet':
-                            if num_dims_in_pred == 4:  # 2D labels, prediction shape: (time, lat, lon, front type)
-                                image_probs = np.transpose(prediction[:, :, :, 1:], transpose_indices)  # transpose the predictions
-                            else:  # if num_dims_in_pred == 5; 3D labels, prediction shape: (time, lat, lon, pressure level, front type)
-                                image_probs = np.transpose(np.amax(prediction[:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
+                    num_dims_in_pred = len(np.shape(prediction))
 
-                        elif model_type == 'unet_3plus':
-                            if num_dims_in_pred == 5:  # 2D labels, prediction shape: (output level, time, lon, lat, front type)
-                                image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)  # transpose the predictions
-                            else:  # if num_dims_in_pred == 6; 3D labels, prediction shape: (output level, time, lat, lon, pressure level, front type)
-                                image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
+                    if model_type == 'unet':
+                        if num_dims_in_pred == 4:  # 2D labels, prediction shape: (time, lat, lon, front type)
+                            image_probs = np.transpose(prediction[:, :, :, 1:], transpose_indices)  # transpose the predictions
+                        else:  # if num_dims_in_pred == 5; 3D labels, prediction shape: (time, lat, lon, pressure level, front type)
+                            image_probs = np.transpose(np.amax(prediction[:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
 
-                    else:
-
-                        ### Combine time and forecast hour into one dimension ###
-                        gdas_variable_ds_new_shape = np.shape(variable_batch_ds_new)
-                        variable_batch_ds_new = variable_batch_ds_new.reshape(gdas_variable_ds_new_shape[0] * gdas_variable_ds_new_shape[1], *[dim_size for dim_size in gdas_variable_ds_new_shape[2:]])
-
-                        prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE)
-
-                        if num_dimensions == 2:
-                            image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)
-                        elif num_dimensions == 3:
-                            image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)
+                    elif model_type == 'unet_3plus':
+                        if num_dims_in_pred == 5:  # 2D labels, prediction shape: (output level, time, lon, lat, front type)
+                            image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)  # transpose the predictions
+                        else:  # if num_dims_in_pred == 6; 3D labels, prediction shape: (output level, time, lat, lon, pressure level, front type)
+                            image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
 
                     # Add predictions to the map
                     if variable_data_source != 'era5':
