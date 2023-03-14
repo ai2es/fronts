@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/3/2023 3:06 PM CT
+Last updated: 3/13/2023 9:14 PM CT
 """
 
 import argparse
@@ -182,11 +182,11 @@ if __name__ == "__main__":
 
         front_types = args.front_types
 
-        if front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T' or front_types == 'F_BIN':
+        if any(front_type == front_types for front_type in [['MERGED-F_BIN'], ['MERGED-T'], ['F_BIN']]):
             num_classes = 2
-        elif front_types == 'MERGED-F':
+        elif front_types == ['MERGED-F']:
             num_classes = 5
-        elif front_types == 'MERGED-ALL':
+        elif front_types == ['MERGED-ALL']:
             num_classes = 8
         else:
             num_classes = len(front_types) + 1
@@ -207,9 +207,9 @@ if __name__ == "__main__":
         model_properties['image_size'] = args.image_size
         model_properties['kernel_size'] = args.kernel_size
         model_properties['normalization_parameters'] = utils.data_utils.normalization_parameters
-        model_properties['loss'] = loss_string
+        model_properties['loss_string'] = loss_string
         model_properties['loss_args'] = loss_args
-        model_properties['metric'] = metric_string
+        model_properties['metric_string'] = metric_string
         model_properties['metric_args'] = metric_args
         model_properties['variables'] = variables_to_use
         model_properties['pressure_levels'] = pressure_levels
@@ -287,6 +287,7 @@ if __name__ == "__main__":
     training_inputs = era5_files_obj.era5_files_training
     training_labels = era5_files_obj.front_files_training
     training_dataset = combine_datasets(training_inputs, training_labels)
+    print(f"Images in training dataset: {len(training_dataset):,}")
     training_buffer_size = np.min([len(training_dataset), settings.MAX_TRAIN_BUFFER_SIZE])
     training_dataset = training_dataset.shuffle(buffer_size=training_buffer_size)
     training_dataset = training_dataset.batch(train_valid_batch_size[0], drop_remainder=True, num_parallel_calls=4)
@@ -296,6 +297,7 @@ if __name__ == "__main__":
     validation_inputs = era5_files_obj.era5_files_validation
     validation_labels = era5_files_obj.front_files_validation
     validation_dataset = combine_datasets(validation_inputs, validation_labels)
+    print(f"Images in validation dataset: {len(validation_dataset):,}")
     validation_dataset = validation_dataset.batch(train_valid_batch_size[1], drop_remainder=True, num_parallel_calls=4)
     validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
 
