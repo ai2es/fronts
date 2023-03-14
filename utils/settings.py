@@ -2,7 +2,7 @@
 Default settings
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/9/2023 12:24 PM CT
+Last updated: 3/13/2023 9:15 PM CT
 """
 import platform
 
@@ -73,10 +73,7 @@ MAX_FILE_CHUNK_SIZE = 2500
 """
 MAX_TRAIN_BUFFER_SIZE is the maximum number of elements within the training dataset that can be shuffled at one time. Tensorflow 
 does not efficiently use RAM during shuffling on Windows machines and can lead to system crashes, so the buffer size should be 
-relatively small. It is important to monitor RAM usage if you are training a model on Windows. On Windows, I recommend using 
-a buffer size no larger than 150 times the size of your total system RAM in gigabytes (e.g. if you have 16 GB of total system 
-memory, set this parameter to a value no larger than 16 * 150 ≈ 2,500). Deviating from this "rule" and setting the parameter
-to a larger value is fine if you find that there is more free RAM as Tensorflow is shuffling the training dataset. Values larger 
-than 170,000 for Linux machines can cause crashes, but this appears to be a bug and is currently being looked into.
+relatively small. It is important to monitor RAM usage if you are training a model on Windows. Linux is able to shuffle much
+larger datasets than Windows, but crashes can still occur if the maximum buffer size is too large.
 """
 MAX_TRAIN_BUFFER_SIZE = {'Windows': 5000, 'Linux': 170000}[platform.uname().system]
