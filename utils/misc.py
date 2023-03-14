@@ -2,7 +2,7 @@
 Miscellaneous tools
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/3/2023 1:19 PM CT
+Last updated: 3/13/2023 8:28 PM CT
 """
 
 
@@ -68,10 +68,17 @@ def string_arg_to_dict(arg_str: str):
 
             arg_dict[current_arg_name] = current_arg_value.replace('[', '').replace(']', '').split(',')
 
-            if '.' in arg_dict[current_arg_name]:  # If the list appears to contain a float
-                arg_dict[current_arg_name] = [float(val) for val in arg_dict[current_arg_name]]
-            else:
-                arg_dict[current_arg_name] = [int(val) for val in arg_dict[current_arg_name]]
+            list_values = []
+            for val in arg_dict[current_arg_name]:
+                if '.' in val:
+                    list_values.append(float(val))
+                else:
+                    try:
+                        list_values.append(int(val))
+                    except ValueError:
+                        list_values.append(val)
+
+            arg_dict[current_arg_name] = list_values
         ################################################################################################################
 
         else:
