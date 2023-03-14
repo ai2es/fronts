@@ -8,7 +8,7 @@ Functions for building U-Net models:
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 9/25/2022 11:47 AM CT
+Last updated: 3/13/2022 9:09 PM CT
 """
 
 import numpy as np
@@ -696,12 +696,8 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
         conv_kwargs['name'] = f'{name}_Conv{tensor_dims - 2}D_collapse'
 
         tensor = conv_layer(filters=num_classes, **conv_kwargs)(tensor)  # This convolution layer contains num_classes filters, one for each class
+        tensor = tf.squeeze(tensor, axis=[axis + 1 for axis in squeeze_dims])  # Squeeze the tensor and remove the dimension
 
-        tensor = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
-
-        target_shape = tuple(dim_size for dim_size in tensor.shape[1:] if dim_size != 1)
-        sup_output = layers.Reshape(target_shape, name=f'{name}_reshape')(tensor)  # Squeeze the tensor and remove the dimension
-    else:
-        sup_output = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
+    sup_output = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
 
     return sup_output
