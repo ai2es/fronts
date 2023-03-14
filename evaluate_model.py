@@ -2,12 +2,13 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/3/2023 2:09 PM CT
+Last updated: 3/13/2023 9:17 PM CT
 
 TODO:
     * Clean up code (much needed)
     * Remove the need for separate pickle files to be generated for spatial CSI maps
     * Add more documentation
+    * Update performance diagram code to support spatial CSI maps
 """
 
 import itertools
@@ -609,14 +610,20 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
 
                         prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE, verbose=0)
 
-                        if num_dimensions == 2:
-                            if model_type == 'unet_3plus':
-                                image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)  # transpose the predictions
-                        else:  # if num_dimensions == 3
-                            if model_type == 'unet_3plus':
-                                image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
-                            elif model_type == 'unet':
+                        num_dims_in_pred = len(np.shape(prediction))
+
+                        if model_type == 'unet':
+                            if num_dims_in_pred == 4:  # 2D labels, prediction shape: (time, lat, lon, front type)
+                                image_probs = np.transpose(prediction[:, :, :, 1:], transpose_indices)  # transpose the predictions
+                            else:  # if num_dims_in_pred == 5; 3D labels, prediction shape: (time, lat, lon, pressure level, front type)
                                 image_probs = np.transpose(np.amax(prediction[:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
+
+                        elif model_type == 'unet_3plus':
+                            if num_dims_in_pred == 5:  # 2D labels, prediction shape: (output level, time, lon, lat, front type)
+                                image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)  # transpose the predictions
+                            else:  # if num_dims_in_pred == 6; 3D labels, prediction shape: (output level, time, lat, lon, pressure level, front type)
+                                image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
+
                     else:
 
                         ### Combine time and forecast hour into one dimension ###
@@ -1226,7 +1233,7 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
         - Plot the model predictions on the same map.
     """
 
-    DEFAULT_COLORBAR_POSITION = {'conus': 0.76, 'full': 0.83}
+    DEFAULT_COLORBAR_POSITION = {'conus': 0.71, 'full': 0.78}
     cbar_position = DEFAULT_COLORBAR_POSITION[domain]
 
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
@@ -1260,6 +1267,7 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     front_types = model_properties['front_types']
 
     fronts = data_utils.reformat_fronts(fronts, front_types=front_types)
+    labels = fronts.attrs['labels']
     fronts = xr.where(fronts == 0, float('NaN'), fronts)
 
     if type(front_types) == str:
@@ -1270,9 +1278,9 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     levels = np.around(np.arange(0, 1 + prob_int, prob_int), 2)
     cbar_ticks = np.around(np.arange(mask, 1 + prob_int, prob_int), 2)
 
-    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in front_types]
-    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in front_types]
-    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in front_types]
+    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in labels]
+    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
+    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in labels]
 
     cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
@@ -1292,7 +1300,7 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
 
         all_possible_front_combinations = itertools.permutations(front_types, r=2)
         for combination in all_possible_front_combinations:
-            probs_ds[combination[0]].values = np.where(data_arrays[combination[0]] > data_arrays[combination[1]] - 0.02, data_arrays[combination[0]], 0)
+            probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
 
         if variable_data_source != 'era5':
             probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=forecast_hour)
@@ -1301,12 +1309,16 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
             fronts_valid_title = f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z'
         else:
             probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0)
-            data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz' % (year, month, day, hour)
+            data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz\n' \
+                         'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
             fronts_valid_title = f'Fronts valid: %d-%02d-%02d-%02dz' % (year, month, day, hour)
 
         fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
         plot_background(extent, ax=ax, linewidth=0.5)
         # ax.gridlines(draw_labels=True, zorder=0)
+
+        cbar_front_labels = []
+        cbar_front_ticks = []
 
         for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, front_types, contour_maps_by_type):
 
@@ -1314,15 +1326,23 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
             probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
             fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
 
-            cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.11, 0.015, 0.77])
+            cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.24, 0.015, 0.64])
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
             cbar.set_ticklabels([])
+
+            cbar_front_labels.append(front_name)
+            cbar_front_ticks.append(front_no + 0.5)
 
         cbar.set_label(cbar_label, rotation=90)
         cbar.set_ticks(cbar_ticks)
         cbar.set_ticklabels(cbar_ticks)
 
-        ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
+        cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, orientation='horizontal', shrink=0.5, pad=0.02)
+        cbar_front.set_ticks(cbar_front_ticks)
+        cbar_front.set_ticklabels(cbar_front_labels)
+
+        ax.set_title('')
+        # ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
         ax.set_title(data_title, loc='left')
         ax.set_title(fronts_valid_title, loc='right')
 
@@ -1395,9 +1415,15 @@ def learning_curve(model_number, model_dir):
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
     # Model properties
-    loss = model_properties['loss']
+    try:
+        loss = model_properties['loss']
+    except KeyError:
+        loss = model_properties['loss_string']
 
-    metric_string = model_properties['metric']
+    try:
+        metric_string = model_properties['metric']
+    except KeyError:
+        metric_string = model_properties['metric_string']
 
     if model_properties['model_type'] == 'unet_3plus':
         train_metric = history['sup1_Softmax_%s' % metric_string]
