@@ -2,7 +2,7 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/13/2023 9:05 PM CT
+Last updated: 3/18/2023 1:37 PM CT
 
 TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
 """
@@ -26,35 +26,6 @@ import os
 import tensorflow as tf
 
 
-def check_directory(directory: str, year: int, month: int, day: int):
-    """
-    Check directory for subdirectories for the given year, month, and day.
-
-    Parameters
-    ----------
-    directory: str
-        - Directory to check
-    year: int
-    month: int
-    day: int
-    """
-
-    year_dir = '%s/%d' % (directory, year)
-    month_dir = '%s/%02d' % (year_dir, month)
-    day_dir = '%s/%02d' % (month_dir, day)
-    
-    ### Check for the correct subdirectories and make them if they do not exist ###
-    if not os.path.isdir(year_dir):
-        os.mkdir(year_dir)
-        os.mkdir(month_dir)
-        os.mkdir(day_dir)
-    elif not os.path.isdir(month_dir):
-        os.mkdir(month_dir)
-        os.mkdir(day_dir)
-    elif not os.path.isdir(day_dir):
-        os.mkdir(day_dir)
-
-
 def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
     """
     Reads the xml files to pull frontal objects.
@@ -72,6 +43,7 @@ def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
     files = sorted(glob.glob("%s/*_%04d%02d%02d*f000.xml" % (xml_dir, year, month, day)))
 
     dss = []  # Dataset with front data organized by front type.
+    timesteps = []
     for filename in files:
         print(filename)
         tree = ET.parse(filename, parser=ET.XMLParser(encoding='utf-8'))
@@ -198,8 +170,9 @@ def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
         ds = xr.concat(type_da, dim=types)
         ds = ds.rename({'concat_dim': 'type'})
         dss.append(ds)
-    timestep = pd.date_range(start=df['time'].dt.strftime('%Y-%m-%d')[0], periods=len(dss), freq='3H')
-    dns = xr.concat(dss, dim=timestep)
+
+    timesteps.append(pd.to_datetime(df['time'][0], format='%Y%m%d%H'))
+    dns = xr.concat(dss, dim=timesteps)
     dns = dns.rename({'concat_dim': 'time'})
 
     for hour in range(0, 24, 3):
@@ -275,9 +248,12 @@ def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
                             if frequency[k][i][j] > 0:
                                 fronttype[i][j] = 16
 
-        filename_netcdf = "FrontObjects_%04d%02d%02d%02d_full.nc" % (year, month, day, hour)
-        fronts_ds = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)}, coords={"latitude": lats, "longitude": lons, "time": time}).astype('float32')
-        fronts_ds.to_netcdf(path="%s/%d/%02d/%02d/%s" % (netcdf_outdir, year, month, day, filename_netcdf), engine='netcdf4', mode='w')
+            filename_netcdf = "FrontObjects_%04d%02d%02d%02d_full.nc" % (year, month, day, hour)
+            fronts_ds = xr.Dataset({"identifier": (('latitude', 'longitude'), fronttype)}, coords={"latitude": lats, "longitude": lons, "time": time}).astype('float32')
+
+            if not os.path.isdir("%s/%d%02d" % (netcdf_outdir, year, month)):
+                os.mkdir("%s/%d%02d" % (netcdf_outdir, year, month))
+            fronts_ds.to_netcdf(path="%s/%d%02d/%s" % (netcdf_outdir, year, month, filename_netcdf), engine='netcdf4', mode='w')
 
 
 def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
@@ -1155,17 +1131,14 @@ if __name__ == "__main__":
     if args.era5 and not args.netcdf_to_tf:
         required_arguments = ['year', 'month', 'day', 'netcdf_ERA5_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
-        check_directory(args.netcdf_outdir, args.year, args.month, args.day)
         create_era5_datasets(args.year, args.month, args.day, args.netcdf_ERA5_indir, args.netcdf_outdir)
     if args.fronts and not args.netcdf_to_tf:
         required_arguments = ['year', 'month', 'day', 'xml_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
-        check_directory(args.netcdf_outdir, args.year, args.month, args.day)
         front_xmls_to_netcdf(args.year, args.month, args.day, args.xml_indir, args.netcdf_outdir)
     if args.grib_to_netcdf:
         required_arguments = ['year', 'month', 'day', 'grib_indir', 'netcdf_outdir']
         check_arguments(provided_arguments, required_arguments)
-        check_directory(args.netcdf_outdir, args.year, args.month, args.day)
         for hour in range(0, 24, 6):
             try:
                 grib_to_netcdf(args.year, args.month, args.day, hour, args.grib_indir, args.netcdf_outdir, model=args.model)
