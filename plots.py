@@ -5,7 +5,7 @@ Code for generating various plots:
     - NCEP front analysis
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 1/10/2023 5:44 PM CT
+Last updated: 4/7/2023 6:38 PM CT
 
 TODO:
     * Simplify code, everything is messy
@@ -19,7 +19,6 @@ import xarray as xr
 from utils import plotting_utils, data_utils, settings
 from glob import glob
 import argparse
-from errors import check_arguments
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
@@ -513,28 +512,18 @@ if __name__ == '__main__':
         args.pressure_level = int(args.pressure_level)
 
     if args.frequency_plots:
-        required_arguments = ['fronts_netcdf_indir', 'image_outdir']
-        check_arguments(provided_arguments, required_arguments)
         frequency_plots(args.fronts_netcdf_indir, args.image_outdir)
 
     if args.gdas_map:
-        required_arguments = ['gdas_netcdf_indir', 'fronts_netcdf_indir', 'variable', 'pressure_level', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
-        check_arguments(provided_arguments, required_arguments)
         gdas_map(args.year, args.month, args.day, args.hour, args.variable, args.pressure_level, args.extent, args.gdas_netcdf_indir,
                  args.fronts_netcdf_indir, args.image_outdir)
 
     if args.gdas_analysis:
-        required_arguments = ['gdas_netcdf_indir', 'fronts_netcdf_indir', 'pressure_level', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
-        check_arguments(provided_arguments, required_arguments)
         gdas_analysis(args.year, args.month, args.day, args.hour, args.pressure_level, args.extent, args.gdas_netcdf_indir,
                       args.fronts_netcdf_indir, args.image_outdir)
 
     if args.era5_map:
-        required_arguments = ['era5_netcdf_indir', 'fronts_netcdf_indir', 'variable', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
-        check_arguments(provided_arguments, required_arguments)
         era5_map(args.year, args.month, args.day, args.hour, args.variable, args.extent, args.era5_netcdf_indir, args.fronts_netcdf_indir, args.image_outdir)
 
     if args.fronts_only:
-        required_arguments = ['fronts_netcdf_indir', 'extent', 'image_outdir', 'year', 'month', 'day', 'hour']
-        check_arguments(provided_arguments, required_arguments)
         fronts_only(args.year, args.month, args.day, args.hour, args.extent, args.fronts_netcdf_indir, args.image_outdir)

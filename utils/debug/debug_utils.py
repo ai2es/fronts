@@ -2,12 +2,11 @@
 General debugging tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 9/23/2022 3:42 PM CT
+Last updated: 3/27/2023 8:58 PM CT
 """
 
 
-def generate_date_list(years, include_hours: str = None):
+def generate_date_list(years: int | tuple | list, include_hours: str = None):
     """
     Generate a nested list of /timesteps for a given year(s).
 
@@ -15,25 +14,17 @@ def generate_date_list(years, include_hours: str = None):
     ----------
     years: int or iterable of ints
     include_hours: 'synoptic', 'non-synoptic', 'all', or None (strings are case-insensitive)
-        - Optional argument that includes hours in the list of dates.
-        - If None, no hours will be included.
-        - If 'synoptic', hours 0z, 6z, 12z, and 18z will be included.
-        - If 'non-synoptic', hours 3z, 9z, 15z, and 21z will be included.
-        - If 'all', then both synoptic and non-synoptic hours will be included.
+        Optional argument that includes hours in the list of dates.
+        If None, no hours will be included.
+        If 'synoptic', hours 0z, 6z, 12z, and 18z will be included.
+        If 'non-synoptic', hours 3z, 9z, 15z, and 21z will be included.
+        If 'all', then both synoptic and non-synoptic hours will be included.
 
     Returns
     -------
     date_list: nested list of dates/timesteps
-        - If parameter 'include_hours' is None, each index of this list will be a list with the following format: [year, month, day]
-        - If parameter 'include_hours' is 'synoptic', 'non-synoptic', or 'all', each index of this list will be a list with the following format: [year, month, day, hour]
-
-    Raises
-    ------
-    TypeError
-        - If parameter 'include_hours' is not a string
-
-    ValueError
-        - If parameter 'include_hours' is a string but is not any of: 'synoptic', 'non-synoptic', 'all'
+        If parameter 'include_hours' is None, each index of this list will be a list with the following format: [year, month, day]
+        If parameter 'include_hours' is 'synoptic', 'non-synoptic', or 'all', each index of this list will be a list with the following format: [year, month, day, hour]
     """
 
     if include_hours is not None:

@@ -2,13 +2,11 @@
 Script for running debug commands
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 2/9/2023 10:53 PM CT
+Last updated: 3/27/2023 8:29 PM CT
 """
 
 import argparse
 import os.path
-
-from errors import check_arguments
 import utils.debug.era5, utils.debug.fronts, utils.debug.tf, utils.debug.model_data
 
 if __name__ == '__main__':
@@ -22,7 +20,6 @@ if __name__ == '__main__':
     parser.add_argument('--find_missing_front_files', action='store_true', help='Analyze a directory to find missing front object files')
     parser.add_argument('--find_missing_tf_datasets', action='store_true', help='Analyze a directory to find missing tensorflow datasets')
     parser.add_argument('--check_era5_variables', action='store_true', help='Check variables in era5 dataset')
-    parser.add_argument('--check_for_corrupt_era5_files', action='store_true', help='Check variables in era5 dataset')
     parser.add_argument('--model_dir', type=str, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, help='Model number.')
     parser.add_argument('--netcdf_indir', type=str, help='Main directory for netcdf files')
@@ -37,34 +34,18 @@ if __name__ == '__main__':
     provided_arguments = vars(args)
 
     if args.find_missing_statistics:
-        required_arguments = ['model_dir', 'model_number', 'domain', 'domain_images', 'variables_data_source',
-                              'variables_netcdf_indir', 'netcdf_indir', 'fronts_xml_indir', 'dataset']
-        check_arguments(provided_arguments, required_arguments)
         utils.debug.model_data.find_missing_statistics(args.model_dir, args.model_number, args.domain, args.domain_images,
             args.variables_data_source, args.variables_netcdf_indir, args.netcdf_indir, args.fronts_xml_indir, dataset=args.dataset)
 
     if args.check_era5_variables:
-        required_arguments = ['netcdf_indir', 'timestep']
-        check_arguments(provided_arguments, required_arguments)
         utils.debug.era5.check_era5_variables(args.netcdf_indir, args.timestep)
 
-    if args.check_for_corrupt_era5_files:
-        required_arguments = ['netcdf_indir']
-        check_arguments(provided_arguments, required_arguments)
-        utils.debug.era5.check_for_corrupt_era5_files(args.netcdf_indir)
-
     if args.find_missing_era5_files:
-        required_arguments = ['netcdf_indir']
-        check_arguments(provided_arguments, required_arguments)
         utils.debug.era5.find_missing_era5_data(args.netcdf_indir)
 
     if args.find_missing_front_files:
-        required_arguments = ['netcdf_indir']
-        check_arguments(provided_arguments, required_arguments)
         utils.debug.fronts.find_missing_fronts_data(args.netcdf_indir)
 
     if args.find_missing_tf_datasets:
-        required_arguments = ['tf_indir']
         assert os.path.isdir(args.tf_indir)
-        check_arguments(provided_arguments, required_arguments)
         utils.debug.tf.find_missing_tf_datasets(args.tf_indir)

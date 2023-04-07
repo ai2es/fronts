@@ -1,11 +1,8 @@
 """
-Functions in this code manage data files.
+Functions in this code manage data files and models.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/13/2023 9:18 PM CT
-
-TODO:
-    * Condense functions into one???? (too much repetitive code)
+Last updated: 3/27/2023 8:57 PM CT
 """
 
 import shutil
@@ -15,67 +12,25 @@ import argparse
 import numpy as np
 import os
 import pandas as pd
-from tensorflow.keras.models import load_model as lm
-import custom_losses
-import custom_metrics
-from errors import check_arguments
 from utils import data_utils
 
 
-def create_subdirectories(main_dir, start_year=2008, end_year=2020, period='yearly'):
-    """
-    Check if a given directory for data exists, and then make the directory if it does not exist.
-
-    main_dir: str
-    period: 'yearly', 'monthly', 'daily'
-    """
-
-    for year in range(start_year, end_year + 1):
-
-        print("Creating directories for %d" % year)
-
-        directory_to_make = '%s/%d' % (main_dir, year)
-        if not os.path.isdir(directory_to_make):
-            os.mkdir(directory_to_make)
-
-        if year % 4 == 0:  # Check if the current year is a leap year
-            month_2_days = 29
-        else:
-            month_2_days = 28
-
-        days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-
-        if period == 'monthly' or period == 'daily':
-
-            for month in range(1, 13):
-                directory_to_make = '%s/%d/%02d' % (main_dir, year, month)
-                if not os.path.isdir(directory_to_make):
-                    os.mkdir(directory_to_make)
-
-                if period == 'daily':
-
-                    for day in range(1, days_per_month[month - 1] + 1):
-                        directory_to_make = '%s/%d/%02d/%02d' % (main_dir, year, month, day)
-                        if not os.path.isdir(directory_to_make):
-                            os.mkdir(directory_to_make)
-
-
-def compress_files(main_dir, glob_file_string, tar_filename, remove_files=False, status_printout=True):
+def compress_files(main_dir: str, glob_file_string: str, tar_filename: str, remove_files: bool = False, status_printout: bool = True):
     """
     Compress files into a TAR file.
 
     Parameters
     ----------
     main_dir: str
-        - Main directory where the files are located and where the TAR file will be saved.
+        Main directory where the files are located and where the TAR file will be saved.
     glob_file_string: str
-        - String of the names of the files to compress.
-    tar_filename:
-        - Name of the compressed TAR file that will be made. Do not include the .tar.gz extension in the name, this is added automatically.
+        String of the names of the files to compress.
+    tar_filename: str
+        Name of the compressed TAR file that will be made. Do not include the .tar.gz extension in the name, this is added automatically.
     remove_files: bool
-        - Setting this to true will remove the files after they have been compressed to a TAR file.
+        Setting this to true will remove the files after they have been compressed to a TAR file.
     status_printout: bool
-        - Setting this to true will provide printouts of the status of the compression.
+        Setting this to true will provide printouts of the status of the compression.
 
     Examples
     --------
@@ -91,6 +46,20 @@ def compress_files(main_dir, glob_file_string, tar_filename, remove_files=False,
 
     <<<<< end example >>>>>
     """
+
+    ########################################### Check the parameters for errors ########################################
+    if not isinstance(main_dir, str):
+        raise TypeError(f"main_dir must be a string, received {type(main_dir)}")
+    if not isinstance(glob_file_string, str):
+        raise TypeError(f"glob_file_string must be a string, received {type(glob_file_string)}")
+    if not isinstance(tar_filename, str):
+        raise TypeError(f"tar_filename must be a string, received {type(tar_filename)}")
+    if not isinstance(remove_files, bool):
+        raise TypeError(f"remove_files must be a boolean, received {type(remove_files)}")
+    if not isinstance(status_printout, bool):
+        raise TypeError(f"status_printout must be a boolean, received {type(status_printout)}")
+    ####################################################################################################################
+
     uncompressed_size = 0  # MB
 
     ### Gather a list of files containing the specified string ###
@@ -126,18 +95,18 @@ def compress_files(main_dir, glob_file_string, tar_filename, remove_files=False,
         print(f"Successfully deleted {len(files)} files")
 
 
-def delete_grouped_files(main_dir, glob_file_string, num_subdir):
+def delete_grouped_files(main_dir: str, glob_file_string: str, num_subdir: int):
     """
     Deletes grouped files with names matching given strings.
 
     Parameters
     ----------
     main_dir: str
-        - Main directory or directories where the grouped files are located.
+        Main directory or directories where the grouped files are located.
     glob_file_string: str
-        - String of the names of the files to delete.
+        String of the names of the files to delete.
     num_subdir: int
-        - Number of subdirectory layers in the main directory.
+        Number of subdirectory layers in the main directory.
 
     Examples
     --------
@@ -153,6 +122,15 @@ def delete_grouped_files(main_dir, glob_file_string, num_subdir):
 
     <<<<< end example >>>>>
     """
+
+    ########################################### Check the parameters for errors ########################################
+    if not isinstance(main_dir, str):
+        raise TypeError(f"main_dir must be a string, received {type(main_dir)}")
+    if not isinstance(glob_file_string, str):
+        raise TypeError(f"glob_file_string must be a string, received {type(glob_file_string)}")
+    if not isinstance(num_subdir, int):
+        raise TypeError(f"num_subdir must be an integer, received {type(num_subdir)}")
+    ####################################################################################################################
 
     subdir_string = ''  # This string will be modified depending on the provided value of num_subdir
     for i in range(num_subdir):
@@ -172,16 +150,16 @@ def delete_grouped_files(main_dir, glob_file_string, num_subdir):
     print("done")
 
 
-def extract_tarfile(main_dir, tar_filename):
+def extract_tarfile(main_dir: str, tar_filename: str):
     """
     Extract all the contents of a TAR file.
 
     Parameters
     ----------
     main_dir: str
-        - Main directory where the TAR file is located. This is also where the extracted files will be placed.
+        Main directory where the TAR file is located. This is also where the extracted files will be placed.
     tar_filename: str
-        - Name of the compressed TAR file. Do NOT include the .tar.gz extension.
+        Name of the compressed TAR file. Do NOT include the .tar.gz extension.
 
     Examples
     --------
@@ -197,60 +175,100 @@ def extract_tarfile(main_dir, tar_filename):
     <<<<< end example >>>>>
     """
 
+    ########################################### Check the parameters for errors ########################################
+    if not isinstance(main_dir, str):
+        raise TypeError(f"main_dir must be a string, received {type(main_dir)}")
+    if not isinstance(tar_filename, str):
+        raise TypeError(f"tar_filename must be a string, received {type(tar_filename)}")
+    ####################################################################################################################
+
     with tarfile.open(f"{main_dir}/{tar_filename}.tar.gz", 'r') as tarF:
         tarF.extractall(main_dir)
     print(f"Successfully extracted {main_dir}/{tar_filename}")
 
 
-class ERA5files:
+class DataFileLoader:
     """
-    Object that loads and manages ERA5 netCDF files and datasets
+    Object that loads and manages ERA5, GDAS, GFS, and front object files.
     """
-    def __init__(self, era5_indir: str, file_type: str):
+    def __init__(self, file_dir: str, data_file_type: str):
         """
-        When the ERA5files object is created, find all ERA5 netcdf files or tensorflow datasets
+        When the DataFileLoader object is created, find all netCDF or tensorflow datasets.
 
-        era5_indir: str
-            - Input directory for the ERA5 netCDF files.
-        file_type: str
-            - 'netcdf' or 'tensorflow' (case-insensitive)
+        Parameters
+        ----------
+        file_dir: str
+            Input directory for the netCDF or tensorflow datasets.
+        data_file_type: str
+            This string will contain two parts, separated by a hyphen: the source for the variable data, and the type of file/dataset.
+            Options for the variable data sources are: 'era5', 'gdas', and 'gfs'.
+            Options for the file/dataset type string are: 'netcdf', 'tensorflow'.
+
+        Examples
+        --------
+        <<<<< start example >>>>
+
+            import file_manager as fm
+
+            file_dir = '/home/user/data'  # Directory where the data is stored
+            data_file_type = 'era5-netcdf'  # We want to load netCDF files containing ERA5 data
+
+            era5_file_obj = fm.DataFileLoader(file_dir, data_file_type)  # Load the data files
+
+        <<<<< end example >>>>
         """
 
-        self.file_type = file_type.lower()
+        ######################################### Check the parameters for errors ######################################
+        if not isinstance(file_dir, str):
+            raise TypeError(f"file_dir must be a string, received {type(file_dir)}")
+        if not isinstance(data_file_type, str):
+            raise TypeError(f"data_file_type must be a string, received {type(data_file_type)}")
+        ################################################################################################################
 
-        if self.file_type == 'netcdf':
-            self.file_prefix = 'era5'
-            self.file_extension = '.nc'
-            self.subdir_glob = '/*/'
-        elif self.file_type == 'tensorflow':
-            self.file_prefix = 'era5'
-            self.file_extension = '_tf'
-            self.subdir_glob = '/'
+        valid_data_sources = ['era5', 'gdas', 'gfs']
+        valid_file_types = ['netcdf', 'tensorflow']
+
+        data_file_type = data_file_type.lower().split('-')
+        self._file_prefix = data_file_type[0]
+        self._file_type = data_file_type[1]
+
+        if self._file_type == 'netcdf':
+            self._file_extension = '.nc'
+            self._subdir_glob = '/*/'
+        elif self._file_type == 'tensorflow':
+            self._file_extension = '_tf'
+            self._subdir_glob = '/'
         else:
-            raise TypeError("Invalid file type: '%s'. Valid types are 'netcdf' or 'tensorflow'" % self.file_type)
+            raise TypeError(f"'%s' is not a valid file type, valid types are: {', '.join(valid_file_types)}" % self._file_type)
 
-        self._all_era5_netcdf_files = sorted(glob("%s%s%s*%s" % (era5_indir, self.subdir_glob, self.file_prefix, self.file_extension)))  # All ERA5 files without filtering
+        if self._file_prefix not in valid_data_sources:
+            raise TypeError(f"'%s' is not a valid data source, valid sources are: {', '.join(valid_data_sources)}" % self._file_prefix)
+
+        self._all_data_files = sorted(glob("%s%s%s*%s" % (file_dir, self._subdir_glob, self._file_prefix, self._file_extension)))  # All data files without filtering
 
         ### All available options for specific filters ###
+        self._all_forecast_hours = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
         self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
-        self.reset_all_filters()  # Resetting the filters simply creates the ERA5 file lists
+
+        self.reset_all_filters()  # Resetting the filters simply creates the list of data files
 
         ### Current values for the filters used in the files ###
+        self._forecast_hours = self._all_forecast_hours
         self._training_years = self._all_years
         self._validation_years = self._all_years
         self._test_years = self._all_years
 
     def reset_all_filters(self):
         """
-        Reset the lists of ERA5 netCDF files and front object files
+        Reset the lists of files back to their original states with no filters
         """
 
-        self.era5_files = self._all_era5_netcdf_files
-        self.era5_files_training = self.era5_files
-        self.era5_files_validation = self.era5_files
-        self.era5_files_test = self.era5_files
+        self.data_files = self._all_data_files
+        self.data_files_training = self.data_files
+        self.data_files_validation = self.data_files
+        self.data_files_test = self.data_files
 
-        ### If front files have been loaded to be paired with ERA5 files, reset the front file lists ###
+        ### If front object files have been loaded to be paired with variable files, reset the front file lists ###
         if hasattr(self, '_all_front_files'):
             self.front_files = self._all_front_files
             self.front_files_training = self.front_files
@@ -275,7 +293,7 @@ class ERA5files:
 
         self._training_years = training_years
 
-        ### Check that all selected ERA5 training years are valid ###
+        ### Check that all selected training years are valid ###
         invalid_training_years = [year for year in training_years if year not in self._all_years]
         if len(invalid_training_years) > 0:
             raise TypeError(f"The following training years are not valid: {','.join(sorted(invalid_training_years))}")
@@ -284,17 +302,17 @@ class ERA5files:
 
         ### Remove unwanted years from the list of files ###
         for year in self._training_years_not_in_data:
-            self.era5_files_training = [file for file in self.era5_files_training if '_%s' % str(year) not in file]
+            self.data_files_training = [file for file in self.data_files_training if '_%s' % str(year) not in file]
 
     def __reset_training_years(self):
         """
-        Reset training years in the ERA5 files
+        Reset training years
         """
 
-        if not hasattr(self, '_filtered_era5_files_before_training_year_selection'):  # If the training_years have not been selected yet
-            self._filtered_era5_files_before_training_year_selection = self.era5_files_training
+        if not hasattr(self, '_filtered_data_files_before_training_year_selection'):  # If the training_years have not been selected yet
+            self._filtered_data_files_before_training_year_selection = self.data_files_training
         else:
-            self.era5_files_training = self._filtered_era5_files_before_training_year_selection  # Return file list to last state before training_years were modified
+            self.data_files_training = self._filtered_data_files_before_training_year_selection  # Return file list to last state before training_years were modified
 
     training_years = property(__get_training_years, __set_training_years)  # Property method for setting training years
 
@@ -316,7 +334,7 @@ class ERA5files:
 
         self._validation_years = validation_years
 
-        ### Check that all selected ERA5 validation years are valid ###
+        ### Check that all selected validation years are valid ###
         invalid_validation_years = [year for year in validation_years if year not in self._all_years]
         if len(invalid_validation_years) > 0:
             raise TypeError(f"The following validation years are not valid: {','.join(sorted(invalid_validation_years))}")
@@ -325,17 +343,17 @@ class ERA5files:
 
         ### Remove unwanted years from the list of files ###
         for year in self._validation_years_not_in_data:
-            self.era5_files_validation = [file for file in self.era5_files_validation if '_%s' % str(year) not in file]
+            self.data_files_validation = [file for file in self.data_files_validation if '_%s' % str(year) not in file]
 
     def __reset_validation_years(self):
         """
-        Reset validation years in the ERA5 files
+        Reset validation years
         """
 
-        if not hasattr(self, '_filtered_era5_files_before_validation_year_selection'):  # If the validation_years have not been selected yet
-            self._filtered_era5_files_before_validation_year_selection = self.era5_files_validation
+        if not hasattr(self, '_filtered_data_files_before_validation_year_selection'):  # If the validation_years have not been selected yet
+            self._filtered_data_files_before_validation_year_selection = self.data_files_validation
         else:
-            self.era5_files_validation = self._filtered_era5_files_before_validation_year_selection  # Return file list to last state before validation_years were modified
+            self.data_files_validation = self._filtered_data_files_before_validation_year_selection  # Return file list to last state before validation_years were modified
 
     validation_years = property(__get_validation_years, __set_validation_years)  # Property method for setting validation years
 
@@ -357,7 +375,7 @@ class ERA5files:
 
         self._test_years = test_years
 
-        ### Check that all selected ERA5 test years are valid ###
+        ### Check that all selected test years are valid ###
         invalid_test_years = [year for year in test_years if year not in self._all_years]
         if len(invalid_test_years) > 0:
             raise TypeError(f"The following test years are not valid: {','.join(sorted(invalid_test_years))}")
@@ -366,42 +384,96 @@ class ERA5files:
 
         ### Remove unwanted years from the list of files ###
         for year in self._test_years_not_in_data:
-            self.era5_files_test = [file for file in self.era5_files_test if '_%s' % str(year) not in file]
+            self.data_files_test = [file for file in self.data_files_test if '_%s' % str(year) not in file]
 
     def __reset_test_years(self):
         """
-        Reset test years in the ERA5 files
+        Reset test years
         """
 
-        if not hasattr(self, '_filtered_era5_files_before_test_year_selection'):  # If the test_years have not been selected yet
-            self._filtered_era5_files_before_test_year_selection = self.era5_files_test
+        if not hasattr(self, '_filtered_data_files_before_test_year_selection'):  # If the test_years have not been selected yet
+            self._filtered_data_files_before_test_year_selection = self.data_files_test
         else:
-            self.era5_files_test = self._filtered_era5_files_before_test_year_selection  # Return file list to last state before test_years were modified
+            self.data_files_test = self._filtered_data_files_before_test_year_selection  # Return file list to last state before test_years were modified
 
     test_years = property(__get_test_years, __set_test_years)  # Property method for setting test years
 
     ####################################################################################################################
 
-    def __sort_files_by_dataset(self, era5_timesteps_used, sort_fronts=False):
+    def __get_forecast_hours(self):
         """
-        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'era5_timesteps_used' list.
+        Return the list of forecast hours used
+        """
 
-        era5_timesteps_used: list
-            List of timesteps used when sorting ERA5 and/or frontal object files.
+        if self._file_type == 'era5':
+            return None
+        else:
+            return self._forecast_hours
+
+    def __set_forecast_hours(self, forecast_hours: tuple or list):
+        """
+        Select the forecast hours to load
+        """
+
+        self.__reset_forecast_hours()  # Return file list to last state before forecast hours were modified (no effect is this is first forecast hour selection)
+
+        self._forecast_hours = forecast_hours
+
+        ### Check that all selected forecast hours are valid ###
+        invalid_forecast_hours = [hour for hour in forecast_hours if hour not in self._all_forecast_hours]
+        if len(invalid_forecast_hours) > 0:
+            raise TypeError(f"The following forecast hours are not valid: {','.join(sorted(str(hour) for hour in invalid_forecast_hours))}")
+
+        self._forecast_hours_not_in_data = [hour for hour in self._all_forecast_hours if hour not in forecast_hours]
+
+        ### Remove unwanted forecast hours from the list of files ###
+        for hour in self._forecast_hours_not_in_data:
+            self.data_files = [file for file in self.data_files if '_f%03d_' % hour not in file]
+            self.data_files_training = [file for file in self.data_files_training if '_f%03d_' % hour not in file]
+            self.data_files_validation = [file for file in self.data_files_validation if '_f%03d_' % hour not in file]
+            self.data_files_test = [file for file in self.data_files_test if '_f%03d_' % hour not in file]
+
+    def __reset_forecast_hours(self):
+        """
+        Reset forecast hours in the data files
+        """
+
+        if not hasattr(self, '_filtered_data_files_before_forecast_hour_selection'):  # If the forecast hours have not been selected yet
+            self._filtered_data_files_before_forecast_hour_selection = self.data_files
+            self._filtered_data_training_files_before_forecast_hour_selection = self.data_files_training
+            self._filtered_data_validation_files_before_forecast_hour_selection = self.data_files_validation
+            self._filtered_data_test_files_before_forecast_hour_selection = self.data_files_test
+        else:
+            ### Return file lists to last state before forecast hours were modified ###
+            self.data_files = self._filtered_data_files_before_forecast_hour_selection
+            self.data_files_training = self._filtered_data_training_files_before_forecast_hour_selection
+            self.data_files_validation = self._filtered_data_validation_files_before_forecast_hour_selection
+            self.data_files_test = self._filtered_data_test_files_before_forecast_hour_selection
+
+    forecast_hours = property(__get_forecast_hours, __set_forecast_hours)  # Property method for setting forecast hours
+
+    ####################################################################################################################
+
+    def __sort_files_by_dataset(self, data_timesteps_used, sort_fronts=False):
+        """
+        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'data_timesteps_used' list.
+
+        data_timesteps_used: list
+            List of timesteps used when sorting variable and/or frontal object files.
         sort_fronts: bool
-            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both ERA5 and frontal object files at the
-            same time.
+            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both variable and frontal object files at the
+                same time.
         """
 
-        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected ERA5 files ###
-        training_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
-        validation_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
-        test_indices = [index for index, timestep in enumerate(era5_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
+        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected variable files ###
+        training_indices = [index for index, timestep in enumerate(data_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
+        validation_indices = [index for index, timestep in enumerate(data_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
+        test_indices = [index for index, timestep in enumerate(data_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
 
-        ### Create new ERA5 file lists for training, validation, and test datasets using the indices pulled from above ###
-        self.era5_files_training = [self.era5_files[index] for index in training_indices]
-        self.era5_files_validation = [self.era5_files[index] for index in validation_indices]
-        self.era5_files_test = [self.era5_files[index] for index in test_indices]
+        ### Create new variable file lists for training, validation, and test datasets using the indices pulled from above ###
+        self.data_files_training = [self.data_files[index] for index in training_indices]
+        self.data_files_validation = [self.data_files[index] for index in validation_indices]
+        self.data_files_test = [self.data_files[index] for index in test_indices]
 
         if sort_fronts:
             ### Create new frontal object file lists for training, validation, and test datasets using the indices pulled from above ###
@@ -409,987 +481,121 @@ class ERA5files:
             self.front_files_validation = [self.front_files[index] for index in validation_indices]
             self.front_files_test = [self.front_files[index] for index in test_indices]
 
-    def pair_with_fronts(self, front_indir, front_types=None, synoptic_only=False):
+    def pair_with_fronts(self, front_indir: str, front_types: str | list = None, synoptic_only: bool = False):
         """
-        Pair all of the ERA5 timesteps with frontal object files containing matching timesteps
+        Pair all of the data file timesteps with frontal object files containing matching timesteps
 
         front_indir: str
-            - Directory where the frontal object files are stored.
+            Directory where the frontal object files are stored.
+        front_types: str or list
+            Front types within the dataset. See documentation in utils.data_utils.reformat fronts for more information.
         synoptic_only: bool
-            - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
+            Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
         """
 
-        if self.file_type == 'netcdf':
+        ######################################### Check the parameters for errors ######################################
+        if not isinstance(front_indir, str):
+            raise TypeError(f"front_indir must be a string, received {type(front_indir)}")
+        if front_types is not None and not isinstance(front_types, (str, list)):
+            raise TypeError(f"front_types must be a string or list, received {type(front_types)}")
+        if not isinstance(synoptic_only, bool):
+            raise TypeError(f"synoptic_only must be a boolean, received {type(synoptic_only)}")
+        ################################################################################################################
+
+        if self._file_type == 'netcdf':
             if front_types is not None:
                 raise UserWarning("Declaring front types has no effect when loading netCDF files")
             file_prefix = 'FrontObjects'
-            timestep_indices = [-18, -8]
-        elif self.file_type == 'tensorflow':
+            timestep_indices = np.array([-18, -8])
+        elif self._file_type == 'tensorflow':
             if front_types is None:
                 raise TypeError("Front types must be declared if loading tensorflow datasets")
             file_prefix = f"fronts_{'_'.join(front_types)}"
-            timestep_indices = [-9, -3]
+            timestep_indices = np.array([-9, -3])
         else:
-            raise ValueError(f"The available options for 'file_type' are: 'netcdf', 'tensorflow'. Received: {self.file_type}")
+            raise ValueError(f"The available options for 'file_type' are: 'netcdf', 'tensorflow'. Received: {self._file_type}")
 
-        self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self.subdir_glob, file_prefix, self.file_extension)))  # All front files without filtering
+        if self._file_prefix in ['gdas', 'gfs']:
+            timestep_indices -= 5  # GDAS/GFS filenames contain 5 more characters than ERA5 filenames to identify the forecast hour
+
+        self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self._subdir_glob, file_prefix, self._file_extension)))  # All front files without filtering
         self.front_files = self._all_front_files
 
         front_files_list = []
-        era5_files_list = []
-        timesteps_in_era5_files = []
+        data_files_list = []
+        timesteps_in_data_files = []
 
-        ### Find all timesteps in the ERA5 files ###
-        for j in range(len(self.era5_files)):
-            timesteps_in_era5_files.append(self.era5_files[j][timestep_indices[0]:timestep_indices[1]])
+        ### Find all timesteps in the data files ###
+        for j in range(len(self.data_files)):
+            timesteps_in_data_files.append(self.data_files[j][timestep_indices[0]:timestep_indices[1]])
 
-        unique_timesteps_in_era5_files = list(np.unique(timesteps_in_era5_files))
+        unique_timesteps_in_data_files = list(np.unique(timesteps_in_data_files))
 
         if synoptic_only:
             ### Filter out non-synoptic hours (3, 9, 15, 21z) ###
-            for unique_timestep in unique_timesteps_in_era5_files:
+            for unique_timestep in unique_timesteps_in_data_files:
                 if any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
-                    unique_timesteps_in_era5_files.pop(unique_timesteps_in_era5_files.index(unique_timestep))
+                    unique_timesteps_in_data_files.pop(unique_timesteps_in_data_files.index(unique_timestep))
 
-        # List of ERA5 timesteps used when adding files to the final list. If an incomplete set of ERA5 or front files was discovered for a
-        # timestep in 'unique_timesteps_in_era5_files', then the files for that timestep will not be added to the final list.
-        era5_timesteps_used = []
-
-        ### Create a nested list for ERA5 files sorted by timestep and another for front files for each forecast timestep and the given forecast hours ###
-        for timestep in unique_timesteps_in_era5_files:
-            era5_files_for_timestep = sorted(filter(lambda filename: timestep in filename, self.era5_files))
-            front_file_for_timestep = list(filter(lambda filename: timestep in filename, self.front_files))
-            if len(front_file_for_timestep) == 1:
-                era5_files_list.append(era5_files_for_timestep[0])
-                front_files_list.append(front_file_for_timestep[0])
-                era5_timesteps_used.append(timestep)
-
-        self.era5_files = era5_files_list
-        self.front_files = front_files_list
-
-        self.__sort_files_by_dataset(era5_timesteps_used, sort_fronts=True)
-
-
-class GDASfiles:
-    """
-    Object that loads and manages GDAS netCDF files and datasets
-    """
-    def __init__(self, gdas_netcdf_indir: str):
-        """
-        When the GDASfiles object is created, open all GDAS netCDF files
-
-        gdas_netcdf_indir: str
-            - Input directory for the GDAS netCDF files.
-        """
-
-        self._all_gdas_netcdf_files = sorted(glob("%s/*/*/*/gdas*.nc" % gdas_netcdf_indir))  # All GDAS files without filtering
-
-        ### All available options for specific filters ###
-        self._all_forecast_hours = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
-        self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
-
-        self.reset_all_filters()  # Resetting the filters simply creates the GDAS file lists
-
-        ### Current values for the filters used in the files ###
-        self._forecast_hours = self._all_forecast_hours
-        self._training_years = self._all_years
-        self._validation_years = self._all_years
-        self._test_years = self._all_years
-
-    def reset_all_filters(self):
-        """
-        Reset the lists of GDAS netCDF files and front object files
-        """
-
-        self.gdas_files = self._all_gdas_netcdf_files
-        self.gdas_files_training = [gdas_file for gdas_file in self._all_gdas_netcdf_files if any('_%s' % str(year) in gdas_file for year in self._all_years[:11])]
-        self.gdas_files_validation = [gdas_file for gdas_file in self._all_gdas_netcdf_files if any('_%s' % str(year) in gdas_file for year in self._all_years[11:14])]
-        self.gdas_files_test = [gdas_file for gdas_file in self._all_gdas_netcdf_files if any('_%s' % str(year) in gdas_file for year in self._all_years[14:])]
-
-        ### If front files have been loaded to be paired with gdas files, reset the front file lists ###
-        if hasattr(self, '_all_front_files'):
-            self.front_files = self._all_front_files
-            self.front_files_training = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[:11])]
-            self.front_files_validation = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[11:14])]
-            self.front_files_test = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[14:])]
-
-    ####################################################################################################################
-
-    def __get_training_years(self):
-        """
-        Return the list of training years used
-        """
-
-        return self._training_years
-
-    def __set_training_years(self, training_years: tuple or list):
-        """
-        Select the training years to load
-        """
-
-        self.__reset_training_years()  # Return file list to last state before training years were modified (no effect is this is first training year selection)
-
-        self._training_years = training_years
-
-        ### Check that all selected GDAS training years are valid ###
-        invalid_training_years = [year for year in training_years if year not in self._all_years]
-        if len(invalid_training_years) > 0:
-            raise TypeError(f"The following training years are not valid: {','.join(sorted(invalid_training_years))}")
-
-        self._training_years_not_in_data = [year for year in self._all_years if year not in training_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._training_years_not_in_data:
-            self.gdas_files_training = [file for file in self.gdas_files_training if '_%s' % str(year) not in file]
-
-    def __reset_training_years(self):
-        """
-        Reset training years in the GDAS files
-        """
-
-        if not hasattr(self, '_filtered_gdas_files_before_training_year_selection'):  # If the training_years have not been selected yet
-            self._filtered_gdas_files_before_training_year_selection = self.gdas_files_training
-        else:
-            self.gdas_files_training = self._filtered_gdas_files_before_training_year_selection  # Return file list to last state before training_years were modified
-
-    training_years = property(__get_training_years, __set_training_years)  # Property method for setting training years
-
-    ####################################################################################################################
-
-    def __get_validation_years(self):
-        """
-        Return the list of validation years used
-        """
-
-        return self._validation_years
-
-    def __set_validation_years(self, validation_years: tuple or list):
-        """
-        Select the validation years to load
-        """
-
-        self.__reset_validation_years()  # Return file list to last state before validation years were modified (no effect is this is first validation year selection)
-
-        self._validation_years = validation_years
-
-        ### Check that all selected GDAS validation years are valid ###
-        invalid_validation_years = [year for year in validation_years if year not in self._all_years]
-        if len(invalid_validation_years) > 0:
-            raise TypeError(f"The following validation years are not valid: {','.join(sorted(invalid_validation_years))}")
-
-        self._validation_years_not_in_data = [year for year in self._all_years if year not in validation_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._validation_years_not_in_data:
-            self.gdas_files_validation = [file for file in self.gdas_files_validation if '_%s' % str(year) not in file]
-
-    def __reset_validation_years(self):
-        """
-        Reset validation years in the GDAS files
-        """
-
-        if not hasattr(self, '_filtered_gdas_files_before_validation_year_selection'):  # If the validation_years have not been selected yet
-            self._filtered_gdas_files_before_validation_year_selection = self.gdas_files_validation
-        else:
-            self.gdas_files_validation = self._filtered_gdas_files_before_validation_year_selection  # Return file list to last state before validation_years were modified
-
-    validation_years = property(__get_validation_years, __set_validation_years)  # Property method for setting validation years
-
-    ####################################################################################################################
-
-    def __get_test_years(self):
-        """
-        Return the list of test years used
-        """
-
-        return self._test_years
-
-    def __set_test_years(self, test_years: tuple or list):
-        """
-        Select the test years to load
-        """
-
-        self.__reset_test_years()  # Return file list to last state before test years were modified (no effect is this is first test year selection)
-
-        self._test_years = test_years
-
-        ### Check that all selected GDAS test years are valid ###
-        invalid_test_years = [year for year in test_years if year not in self._all_years]
-        if len(invalid_test_years) > 0:
-            raise TypeError(f"The following test years are not valid: {','.join(sorted(invalid_test_years))}")
-
-        self._test_years_not_in_data = [year for year in self._all_years if year not in test_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._test_years_not_in_data:
-            self.gdas_files_test = [file for file in self.gdas_files_test if '_%s' % str(year) not in file]
-
-    def __reset_test_years(self):
-        """
-        Reset test years in the GDAS files
-        """
-
-        if not hasattr(self, '_filtered_gdas_files_before_test_year_selection'):  # If the test_years have not been selected yet
-            self._filtered_gdas_files_before_test_year_selection = self.gdas_files_test
-        else:
-            self.gdas_files_test = self._filtered_gdas_files_before_test_year_selection  # Return file list to last state before test_years were modified
-
-    test_years = property(__get_test_years, __set_test_years)  # Property method for setting test years
-
-    ####################################################################################################################
-
-    def __get_forecast_hours(self):
-        """
-        Return the list of forecast hours used
-        """
-
-        return self._forecast_hours
-
-    def __set_forecast_hours(self, forecast_hours: tuple or list):
-        """
-        Select the forecast hours to load
-        """
-
-        self.__reset_forecast_hours()  # Return file list to last state before forecast hours were modified (no effect is this is first forecast hour selection)
-
-        self._forecast_hours = forecast_hours
-
-        ### Check that all selected GDAS forecast hours are valid ###
-        invalid_forecast_hours = [hour for hour in forecast_hours if hour not in self._all_forecast_hours]
-        if len(invalid_forecast_hours) > 0:
-            raise TypeError(f"The following forecast hours are not valid: {','.join(sorted(str(hour) for hour in invalid_forecast_hours))}")
-
-        self._forecast_hours_not_in_data = [hour for hour in self._all_forecast_hours if hour not in forecast_hours]
-
-        ### Remove unwanted forecast hours from the list of files ###
-        for hour in self._forecast_hours_not_in_data:
-            self.gdas_files = [file for file in self.gdas_files if '_f%03d_' % hour not in file]
-            self.gdas_files_training = [file for file in self.gdas_files_training if '_f%03d_' % hour not in file]
-            self.gdas_files_validation = [file for file in self.gdas_files_validation if '_f%03d_' % hour not in file]
-            self.gdas_files_test = [file for file in self.gdas_files_test if '_f%03d_' % hour not in file]
-
-    def __reset_forecast_hours(self):
-        """
-        Reset forecast hours in the GDAS files
-        """
-
-        if not hasattr(self, '_filtered_gdas_files_before_forecast_hour_selection'):  # If the forecast hours have not been selected yet
-            self._filtered_gdas_files_before_forecast_hour_selection = self.gdas_files
-            self._filtered_gdas_training_files_before_forecast_hour_selection = self.gdas_files_training
-            self._filtered_gdas_validation_files_before_forecast_hour_selection = self.gdas_files_validation
-            self._filtered_gdas_test_files_before_forecast_hour_selection = self.gdas_files_test
-        else:
-            ### Return file lists to last state before forecast hours were modified ###
-            self.gdas_files = self._filtered_gdas_files_before_forecast_hour_selection
-            self.gdas_files_training = self._filtered_gdas_training_files_before_forecast_hour_selection
-            self.gdas_files_validation = self._filtered_gdas_validation_files_before_forecast_hour_selection
-            self.gdas_files_test = self._filtered_gdas_test_files_before_forecast_hour_selection
-
-    forecast_hours = property(__get_forecast_hours, __set_forecast_hours)  # Property method for setting forecast hours
-
-    ####################################################################################################################
-
-    def __sort_files_by_dataset(self, gdas_timesteps_used, sort_fronts=False):
-        """
-        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'gdas_timesteps_used' list.
-
-        gdas_timesteps_used: list
-            List of timesteps used when sorting GDAS and/or frontal object files.
-        sort_fronts: bool
-            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both GDAS and frontal object files at the
-            same time.
-        """
-
-        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected GDAS files ###
-        training_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
-        validation_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
-        test_indices = [index for index, timestep in enumerate(gdas_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
-
-        ### Create new GDAS file lists for training, validation, and test datasets using the indices pulled from above ###
-        self.gdas_files_training = [self.gdas_files[index] for index in training_indices]
-        self.gdas_files_validation = [self.gdas_files[index] for index in validation_indices]
-        self.gdas_files_test = [self.gdas_files[index] for index in test_indices]
-
-        if sort_fronts:
-            ### Create new frontal object file lists for training, validation, and test datasets using the indices pulled from above ###
-            self.front_files_training = [self.front_files[index] for index in training_indices]
-            self.front_files_validation = [self.front_files[index] for index in validation_indices]
-            self.front_files_test = [self.front_files[index] for index in test_indices]
-
-    def pair_with_fronts(self, front_indir, synoptic_only=True):
-        """
-        Pair all of the GDAS timesteps with frontal object files containing timesteps for the given forecast hours
-        
-        front_indir: str
-            - Directory where the frontal object files are stored.
-        synoptic_only: bool
-            - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
-        """
-
-        self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
-        self.front_files = self._all_front_files
-
-        front_files_list = []
-        gdas_files_list = []
-        timesteps_in_gdas_files = []
-
-        ### Find all timesteps in the GDAS files ###
-        for j in range(len(self.gdas_files)):
-            timesteps_in_gdas_files.append(self.gdas_files[j][5:15])
-
-        unique_timesteps_in_gdas_files = list(np.unique(sorted(timesteps_in_gdas_files)))
+        # Timesteps used for pulling the front object files. If the data files are ERA5 (no forecast hours), this list will
+        #   simply contain the same timesteps as the 'unique_timesteps_in_data_files' variable.
         unique_forecast_timesteps = []
 
-        ### Calculate timesteps needed for pulling front object files ###
-        for unique_timestep in unique_timesteps_in_gdas_files:
-            if synoptic_only and any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
-                unique_timesteps_in_gdas_files.pop(unique_timesteps_in_gdas_files.index(unique_timestep))
-            else:
-                unique_forecast_timesteps.append([data_utils.add_or_subtract_hours_to_timestep(unique_timestep, num_hours) for num_hours in self._forecast_hours])
+        # List of timesteps used when adding files to the final list. If an incomplete set of data or front files was discovered for a
+        #   timestep in 'unique_timesteps_in_data_files', then the files for that timestep will not be added to the final list.
+        data_timesteps_used = []
 
-        # List of GDAS timesteps used when adding files to the final list. If an incomplete set of GDAS or front files was discovered for a
-        # timestep in 'unique_timesteps_in_gdas_files', then the files for that timestep will not be added to the final list.
-        gdas_timesteps_used = []
+        if self._file_prefix in ['gdas', 'gfs']:
+            ### Calculate timesteps needed for pulling the correct front object files ###
+            for unique_timestep in unique_timesteps_in_data_files:
+                if synoptic_only and any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
+                    unique_timesteps_in_data_files.pop(unique_timesteps_in_data_files.index(unique_timestep))
+                else:
+                    unique_forecast_timesteps.append([data_utils.add_or_subtract_hours_to_timestep(unique_timestep, num_hours) for num_hours in self._forecast_hours])
+        else:
+            unique_forecast_timesteps = [[timestep, ] for timestep in unique_timesteps_in_data_files]
 
-        ### Create a nested list for GDAS files sorted by timestep and another for front files for each forecast timestep and the given forecast hours ###
-        for gdas_timestep, forecast_timesteps in zip(unique_timesteps_in_gdas_files, unique_forecast_timesteps):
-            gdas_files_for_timestep = sorted(filter(lambda filename: gdas_timestep in filename, self.gdas_files))
-            front_files_for_timesteps = [filename for filename in self.front_files if any(timestep in filename for timestep in forecast_timesteps)]
-            if len(gdas_files_for_timestep) == len(self._forecast_hours) and len(front_files_for_timesteps) == len(self._forecast_hours):
-                gdas_files_list.append(gdas_files_for_timestep)
-                front_files_list.append(front_files_for_timesteps)
-                gdas_timesteps_used.append(gdas_timestep)
+        ### Create a nested list for data files sorted by timestep and another for front files for each forecast timestep and the given forecast hours ###
+        for data_timestep, front_timesteps in zip(unique_timesteps_in_data_files, unique_forecast_timesteps):
+            data_files_for_timestep = sorted(filter(lambda filename: data_timestep in filename, self.data_files))
+            front_files_for_timestep = [filename for filename in self.front_files if any(timestep in filename for timestep in front_timesteps)]
+            if self._file_prefix == 'era5' and len(front_files_for_timestep) == 1:
+                data_files_list.append(data_files_for_timestep[0])
+                front_files_list.append(front_files_for_timestep[0])
+                data_timesteps_used.append(data_timestep)
+            elif self._file_prefix in ['gdas', 'gfs'] and len(self._forecast_hours) == len(data_files_for_timestep) == len(front_files_for_timestep):
+                data_files_list.append(data_files_for_timestep)
+                front_files_list.append(front_files_for_timestep)
+                data_timesteps_used.append(data_timestep)
 
-        self.gdas_files = gdas_files_list
+        self.data_files = data_files_list
         self.front_files = front_files_list
 
-        self.__sort_files_by_dataset(gdas_timesteps_used)  # Modify lists for training, validation, and test datasets
+        self.__sort_files_by_dataset(data_timesteps_used, sort_fronts=True)
 
 
-class GFSfiles:
-    """
-    Object that loads and manages GFS netCDF files and datasets
-    """
-    def __init__(self, gfs_netcdf_indir: str):
-        """
-        When the GFSfiles object is created, open all GFS netCDF files
-
-        gfs_netcdf_indir: str
-            - Input directory for the GFS netCDF files.
-        """
-
-        self._all_gfs_netcdf_files = sorted(glob("%s/*/*/*/gfs*.nc" % gfs_netcdf_indir))  # All GFS files without filtering
-
-        ### All available options for specific filters ###
-        self._all_forecast_hours = range(0, 10, 3)
-        self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
-
-        self.reset_all_filters()  # Resetting the filters simply creates the GFS file lists
-
-        ### Current values for the filters used in the files ###
-        self._forecast_hours = self._all_forecast_hours
-        self._training_years = self._all_years
-        self._validation_years = self._all_years
-        self._test_years = self._all_years
-
-    def reset_all_filters(self):
-        """
-        Reset the lists of GFS netCDF files and front object files
-        """
-
-        self.gfs_files = self._all_gfs_netcdf_files
-        self.gfs_files_training = [gfs_file for gfs_file in self._all_gfs_netcdf_files if any('_%s' % str(year) in gfs_file for year in self._all_years[:11])]
-        self.gfs_files_validation = [gfs_file for gfs_file in self._all_gfs_netcdf_files if any('_%s' % str(year) in gfs_file for year in self._all_years[11:14])]
-        self.gfs_files_test = [gfs_file for gfs_file in self._all_gfs_netcdf_files if any('_%s' % str(year) in gfs_file for year in self._all_years[14:])]
-
-        ### If front files have been loaded to be paired with GFS files, reset the front file lists ###
-        if hasattr(self, '_all_front_files'):
-            self.front_files = self._all_front_files
-            self.front_files_training = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[:11])]
-            self.front_files_validation = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[11:14])]
-            self.front_files_test = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[14:])]
-
-    ####################################################################################################################
-
-    def __get_training_years(self):
-        """
-        Return the list of training years used
-        """
-
-        return self._training_years
-
-    def __set_training_years(self, training_years: tuple or list):
-        """
-        Select the training years to load
-        """
-
-        self.__reset_training_years()  # Return file list to last state before training years were modified (no effect is this is first training year selection)
-
-        self._training_years = training_years
-
-        ### Check that all selected GFS training years are valid ###
-        invalid_training_years = [year for year in training_years if year not in self._all_years]
-        if len(invalid_training_years) > 0:
-            raise TypeError(f"The following training years are not valid: {','.join(sorted(invalid_training_years))}")
-
-        self._training_years_not_in_data = [year for year in self._all_years if year not in training_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._training_years_not_in_data:
-            self.gfs_files_training = [file for file in self.gfs_files_training if '_%s' % str(year) not in file]
-
-    def __reset_training_years(self):
-        """
-        Reset training years in the GFS files
-        """
-
-        if not hasattr(self, '_filtered_gfs_files_before_training_year_selection'):  # If the training_years have not been selected yet
-            self._filtered_gfs_files_before_training_year_selection = self.gfs_files_training
-        else:
-            self.gfs_files_training = self._filtered_gfs_files_before_training_year_selection  # Return file list to last state before training_years were modified
-
-    training_years = property(__get_training_years, __set_training_years)  # Property method for setting training years
-
-    ####################################################################################################################
-
-    def __get_validation_years(self):
-        """
-        Return the list of validation years used
-        """
-
-        return self._validation_years
-
-    def __set_validation_years(self, validation_years: tuple or list):
-        """
-        Select the validation years to load
-        """
-
-        self.__reset_validation_years()  # Return file list to last state before validation years were modified (no effect is this is first validation year selection)
-
-        self._validation_years = validation_years
-
-        ### Check that all selected GFS validation years are valid ###
-        invalid_validation_years = [year for year in validation_years if year not in self._all_years]
-        if len(invalid_validation_years) > 0:
-            raise TypeError(f"The following validation years are not valid: {','.join(sorted(invalid_validation_years))}")
-
-        self._validation_years_not_in_data = [year for year in self._all_years if year not in validation_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._validation_years_not_in_data:
-            self.gfs_files_validation = [file for file in self.gfs_files_validation if '_%s' % str(year) not in file]
-
-    def __reset_validation_years(self):
-        """
-        Reset validation years in the GFS files
-        """
-
-        if not hasattr(self, '_filtered_gfs_files_before_validation_year_selection'):  # If the validation_years have not been selected yet
-            self._filtered_gfs_files_before_validation_year_selection = self.gfs_files_validation
-        else:
-            self.gfs_files_validation = self._filtered_gfs_files_before_validation_year_selection  # Return file list to last state before validation_years were modified
-
-    validation_years = property(__get_validation_years, __set_validation_years)  # Property method for setting validation years
-
-    ####################################################################################################################
-
-    def __get_test_years(self):
-        """
-        Return the list of test years used
-        """
-
-        return self._test_years
-
-    def __set_test_years(self, test_years: tuple or list):
-        """
-        Select the test years to load
-        """
-
-        self.__reset_test_years()  # Return file list to last state before test years were modified (no effect is this is first test year selection)
-
-        self._test_years = test_years
-
-        ### Check that all selected GFS test years are valid ###
-        invalid_test_years = [year for year in test_years if year not in self._all_years]
-        if len(invalid_test_years) > 0:
-            raise TypeError(f"The following test years are not valid: {','.join(sorted(invalid_test_years))}")
-
-        self._test_years_not_in_data = [year for year in self._all_years if year not in test_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._test_years_not_in_data:
-            self.gfs_files_test = [file for file in self.gfs_files_test if '_%s' % str(year) not in file]
-
-    def __reset_test_years(self):
-        """
-        Reset test years in the GFS files
-        """
-
-        if not hasattr(self, '_filtered_gfs_files_before_test_year_selection'):  # If the test_years have not been selected yet
-            self._filtered_gfs_files_before_test_year_selection = self.gfs_files_test
-        else:
-            self.gfs_files_test = self._filtered_gfs_files_before_test_year_selection  # Return file list to last state before test_years were modified
-
-    test_years = property(__get_test_years, __set_test_years)  # Property method for setting test years
-
-    ####################################################################################################################
-
-    def __get_forecast_hours(self):
-        """
-        Return the list of forecast hours used
-        """
-
-        return self._forecast_hours
-
-    def __set_forecast_hours(self, forecast_hours: tuple or list):
-        """
-        Select the forecast hours to load
-        """
-
-        self.__reset_forecast_hours()  # Return file list to last state before forecast hours were modified (no effect is this is first forecast hour selection)
-
-        self._forecast_hours = forecast_hours
-
-        ### Check that all selected GFS forecast hours are valid ###
-        invalid_forecast_hours = [hour for hour in forecast_hours if hour not in self._all_forecast_hours]
-        if len(invalid_forecast_hours) > 0:
-            raise TypeError(f"The following forecast hours are not valid: {','.join(sorted(str(hour) for hour in invalid_forecast_hours))}")
-
-        self._forecast_hours_not_in_data = [hour for hour in self._all_forecast_hours if hour not in forecast_hours]
-
-        ### Remove unwanted forecast hours from the list of files ###
-        for hour in self._forecast_hours_not_in_data:
-            self.gfs_files = [file for file in self.gfs_files if '_f%03d_' % hour not in file]
-            self.gfs_files_training = [file for file in self.gfs_files_training if '_f%03d_' % hour not in file]
-            self.gfs_files_validation = [file for file in self.gfs_files_validation if '_f%03d_' % hour not in file]
-            self.gfs_files_test = [file for file in self.gfs_files_test if '_f%03d_' % hour not in file]
-
-    def __reset_forecast_hours(self):
-        """
-        Reset forecast hours in the GFS files
-        """
-
-        if not hasattr(self, '_filtered_gfs_files_before_forecast_hour_selection'):  # If the forecast hours have not been selected yet
-            self._filtered_gfs_files_before_forecast_hour_selection = self.gfs_files
-            self._filtered_gfs_training_files_before_forecast_hour_selection = self.gfs_files_training
-            self._filtered_gfs_validation_files_before_forecast_hour_selection = self.gfs_files_validation
-            self._filtered_gfs_test_files_before_forecast_hour_selection = self.gfs_files_test
-        else:
-            ### Return file lists to last state before forecast hours were modified ###
-            self.gfs_files = self._filtered_gfs_files_before_forecast_hour_selection
-            self.gfs_files_training = self._filtered_gfs_training_files_before_forecast_hour_selection
-            self.gfs_files_validation = self._filtered_gfs_validation_files_before_forecast_hour_selection
-            self.gfs_files_test = self._filtered_gfs_test_files_before_forecast_hour_selection
-
-    forecast_hours = property(__get_forecast_hours, __set_forecast_hours)  # Property method for setting forecast hours
-
-    ####################################################################################################################
-
-    def __sort_files_by_dataset(self, gfs_timesteps_used, sort_fronts=False):
-        """
-        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'gfs_timesteps_used' list.
-
-        gfs_timesteps_used: list
-            List of timesteps used when sorting GFS and/or frontal object files.
-        sort_fronts: bool
-            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both GFS and frontal object files at the
-            same time.
-        """
-
-        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected GFS files ###
-        training_indices = [index for index, timestep in enumerate(gfs_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
-        validation_indices = [index for index, timestep in enumerate(gfs_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
-        test_indices = [index for index, timestep in enumerate(gfs_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
-
-        ### Create new GFS file lists for training, validation, and test datasets using the indices pulled from above ###
-        self.gfs_files_training = [self.gfs_files[index] for index in training_indices]
-        self.gfs_files_validation = [self.gfs_files[index] for index in validation_indices]
-        self.gfs_files_test = [self.gfs_files[index] for index in test_indices]
-
-        if sort_fronts:
-            ### Create new frontal object file lists for training, validation, and test datasets using the indices pulled from above ###
-            self.front_files_training = [self.front_files[index] for index in training_indices]
-            self.front_files_validation = [self.front_files[index] for index in validation_indices]
-            self.front_files_test = [self.front_files[index] for index in test_indices]
-
-    def pair_with_fronts(self, front_indir, synoptic_only=True):
-        """
-        Pair all of the GFS timesteps with frontal object files containing timesteps for the given forecast hours
-
-        front_indir: str
-            - Directory where the frontal object files are stored.
-        synoptic_only: bool
-            - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
-        """
-
-        self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
-        self.front_files = self._all_front_files
-
-        front_files_list = []
-        gfs_files_list = []
-        timesteps_in_gfs_files = []
-
-        ### Find all timesteps in the GFS files ###
-        for j in range(len(self.gfs_files)):
-            timesteps_in_gfs_files.append(self.gfs_files[j][5:15])
-
-        unique_timesteps_in_gfs_files = list(np.unique(sorted(timesteps_in_gfs_files)))
-        unique_forecast_timesteps = []
-
-        ### Calculate timesteps needed for pulling front object files ###
-        for unique_timestep in unique_timesteps_in_gfs_files:
-            if synoptic_only and any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
-                unique_timesteps_in_gfs_files.pop(unique_timesteps_in_gfs_files.index(unique_timestep))
-            else:
-                unique_forecast_timesteps.append([data_utils.add_or_subtract_hours_to_timestep(unique_timestep, num_hours) for num_hours in self._forecast_hours])
-
-        # List of GFS timesteps used when adding files to the final list. If an incomplete set of GFS or front files was discovered for a
-        # timestep in 'unique_timesteps_in_gfs_files', then the files for that timestep will not be added to the final list.
-        gfs_timesteps_used = []
-
-        ### Create a nested list for GFS files sorted by timestep and another for front files for each forecast timestep and the given forecast hours ###
-        for gfs_timestep, forecast_timesteps in zip(unique_timesteps_in_gfs_files, unique_forecast_timesteps):
-            gfs_files_for_timestep = sorted(filter(lambda filename: gfs_timestep in filename, self.gfs_files))
-            front_files_for_timesteps = [filename for filename in self.front_files if any(timestep in filename for timestep in forecast_timesteps)]
-            if len(gfs_files_for_timestep) == len(self._forecast_hours) and len(front_files_for_timesteps) == len(self._forecast_hours):
-                gfs_files_list.append(gfs_files_for_timestep)
-                front_files_list.append(front_files_for_timesteps)
-                gfs_timesteps_used.append(gfs_timestep)
-
-        self.gfs_files = gfs_files_list
-        self.front_files = front_files_list
-
-        self.__sort_files_by_dataset(gfs_timesteps_used)  # Modify lists for training, validation, and test datasets
-
-
-class SpatialCSIfiles:
-    """
-    Object that loads and manages netCDF files containing model predictions and front files
-    """
-    def __init__(self, model_number: int, model_dir: str, domain: str, domain_images: tuple, variable_data_source='era5', forecast_hour=None):
-        """
-        When the SpatialCSIfiles object is created, open all model prediction netCDF files
-        """
-
-        self.__variable_data_source = variable_data_source
-        self.__forecast_hour = forecast_hour
-        self.probs_dir = f"%s/model_%d/probabilities/{domain}_{domain_images[0]}x{domain_images[1]}" % (model_dir, model_number)
-
-        if variable_data_source != 'era5':
-            self._all_probs_netcdf_files = sorted(glob(f"%s/model_{model_number}*{domain}_{variable_data_source}_f%03d_{domain_images[0]}x{domain_images[1]}_probabilities*.nc" % (self.probs_dir, forecast_hour)))  # All probability files without filtering
-        else:
-            self._all_probs_netcdf_files = sorted(glob(f"%s/model_{model_number}*{domain}_{domain_images[0]}x{domain_images[1]}_probabilities*.nc" % self.probs_dir))  # All probability files without filtering
-
-        ### All available options for specific filters ###
-        self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
-
-        self.reset_all_filters()  # Resetting the filters simply creates the probability file lists
-
-        ### Current values for the filters used in the files ###
-        self._training_years = self._all_years
-        self._validation_years = self._all_years
-        self._test_years = self._all_years
-
-    def reset_all_filters(self):
-        """
-        Reset the lists of probs netCDF files and front object files
-        """
-
-        self.probs_files = self._all_probs_netcdf_files
-        self.probs_files_training = [probs_file for probs_file in self._all_probs_netcdf_files if any('_%s' % str(year) in probs_file for year in self._all_years[:11])]
-        self.probs_files_validation = [probs_file for probs_file in self._all_probs_netcdf_files if any('_%s' % str(year) in probs_file for year in self._all_years[11:14])]
-        self.probs_files_test = [probs_file for probs_file in self._all_probs_netcdf_files if any('_%s' % str(year) in probs_file for year in self._all_years[14:])]
-
-        ### If front files have been loaded to be paired with probs files, reset the front file lists ###
-        if hasattr(self, '_all_front_files'):
-            self.front_files = self._all_front_files
-            self.front_files_training = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[:11])]
-            self.front_files_validation = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[11:14])]
-            self.front_files_test = [front_file for front_file in self._all_front_files if any('_%s' % str(year) in front_file for year in self._all_years[14:])]
-
-    ####################################################################################################################
-
-    def __get_training_years(self):
-        """
-        Return the list of training years used
-        """
-
-        return self._training_years
-
-    def __set_training_years(self, training_years: tuple or list):
-        """
-        Select the training years to load
-        """
-
-        self.__reset_training_years()  # Return file list to last state before training years were modified (no effect is this is first training year selection)
-
-        self._training_years = training_years
-
-        ### Check that all selected probs training years are valid ###
-        invalid_training_years = [year for year in training_years if year not in self._all_years]
-        if len(invalid_training_years) > 0:
-            raise TypeError(f"The following training years are not valid: {','.join(sorted(invalid_training_years))}")
-
-        self._training_years_not_in_data = [year for year in self._all_years if year not in training_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._training_years_not_in_data:
-            self.probs_files_training = [file for file in self.probs_files_training if '_%s' % str(year) not in file]
-
-    def __reset_training_years(self):
-        """
-        Reset training years in the probs files
-        """
-
-        if not hasattr(self, '_filtered_probs_files_before_training_year_selection'):  # If the training_years have not been selected yet
-            self._filtered_probs_files_before_training_year_selection = self.probs_files_training
-        else:
-            self.probs_files_training = self._filtered_probs_files_before_training_year_selection  # Return file list to last state before training_years were modified
-
-    training_years = property(__get_training_years, __set_training_years)  # Property method for setting training years
-
-    ####################################################################################################################
-
-    def __get_validation_years(self):
-        """
-        Return the list of validation years used
-        """
-
-        return self._validation_years
-
-    def __set_validation_years(self, validation_years: tuple or list):
-        """
-        Select the validation years to load
-        """
-
-        self.__reset_validation_years()  # Return file list to last state before validation years were modified (no effect is this is first validation year selection)
-
-        self._validation_years = validation_years
-
-        ### Check that all selected probs validation years are valid ###
-        invalid_validation_years = [year for year in validation_years if year not in self._all_years]
-        if len(invalid_validation_years) > 0:
-            raise TypeError(f"The following validation years are not valid: {','.join(sorted(invalid_validation_years))}")
-
-        self._validation_years_not_in_data = [year for year in self._all_years if year not in validation_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._validation_years_not_in_data:
-            self.probs_files_validation = [file for file in self.probs_files_validation if '_%s' % str(year) not in file]
-
-    def __reset_validation_years(self):
-        """
-        Reset validation years in the probs files
-        """
-
-        if not hasattr(self, '_filtered_probs_files_before_validation_year_selection'):  # If the validation_years have not been selected yet
-            self._filtered_probs_files_before_validation_year_selection = self.probs_files_validation
-        else:
-            self.probs_files_validation = self._filtered_probs_files_before_validation_year_selection  # Return file list to last state before validation_years were modified
-
-    validation_years = property(__get_validation_years, __set_validation_years)  # Property method for setting validation years
-
-    ####################################################################################################################
-
-    def __get_test_years(self):
-        """
-        Return the list of test years used
-        """
-
-        return self._test_years
-
-    def __set_test_years(self, test_years: tuple or list):
-        """
-        Select the test years to load
-        """
-
-        self.__reset_test_years()  # Return file list to last state before test years were modified (no effect is this is first test year selection)
-
-        self._test_years = test_years
-
-        ### Check that all selected probs test years are valid ###
-        invalid_test_years = [year for year in test_years if year not in self._all_years]
-        if len(invalid_test_years) > 0:
-            raise TypeError(f"The following test years are not valid: {','.join(sorted(invalid_test_years))}")
-
-        self._test_years_not_in_data = [year for year in self._all_years if year not in test_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._test_years_not_in_data:
-            self.probs_files_test = [file for file in self.probs_files_test if '_%s' % str(year) not in file]
-
-    def __reset_test_years(self):
-        """
-        Reset test years in the probs files
-        """
-
-        if not hasattr(self, '_filtered_probs_files_before_test_year_selection'):  # If the test_years have not been selected yet
-            self._filtered_probs_files_before_test_year_selection = self.probs_files_test
-        else:
-            self.probs_files_test = self._filtered_probs_files_before_test_year_selection  # Return file list to last state before test_years were modified
-
-    test_years = property(__get_test_years, __set_test_years)  # Property method for setting test years
-
-    ####################################################################################################################
-
-    def __sort_files_by_dataset(self, probs_timesteps_used, sort_fronts=False):
-        """
-        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'probs_timesteps_used' list.
-
-        probs_timesteps_used: list
-            List of timesteps used when sorting probs and/or frontal object files.
-        sort_fronts: bool
-            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both probs and frontal object files at the
-            same time.
-        """
-
-        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected probs files ###
-        training_indices = [index for index, timestep in enumerate(probs_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
-        validation_indices = [index for index, timestep in enumerate(probs_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
-        test_indices = [index for index, timestep in enumerate(probs_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
-
-        ### Create new probs file lists for training, validation, and test datasets using the indices pulled from above ###
-        self.probs_files_training = [self.probs_files[index] for index in training_indices]
-        self.probs_files_validation = [self.probs_files[index] for index in validation_indices]
-        self.probs_files_test = [self.probs_files[index] for index in test_indices]
-
-        if sort_fronts:
-            ### Create new frontal object file lists for training, validation, and test datasets using the indices pulled from above ###
-            self.front_files_training = [self.front_files[index] for index in training_indices]
-            self.front_files_validation = [self.front_files[index] for index in validation_indices]
-            self.front_files_test = [self.front_files[index] for index in test_indices]
-
-    def pair_with_fronts(self, front_indir, synoptic_only=True, sort_fronts=False):
-        """
-        Pair all of the probs timesteps with frontal object files containing timesteps for the given forecast hours
-
-        front_indir: str
-            - Directory where the frontal object files are stored.
-        synoptic_only: bool
-            - Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
-        """
-
-        self._all_front_files = sorted(glob("%s/*/*/*/FrontObjects*.nc" % front_indir))  # All front files without filtering
-        self.front_files = self._all_front_files
-
-        front_files_list = []
-        probs_files_list = []
-        timesteps_in_probs_files = []
-
-        ### Find all timesteps in the probs files ###
-        for j in range(len(self.probs_files)):
-            timestep_str = self.probs_files[j].replace(self.probs_dir, '')[15:28]
-            timesteps_in_probs_files.append(timestep_str)
-
-        unique_timesteps_in_probs_files = list(np.unique(timesteps_in_probs_files))
-        unique_forecast_timesteps = []
-
-        ### Filter out non-synotpic hours (3, 9, 15, 21z) ###
-        for unique_timestep in unique_timesteps_in_probs_files:
-            if synoptic_only and any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
-                unique_timesteps_in_probs_files.pop(unique_timesteps_in_probs_files.index(unique_timestep))
-            if self.__forecast_hour is not None and self.__variable_data_source != 'era5':
-                unique_forecast_timesteps.append(data_utils.add_or_subtract_hours_to_timestep(unique_timestep.replace('-', ''), self.__forecast_hour))
-            else:
-                unique_forecast_timesteps.append(unique_timestep.replace('-', ''))
-
-        # List of probs timesteps used when adding files to the final list. If an incomplete set of probs or front files was discovered for a
-        # timestep in 'unique_timesteps_in_probs_files', then the files for that timestep will not be added to the final list.
-        probs_timesteps_used = []
-
-        for probs_timestep, forecast_timestep in zip(unique_timesteps_in_probs_files, unique_forecast_timesteps):
-            probs_files_for_timestep = list(filter(lambda filename: probs_timestep in filename, self.probs_files))
-            front_file_for_timestep = list(filter(lambda filename: forecast_timestep in filename, self.front_files))
-            if len(front_file_for_timestep) == 1:
-                probs_files_list.append(probs_files_for_timestep[0])
-                front_files_list.append(front_file_for_timestep[0])
-                probs_timesteps_used.append(probs_timestep)
-
-        self.probs_files = probs_files_list
-        self.front_files = front_files_list
-
-        self.__sort_files_by_dataset(probs_timesteps_used, sort_fronts)  # Modify lists for training, validation, and test datasets
-
-
-def extract_gdas_tarfile(gdas_tar_indir: str, gdas_grib_outdir: str, year: int, month: int, day: int, string_to_find: str = None, remove_tarfile: bool = True):
-    """
-    Extract members from a GDAS TAR file.
-
-    Parameters
-    ----------
-    gdas_tar_indir: str
-        - Directory for the GDAS TAR files.
-    gdas_grib_outdir: str
-        - Output directory for the extracted grib files.
-    year: int
-    month: int
-    day: int
-    string_to_find: str or None
-        - Files containing this string will be extracted from the TAR file and placed into the provided output directory.
-        - If left as None, all files within the GDAS TAR file will be extracted.
-    remove_tarfile: bool
-        - Setting this to True will delete the original TAR file after all members have been extracted.
-        - If string_to_find is not None (i.e. members were filtered out of the TAR file), setting this to True will have no effect.
-          This is to prevent files that are potentially needed in the future from being removed.
-
-    Raises
-    ------
-    UserWarning
-        - If 'remove_tarfile' is True and 'string_to_find' is not None
-    """
-
-    ### Verify that the provided input and output directories are valid ###
-    assert os.path.isdir(gdas_tar_indir)  # If this line returns an AssertionError, then the input directory is invalid / does not exist
-    assert os.path.isdir(gdas_grib_outdir)  # If this line returns an AssertionError, then the output directory is invalid / does not exist
-
-    tarfile_path = '%s/ncep_global_ssi.%d%02d%02d.tar' % (gdas_tar_indir, year, month, day)
-
-    print(f"Reading GDAS TAR file: {tarfile_path}")
-    gdas_tarfile = tarfile.open(tarfile_path, 'r')
-
-    ### Gather files to extract, starting with all files and filtering out files whose names do not contain the provided string (if said string is provided) ###
-
-    files_to_extract = [member for member in gdas_tarfile.getmembers()]  # Find all members within the TAR file
-    print("Number of members in GDAS TAR file: %d" % len(files_to_extract))
-
-    if string_to_find is not None:
-        files_to_extract = [member for member in gdas_tarfile.getmembers() if string_to_find in member.name]  # Filter files based on given string
-
-    ### Create a folder to hold extracted files for the provided day (if it does not exist)
-    gdas_folder_for_provided_day = '%d%02d%02d' % (year, month, day)
-    full_gdas_outdir = f'{gdas_grib_outdir}/{gdas_folder_for_provided_day}'
-    if not os.path.isdir(full_gdas_outdir):  # Check if the directory exists
-        os.mkdir(full_gdas_outdir)  # Create the directory for the day if the directory does not exist
-        print("Created directory: %s" % full_gdas_outdir)
-
-    ### Extract the members from the GDAS TAR file and place them into the provided output directory ###
-    for member in files_to_extract:
-        gdas_tarfile.extract(member, full_gdas_outdir)
-    print("Successfully extracted %d members from GDAS TAR file" % len(files_to_extract))
-
-    gdas_tarfile.close()  # Close the GDAS TAR file
-
-    if remove_tarfile:
-        if string_to_find is None:
-            os.remove(tarfile_path)  # Delete the GDAS TAR file
-            print(f"Successfully deleted GDAS TAR file located at: {tarfile_path}")
-        else:
-            raise UserWarning(f"The GDAS TAR file located at {tarfile_path} will not be removed as some members were not extracted from the TAR file. To delete a TAR file, "
-                              "all members must be extracted without a filter. This can be accomplished by leaving the 'string_to_find' parameter as None, which is its default "
-                              "value.")
-
-
-def load_model(model_number, model_dir):
+def load_model(model_number: int, model_dir: str):
     """
     Load a saved model.
 
     Parameters
     ----------
     model_number: int
-        - Slurm job number for the model. This is the number in the model's filename.
+        Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
-        - Main directory for the models.
+        Main directory for the models.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(model_number, int):
+        raise TypeError(f"model_number must be an integer, received {type(model_number)}")
+    if not isinstance(model_dir, str):
+        raise TypeError(f"model_dir must be a string, received {type(model_dir)}")
+    ####################################################################################################################
+
+    from tensorflow.keras.models import load_model as lm
+    import custom_losses
+    import custom_metrics
 
     model_path = f"{model_dir}/model_{model_number}/model_{model_number}.h5"
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
@@ -1423,45 +629,26 @@ def load_model(model_number, model_dir):
 if __name__ == '__main__':
     """
     Warnings
-        - Do not use leading zeros when declaring the month, day, and hour in 'date'. (ex: if the day is 2, do not type 02)
-        - Longitude values in the 'new_extent' argument must in the 360-degree coordinate system.
+        Do not use leading zeros when declaring the month, day, and hour in 'date'. (ex: if the day is 2, do not type 02)
+        Longitude values in the 'new_extent' argument must in the 360-degree coordinate system.
     """
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--create_subdirectories', action='store_true', help='Create daily subdirectories')
     parser.add_argument('--compress_files', action='store_true', help='Compress files')
     parser.add_argument('--delete_grouped_files', action='store_true', help='Delete a set of files')
-    parser.add_argument('--extract_gdas_tarfile', action='store_true', help='Remove non-0.25 degree grid files from a GDAS TAR file')
     parser.add_argument('--extract_tarfile', action='store_true', help='Extract a TAR file')
-    parser.add_argument('--gdas_tar_indir', type=str, help='Input directory for the GDAS TAR files.')
-    parser.add_argument('--gdas_grib_outdir', type=str, help='Output directory for the GDAS grib files.')
     parser.add_argument('--glob_file_string', type=str, help='String of the names of the files to compress or delete.')
     parser.add_argument('--main_dir', type=str, help='Main directory for subdirectory creation or where the files in question are located.')
     parser.add_argument('--num_subdir', type=int, help='Number of subdirectory layers in the main directory.')
     parser.add_argument('--tar_filename', type=str, help='Name of the TAR file.')
-    parser.add_argument('--timestep_for_gdas_extraction', type=int, nargs=3, help='Year, month, and day for the GDAS TAR files that will be modified.')
     args = parser.parse_args()
     provided_arguments = vars(args)
-
-    if args.create_subdirectories:
-        create_subdirectories(args.main_dir)
     
     if args.compress_files:
-        required_arguments = ['main_dir', 'glob_file_string', 'tar_filename']
-        check_arguments(provided_arguments, required_arguments)
         compress_files(args.main_dir, args.glob_file_string, args.tar_filename)
 
     if args.delete_grouped_files:
-        required_arguments = ['glob_file_string', 'main_dir', 'num_subdir']
-        check_arguments(provided_arguments, required_arguments)
         delete_grouped_files(args.main_dir, args.glob_file_string, args.num_subdir)
 
     if args.extract_tarfile:
-        required_arguments = ['main_dir', 'tar_filename']
-        check_arguments(provided_arguments, required_arguments)
         extract_tarfile(args.main_dir, args.tar_filename)
-
-    if args.extract_gdas_tarfile:
-        required_arguments = ['gdas_tar_indir', 'gdas_grib_outdir', 'timestep_for_gdas_extraction']
-        check_arguments(provided_arguments, required_arguments)
-        extract_gdas_tarfile(args.gdas_tar_indir, args.gdas_grib_outdir, args.timestep_for_gdas_extraction[0], args.timestep_for_gdas_extraction[1], args.timestep_for_gdas_extraction[2])

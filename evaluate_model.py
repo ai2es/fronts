@@ -2,12 +2,10 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/14/2023 2:57 PM CT
+Last updated: 3/27/2023 8:25 PM CT
 
 TODO:
-    * Clean up code (much needed)
     * Remove the need for separate pickle files to be generated for spatial CSI maps
-    * Add more documentation
     * Update performance diagram code to support spatial CSI maps
 """
 
@@ -20,10 +18,8 @@ import pandas as pd
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
-import errors
 import file_manager as fm
 import xarray as xr
-from errors import check_arguments
 import tensorflow as tf
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
 from utils import data_utils, settings
@@ -34,42 +30,42 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import r2_score
 
 
-def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
-    image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing):
+def _add_image_to_map(stitched_map_probs: np.array, image_probs: np.array, map_created: bool, domain_images_lon: int, domain_images_lat: int,
+    lon_image: int, lat_image: int, image_size_lon: int, image_size_lat: int, lon_image_spacing: int, lat_image_spacing: int):
     """
     Add model prediction to the stitched map.
 
     Parameters
     ----------
     stitched_map_probs: Numpy array
-        - Array of front probabilities for the final map.
+        Array of front probabilities for the final map.
     image_probs: Numpy array
-        - Array of front probabilities for the current prediction/image.
+        Array of front probabilities for the current prediction/image.
     map_created: bool
-        - Boolean flag that declares whether or not the final map has been completed.
+        Boolean flag that declares whether or not the final map has been completed.
     domain_images_lon: int
-        - Number of images along the longitude dimension of the domain.
+        Number of images along the longitude dimension of the domain.
     domain_images_lat: int
-        - Number of images along the latitude dimension of the domain.
+        Number of images along the latitude dimension of the domain.
     lon_image: int
-        - Current image number along the longitude dimension.
+        Current image number along the longitude dimension.
     lat_image: int
-        - Current image number along the latitude dimension.
+        Current image number along the latitude dimension.
     image_size_lon: int
-        - Number of pixels along the longitude dimension of the model predictions.
+        Number of pixels along the longitude dimension of the model predictions.
     image_size_lat: int
-        - Number of pixels along the latitude dimension of the model predictions.
+        Number of pixels along the latitude dimension of the model predictions.
     lon_image_spacing: int
-        - Number of pixels between each image along the longitude dimension.
+        Number of pixels between each image along the longitude dimension.
     lat_image_spacing: int
-        - Number of pixels between each image along the latitude dimension.
+        Number of pixels between each image along the latitude dimension.
 
     Returns
     -------
     map_created: bool
-        - Boolean flag that declares whether or not the final map has been completed.
+        Boolean flag that declares whether or not the final map has been completed.
     stitched_map_probs: array
-        - Array of front probabilities for the final map.
+        Array of front probabilities for the final map.
     """
 
     if lon_image == 0:  # If the image is on the western edge of the domain
@@ -204,29 +200,59 @@ def add_image_to_map(stitched_map_probs, image_probs, map_created, domain_images
     return stitched_map_probs, map_created
 
 
-def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, forecast_hour=None, variable_data_source='era5'):
+def calculate_performance_stats(model_number: int, model_dir: str, fronts_netcdf_dir: str, timestep: str, domain: str, domain_images: tuple | list,
+    forecast_hour: int = None, variable_data_source: str = 'era5'):
     """
     Calculate performance statistics (true positives, false positives, false negatives, true negatives) for a model over a specified domain.
 
     Parameters
     ----------
     model_number: int
-        - Slurm job number for the model. This is the number in the model's filename.
+        Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
-        - Main directory for the models.
+        Main directory for the models.
     fronts_netcdf_dir: str
-        - Directory where the frontal object netCDF files are stored.
+        Directory where the frontal object netCDF files are stored.
     timestep: iterable object with 4 ints
-        - 4 integers in the following order: year, month, day, hour
+        4 integers in the following order: year, month, day, hour
     domain: str
-        - Domain of the data.
+        Domain of the data.
     domain_images: iterable object with 2 ints
-        - Number of images along each dimension of the final stitched map (lon lat).
-    variable_data_source: str
-        - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
+        Number of images along each dimension of the final stitched map (lon lat).
     forecast_hour: int
-        - Forecast hour for the data. This will only be used if the data source is not ERA5.
+        Forecast hour for the data. This will only be used if the data source is not ERA5.
+    variable_data_source: str
+        Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(model_number, int):
+        raise TypeError(f"model_number must be an integer, received {type(model_number)}")
+    if not isinstance(model_dir, str):
+        raise TypeError(f"model_dir must be a string, received {type(model_dir)}")
+    if not isinstance(fronts_netcdf_dir, str):
+        raise TypeError(f"fronts_netcdf_dir must be a string, received {type(fronts_netcdf_dir)}")
+    if not isinstance(timestep, str):
+        raise TypeError(f"timestep must be a string, received {type(timestep)}")
+    if not isinstance(domain, str):
+        raise TypeError(f"domain must be a string, received {type(domain)}")
+    if forecast_hour is not None and not isinstance(forecast_hour, int):
+        raise TypeError(f"forecast_hour must be an integer, received {type(forecast_hour)}")
+    if not isinstance(variable_data_source, str):
+        raise TypeError(f"variable_data_source must be a string, received {type(variable_data_source)}")
+
+    if domain_images is not None:
+        if not isinstance(domain_images, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for domain_images, received {type(domain_images)}")
+        elif len(domain_images) != 2:
+            raise TypeError(f"Tuple or list for domain_images must be length 2, received length {len(domain_images)}")
+
+    if image_size is not None:
+        if not isinstance(image_size, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for image_size, received {type(image_size)}")
+        elif len(image_size) != 2:
+            raise TypeError(f"Tuple or list for image_size must be length 2, received length {len(image_size)}")
+    ####################################################################################################################
 
     year, month, day, hour = timestep[0], timestep[1], timestep[2], timestep[3]
 
@@ -310,7 +336,7 @@ def calculate_performance_stats(model_number, model_dir, fronts_netcdf_dir, time
     performance_ds.to_netcdf(path=probs_file.replace('probabilities', 'statistics'), mode='w', engine='netcdf4')
 
 
-def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, compat_images=None):
+def find_matches_for_domain(domain_size: tuple | list, image_size: tuple | list, compatibility_mode: bool = False, compat_images: tuple | list = None):
     """
     Function that outputs the number of images that can be stitched together with the specified domain length and the length
     of the domain dimension output by the model. This is also used to determine the compatibility of declared image and
@@ -319,16 +345,37 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
     Parameters
     ----------
     domain_size: iterable object with 2 integers
-        - Number of pixels along each dimension of the final stitched map (lon lat).
+        Number of pixels along each dimension of the final stitched map (lon lat).
     image_size: iterable object with 2 integers
-        - Number of pixels along each dimension of the model's output (lon lat).
+        Number of pixels along each dimension of the model's output (lon lat).
     compatibility_mode: bool
-        - Boolean flag that declares whether or not the function is being used to check compatibility of given parameters.
+        Boolean flag that declares whether or not the function is being used to check compatibility of given parameters.
     compat_images: iterable object with 2 integers
-        - Number of images declared for the stitched map in each dimension (lon lat). (Compatibility mode only)
+        Number of images declared for the stitched map in each dimension (lon lat). (Compatibility mode only)
     """
 
-    if compatibility_mode is True:
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(domain_size, (tuple, list)):
+        raise TypeError(f"Expected a tuple or list for domain_size, received {type(domain_size)}")
+    elif len(domain_size) != 2:
+        raise TypeError(f"Tuple or list for domain_images must be length 2, received length {len(domain_size)}")
+
+    if not isinstance(image_size, (tuple, list)):
+        raise TypeError(f"Expected a tuple or list for image_size, received {type(image_size)}")
+    elif len(image_size) != 2:
+        raise TypeError(f"Tuple or list for image_size must be length 2, received length {len(image_size)}")
+
+    if compatibility_mode is not None and not isinstance(compatibility_mode, bool):
+        raise TypeError(f"compatibility_mode must be a boolean, received {type(compatibility_mode)}")
+
+    if compat_images is not None:
+        if not isinstance(compat_images, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for compat_images, received {type(compat_images)}")
+        elif len(compat_images) != 2:
+            raise TypeError(f"Tuple or list for compat_images must be length 2, received length {len(compat_images)}")
+    ####################################################################################################################
+
+    if compatibility_mode:
         """ These parameters are used when checking the compatibility of image stitching arguments. """
         compat_images_lon = compat_images[0]  # Number of images in the longitude direction
         compat_images_lat = compat_images[1]  # Number of images in the latitude direction
@@ -352,20 +399,20 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
         if lon_spacing - int(lon_spacing) == 0 and lon_spacing > 1 and image_size[0]-lon_spacing > 0:  # Check compatibility of latitude image spacing
             lon_image_matches.append(lon_images)  # Add longitude image match to list
             num_matches[0] += 1
-            if compatibility_mode is True:
+            if compatibility_mode:
                 if compat_images_lon == lon_images:  # If the number of images for the compatibility check equals the match
                     lon_images_are_compatible = True
         elif lon_spacing == 0 and domain_size[0] - image_size[0] == 0:
             lon_image_matches.append(lon_images)  # Add longitude image match to list
             num_matches[0] += 1
-            if compatibility_mode is True:
+            if compatibility_mode:
                 if compat_images_lon == lon_images:  # If the number of images for the compatibility check equals the match
                     lon_images_are_compatible = True
 
     if num_matches[0] == 0:
         raise ValueError(f"No compatible value for domain_images[0] was found with domain_size[0]={domain_size[0]} and image_size[0]={image_size[0]}.")
-    if compatibility_mode is True:
-        if lon_images_are_compatible is False:
+    if compatibility_mode:
+        if not lon_images_are_compatible:
             raise ValueError(f"domain_images[0]={compat_images_lon} is not compatible with domain_size[0]={domain_size[0]} "
                              f"and image_size[0]={image_size[0]}.\n"
                              f"====> Compatible values for domain_images[0] given domain_size[0]={domain_size[0]} "
@@ -381,20 +428,20 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
         if lat_spacing - int(lat_spacing) == 0 and lat_spacing > 1 and image_size[1]-lat_spacing > 0:  # Check compatibility of latitude image spacing
             lat_image_matches.append(lat_images)  # Add latitude image match to list
             num_matches[1] += 1
-            if compatibility_mode is True:
+            if compatibility_mode:
                 if compat_images_lat == lat_images:  # If the number of images for the compatibility check equals the match
                     lat_images_are_compatible = True
         elif lat_spacing == 0 and domain_size[1] - image_size[1] == 0:
             lat_image_matches.append(lat_images)  # Add latitude image match to list
             num_matches[1] += 1
-            if compatibility_mode is True:
+            if compatibility_mode:
                 if compat_images_lat == lat_images:  # If the number of images for the compatibility check equals the match
                     lat_images_are_compatible = True
 
     if num_matches[1] == 0:
         raise ValueError(f"No compatible value for domain_images[1] was found with domain_size[1]={domain_size[1]} and image_size[1]={image_size[1]}.")
-    if compatibility_mode is True:
-        if lat_images_are_compatible is False:
+    if compatibility_mode:
+        if not lat_images_are_compatible:
             raise ValueError(f"domain_images[1]={compat_images_lat} is not compatible with domain_size[1]={domain_size[1]} "
                              f"and image_size[1]={image_size[1]}.\n"
                              f"====> Compatible values for domain_images[1] given domain_size[1]={domain_size[1]} "
@@ -403,45 +450,85 @@ def find_matches_for_domain(domain_size, image_size, compatibility_mode=False, c
         print(f"Compatible latitude images: {lat_image_matches}")
 
 
-def generate_predictions(model_number, model_dir, variables_netcdf_indir, prediction_method, domain='full',
-    domain_images='min', image_size=None, dataset=None, datetime=None, random_variables=None, variable_data_source='gdas',
-    forecast_hours=None):
+def generate_predictions(model_number: int, model_dir: str, variables_netcdf_indir: str, prediction_method: str, domain: str = 'full',
+    domain_images: tuple | list = None, image_size: tuple | list = None, dataset: str = None, datetime: str = None,
+    random_variables: list = None, variable_data_source: str = 'era5', forecast_hours: tuple | list = None):
     """
     Generate predictions with a model.
 
     Parameters
     ----------
     model_number: int
-        - Slurm job number for the model. This is the number in the model's filename.
+        Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
-        - Main directory for the models.
+        Main directory for the models.
     variables_netcdf_indir: str
-        - Input directory for the ERA5 netcdf files.
+        Input directory for the ERA5 netcdf files.
     domain: str
-        - Domain of the datasets.
-    domain_images: str or iterable object with 2 ints
-        - If a string, valid values are 'min', 'balanced', 'max'. Default is 'min'.
-            * 'min' uses the minimum possible number of images when making the predictions.
-            * 'balanced' chooses the number of images that creates the closest possible balance of images in the longitude and latitude direction.
-            * 'max' chooses the maximum number of images that can be stitched together (NOT RECOMMENDED)
-        - If an iterable with 2 integers, values represent the number of images in the longitude and latitude dimensions.
+        Domain over which the predictions will be made. Options are: 'conus', 'full'. Default is 'full'.
+    domain_images: iterable object with 2 ints
+        Number of images along each dimension of the final stitched map (lon lat).
     image_size: tuple of 2 ints
-        - Size of the images that will be used for predictions.
+        Size of the images that will be used for predictions.
     prediction_method: str
-        - Prediction method. Options are: 'datetime', 'random', 'all'
-    domain: str
-        - Domain over which the predictions will be made. Options are: 'conus', 'full'. Default is 'full'.
+        Prediction method. Options are: 'datetime', 'random', 'all'
     datetime: iterable object with 4 integers
-        - 4 values for the date and time: year, month, day, hour
+        4 values for the date and time: year, month, day, hour
     dataset: str
-        - Dataset for which to make predictions if prediction_method is 'random' or 'all'.
+        Dataset for which to make predictions if prediction_method is 'random' or 'all'.
     random_variables: str, or iterable of strings
-        - Variables to randomize.
+        Variables to randomize.
     variable_data_source: str
-        - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
+        Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
     forecast_hours: int or tuple of ints
-        - Forecast hours to make predictions with if making predictions with GDAS data.
+        Forecast hours to make predictions with if making predictions with GDAS data.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(model_number, int):
+        raise TypeError(f"model_number must be an integer, received {type(model_number)}")
+    if not isinstance(model_dir, str):
+        raise TypeError(f"model_dir must be a string, received {type(model_dir)}")
+    if not isinstance(variables_netcdf_indir, str):
+        raise TypeError(f"variables_netcdf_indir must be a string, received {type(variables_netcdf_indir)}")
+    if not isinstance(domain, str):
+        raise TypeError(f"domain must be a string, received {type(domain)}")
+
+    if domain_images is not None:
+        if not isinstance(domain_images, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for domain_images, received {type(domain_images)}")
+        elif len(domain_images) != 2:
+            raise TypeError(f"Tuple or list for domain_images must be length 2, received length {len(domain_images)}")
+
+    if image_size is not None:
+        if not isinstance(image_size, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for image_size, received {type(image_size)}")
+        elif len(image_size) != 2:
+            raise TypeError(f"Tuple or list for image_size must be length 2, received length {len(image_size)}")
+
+    if not isinstance(prediction_method, str):
+        raise TypeError(f"prediction_method must be a string, received {type(prediction_method)}")
+
+    if datetime is not None:
+        if not isinstance(datetime, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for datetime, received {type(datetime)}")
+        elif len(datetime) != 4:
+            raise TypeError(f"Tuple or list for datetime must be length 4, received length {len(datetime)}")
+
+    if not isinstance(dataset, str):
+        raise TypeError(f"dataset must be a string, received {type(dataset)}")
+
+    if random_variables is not None:
+        if not isinstance(random_variables, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for random_variables, received {type(random_variables)}")
+
+    if not isinstance(variable_data_source, str):
+        raise TypeError(f"variable_data_source must be a string, received {type(variable_data_source)}")
+
+    if forecast_hours is not None:
+        if not isinstance(forecast_hours, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for forecast_hours, received {type(forecast_hours)}")
+    ####################################################################################################################
 
     variable_data_source = variable_data_source.lower()
 
@@ -486,15 +573,14 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
     model = fm.load_model(model_number, model_dir)
 
     ############################################### Load variable files ################################################
-    variable_files_obj = getattr(fm, '%sfiles' % variable_data_source.upper())  # Initialize the object for variable files
-    variable_files_obj = variable_files_obj(variables_netcdf_indir, file_type='netcdf')
+    variable_files_obj = fm.DataFileLoader(variables_netcdf_indir, data_file_type='%s-netcdf' % variable_data_source)
     variable_files_obj.validation_years = valid_years
     variable_files_obj.test_years = test_years
 
     if dataset is not None:
-        variable_files = getattr(variable_files_obj, f'{variable_data_source}_files_' + dataset)
+        variable_files = getattr(variable_files_obj, 'data_files_' + dataset)
     else:
-        variable_files = getattr(variable_files_obj, '%s_files' % variable_data_source)
+        variable_files = getattr(variable_files_obj, 'data_files')
     ####################################################################################################################
 
     dataset_kwargs = {'engine': 'netcdf4'}  # Keyword arguments for loading variable files with xarray
@@ -631,16 +717,16 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
                     if variable_data_source != 'era5':
                         for timestep in range(num_timesteps_in_batch):
                             for fcst_hr_index in range(num_forecast_hours):
-                                stitched_map_probs[timestep][fcst_hr_index], map_created = add_image_to_map(stitched_map_probs[timestep][fcst_hr_index], image_probs[timestep * num_forecast_hours + fcst_hr_index], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
+                                stitched_map_probs[timestep][fcst_hr_index], map_created = _add_image_to_map(stitched_map_probs[timestep][fcst_hr_index], image_probs[timestep * num_forecast_hours + fcst_hr_index], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
                                     image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
 
                     else:  # if variable_data_source == 'era5'
                         for timestep in range(num_timesteps_in_batch):
-                            stitched_map_probs[timestep], map_created = add_image_to_map(stitched_map_probs[timestep], image_probs[timestep], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
+                            stitched_map_probs[timestep], map_created = _add_image_to_map(stitched_map_probs[timestep], image_probs[timestep], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
                                 image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
                     ####################################################################################################
 
-                    if map_created is True:
+                    if map_created:
 
                         ### Create subdirectories for the data if they do not exist ###
                         if not os.path.isdir('%s/model_%d/maps/%s' % (model_dir, model_number, subdir_base)):
@@ -682,27 +768,38 @@ def generate_predictions(model_number, model_dir, variables_netcdf_indir, predic
                                 probs_ds.to_netcdf(path=outfile, engine='netcdf4', mode='w')
 
 
-def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, front_types: str or list):
+def create_model_prediction_dataset(stitched_map_probs: np.array, lats: np.array, lons: np.array, front_types: str | list):
     """
     Create an Xarray dataset containing model predictions.
 
     Parameters
     ----------
     stitched_map_probs: np.array
-        - Numpy array with probabilities for the given front type(s).
-        - Shape/dimensions: [front types, longitude, latitude]
+        Numpy array with probabilities for the given front type(s).
+        Shape/dimensions: [front types, longitude, latitude]
     lats: np.array
-        - 1D array of latitude values.
+        1D array of latitude values.
     lons: np.array
-        - 1D array of longitude values.
+        1D array of longitude values.
     front_types: str or list
-        - Front types within the dataset. See documentation in utils.data_utils.reformat fronts for more information.
+        Front types within the dataset. See documentation in utils.data_utils.reformat fronts for more information.
 
     Returns
     -------
     probs_ds: xr.Dataset
-        - Xarray dataset containing front probabilities predicted by the model for each front type.
+        Xarray dataset containing front probabilities predicted by the model for each front type.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if type(stitched_map_probs) != np.array:
+        raise TypeError(f"stitched_map_probs must be a NumPy array, received {type(stitched_map_probs)}")
+    if type(lats) != np.array:
+        raise TypeError(f"lats must be a NumPy array, received {type(lats)}")
+    if type(lons) != np.array:
+        raise TypeError(f"lons must be a NumPy array, received {type(lons)}")
+    if not isinstance(front_types, (tuple, list)):
+        raise TypeError(f"Expected a tuple or list for front_types, received {type(front_types)}")
+    ####################################################################################################################
 
     if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
         probs_ds = xr.Dataset(
@@ -736,14 +833,47 @@ def create_model_prediction_dataset(stitched_map_probs: np.array, lats, lons, fr
     return probs_ds
 
 
-def calibrate_model(model_number, model_dir, domain, domain_images, variable_data_source):
+def calibrate_model(model_number: int, model_dir: str, domain: str, domain_images: tuple | list, variable_data_source: str):
+    """
+    Calibrate a trained U-Net using 50, 100, 150, 200, and 250 km neighborhoods.
+
+    Parameters
+    ----------
+    model_number: int
+        Slurm job number for the model. This is the number in the model's filename.
+    model_dir: str
+        Main directory for the models.
+    domain: str
+        Domain over which the predictions will be made. Options are: 'conus', 'full'. Default is 'full'.
+    domain_images: iterable object with 2 ints
+        Number of images along each dimension of the final stitched map (lon lat).
+    variable_data_source: str
+        Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive).
+    """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(model_number, int):
+        raise TypeError(f"model_number must be an integer, received {type(model_number)}")
+    if not isinstance(model_dir, str):
+        raise TypeError(f"model_dir must be a string, received {type(model_dir)}")
+    if not isinstance(domain, str):
+        raise TypeError(f"domain must be a string, received {type(domain)}")
+
+    if not isinstance(domain_images, (tuple, list)):
+        raise TypeError(f"Expected a tuple or list for domain_images, received {type(domain_images)}")
+    elif len(domain_images) != 2:
+        raise TypeError(f"Tuple or list for domain_images must be length 2, received length {len(domain_images)}")
+
+    if not isinstance(variable_data_source, str):
+        raise TypeError(f"variable_data_source must be a string, received {type(variable_data_source)}")
+    ####################################################################################################################
 
     model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (model_dir, model_number, model_number))
     front_types = model_properties['front_types']
 
     if type(front_types) == str:
         front_types = [front_types, ]
-    
+
     try:
         _ = model_properties['calibration_models']  # Check to see if the model has already been calibrated before
     except KeyError:
@@ -845,34 +975,63 @@ def calibrate_model(model_number, model_dir, domain, domain_images, variable_dat
         plt.close()
 
 
-def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, domain, domain_images, bootstrap=True, random_variables=None,
-    variable_data_source='era5', calibrated=False, num_iterations=10000, forecast_hour=None):
+def plot_performance_diagrams(model_dir: str, model_number: int, fronts_netcdf_indir: str, domain: str, domain_images: tuple | list,
+    bootstrap: bool = True, random_variables: list = None, variable_data_source: str = 'era5', calibrated: bool = False,
+    num_iterations: int = 10000, forecast_hour: int = None):
     """
     Plots CSI performance diagram for different front types.
 
     Parameters
     ----------
     model_dir: str
-        - Main directory for the models.
+        Main directory for the models.
     model_number: int
-        - Slurm job number for the model. This is the number in the model's filename.
+        Slurm job number for the model. This is the number in the model's filename.
     domain: str
-        - Domain of the data.
+        Domain of the data.
     domain_images: iterable object with 2 ints
-        - Number of images along each dimension of the final stitched map (lon lat).
+        Number of images along each dimension of the final stitched map (lon lat).
     bootstrap: bool
-        - Setting this to true will plot confidence intervals onto the performance diagrams.
+        Setting this to true will plot confidence intervals onto the performance diagrams.
     random_variables: str or list of strs
-        - Variable(s) that were randomized when performance statistics were calculated.
+        Variable(s) that were randomized when performance statistics were calculated.
     variable_data_source: str
-        - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
+        Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
     calibrated: bool
-        - Indicates whether or not the statistics to be plotted are from a calibrated model.
+        Indicates whether or not the statistics to be plotted are from a calibrated model.
     num_iterations: int
-        - Number of iterations when bootstrapping the data.
+        Number of iterations when bootstrapping the data.
     forecast_hour: int
-        - Forecast hour for the data. This will only be used if the data source is not ERA5.
+        Forecast hour for the data. This will only be used if the data source is not ERA5.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(model_number, int):
+        raise TypeError(f"model_number must be an integer, received {type(model_number)}")
+    if not isinstance(model_dir, str):
+        raise TypeError(f"model_dir must be a string, received {type(model_dir)}")
+    if not isinstance(domain, str):
+        raise TypeError(f"domain must be a string, received {type(domain)}")
+
+    if domain_images is not None:
+        if not isinstance(domain_images, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for domain_images, received {type(domain_images)}")
+        elif len(domain_images) != 2:
+            raise TypeError(f"Tuple or list for domain_images must be length 2, received length {len(domain_images)}")
+
+    if not isinstance(bootstrap, bool):
+        raise TypeError(f"bootstrap must be a boolean, received {type(bootstrap)}")
+    if random_variables is not None and not isinstance(random_variables, list):
+        raise TypeError(f"random_variables must be a list, received {type(random_variables)}")
+    if not isinstance(variable_data_source, str):
+        raise TypeError(f"variable_data_source must be a string, received {type(variable_data_source)}")
+    if not isinstance(calibrated, bool):
+        raise TypeError(f"calibrated must be a boolean, received {type(calibrated)}")
+    if not isinstance(num_iterations, int):
+        raise TypeError(f"num_iterations must be an integer, received {type(num_iterations)}")
+    if forecast_hour is not None and not isinstance(forecast_hour, int):
+        raise TypeError(f"forecast_hour must be an integer, received {type(forecast_hour)}")
+    ####################################################################################################################
 
     model_properties = pd.read_pickle(f"{model_dir}\\model_{model_number}\\model_{model_number}_properties.pkl")
     front_types = model_properties['front_types']
@@ -917,8 +1076,6 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
         stats_ds = xr.open_mfdataset(files, combine='nested').isel(forecast_hour=0).transpose('time', 'boundary', 'threshold')
     else:
         stats_ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')
-
-
 
     # spatial_csi_obj = fm.SpatialCSIfiles(model_number, model_dir, domain, domain_images, variable_data_source, forecast_hour)
     # spatial_csi_obj.pair_with_fronts(front_indir=fronts_netcdf_indir, synoptic_only=synoptic_only, sort_fronts=True)
@@ -1190,8 +1347,9 @@ def plot_performance_diagrams(model_dir, model_number, fronts_netcdf_indir, doma
         plt.close()
 
 
-def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain, domain_images, forecast_hour=None,
-    variable_data_source='era5', probability_mask=(0.10, 0.10), calibration_km=None, same_map=True):
+def prediction_plot(model_number: int, model_dir: str, fronts_netcdf_dir: str, timestep: str, domain: str, domain_images: tuple | list,
+    forecast_hour: int = None, variable_data_source: str = 'era5', probability_mask: tuple = (0.10, 0.10), calibration_km: int = None,
+    same_map: bool = True):
     """
     Function that uses generated predictions to make probability maps along with the 'true' fronts and saves out the
     subplots.
@@ -1199,29 +1357,64 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
     Parameters
     ----------
     model_number: int
-        - Slurm job number for the model. This is the number in the model's filename.
+        Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
-        - Main directory for the models.
+        Main directory for the models.
     fronts_netcdf_dir: str
-        - Input directory for the front object netcdf files.
+        Input directory for the front object netcdf files.
     timestep: str
-        - Timestring for the prediction plot title.
+        Timestring for the prediction plot title.
     domain: str
-        - Domain of the data.
+        Domain of the data.
     domain_images: iterable object with 2 ints
-        - Number of images along each dimension of the final stitched map (lon lat).
+        Number of images along each dimension of the final stitched map (lon lat).
     forecast_hour: int or None
-        - Forecast hour for the timestep to plot. Has no effect if plotting predictions from ERA5 data.
+        Forecast hour for the timestep to plot. Has no effect if plotting predictions from ERA5 data.
     variable_data_source: str
-        - Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
+        Variable data to use for training the model. Options are: 'era5', 'gdas', or 'gfs' (case-insensitive)
     probability_mask: tuple with 2 floats
-        - Probability mask and the step/interval for the probability contours. Probabilities smaller than the mask will
+        Probability mask and the step/interval for the probability contours. Probabilities smaller than the mask will
             not be plotted.
     calibration_km: int or None
-        - Neighborhood calibration distance in kilometers. Possible neighborhoods are 50, 100, 150, 200, and 250 km.
+        Neighborhood calibration distance in kilometers. Possible neighborhoods are 50, 100, 150, 200, and 250 km.
     same_map: bool
-        - Plot the model predictions on the same map.
+        Plot the model predictions on the same map.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(model_number, int):
+        raise TypeError(f"model_number must be an integer, received {type(model_number)}")
+    if not isinstance(model_dir, str):
+        raise TypeError(f"model_dir must be a string, received {type(model_dir)}")
+    if not isinstance(fronts_netcdf_dir, str):
+        raise TypeError(f"fronts_netcdf_dir must be a string, received {type(fronts_netcdf_dir)}")
+    if not isinstance(timestep, str):
+        raise TypeError(f"timestep must be a string, received {type(timestep)}")
+    if not isinstance(domain, str):
+        raise TypeError(f"domain must be a string, received {type(domain)}")
+
+    if domain_images is not None:
+        if not isinstance(domain_images, (tuple, list)):
+            raise TypeError(f"Expected a tuple or list for domain_images, received {type(domain_images)}")
+        elif len(domain_images) != 2:
+            raise TypeError(f"Tuple or list for domain_images must be length 2, received length {len(domain_images)}")
+
+    if forecast_hour is not None and not isinstance(forecast_hour, int):
+        raise TypeError(f"forecast_hour must be an integer, received {type(forecast_hour)}")
+    if not isinstance(variable_data_source, str):
+        raise TypeError(f"variable_data_source must be a string, received {type(variable_data_source)}")
+
+    if probability_mask is not None:
+        if not isinstance(probability_mask, tuple):
+            raise TypeError(f"Expected a tuple for probability_mask, received {type(probability_mask)}")
+        elif len(probability_mask) != 2:
+            raise TypeError(f"The tuple for probability_mask must be length 2, received length {len(probability_mask)}")
+
+    if calibration_km is not None and not isinstance(calibration_km, int):
+        raise TypeError(f"calibration_km must be an integer, received {type(calibration_km)}")
+    if not isinstance(same_map, bool):
+        raise TypeError(f"same_map must be a boolean, received {type(same_map)}")
+    ####################################################################################################################
 
     DEFAULT_COLORBAR_POSITION = {'conus': 0.71, 'full': 0.78}
     cbar_position = DEFAULT_COLORBAR_POSITION[domain]
@@ -1382,23 +1575,25 @@ def prediction_plot(model_number, model_dir, fronts_netcdf_dir, timestep, domain
                 plt.close()
 
 
-def learning_curve(model_number, model_dir):
+def learning_curve(model_number: int, model_dir: str):
     """
     Function that plots learning curves for the specified model.
 
     Parameters
     ----------
     model_number: int
-        - Slurm job number for the model. This is the number in the model's filename.
+        Slurm job number for the model. This is the number in the model's filename.
     model_dir: str
-        - Main directory for the models.
-    include_validation_plots: bool
-        - Setting this to True will plot validation data in addition to training data.
+        Main directory for the models.
     """
 
-    """
-    loss_title: Title of the loss plots on the learning curves
-    """
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(model_number, int):
+        raise TypeError(f"model_number must be an integer, received {type(model_number)}")
+    if not isinstance(model_dir, str):
+        raise TypeError(f"model_dir must be a string, received {type(model_dir)}")
+    ####################################################################################################################
+
     with open("%s/model_%d/model_%d_history.csv" % (model_dir, model_number, model_number), 'rb') as f:
         history = pd.read_csv(f)
 
@@ -1523,21 +1718,12 @@ if __name__ == '__main__':
             tf.config.experimental.set_memory_growth(device=gpus[args.gpu_device], enable=True)
 
     if args.find_matches:
-        required_arguments = ['domain_size', 'image_size']
-        check_arguments(provided_arguments, required_arguments)
         find_matches_for_domain(args.domain_size, args.image_size)
 
     if args.learning_curve:
-        required_arguments = ['model_dir', 'model_number']
-        check_arguments(provided_arguments, required_arguments)
         learning_curve(args.model_number, args.model_dir)
 
     if args.generate_predictions:
-        required_arguments = ['domain', 'model_number', 'model_dir', 'prediction_method', 'variables_netcdf_indir', 'fronts_netcdf_indir']
-        check_arguments(provided_arguments, required_arguments)
-
-        if args.prediction_method == 'datetime' and args.datetime is None:
-            raise errors.MissingArgumentError("'datetime' argument must be passed: 'prediction_method' was set to 'datetime' ")
 
         model_properties = pd.read_pickle(f"{args.model_dir}/model_{args.model_number}/model_{args.model_number}_properties.pkl")
 
@@ -1561,7 +1747,6 @@ if __name__ == '__main__':
             random_variables=args.random_variables, variable_data_source=args.variable_data_source)
 
     if args.calculate_stats:
-        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'timestep', 'domain_images']
 
         if args.domain == 'full' or args.variable_data_source != 'era5':
             hours = range(0, 24, 6)
@@ -1580,17 +1765,13 @@ if __name__ == '__main__':
                     args.domain_images)
 
     if args.calibrate_model:
-
         calibrate_model(args.model_number, args.model_dir, args.domain, args.domain_images, args.variable_data_source)
 
     if args.prediction_plot:
-        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'datetime', 'domain_images']
         prediction_plot(args.model_number, args.model_dir, args.fronts_netcdf_indir, args.datetime, args.domain,
             args.domain_images, forecast_hour=args.forecast_hour, variable_data_source=args.variable_data_source)
 
     if args.plot_performance_diagrams:
-        required_arguments = ['model_number', 'model_dir', 'fronts_netcdf_indir', 'domain', 'domain_images']
-        check_arguments(provided_arguments, required_arguments)
         plot_performance_diagrams(args.model_dir, args.model_number, args.fronts_netcdf_indir, args.domain, args.domain_images,
             random_variables=args.random_variables, variable_data_source=args.variable_data_source, bootstrap=args.bootstrap,
             num_iterations=args.num_iterations, forecast_hour=args.forecast_hour)

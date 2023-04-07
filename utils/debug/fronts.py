@@ -2,8 +2,7 @@
 Debugging tools for front objects
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 10/14/2022 9:02 PM CDT
+Last updated: 3/27/2023 9:11 PM CDT
 """
 
 
@@ -11,15 +10,18 @@ import os
 import numpy as np
 
 
-def find_missing_fronts_data(fronts_netcdf_indir):
+def find_missing_fronts_data(fronts_netcdf_indir: str):
     """
     Function that scans a directory and searches for missing front object netcdf files.
 
     Parameters
     ----------
     fronts_netcdf_indir: str
-        - Directory where the front object netcdf files are stored.
+        Directory where the front object netcdf files are stored.
     """
+
+    if fronts_netcdf_indir is not None and not isinstance(fronts_netcdf_indir, str):
+        raise TypeError(f"fronts_netcdf_indir must be a string, received {type(fronts_netcdf_indir)}")
 
     years = np.arange(2008, 2021)
     missing_indices = dict({str(year): [] for year in years})

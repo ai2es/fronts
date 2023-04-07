@@ -2,7 +2,7 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/18/2023 1:37 PM CT
+Last updated: 4/7/2023 6:39 PM CT
 
 TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
 """
@@ -16,7 +16,6 @@ from bs4 import BeautifulSoup
 import xarray as xr
 import pandas as pd
 from utils import data_utils, settings
-from errors import check_arguments
 import glob
 import numpy as np
 import xml.etree.ElementTree as ET
@@ -26,7 +25,7 @@ import os
 import tensorflow as tf
 
 
-def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
+def front_xmls_to_netcdf(year: int, month: int, day: int, xml_dir: str, netcdf_outdir: str):
     """
     Reads the xml files to pull frontal objects.
 
@@ -40,6 +39,20 @@ def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
     netcdf_outdir: str
         Directory where the created netcdf files will be stored.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(year, int):
+        raise TypeError(f"year must be an integer, received {type(year)}")
+    if not isinstance(month, int):
+        raise TypeError(f"year must be an integer, received {type(month)}")
+    if not isinstance(day, int):
+        raise TypeError(f"year must be an integer, received {type(day)}")
+    if not isinstance(xml_dir, str):
+        raise TypeError(f"xml_dir must be a string, received {type(xml_dir)}")
+    if not isinstance(netcdf_outdir, str):
+        raise TypeError(f"netcdf_outdir must be a string, received {type(netcdf_outdir)}")
+    ####################################################################################################################
+
     files = sorted(glob.glob("%s/*_%04d%02d%02d*f000.xml" % (xml_dir, year, month, day)))
 
     dss = []  # Dataset with front data organized by front type.
@@ -256,7 +269,7 @@ def front_xmls_to_netcdf(year, month, day, xml_dir, netcdf_outdir):
             fronts_ds.to_netcdf(path="%s/%d%02d/%s" % (netcdf_outdir, year, month, filename_netcdf), engine='netcdf4', mode='w')
 
 
-def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
+def create_era5_datasets(year: int, month: int, day: int, netcdf_ERA5_indir: str, netcdf_outdir: str):
     """
     Extract ERA5 variable data for the specified year, month, day, and hour.
 
@@ -265,13 +278,30 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
     year: year
     month: month
     day: day
-    netcdf_ERA5_indir: Directory where the ERA5 netCDF files are contained.
-    netcdf_outdir: Directory where the created netcdf files will be stored.
+    netcdf_ERA5_indir: str
+        Directory where the ERA5 netCDF files are contained.
+    netcdf_outdir: str
+        Directory where the created netcdf files will be stored.
 
     Returns
     -------
-    xr_netcdf: Xarray dataset containing variable data for the full domain.
+    xr_netcdf: xr.Dataset
+        Xarray dataset containing variable data for the full domain.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(year, int):
+        raise TypeError(f"year must be an integer, received {type(year)}")
+    if not isinstance(month, int):
+        raise TypeError(f"year must be an integer, received {type(month)}")
+    if not isinstance(day, int):
+        raise TypeError(f"year must be an integer, received {type(day)}")
+    if not isinstance(netcdf_ERA5_indir, str):
+        raise TypeError(f"netcdf_ERA5_indir must be a string, received {type(netcdf_ERA5_indir)}")
+    if not isinstance(netcdf_outdir, str):
+        raise TypeError(f"netcdf_outdir must be a string, received {type(netcdf_outdir)}")
+    ####################################################################################################################
+
     era5_T_sfc_file = 'ERA5Global_%d_3hrly_2mT.nc' % year
     era5_Td_sfc_file = 'ERA5Global_%d_3hrly_2mTd.nc' % year
     era5_sp_file = 'ERA5Global_%d_3hrly_sp.nc' % year
@@ -433,18 +463,25 @@ def create_era5_datasets(year, month, day, netcdf_ERA5_indir, netcdf_outdir):
 
         full_era5_dataset = full_era5_dataset.expand_dims({'time': np.atleast_1d(timestep)})
 
-        full_era5_dataset.to_netcdf(path='%s/%d/%02d/%02d/era5_%d%02d%02d%02d_full.nc' % (netcdf_outdir, year, month, day, year, month, day, hour), mode='w', engine='netcdf4')
+        full_era5_dataset.to_netcdf(path='%s/%d/%02ed/%02d/era5_%d%02d%02d%02d_full.nc' % (netcdf_outdir, year, month, day, year, month, day, hour), mode='w', engine='netcdf4')
 
 
-def download_ncep_has_order(ncep_has_order_number, ncep_has_outdir):
+def download_ncep_has_order(ncep_has_order_number: str, ncep_has_outdir: str):
     """
     Download files as part of a HAS order from the NCEP.
 
     ncep_has_order_number: str
-        - HAS order number for the GDAS data.
+        HAS order number for the GDAS data.
     ncep_has_outdir: str
-        - Directory where the GDAS or GFS file will be saved to.
+        Directory where the GDAS or GFS file will be saved to.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(ncep_has_order_number, str):
+        raise TypeError(f"ncep_has_order_number must be a string, received {type(ncep_has_order_number)}")
+    if not isinstance(ncep_has_outdir, str):
+        raise TypeError(f"ncep_has_outdir must be a string, received {type(ncep_has_outdir)}")
+    ####################################################################################################################
 
     print("Connecting")
     url = f'https://www.ncei.noaa.gov/pub/has/model/HAS{ncep_has_order_number}/'
@@ -463,10 +500,34 @@ def download_ncep_has_order(ncep_has_order_number, ncep_has_outdir):
                 pass
 
 
-def download_model_grib_files(grib_outdir, year, model='gdas', day_range=(0, 364)):
+def download_model_grib_files(grib_outdir: str, year: int, model: str = 'gdas', day_range: tuple = (0, 364)):
     """
     Download grib files containing data for a NWP model from the AWS server.
+
+    Parameters
+    ----------
+    grib_outdir: str
+        Output directory for the downloaded GRIB files.
+    year: year
+    model: str
+        Model/source of the data. Current options are: 'gdas', 'gfs'.
+    day_range: tuple
+        Tuple of two integers marking the start and end indices of the days of the year to download. The end index IS included.
+        Example: to download all days (1-365), enter (0, 364).
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(grib_outdir, str):
+        raise TypeError(f"grib_outdir must be a string, received {type(grib_outdir)}")
+    if not isinstance(year, int):
+        raise TypeError(f"year must be an integer, received {type(year)}")
+    if not isinstance(model, str):
+        raise TypeError(f"model must be a string, received {type(model)}")
+    if not isinstance(day_range, tuple):
+        raise TypeError(f"day_range must be a tuple, received {type(day_range)}")
+    elif len(day_range) != 2:
+        raise TypeError(f"Tuple for day_range must be length 2, received length {len(day_range)}")
+    ####################################################################################################################
 
     model_lowercase = model.lower()
 
@@ -550,10 +611,24 @@ def download_model_grib_files(grib_outdir, year, model='gdas', day_range=(0, 364
                 print(f"{full_file_path} already exists, skipping file....")
 
 
-def download_latest_model_data(grib_outdir, model='gdas'):
+def download_latest_model_data(grib_outdir: str, model: str = 'gdas'):
     """
     Download the latest model grib files from NCEP.
+
+    Parameters
+    ----------
+    grib_outdir: str
+        Output directory for the downloaded GRIB files.
+    model: str
+        Model/source of the data. Current options are: 'gdas', 'gfs'.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(grib_outdir, str):
+        raise TypeError(f"grib_outdir must be a string, received {type(grib_outdir)}")
+    if not isinstance(model, str):
+        raise TypeError(f"model must be a string, received {type(model)}")
+    ####################################################################################################################
 
     model_uppercase = model.upper()
     model_lowercase = model.lower()
@@ -610,8 +685,8 @@ def download_latest_model_data(grib_outdir, model='gdas'):
     print(f"{model_uppercase} directory update complete, %d files added" % files_added)
 
 
-def grib_to_netcdf(year, month, day, hour, grib_indir, netcdf_outdir, overwrite_grib=False, model='GDAS', delete_original_grib=False,
-    resolution=0.25):
+def grib_to_netcdf(year: int, month: int, day: int, hour: int, grib_indir: str, netcdf_outdir: str, overwrite_grib: bool = False,
+    model: str = 'GDAS', delete_original_grib: bool = False, resolution: int | float = 0.25):
     """
     Create GDAS or GFS netcdf files from the grib files.
 
@@ -621,10 +696,39 @@ def grib_to_netcdf(year, month, day, hour, grib_indir, netcdf_outdir, overwrite_
     month: month
     day: day
     hour: hour
-    grib_indir: Directory where the GDAS grib files are stored.
-    netcdf_outdir: Directory where the created GDAS or GFS netcdf files will be stored.
+    grib_indir: str
+        Directory where the GDAS grib files are stored.
+    netcdf_outdir: str
+        Directory where the created GDAS or GFS netcdf files will be stored.
+    overwrite_grib: bool
+        Overwrite any existing grib files.
     model: 'GDAS' or 'GFS'
+    delete_original_grib: bool
+        Delete the original grib files after the netCDF files have been created.
+    resolution: int or float
+        The resolution of the data in degrees.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(year, int):
+        raise TypeError(f"year must be an integer, received {type(year)}")
+    if not isinstance(month, int):
+        raise TypeError(f"month must be an integer, received {type(month)}")
+    if not isinstance(day, int):
+        raise TypeError(f"day must be an integer, received {type(day)}")
+    if not isinstance(grib_indir, str):
+        raise TypeError(f"grib_indir must be a string, received {type(grib_indir)}")
+    if not isinstance(netcdf_outdir, str):
+        raise TypeError(f"netcdf_outdir must be a string, received {type(netcdf_outdir)}")
+    if not isinstance(overwrite_grib, str):
+        raise TypeError(f"overwrite_grib must be a string, received {type(overwrite_grib)}")
+    if not isinstance(model, str):
+        raise TypeError(f"model must be a string, received {type(model)}")
+    if not isinstance(delete_original_grib, bool):
+        raise TypeError(f"delete_original_grib must be a boolean, received {type(delete_original_grib)}")
+    if not isinstance(resolution, (int, float)):
+        raise TypeError(f"resolution must be an integer or a float, received {type(resolution)}")
+    ####################################################################################################################
 
     model = model.lower()
 
@@ -843,9 +947,10 @@ def grib_to_netcdf(year, month, day, hour, grib_indir, netcdf_outdir, overwrite_
             full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/%d/%02d/%02d/{model.lower()}_%d%02d%02d%02d_f%03d_full.nc' % (netcdf_outdir, year, month, day, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
 
 
-def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir, front_types, era5: bool, fronts: bool,
-    variables=None, pressure_levels=None, num_dims=(3, 3), images=9, shuffle_timesteps=False, shuffle_images=False,
-    front_dilation=1, rotate_chance=0.0, flip_chance_lon=0.0, flip_chance_lat=0.0, status_printout=True):
+def netcdf_to_tf(year: int, month: int, era5_netcdf_indir: str, fronts_netcdf_indir: str, tf_outdir: str, front_types: str | list[str],
+    era5: bool, fronts: bool, variables: list[str] = None, pressure_levels: list[str] = None, num_dims: tuple[int] = (3, 3),
+    images: int = 9, shuffle_timesteps: bool = False, shuffle_images: bool = False, front_dilation: int = 1, rotate_chance: float = 0.0,
+    flip_chance_lon: int = 0.0, flip_chance_lat: int = 0.0, status_printout: bool = True):
     """
     Convert matching ERA5 and front object files to tensorflow datasets
 
@@ -858,36 +963,77 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
     tf_outdir: str
     front_types: str or list
     era5: bool
-        - Generate ERA5 tensorflow datasets
+        Generate ERA5 tensorflow datasets
     fronts: bool
-        - Generate fronts tensorflow datasets
+        Generate fronts tensorflow datasets
     variables: list
-        - List of ERA5 variables to use. Leaving this argument as None will select all available variables.
+        List of ERA5 variables to use. Leaving this argument as None will select all available variables.
     pressure_levels: list
-        - List of pressure levels to use. Leaving this argument as None will select all available pressure levels.
+        List of pressure levels to use. Leaving this argument as None will select all available pressure levels.
     num_dims: tuple of 2 ints (default = (3, 3))
-        - Number of dimensions in the final output maps for ERA5 and front datasets, respectively. (2 or 3)
+        Number of dimensions in the final output maps for ERA5 and front datasets, respectively. (2 or 3)
     images: int (default = 9)
-        - Number of images to generate per timestep.
+        Number of images to generate per timestep.
     shuffle_timesteps: bool (default = False)
-        - Shuffle the timesteps when generating the dataset. This is particularly useful when generating very large datasets
+        Shuffle the timesteps when generating the dataset. This is particularly useful when generating very large datasets
             that cannot be shuffled on the fly during training.
     shuffle_images: bool (default = False)
-        - Shuffle the order of the images in each timestep. This does NOT shuffle the entire dataset for the provided
+        Shuffle the order of the images in each timestep. This does NOT shuffle the entire dataset for the provided
             month, but rather only the images in each respective timestep. This is particularly useful when generating
             very large datasets that cannot be shuffled on the fly during training.
     front_dilation: int (default = 1)
-        - Number of pixels to expand the fronts by in all directions.
+        Number of pixels to expand the fronts by in all directions.
     rotate_chance: float (default = 0.0)
-        - The probability that the current image will be rotated (in any direction, up to 270 degrees). Can be any float
+        The probability that the current image will be rotated (in any direction, up to 270 degrees). Can be any float
             0 <= rotate_chance <= 1.
     flip_chance_lon: float (default = 0.0)
-        - The probability that the current image will have its longitude dimension reversed. Can be any float 0 <= flip_chance_lon <= 1.
+        The probability that the current image will have its longitude dimension reversed. Can be any float 0 <= flip_chance_lon <= 1.
     flip_chance_lat: float (default = 0.0)
-        - The probability that the current image will have its latitude dimension reversed. Can be any float 0 <= flip_chance_lat <= 1.
+        The probability that the current image will have its latitude dimension reversed. Can be any float 0 <= flip_chance_lat <= 1.
     status_printout: bool
-        - Print out the progress of the dataset generation.
+        Print out the progress of the dataset generation.
     """
+
+    ######################################### Check the parameters for errors ##########################################
+    if not isinstance(year, int):
+        raise TypeError(f"year must be an integer, received {type(year)}")
+    if not isinstance(month, int):
+        raise TypeError(f"month must be an integer, received {type(month)}")
+    if not isinstance(era5_netcdf_indir, str):
+        raise TypeError(f"era5_netcdf_indir must be a string, received {type(era5_netcdf_indir)}")
+    if not isinstance(fronts_netcdf_indir, str):
+        raise TypeError(f"fronts_netcdf_indir must be a string, received {type(fronts_netcdf_indir)}")
+    if not isinstance(tf_outdir, str):
+        raise TypeError(f"tf_outdir must be a string, received {type(tf_outdir)}")
+    if not isinstance(front_types, (str, list)):
+        raise TypeError(f"front_types must be a string or list, received {type(front_types)}")
+    if not isinstance(era5, bool):
+        raise TypeError(f"era5 must be a boolean, received {type(era5)}")
+    if not isinstance(fronts, bool):
+        raise TypeError(f"fronts must be a boolean, received {type(fronts)}")
+    if not isinstance(variables, list):
+        raise TypeError(f"variables must be a list, received {type(variables)}")
+    if not isinstance(pressure_levels, list):
+        raise TypeError(f"pressure_levels must be a list, received {type(pressure_levels)}")
+    if not isinstance(num_dims, tuple):
+        raise TypeError(f"num_dims must be a tuple, received {type(num_dims)}")
+    if not isinstance(images, int):
+        raise TypeError(f"images must be an integer, received {type(images)}")
+    if not isinstance(shuffle_timesteps, bool):
+        raise TypeError(f"shuffle_timesteps must be a boolean, received {type(shuffle_timesteps)}")
+    if not isinstance(shuffle_images, bool):
+        raise TypeError(f"shuffle_images must be a boolean, received {type(shuffle_images)}")
+    if not isinstance(front_dilation, int):
+        raise TypeError(f"front_dilation must be an integer, received {type(front_dilation)}")
+    if not isinstance(rotate_chance, float):
+        raise TypeError(f"rotate_chance must be a float, received {type(rotate_chance)}")
+    if not isinstance(flip_chance_lon, float):
+        raise TypeError(f"flip_chance_lon must be a float, received {type(flip_chance_lon)}")
+    if not isinstance(flip_chance_lat, float):
+        raise TypeError(f"flip_chance_lat must be a float, received {type(flip_chance_lat)}")
+    if not isinstance(status_printout, bool):
+        raise TypeError(f"status_printout must be a boolean, received {type(status_printout)}")
+    ####################################################################################################################
 
     print("Generating tensorflow datasets for %d-%02d" % (year, month))
 
@@ -1013,7 +1159,7 @@ def netcdf_to_tf(year, month, era5_netcdf_indir, fronts_netcdf_indir, tf_outdir,
                     else:
                         front_tensors_for_month = front_tensors_for_month.concatenate(front_tensor_for_timestep)
 
-                # """ Debugging code """
+                """ Debugging code """
                 # import matplotlib
                 # import matplotlib.pyplot as plt
                 # import utils.plotting_utils
@@ -1129,16 +1275,12 @@ if __name__ == "__main__":
     provided_arguments = vars(args)
 
     if args.era5 and not args.netcdf_to_tf:
-        required_arguments = ['year', 'month', 'day', 'netcdf_ERA5_indir', 'netcdf_outdir']
-        check_arguments(provided_arguments, required_arguments)
         create_era5_datasets(args.year, args.month, args.day, args.netcdf_ERA5_indir, args.netcdf_outdir)
+
     if args.fronts and not args.netcdf_to_tf:
-        required_arguments = ['year', 'month', 'day', 'xml_indir', 'netcdf_outdir']
-        check_arguments(provided_arguments, required_arguments)
         front_xmls_to_netcdf(args.year, args.month, args.day, args.xml_indir, args.netcdf_outdir)
+
     if args.grib_to_netcdf:
-        required_arguments = ['year', 'month', 'day', 'grib_indir', 'netcdf_outdir']
-        check_arguments(provided_arguments, required_arguments)
         for hour in range(0, 24, 6):
             try:
                 grib_to_netcdf(args.year, args.month, args.day, hour, args.grib_indir, args.netcdf_outdir, model=args.model)
@@ -1146,22 +1288,16 @@ if __name__ == "__main__":
                 pass
 
     if args.netcdf_to_tf:
-        required_arguments = ['year', 'month', 'era5_netcdf_indir', 'fronts_netcdf_indir', 'tf_outdir', 'front_types']
-        check_arguments(provided_arguments, required_arguments)
         netcdf_to_tf(args.year, args.month, args.era5_netcdf_indir, args.fronts_netcdf_indir, args.tf_outdir, args.front_types,
                      args.era5, args.fronts, args.variables, args.pressure_levels, args.num_dims, args.images, args.shuffle_timesteps,
                      args.shuffle_images, args.front_dilation, args.rotate_chance, args.flip_chance_lon, args.flip_chance_lat,
                      args.status_printout)
 
     if args.download_ncep_has_order:
-        required_arguments = ['ncep_has_order_number', 'ncep_has_outdir']
-        check_arguments(provided_arguments, required_arguments)
         download_ncep_has_order(args.ncep_has_order_number, args.ncep_has_outdir)
+
     if args.download_model_grib_files:
-        required_arguments = ['year', 'day_range', 'grib_outdir', 'model']
-        check_arguments(provided_arguments, required_arguments)
         download_model_grib_files(args.grib_outdir, args.year, args.model, args.day_range)
+
     if args.download_latest_model_data:
-        required_arguments = ['grib_outdir', 'model']
-        check_arguments(provided_arguments, required_arguments)
         download_latest_model_data(args.grib_outdir, args.model)

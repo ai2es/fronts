@@ -2,8 +2,7 @@
 Debugging tools for ERA5 data
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 10/13/2022 1:51 PM CT
+Last updated: 3/27/2023 9:11 PM CT
 """
 
 
@@ -14,18 +13,28 @@ from utils.data_utils import normalize_variables
 import os
 
 
-def check_era5_variables(era5_netcdf_indir, timestep):
+def check_era5_variables(era5_netcdf_indir: str, timestep: tuple):
     """
     Function that lists the minimum, mean, and maximum values of all variables in an ERA5 dataset before and after normalization.
 
     Parameters
     ----------
     era5_netcdf_indir: str
-        - Directory where the ERA5 netcdf files are stored.
+        Directory where the ERA5 netcdf files are stored.
     timestep: tuple with 4 ints
-        - Timestep of the ERA5 dataset to analyze. The tuple must be passed with 4 integers in the following format: (year, month, day, hour)
+        Timestep of the ERA5 dataset to analyze. The tuple must be passed with 4 integers in the following format: (year, month, day, hour)
     """
-    
+
+    ######################################### Check the parameters for errors ##########################################
+    if era5_netcdf_indir is not None and not isinstance(era5_netcdf_indir, str):
+        raise TypeError(f"era5_netcdf_indir must be a string, received {type(era5_netcdf_indir)}")
+
+    if not isinstance(timestep, tuple):
+        raise TypeError(f"Expected a tuple for timestep, received {type(timestep)}")
+    elif len(timestep) != 2:
+        raise TypeError(f"Tuple for timestep must be length 4, received length {len(timestep)}")
+    ####################################################################################################################
+
     era5_files_obj = fm.ERA5files(era5_netcdf_indir)
     era5_files_obj.variables = ['T', 'Td', 'u', 'v', 'sp_z', 'theta_e', 'theta_w', 'Tw', 'Tv', 'RH', 'r', 'q']
     era5_files_obj.sort_by_timestep()
@@ -51,53 +60,18 @@ def check_era5_variables(era5_netcdf_indir, timestep):
             print(key, pressure_level, np.nanmin(current_var), np.nanmean(current_var), np.nanmax(current_var))
 
 
-def check_for_corrupt_era5_files(era5_netcdf_indir, lower_bound_MB=84.3, upper_bound_MB=84.4):
-    """
-    Function that scans the size of all ERA5 files to search for corrupt files. Files with sizes less than 'lower_bound_MB'
-    or larger than 'upper_bound_MB' are deemed to be corrupt.
-
-    Parameters
-    ----------
-    era5_netcdf_indir: str
-        - Directory where the ERA5 netcdf files are stored.
-    lower_bound_MB: float or int
-        - The minimum file size in megabytes that an ERA5 file must be for it to be deemed not corrupt. In other words, ERA5 files with
-          sizes smaller than this number will be marked as corrupt.
-    upper_bound_MB: float or int
-        - The maximum file size in megabytes that an ERA5 file can be before it is marked as corrupt. In other words, ERA5 files with
-          sizes larger than this number will be marked as corrupt.
-    """
-    era5_files = fm.ERA5files(era5_netcdf_indir).era5_files
-    files_found = len(era5_files)
-
-    corrupt_files = []
-    corrupt_sizes = []
-    num_corrupt_files = 0
-
-    print(f"Scanning {files_found} ERA5 files")
-    for index, file in enumerate(era5_files):
-        print(f"{index + 1}/{files_found}", end='\r')
-        size_of_file_mb = os.path.getsize(file)/1e6
-        if size_of_file_mb > upper_bound_MB or size_of_file_mb < lower_bound_MB:
-
-            num_corrupt_files += 1
-            corrupt_files.append(file)
-            corrupt_sizes.append(size_of_file_mb)
-
-    print("Corrupt files found:", num_corrupt_files)
-    if num_corrupt_files > 0:
-        [print(file) for file in corrupt_files]
-
-
-def find_missing_era5_data(era5_netcdf_indir):
+def find_missing_era5_data(era5_netcdf_indir: str):
     """
     Function that scans a directory and searches for missing ERA5 netcdf files.
 
     Parameters
     ----------
     era5_netcdf_indir: str
-        - Directory where the ERA5 netcdf files are stored.
+        Directory where the ERA5 netcdf files are stored.
     """
+
+    if era5_netcdf_indir is not None and not isinstance(era5_netcdf_indir, str):
+        raise TypeError(f"era5_netcdf_indir must be a string, received {type(era5_netcdf_indir)}")
 
     years = np.arange(2008, 2021)
     missing_indices = dict({str(year): [] for year in years})
