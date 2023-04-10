@@ -2,7 +2,7 @@
 Functions in this code manage data files and models.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/27/2023 8:57 PM CT
+Last updated: 4/10/2023 11:06 AM CT
 """
 
 import shutil
@@ -191,7 +191,7 @@ class DataFileLoader:
     """
     Object that loads and manages ERA5, GDAS, GFS, and front object files.
     """
-    def __init__(self, file_dir: str, data_file_type: str):
+    def __init__(self, file_dir: str, data_file_type: str, synoptic_only: bool = False):
         """
         When the DataFileLoader object is created, find all netCDF or tensorflow datasets.
 
@@ -203,6 +203,8 @@ class DataFileLoader:
             This string will contain two parts, separated by a hyphen: the source for the variable data, and the type of file/dataset.
             Options for the variable data sources are: 'era5', 'gdas', and 'gfs'.
             Options for the file/dataset type string are: 'netcdf', 'tensorflow'.
+        synoptic_only: bool
+            Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
 
         Examples
         --------
@@ -223,6 +225,8 @@ class DataFileLoader:
             raise TypeError(f"file_dir must be a string, received {type(file_dir)}")
         if not isinstance(data_file_type, str):
             raise TypeError(f"data_file_type must be a string, received {type(data_file_type)}")
+        if not isinstance(synoptic_only, bool):
+            raise TypeError(f"synoptic_only must be a boolean, received {type(synoptic_only)}")
         ################################################################################################################
 
         valid_data_sources = ['era5', 'gdas', 'gfs']
@@ -235,16 +239,35 @@ class DataFileLoader:
         if self._file_type == 'netcdf':
             self._file_extension = '.nc'
             self._subdir_glob = '/*/'
+            timestep_indices = np.array([-18, -8])
         elif self._file_type == 'tensorflow':
             self._file_extension = '_tf'
             self._subdir_glob = '/'
+            timestep_indices = np.array([-9, -3])
         else:
             raise TypeError(f"'%s' is not a valid file type, valid types are: {', '.join(valid_file_types)}" % self._file_type)
 
-        if self._file_prefix not in valid_data_sources:
+        if self._file_prefix in ['gdas', 'gfs']:
+            timestep_indices -= 5  # GDAS/GFS filenames contain 5 more characters than ERA5 filenames to identify the forecast hour
+        elif self._file_prefix not in valid_data_sources:
             raise TypeError(f"'%s' is not a valid data source, valid sources are: {', '.join(valid_data_sources)}" % self._file_prefix)
 
         self._all_data_files = sorted(glob("%s%s%s*%s" % (file_dir, self._subdir_glob, self._file_prefix, self._file_extension)))  # All data files without filtering
+
+        timesteps_in_data_files = []
+
+        ### Find all timesteps in the data files ###
+        for j in range(len(self._all_data_files)):
+            timesteps_in_data_files.append(self._all_data_files[j][timestep_indices[0]:timestep_indices[1]])
+
+        if synoptic_only:
+            ### Filter out non-synoptic hours (3, 9, 15, 21z) ###
+            for unique_timestep in timesteps_in_data_files:
+                if any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
+                    self._all_data_files.pop(timesteps_in_data_files.index(unique_timestep))
+                    timesteps_in_data_files.pop(timesteps_in_data_files.index(unique_timestep))
+
+        self.unique_timesteps_in_data_files = list(np.unique(timesteps_in_data_files))
 
         ### All available options for specific filters ###
         self._all_forecast_hours = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
@@ -481,7 +504,7 @@ class DataFileLoader:
             self.front_files_validation = [self.front_files[index] for index in validation_indices]
             self.front_files_test = [self.front_files[index] for index in test_indices]
 
-    def pair_with_fronts(self, front_indir: str, front_types: str | list = None, synoptic_only: bool = False):
+    def pair_with_fronts(self, front_indir: str, front_types: str | list = None):
         """
         Pair all of the data file timesteps with frontal object files containing matching timesteps
 
@@ -489,8 +512,6 @@ class DataFileLoader:
             Directory where the frontal object files are stored.
         front_types: str or list
             Front types within the dataset. See documentation in utils.data_utils.reformat fronts for more information.
-        synoptic_only: bool
-            Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
         """
 
         ######################################### Check the parameters for errors ######################################
@@ -498,44 +519,24 @@ class DataFileLoader:
             raise TypeError(f"front_indir must be a string, received {type(front_indir)}")
         if front_types is not None and not isinstance(front_types, (str, list)):
             raise TypeError(f"front_types must be a string or list, received {type(front_types)}")
-        if not isinstance(synoptic_only, bool):
-            raise TypeError(f"synoptic_only must be a boolean, received {type(synoptic_only)}")
         ################################################################################################################
 
         if self._file_type == 'netcdf':
             if front_types is not None:
                 raise UserWarning("Declaring front types has no effect when loading netCDF files")
             file_prefix = 'FrontObjects'
-            timestep_indices = np.array([-18, -8])
         elif self._file_type == 'tensorflow':
             if front_types is None:
                 raise TypeError("Front types must be declared if loading tensorflow datasets")
             file_prefix = f"fronts_{'_'.join(front_types)}"
-            timestep_indices = np.array([-9, -3])
         else:
             raise ValueError(f"The available options for 'file_type' are: 'netcdf', 'tensorflow'. Received: {self._file_type}")
-
-        if self._file_prefix in ['gdas', 'gfs']:
-            timestep_indices -= 5  # GDAS/GFS filenames contain 5 more characters than ERA5 filenames to identify the forecast hour
 
         self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self._subdir_glob, file_prefix, self._file_extension)))  # All front files without filtering
         self.front_files = self._all_front_files
 
         front_files_list = []
         data_files_list = []
-        timesteps_in_data_files = []
-
-        ### Find all timesteps in the data files ###
-        for j in range(len(self.data_files)):
-            timesteps_in_data_files.append(self.data_files[j][timestep_indices[0]:timestep_indices[1]])
-
-        unique_timesteps_in_data_files = list(np.unique(timesteps_in_data_files))
-
-        if synoptic_only:
-            ### Filter out non-synoptic hours (3, 9, 15, 21z) ###
-            for unique_timestep in unique_timesteps_in_data_files:
-                if any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
-                    unique_timesteps_in_data_files.pop(unique_timesteps_in_data_files.index(unique_timestep))
 
         # Timesteps used for pulling the front object files. If the data files are ERA5 (no forecast hours), this list will
         #   simply contain the same timesteps as the 'unique_timesteps_in_data_files' variable.
@@ -547,16 +548,13 @@ class DataFileLoader:
 
         if self._file_prefix in ['gdas', 'gfs']:
             ### Calculate timesteps needed for pulling the correct front object files ###
-            for unique_timestep in unique_timesteps_in_data_files:
-                if synoptic_only and any('%02d' % hour in unique_timestep[-2:] for hour in [3, 9, 15, 21]):
-                    unique_timesteps_in_data_files.pop(unique_timesteps_in_data_files.index(unique_timestep))
-                else:
-                    unique_forecast_timesteps.append([data_utils.add_or_subtract_hours_to_timestep(unique_timestep, num_hours) for num_hours in self._forecast_hours])
+            for unique_timestep in self.unique_timesteps_in_data_files:
+                unique_forecast_timesteps.append([data_utils.add_or_subtract_hours_to_timestep(unique_timestep, num_hours) for num_hours in self._forecast_hours])
         else:
-            unique_forecast_timesteps = [[timestep, ] for timestep in unique_timesteps_in_data_files]
+            unique_forecast_timesteps = [[timestep, ] for timestep in self.unique_timesteps_in_data_files]
 
         ### Create a nested list for data files sorted by timestep and another for front files for each forecast timestep and the given forecast hours ###
-        for data_timestep, front_timesteps in zip(unique_timesteps_in_data_files, unique_forecast_timesteps):
+        for data_timestep, front_timesteps in zip(self.unique_timesteps_in_data_files, unique_forecast_timesteps):
             data_files_for_timestep = sorted(filter(lambda filename: data_timestep in filename, self.data_files))
             front_files_for_timestep = [filename for filename in self.front_files if any(timestep in filename for timestep in front_timesteps)]
             if self._file_prefix == 'era5' and len(front_files_for_timestep) == 1:

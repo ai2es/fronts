@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/27/2023 8:25 PM CT
+Last updated: 4/9/2023 11:51 AM CT
 
 TODO:
     * Remove the need for separate pickle files to be generated for spatial CSI maps
@@ -515,8 +515,9 @@ def generate_predictions(model_number: int, model_dir: str, variables_netcdf_ind
         elif len(datetime) != 4:
             raise TypeError(f"Tuple or list for datetime must be length 4, received length {len(datetime)}")
 
-    if not isinstance(dataset, str):
-        raise TypeError(f"dataset must be a string, received {type(dataset)}")
+    if dataset is not None:
+        if not isinstance(dataset, str):
+            raise TypeError(f"dataset must be a string, received {type(dataset)}")
 
     if random_variables is not None:
         if not isinstance(random_variables, (tuple, list)):
@@ -791,11 +792,11 @@ def create_model_prediction_dataset(stitched_map_probs: np.array, lats: np.array
     """
 
     ######################################### Check the parameters for errors ##########################################
-    if type(stitched_map_probs) != np.array:
+    if not isinstance(stitched_map_probs, np.ndarray):
         raise TypeError(f"stitched_map_probs must be a NumPy array, received {type(stitched_map_probs)}")
-    if type(lats) != np.array:
+    if not isinstance(lats, np.ndarray):
         raise TypeError(f"lats must be a NumPy array, received {type(lats)}")
-    if type(lons) != np.array:
+    if not isinstance(lons, np.ndarray):
         raise TypeError(f"lons must be a NumPy array, received {type(lons)}")
     if not isinstance(front_types, (tuple, list)):
         raise TypeError(f"Expected a tuple or list for front_types, received {type(front_types)}")
