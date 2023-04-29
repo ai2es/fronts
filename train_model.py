@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/13/2023 9:14 PM CT
+Last updated: 4/29/2023 2:06 PM CT
 """
 
 import argparse
@@ -261,30 +261,14 @@ if __name__ == "__main__":
     early_stopping = EarlyStopping('val_loss', patience=args.patience, verbose=1)  # EarlyStopping: stops training early if a metric does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss/AUC data every epoch
 
-    strategy = tf.distribute.MirroredStrategy()
-
-    with strategy.scope():
-
-        if not args.retrain:
-            print("Building model")
-            model = unet_model((None, None, len(args.pressure_levels), len(args.variables)), num_classes, args.pool_size, args.upsample_size, args.levels, args.filter_num, **unet_kwargs)
-            loss_function = getattr(custom_losses, args.loss)(**loss_args)
-            metric_function = getattr(custom_metrics, args.metric)(**metric_args)
-            adam = Adam(learning_rate=args.learning_rate)
-            model.compile(loss=loss_function, optimizer=adam, metrics=metric_function)
-        else:
-            model = fm.load_model(args.model_number, args.model_dir)
-
-    model.summary()
-
     print("Building datasets")
-    era5_files_obj = fm.ERA5files(args.era5_tf_indir, file_type='tensorflow')
+    era5_files_obj = fm.DataFileLoader(args.era5_tf_indir, data_file_type='era5-tensorflow')
     era5_files_obj.training_years = training_years
     era5_files_obj.validation_years = validation_years
     era5_files_obj.pair_with_fronts(args.era5_tf_indir, front_types=front_types)
 
     ### Training dataset ###
-    training_inputs = era5_files_obj.era5_files_training
+    training_inputs = era5_files_obj.data_files_training
     training_labels = era5_files_obj.front_files_training
     training_dataset = combine_datasets(training_inputs, training_labels)
     print(f"Images in training dataset: {len(training_dataset):,}")
@@ -294,12 +278,31 @@ if __name__ == "__main__":
     training_dataset = training_dataset.prefetch(tf.data.AUTOTUNE)
 
     ### Validation dataset ###
-    validation_inputs = era5_files_obj.era5_files_validation
+    validation_inputs = era5_files_obj.data_files_validation
     validation_labels = era5_files_obj.front_files_validation
     validation_dataset = combine_datasets(validation_inputs, validation_labels)
     print(f"Images in validation dataset: {len(validation_dataset):,}")
     validation_dataset = validation_dataset.batch(train_valid_batch_size[1], drop_remainder=True, num_parallel_calls=4)
     validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
+
+    input_shape = list(training_dataset.take(0).element_spec[0].shape[1:])
+    for i in range(len(input_shape) - 1):
+        input_shape[i] = None
+    input_shape = tuple(input_shape)
+
+    with tf.distribute.MirroredStrategy().scope():
+
+        if not args.retrain:
+            print("Building model")
+            model = unet_model(input_shape, num_classes, args.pool_size, args.upsample_size, args.levels, args.filter_num, **unet_kwargs)
+            loss_function = getattr(custom_losses, args.loss)(**loss_args)
+            metric_function = getattr(custom_metrics, args.metric)(**metric_args)
+            adam = Adam(learning_rate=args.learning_rate)
+            model.compile(loss=loss_function, optimizer=adam, metrics=metric_function)
+        else:
+            model = fm.load_model(args.model_number, args.model_dir)
+
+    model.summary()
 
     if not args.retrain:
         os.mkdir('%s/model_%d' % (args.model_dir, model_number))  # Make folder for model

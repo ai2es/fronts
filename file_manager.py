@@ -2,7 +2,7 @@
 Functions in this code manage data files and models.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/10/2023 11:06 AM CT
+Last updated: 4/29/2023 2:06 PM CT
 """
 
 import shutil
@@ -229,11 +229,10 @@ class DataFileLoader:
             raise TypeError(f"synoptic_only must be a boolean, received {type(synoptic_only)}")
         ################################################################################################################
 
-        valid_data_sources = ['era5', 'gdas', 'gfs']
+        valid_data_sources = ['era5', 'fronts', 'gdas', 'gfs']
         valid_file_types = ['netcdf', 'tensorflow']
 
         data_file_type = data_file_type.lower().split('-')
-        self._file_prefix = data_file_type[0]
         self._file_type = data_file_type[1]
 
         if self._file_type == 'netcdf':
@@ -247,10 +246,15 @@ class DataFileLoader:
         else:
             raise TypeError(f"'%s' is not a valid file type, valid types are: {', '.join(valid_file_types)}" % self._file_type)
 
-        if self._file_prefix in ['gdas', 'gfs']:
+        if data_file_type[0] in ['gdas', 'gfs']:
             timestep_indices -= 5  # GDAS/GFS filenames contain 5 more characters than ERA5 filenames to identify the forecast hour
-        elif self._file_prefix not in valid_data_sources:
-            raise TypeError(f"'%s' is not a valid data source, valid sources are: {', '.join(valid_data_sources)}" % self._file_prefix)
+        elif data_file_type[0] not in valid_data_sources:
+            raise TypeError(f"'%s' is not a valid data source, valid sources are: {', '.join(valid_data_sources)}" % data_file_type[0])
+
+        if data_file_type[0] == 'fronts':
+            self._file_prefix = 'FrontObjects'
+        else:
+            self._file_prefix = data_file_type[0]
 
         self._all_data_files = sorted(glob("%s%s%s*%s" % (file_dir, self._subdir_glob, self._file_prefix, self._file_extension)))  # All data files without filtering
 
@@ -286,10 +290,16 @@ class DataFileLoader:
         Reset the lists of files back to their original states with no filters
         """
 
-        self.data_files = self._all_data_files
-        self.data_files_training = self.data_files
-        self.data_files_validation = self.data_files
-        self.data_files_test = self.data_files
+        if self._file_prefix == 'FrontObjects':
+            self.front_files = self._all_data_files
+            self.front_files_training = self.front_files
+            self.front_files_validation = self.front_files
+            self.front_files_test = self.front_files
+        else:
+            self.data_files = self._all_data_files
+            self.data_files_training = self.data_files
+            self.data_files_validation = self.data_files
+            self.data_files_test = self.data_files
 
         ### If front object files have been loaded to be paired with variable files, reset the front file lists ###
         if hasattr(self, '_all_front_files'):
@@ -325,17 +335,26 @@ class DataFileLoader:
 
         ### Remove unwanted years from the list of files ###
         for year in self._training_years_not_in_data:
-            self.data_files_training = [file for file in self.data_files_training if '_%s' % str(year) not in file]
+            if self._file_prefix == 'FrontObjects':
+                self.front_files_training = [file for file in self.front_files_training if '_%s' % str(year) not in file]
+            else:
+                self.data_files_training = [file for file in self.data_files_training if '_%s' % str(year) not in file]
 
     def __reset_training_years(self):
         """
         Reset training years
         """
 
-        if not hasattr(self, '_filtered_data_files_before_training_year_selection'):  # If the training_years have not been selected yet
-            self._filtered_data_files_before_training_year_selection = self.data_files_training
-        else:
-            self.data_files_training = self._filtered_data_files_before_training_year_selection  # Return file list to last state before training_years were modified
+        if not hasattr(self, '_filtered_data_files_before_training_year_selection'):  # If the training years have not been selected yet
+            if self._file_prefix == 'FrontObjects':
+                self._filtered_data_files_before_training_year_selection = self.front_files_training
+            else:
+                self._filtered_data_files_before_training_year_selection = self.data_files_training
+        else:  # Return file list to last state before training years were modified
+            if self._file_prefix == 'FrontObjects':
+                self.front_files_training = self._filtered_data_files_before_training_year_selection
+            else:
+                self.data_files_training = self._filtered_data_files_before_training_year_selection
 
     training_years = property(__get_training_years, __set_training_years)  # Property method for setting training years
 
@@ -366,17 +385,26 @@ class DataFileLoader:
 
         ### Remove unwanted years from the list of files ###
         for year in self._validation_years_not_in_data:
-            self.data_files_validation = [file for file in self.data_files_validation if '_%s' % str(year) not in file]
+            if self._file_prefix == 'FrontObjects':
+                self.front_files_validation = [file for file in self.front_files_validation if '_%s' % str(year) not in file]
+            else:
+                self.data_files_validation = [file for file in self.data_files_validation if '_%s' % str(year) not in file]
 
     def __reset_validation_years(self):
         """
         Reset validation years
         """
 
-        if not hasattr(self, '_filtered_data_files_before_validation_year_selection'):  # If the validation_years have not been selected yet
-            self._filtered_data_files_before_validation_year_selection = self.data_files_validation
-        else:
-            self.data_files_validation = self._filtered_data_files_before_validation_year_selection  # Return file list to last state before validation_years were modified
+        if not hasattr(self, '_filtered_data_files_before_validation_year_selection'):  # If the validation years have not been selected yet
+            if self._file_prefix == 'FrontObjects':
+                self._filtered_data_files_before_validation_year_selection = self.front_files_validation
+            else:
+                self._filtered_data_files_before_validation_year_selection = self.data_files_validation
+        else:  # Return file list to last state before validation years were modified
+            if self._file_prefix == 'FrontObjects':
+                self.front_files_validation = self._filtered_data_files_before_validation_year_selection
+            else:
+                self.data_files_validation = self._filtered_data_files_before_validation_year_selection
 
     validation_years = property(__get_validation_years, __set_validation_years)  # Property method for setting validation years
 
@@ -407,17 +435,26 @@ class DataFileLoader:
 
         ### Remove unwanted years from the list of files ###
         for year in self._test_years_not_in_data:
-            self.data_files_test = [file for file in self.data_files_test if '_%s' % str(year) not in file]
+            if self._file_prefix == 'FrontObjects':
+                self.front_files_test = [file for file in self.front_files_test if '_%s' % str(year) not in file]
+            else:
+                self.data_files_test = [file for file in self.data_files_test if '_%s' % str(year) not in file]
 
     def __reset_test_years(self):
         """
         Reset test years
         """
 
-        if not hasattr(self, '_filtered_data_files_before_test_year_selection'):  # If the test_years have not been selected yet
-            self._filtered_data_files_before_test_year_selection = self.data_files_test
-        else:
-            self.data_files_test = self._filtered_data_files_before_test_year_selection  # Return file list to last state before test_years were modified
+        if not hasattr(self, '_filtered_data_files_before_test_year_selection'):  # If the test years have not been selected yet
+            if self._file_prefix == 'FrontObjects':
+                self._filtered_data_files_before_test_year_selection = self.front_files_test
+            else:
+                self._filtered_data_files_before_test_year_selection = self.data_files_test
+        else:  # Return file list to last state before test years were modified
+            if self._file_prefix == 'FrontObjects':
+                self.front_files_test = self._filtered_data_files_before_test_year_selection
+            else:
+                self.data_files_test = self._filtered_data_files_before_test_year_selection
 
     test_years = property(__get_test_years, __set_test_years)  # Property method for setting test years
 
@@ -513,6 +550,10 @@ class DataFileLoader:
         front_types: str or list
             Front types within the dataset. See documentation in utils.data_utils.reformat fronts for more information.
         """
+
+        if self._file_prefix == 'FrontObjects':
+            print("WARNING: 'DataFileLoader.pair_with_fronts' can only be used with ERA5, GDAS, or GFS files.")
+            return
 
         ######################################### Check the parameters for errors ######################################
         if not isinstance(front_indir, str):
