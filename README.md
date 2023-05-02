@@ -8,7 +8,6 @@ This module contains all the code necessary to generate predictions for cold, wa
 4. Prediction plots
 5. XML files
 6. Data deletion
-7. Sample script
 
 ## 1. Initial Setup
 The steps highlighted in Initial Setup section only need to be completed once.
