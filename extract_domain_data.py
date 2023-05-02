@@ -184,8 +184,7 @@ def front_xmls_to_netcdf(year: int, month: int, day: int, xml_dir: str, netcdf_o
         ds = xr.concat(type_da, dim=types)
         ds = ds.rename({'concat_dim': 'type'})
         dss.append(ds)
-
-    timesteps.append(pd.to_datetime(df['time'][0], format='%Y%m%d%H'))
+        timesteps.append(pd.to_datetime(df['time'][0], format='%Y%m%d%H'))
     dns = xr.concat(dss, dim=timesteps)
     dns = dns.rename({'concat_dim': 'time'})
 
