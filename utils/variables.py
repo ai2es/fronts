@@ -15,6 +15,7 @@ Last updated: 10/4/2022 8:13 PM CDT by Andrew Justin
 
 import xarray as xr
 import numpy as np
+from utils import data_utils
 
 Rd = 287.04  # Gas constant for dry air (J/kg/K)
 Rv = 461.5  # Gas constant for water vapor (J/kg/K)
@@ -411,3 +412,55 @@ def virtual_temperature_from_dewpoint(T, Td, P):
     """
     r = mixing_ratio_from_dewpoint(Td, P)
     return virtual_temperature_from_mixing_ratio(T, r)  # virtual temperature
+
+
+def advection(field, u, v, lons, lats):
+    """
+    Calculates relative vorticity.
+
+    Parameters
+    ----------
+    field: Array-like with shape (M, N)
+        Scalar field that is being advected.
+    u: Array-like with shape (M, N)
+        Zonal wind velocities in units of meters per second (m/s).
+    v: Array-like with shape (M, N)
+        Meridional wind velocities in units of meters per second (m/s).
+    lons: Array-like with shape (M, )
+        Longitude values in units of degrees east.
+    lats: Array-like with shape (N, )
+        Latitude values in units of degrees north.
+    """
+
+
+def advection(field, u, v, lons, lats, n=2):
+    """
+    Calculates relative vorticity.
+
+    Parameters
+    ----------
+    field: Array-like with shape (M, N)
+        Scalar field that is being advected.
+    u: Array-like with shape (M, N)
+        Zonal wind velocities in units of meters per second (m/s).
+    v: Array-like with shape (M, N)
+        Meridional wind velocities in units of meters per second (m/s).
+    lons: Array-like with shape (M, )
+        Longitude values in units of degrees east.
+    lats: Array-like with shape (N, )
+        Latitude values in units of degrees north.
+    """
+
+    advect = np.ones(u.shape) * np.nan
+
+    Lons, Lats = np.meshgrid(lons, lats)
+    x, y = data_utils.haversine(Lons, Lats)
+    x = x.T; y = y.T  # transpose x and y so arrays have shape M x N
+    x *= 1e3; y *= 1e3  # convert x and y coordinates to meters
+
+    dfield_dx = np.diff(field, axis=0) / np.diff(x, axis=0)
+    dfield_dy = np.diff(field, axis=1) / np.diff(y, axis=1)
+
+    advect[:-1, :-1] = - (u[:-1, :-1] * dfield_dx[:, :-1]) - (v[:-1, :-1] * dfield_dy[:-1, :])
+
+    return advect
