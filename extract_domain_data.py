@@ -2,7 +2,7 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/29/2023 1:45 PM CT
+Last updated: 5/14/2023 12:50 PM CT
 
 TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
 """
@@ -15,11 +15,10 @@ import requests
 from bs4 import BeautifulSoup
 import xarray as xr
 import pandas as pd
-from utils import data_utils, settings
+from utils import data_utils, settings, variables
 import glob
 import numpy as np
 import xml.etree.ElementTree as ET
-import variables
 import wget
 import os
 import tensorflow as tf
@@ -135,7 +134,7 @@ def front_xmls_to_netcdf(year: int, month: int, day: int, xml_dir: str, netcdf_o
                 xs_new = np.append(xs_new, xs_new)
                 ys_new = np.append(ys_new, ys_new)
 
-            distance = 5  # Cartesian interval distance in kilometers.
+            distance = 1  # Cartesian interval distance in kilometers.
             if (max(xs_new) > 100000 or min(xs_new) < -100000 or max(ys_new) > 100000 or min(
                     ys_new) < -100000):
                 print(f"{filename}:   -----> Corrupt coordinates for front %d" % (frontno + 1))
