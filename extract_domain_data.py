@@ -1060,7 +1060,7 @@ def netcdf_to_tf(year: int, month: int, era5_netcdf_indir: str, fronts_netcdf_in
 
     print("Generating tensorflow datasets for %d-%02d" % (year, month))
 
-    all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
+    all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
     all_pressure_levels = ['surface', '1000', '950', '900', '850']
 
     era5_monthly_directory = '%s/%d%02d' % (era5_netcdf_indir, year, month)
