@@ -5,7 +5,7 @@ Custom loss functions for U-Net models.
     - Fractions Skill Score (FSS)
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/3/2023 1:12 PM CT
+Last updated: 5/20/2023 10:58 AM CT
 """
 import tensorflow as tf
 
@@ -19,7 +19,7 @@ def brier_skill_score(class_weights=None):
     """
 
     @tf.function
-    def _bss_loss(y_true, y_pred):
+    def bss_loss(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -36,7 +36,7 @@ def brier_skill_score(class_weights=None):
         brier_score_loss = tf.math.reduce_sum(losses) / tf.size(losses)
         return brier_score_loss
 
-    return _bss_loss
+    return bss_loss
 
 
 def critical_success_index(threshold=None, class_weights=None):
@@ -56,7 +56,7 @@ def critical_success_index(threshold=None, class_weights=None):
     """
 
     @tf.function
-    def _csi_loss(y_true, y_pred):
+    def csi_loss(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -84,7 +84,7 @@ def critical_success_index(threshold=None, class_weights=None):
 
         return 1 - csi
 
-    return _csi_loss
+    return csi_loss
 
 
 def fractions_skill_score(num_dims, mask_size=3, c=1.0, cutoff=0.5, want_hard_discretization=False, class_weights=None):
@@ -125,7 +125,7 @@ def fractions_skill_score(num_dims, mask_size=3, c=1.0, cutoff=0.5, want_hard_di
         pool2 = tf.keras.layers.AveragePooling3D(**pool_kwargs)
 
     @tf.function
-    def _fss_loss(y_true, y_pred):
+    def fss_loss(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -171,4 +171,4 @@ def fractions_skill_score(num_dims, mask_size=3, c=1.0, cutoff=0.5, want_hard_di
         else:
             return MSE_n / (MSE_n_ref + my_epsilon)
 
-    return _fss_loss
+    return fss_loss

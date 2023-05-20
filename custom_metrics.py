@@ -5,7 +5,7 @@ Custom metrics for U-Net models.
     - Fractions Skill Score (FSS)
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/3/2022 10:38 AM CT
+Last updated: 5/20/2023 11:00 AM CT
 """
 import tensorflow as tf
 
@@ -19,7 +19,7 @@ def brier_skill_score(class_weights=None):
     """
 
     @tf.function
-    def _bss(y_true, y_pred):
+    def bss(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -35,7 +35,7 @@ def brier_skill_score(class_weights=None):
 
         return 1 - tf.math.reduce_sum(squared_errors) / tf.size(squared_errors)
 
-    return _bss
+    return bss
 
 
 def critical_success_index(threshold=None, class_weights=None):
@@ -55,7 +55,7 @@ def critical_success_index(threshold=None, class_weights=None):
     """
 
     @tf.function
-    def _csi(y_true, y_pred):
+    def csi(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -83,7 +83,7 @@ def critical_success_index(threshold=None, class_weights=None):
 
         return csi
 
-    return _csi
+    return csi
 
 
 def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_discretization=False, class_weights=None):
@@ -124,7 +124,7 @@ def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_disc
         pool2 = tf.keras.layers.AveragePooling3D(**pool_kwargs)
 
     @tf.function
-    def _fss(y_true, y_pred):
+    def fss(y_true, y_pred):
         """
         y_true: tf.Tensor
             - One-hot encoded tensor containing labels.
@@ -170,4 +170,4 @@ def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_disc
         else:
             return 1 - (MSE_n / (MSE_n_ref + my_epsilon))
 
-    return _fss
+    return fss
