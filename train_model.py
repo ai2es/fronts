@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/29/2023 2:06 PM CT
+Last updated: 5/20/2023 11:05 AM CT
 """
 
 import argparse
@@ -67,6 +67,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_type', type=str, help='Model type.')
     parser.add_argument('--activation', type=str, help='Activation function to use in the U-Net')
     parser.add_argument('--batch_normalization', action='store_true', help='Use batch normalization in the model')
+    parser.add_argument('--deep_supervision', action='store_true', help='Use deep supervision in the U-Net.')
     parser.add_argument('--filter_num', type=int, nargs='+', help='Number of filters in each level of the U-Net.')
     parser.add_argument('--filter_num_aggregate', type=int, help='Number of filters in aggregated feature maps')
     parser.add_argument('--filter_num_skip', type=int, help='Number of filters in full-scale skip connections')
@@ -122,20 +123,20 @@ if __name__ == "__main__":
     if not args.retrain:
 
         if args.loss == 'fractions_skill_score':
-            loss_string = '_fss_loss'
+            loss_string = 'fss_loss'
         elif args.loss == 'critical_success_index':
-            loss_string = '_csi_loss'
+            loss_string = 'csi_loss'
         elif args.loss == 'brier_skill_score':
-            loss_string = '_bss_loss'
+            loss_string = 'bss_loss'
         else:
             loss_string = None
 
         if args.metric == 'fractions_skill_score':
-            metric_string = '_fss'
+            metric_string = 'fss'
         elif args.metric == 'critical_success_index':
-            metric_string = '_csi'
+            metric_string = 'csi'
         elif args.metric == 'brier_skill_score':
-            metric_string = '_bss'
+            metric_string = 'bss'
         else:
             metric_string = None
 
@@ -194,8 +195,8 @@ if __name__ == "__main__":
         # Create dictionary containing information about the model. This simplifies the process of loading the model
         model_properties = dict({})
         model_properties['model_number'] = model_number
-        model_properties['training_years'] = sorted(args.training_years)
-        model_properties['validation_years'] = sorted(args.validation_years)
+        model_properties['training_years'] = sorted(training_years)
+        model_properties['validation_years'] = sorted(validation_years)
         model_properties['test_years'] = sorted(test_years)
         model_properties['num_dimensions'] = 3
         model_properties['domains'] = args.train_valid_domain
@@ -224,8 +225,10 @@ if __name__ == "__main__":
                             'batch_normalization': args.batch_normalization,
                             'padding': args.padding,
                             'use_bias': args.use_bias})
+
         if args.model_type == 'unet_3plus':
             unet_kwargs['first_encoder_connections'] = args.first_encoder_connections
+            unet_kwargs['deep_supervision'] = args.deep_supervision
 
         train_valid_batch_size = args.train_valid_batch_size
         train_valid_steps = args.train_valid_steps
@@ -286,8 +289,13 @@ if __name__ == "__main__":
     validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
 
     input_shape = list(training_dataset.take(0).element_spec[0].shape[1:])
-    for i in range(len(input_shape) - 1):
-        input_shape[i] = None
+    if len(input_shape) == 4:
+        for i in range(len(input_shape) - 2):
+            input_shape[i] = None
+    else:
+        for i in range(len(input_shape) - 1):
+            input_shape[i] = None
+
     input_shape = tuple(input_shape)
 
     with tf.distribute.MirroredStrategy().scope():
