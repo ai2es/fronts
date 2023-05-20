@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 5/20/2023 11:05 AM CT
+Last updated: 5/20/2023 11:24 AM CT
 """
 
 import argparse
@@ -217,6 +217,7 @@ if __name__ == "__main__":
         model_properties['front_types'] = front_types
         model_properties['classes'] = num_classes
         model_properties['model_type'] = args.model_type
+        model_properties['deep_supervision'] = args.deep_supervision
 
         unet_kwargs = dict({'kernel_size': args.kernel_size,
                             'squeeze_dims': args.squeeze_dims,

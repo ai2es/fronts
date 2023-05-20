@@ -2,11 +2,12 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/29/2023 2:00 PM CT
+Last updated: 5/20/2023 11:14 AM CT
 
 TODO:
     * Remove the need for separate pickle files to be generated for spatial CSI maps
     * Update performance diagram code to support spatial CSI maps
+    * Clean up prediction plotting code
 """
 
 import itertools
@@ -1440,16 +1441,16 @@ def prediction_plot(model_number: int, model_dir: str, fronts_netcdf_dir: str, t
 
     probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
 
-    # fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
+    fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
     probs_ds = xr.open_mfdataset(probs_file)
 
     crs = ccrs.LambertConformal(central_longitude=250)
 
     front_types = model_properties['front_types']
 
-    # fronts = data_utils.reformat_fronts(fronts, front_types=front_types)
-    # labels = fronts.attrs['labels']
-    # fronts = xr.where(fronts == 0, float('NaN'), fronts)
+    fronts = data_utils.reformat_fronts(fronts, front_types=front_types)
+    labels = fronts.attrs['labels']
+    fronts = xr.where(fronts == 0, float('NaN'), fronts)
 
     if type(front_types) == str:
         front_types = [front_types, ]
@@ -1459,12 +1460,12 @@ def prediction_plot(model_number: int, model_dir: str, fronts_netcdf_dir: str, t
     levels = np.around(np.arange(0, 1 + prob_int, prob_int), 2)
     cbar_ticks = np.around(np.arange(mask, 1 + prob_int, prob_int), 2)
 
-    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in ['DL', ]]
-    # front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
-    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in ['DL', ]]
+    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in labels]
+    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
+    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in labels]
 
-    # cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
-    # norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
+    cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
+    norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
     if same_map:
 
@@ -1505,7 +1506,7 @@ def prediction_plot(model_number: int, model_dir: str, fronts_netcdf_dir: str, t
 
             cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
             probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
-            # fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
+            fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
 
             cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.24, 0.015, 0.64])
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
@@ -1518,9 +1519,9 @@ def prediction_plot(model_number: int, model_dir: str, fronts_netcdf_dir: str, t
         cbar.set_ticks(cbar_ticks)
         cbar.set_ticklabels(cbar_ticks)
 
-        # cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, orientation='horizontal', shrink=0.5, pad=0.02)
-        # cbar_front.set_ticks(cbar_front_ticks)
-        # cbar_front.set_ticklabels(cbar_front_labels)
+        cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, orientation='horizontal', shrink=0.5, pad=0.02)
+        cbar_front.set_ticks(cbar_front_ticks)
+        cbar_front.set_ticklabels(cbar_front_labels)
 
         ax.set_title('')
         # ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
@@ -1608,7 +1609,7 @@ def learning_curve(model_number: int, model_dir: str):
     except KeyError:
         metric_string = model_properties['metric_string']
 
-    if model_properties['model_type'] == 'unet_3plus':
+    if model_properties['deep_supervision']:
         train_metric = history['sup1_Softmax_%s' % metric_string]
         val_metric = history['val_sup1_Softmax_%s' % metric_string]
     else:
@@ -1624,11 +1625,11 @@ def learning_curve(model_number: int, model_dir: str):
     else:
         loss_title = None
 
-    if metric_string == '_fss':
+    if 'fss' in metric_string:
         metric_title = 'Fractions Skill Score'
-    elif metric_string == '_bss':
+    elif 'bss' in metric_string:
         metric_title = 'Brier Skill Score'
-    elif metric_string == '_csi':
+    elif 'csi' in metric_string:
         metric_title = 'Critical Success Index'
     else:
         metric_title = None
