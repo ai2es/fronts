@@ -9,11 +9,10 @@ Deep learning models:
 TODO:
     * Allow models to have a unique number of encoder and decoder levels (e.g. 3 encoder levels and 5 decoder levels)
     * Add temporal U-Nets
-    * Create help document with visualizations for in-code documentation
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
+Author: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 9/25/2022 11:47 AM CT
+Last updated: 5/20/2023 7:26 PM CT
 """
 
 from tensorflow.keras.models import Model
@@ -21,9 +20,26 @@ from tensorflow.keras.layers import Concatenate, Input
 from utils.unet_utils import *
 
 
-def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, squeeze_dims=None, modules_per_node=5,
-    batch_normalization=True, activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros',
-    kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
+def unet(input_shape: tuple[int],
+         num_classes: int,
+         pool_size: int | tuple[int] | list[int],
+         upsample_size: int | tuple[int] | list[int],
+         levels: int,
+         filter_num: tuple[int] | list[int],
+         kernel_size: int = 3,
+         squeeze_dims: int | tuple[int] | list[int] = None,
+         modules_per_node: int = 5,
+         batch_normalization: bool = True,
+         activation: str = 'relu',
+         padding: str = 'same',
+         use_bias: bool = True,
+         kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
+         bias_initializer: str | tf.keras.initializers = 'zeros',
+         kernel_regularizer: str | tf.keras.regularizers = None,
+         bias_regularizer: str | tf.keras.regularizers = None,
+         activity_regularizer: str | tf.keras.regularizers = None,
+         kernel_constraint: str | tf.keras.constraints = None,
+         bias_constraint: str | tf.keras.constraints = None):
     """
     Builds a U-Net model.
 
@@ -183,9 +199,26 @@ def unet(input_shape, num_classes, pool_size, upsample_size, levels, filter_num,
     return model
 
 
-def unet_ensemble(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, squeeze_dims=None, modules_per_node=5,
-    batch_normalization=True, activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros',
-    kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
+def unet_ensemble(input_shape: tuple[int] | list[int],
+                  num_classes: int,
+                  pool_size: int | tuple[int] | list[int],
+                  upsample_size: int | tuple[int] | list[int],
+                  levels: int,
+                  filter_num: tuple[int] | list[int],
+                  kernel_size: int = 3,
+                  squeeze_dims: int | tuple[int] | list[int] = None,
+                  modules_per_node: int = 5,
+                  batch_normalization: bool = True,
+                  activation: str = 'relu',
+                  padding: str = 'same',
+                  use_bias: bool = True,
+                  kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
+                  bias_initializer: str | tf.keras.initializers = 'zeros',
+                  kernel_regularizer: str | tf.keras.regularizers = None,
+                  bias_regularizer: str | tf.keras.regularizers = None,
+                  activity_regularizer: str | tf.keras.regularizers = None,
+                  kernel_constraint: str | tf.keras.constraints = None,
+                  bias_constraint: str | tf.keras.constraints = None):
     """
     Builds a U-Net ensemble model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -354,10 +387,27 @@ def unet_ensemble(input_shape, num_classes, pool_size, upsample_size, levels, fi
     return model
 
 
-def unet_plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, squeeze_dims=None,
-    modules_per_node=5, batch_normalization=True, deep_supervision=True, activation='relu', padding='same', use_bias=True,
-    kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None,
-    kernel_constraint=None, bias_constraint=None):
+def unet_plus(input_shape: tuple[int] | list[int],
+              num_classes: int,
+              pool_size: int | tuple[int] | list[int],
+              upsample_size: int | tuple[int] | list[int],
+              levels: int,
+              filter_num: tuple[int] | list[int],
+              kernel_size: int = 3,
+              squeeze_dims: int | tuple[int] | list[int] = None,
+              modules_per_node: int = 5,
+              batch_normalization: bool = True,
+              deep_supervision: bool = True,
+              activation: str = 'relu',
+              padding: str = 'same',
+              use_bias: bool = True,
+              kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
+              bias_initializer: str | tf.keras.initializers = 'zeros',
+              kernel_regularizer: str | tf.keras.regularizers = None,
+              bias_regularizer: str | tf.keras.regularizers = None,
+              activity_regularizer: str | tf.keras.regularizers = None,
+              kernel_constraint: str | tf.keras.constraints = None,
+              bias_constraint: str | tf.keras.constraints = None):
     """
     Builds a U-Net+ model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -530,10 +580,27 @@ def unet_plus(input_shape, num_classes, pool_size, upsample_size, levels, filter
     return model
 
 
-def unet_2plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, kernel_size=3, squeeze_dims=None,
-    modules_per_node=5, batch_normalization=True, deep_supervision=True, activation='relu', padding='same', use_bias=True,
-    kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None,
-    kernel_constraint=None, bias_constraint=None):
+def unet_2plus(input_shape: tuple[int] | list[int],
+               num_classes: int,
+               pool_size: int | tuple[int] | list[int],
+               upsample_size: int | tuple[int] | list[int],
+               levels: int,
+               filter_num: tuple[int] | list[int],
+               kernel_size: int = 3,
+               squeeze_dims: int | tuple[int] | list[int] = None,
+               modules_per_node: int = 5,
+               batch_normalization: bool = True,
+               deep_supervision: bool = True,
+               activation: str = 'relu',
+               padding: str = 'same',
+               use_bias: bool = True,
+               kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
+               bias_initializer: str | tf.keras.initializers = 'zeros',
+               kernel_regularizer: str | tf.keras.regularizers = None,
+               bias_regularizer: str | tf.keras.regularizers = None,
+               activity_regularizer: str | tf.keras.regularizers = None,
+               kernel_constraint: str | tf.keras.constraints = None,
+               bias_constraint: str | tf.keras.constraints = None):
     """
     Builds a U-Net++ model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -720,10 +787,30 @@ def unet_2plus(input_shape, num_classes, pool_size, upsample_size, levels, filte
     return model
 
 
-def unet_3plus(input_shape, num_classes, pool_size, upsample_size, levels, filter_num, filter_num_skip=None, filter_num_aggregate=None,
-    kernel_size=3, squeeze_dims=None, first_encoder_connections=True, modules_per_node=5, batch_normalization=True, deep_supervision=True,
-    activation='relu', padding='same', use_bias=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None):
+def unet_3plus(input_shape: tuple[int] | list[int],
+               num_classes: int,
+               pool_size: int | tuple[int] | list[int],
+               upsample_size: int | tuple[int] | list[int],
+               levels: int,
+               filter_num: tuple[int] | list[int],
+               filter_num_skip: int = None,
+               filter_num_aggregate: tuple[int] | list[int] = None,
+               kernel_size: int = 3,
+               first_encoder_connections: bool = True,
+               squeeze_dims: int | tuple[int] | list[int] = None,
+               modules_per_node: int = 5,
+               batch_normalization: bool = True,
+               deep_supervision: bool = True,
+               activation: str = 'relu',
+               padding: str = 'same',
+               use_bias: bool = True,
+               kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
+               bias_initializer: str | tf.keras.initializers = 'zeros',
+               kernel_regularizer: str | tf.keras.regularizers = None,
+               bias_regularizer: str | tf.keras.regularizers = None,
+               activity_regularizer: str | tf.keras.regularizers = None,
+               kernel_constraint: str | tf.keras.constraints = None,
+               bias_constraint: str | tf.keras.constraints = None):
     """
     Creates a U-Net 3+.
     https://arxiv.org/ftp/arxiv/papers/2004/2004.08790.pdf
@@ -783,10 +870,6 @@ def unet_3plus(input_shape, num_classes, pool_size, upsample_size, levels, filte
         Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
-    pool_size: tuple or list
-        Size of the mask in the MaxPooling layers.
-    upsample_size: tuple or list
-        Size of the mask in the UpSampling layers.
 
     Returns
     -------
