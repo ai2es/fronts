@@ -2,12 +2,13 @@
 Functions in this script create netcdf files containing ERA5, GDAS, or frontal object data.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 5/14/2023 12:50 PM CT
+Last updated: 5/22/2023 12:03 AM CT
 
 TODO: modify code so GDAS and GFS grib files have the correct units (units are different prior to 2022)
 """
 
 import argparse
+import pickle
 import time
 import urllib.error
 import warnings
@@ -739,10 +740,10 @@ def grib_to_netcdf(year: int, month: int, day: int, hour: int, grib_indir: str, 
     mslp_data_file_index = 1
 
     # all lon/lat values in degrees
-    start_lon, end_lon = 130, 370  # western boundary, eastern boundary
-    start_lat, end_lat = 80, 0  # northern boundary, southern boundary
-    unified_longitude_indices = np.append(np.arange(start_lon / resolution, (end_lon - 10) / resolution), np.arange(0, (end_lon - 360) / resolution + 1)).astype(int)
-    unified_latitude_indices = np.arange((90 - start_lat) / resolution, (90 - end_lat) / resolution + 1).astype(int)
+    start_lon, end_lon = 0, 360  # western boundary, eastern boundary
+    start_lat, end_lat = 90, -90  # northern boundary, southern boundary
+    unified_longitude_indices = np.arange(0, 360 / resolution)
+    unified_latitude_indices = np.arange(0, 180 / resolution + 1).astype(int)
     lon_coords_360 = np.arange(start_lon, end_lon + resolution, resolution)
 
     domain_indices_isel = {'longitude': unified_longitude_indices,
@@ -1058,7 +1059,42 @@ def netcdf_to_tf(year: int, month: int, era5_netcdf_indir: str, fronts_netcdf_in
             raise TypeError(f"front_types must be a string or list, received {type(front_types)}")
     ####################################################################################################################
 
-    print("Generating tensorflow datasets for %d-%02d" % (year, month))
+    if not os.path.isdir(tf_outdir):
+        os.mkdir(tf_outdir)
+
+    dataset_props_file = '%s/dataset_properties.pkl' % tf_outdir
+
+    if not os.path.isfile(dataset_props_file):
+        """
+        Save critical dataset information to a pickle file so it can be referenced later when generating data for other months.
+        """
+        dataset_props = dict({})
+        dataset_props['directory'] = tf_outdir
+        dataset_props['front_types'] = front_types
+        dataset_props['variables'] = variables
+        dataset_props['pressure_levels'] = pressure_levels
+        dataset_props['image_size'] = image_size
+        dataset_props['num_dims'] = num_dims
+
+        with open(dataset_props_file, 'wb') as f:
+            pickle.dump(dataset_props, f)
+
+    else:
+
+        print("WARNING: Dataset properties file was found in %s. The following settings will be used from the file." % tf_outdir)
+        dataset_props = pd.read_pickle(dataset_props_file)
+
+        front_types = dataset_props['front_types']
+        variables = dataset_props['variables']
+        pressure_levels = dataset_props['pressure_levels']
+        image_size = dataset_props['image_size']
+        num_dims = dataset_props['num_dims']
+
+        print("-----> Front types:", front_types)
+        print("-----> Variables:", variables)
+        print("-----> Pressure levels:", pressure_levels)
+        print("-----> Image size:", image_size)
+        print("-----> Number of dimensions:", num_dims)
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
     all_pressure_levels = ['surface', '1000', '950', '900', '850']
@@ -1215,9 +1251,6 @@ def netcdf_to_tf(year: int, month: int, era5_netcdf_indir: str, fronts_netcdf_in
 
     if status_printout:
         print("Images kept/discarded: %d/%d    (Discard rate: %.1f%s)    " % (images_kept, images_discarded, (images_discarded / (images_kept + images_discarded) * 100), '%'))
-
-    if not os.path.isdir(tf_outdir):
-        os.mkdir(tf_outdir)
 
     if era5:
         tf_dataset_folder = f'%s/era5_%d%02d_tf' % (tf_outdir, year, month)
