@@ -2,13 +2,19 @@
 Default settings
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/13/2023 9:15 PM CT
+Last updated: 5/22/2023 11:16 AM CT
 """
 import platform
 
-DEFAULT_DOMAIN_EXTENTS = {'full': [130, 370, 0, 80], 'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains [start lon, end lon, start lat, end lat]
-DEFAULT_DOMAIN_INDICES = {'full': [0, 961, 0, 320], 'conus': [392, 680, 93, 221]}  # indices corresponding to default extents of domains [start lon, end lon, start lat, end lat]
-DEFAULT_DOMAIN_IMAGES = {'full': [8, 3], 'conus': [3, 1]}  # default values for the number of images to use when making predictions [lon, lat]
+DEFAULT_DOMAIN_EXTENTS = {'global': [0, 359.75, -89.75, 90],
+                          'full': [130, 370, 0, 80],
+                          'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains [start lon, end lon, start lat, end lat]
+DEFAULT_DOMAIN_INDICES = {'global': [0, 1440, 0, 720],
+                          'full': [0, 961, 0, 320],
+                          'conus': [392, 680, 93, 221]}  # indices corresponding to default extents of domains [start lon, end lon, start lat, end lat]
+DEFAULT_DOMAIN_IMAGES = {'global': [17, 9],
+                         'full': [8, 3],
+                         'conus': [3, 1]}  # default values for the number of images to use when making predictions [lon, lat]
 
 # colors for plotted ground truth fronts
 DEFAULT_FRONT_COLORS = {'CF': 'blue', 'WF': 'red', 'SF': 'limegreen', 'OF': 'darkviolet', 'CF-F': 'darkblue', 'WF-F': 'darkred',
@@ -47,7 +53,7 @@ NOTES:
 In the case of any hardware failures (including OOM errors from the GPU) or major slowdowns, reduce the parameter(s) for the 
     domain(s) until your system becomes stable.
 """
-TIMESTEP_PREDICT_SIZE = {'conus': 128, 'full': 64}  # All values here are adjusted for 16 GB of system RAM and 10 GB of GPU VRAM
+TIMESTEP_PREDICT_SIZE = {'conus': 128, 'full': 64, 'global': 16}  # All values here are adjusted for 16 GB of system RAM and 10 GB of GPU VRAM
 
 """
 GPU_PREDICT_BATCH_SIZE is the number of images that the GPU will process at one time when generating predictions.

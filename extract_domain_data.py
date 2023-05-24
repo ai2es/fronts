@@ -751,7 +751,7 @@ def grib_to_netcdf(year: int, month: int, day: int, hour: int, grib_indir: str, 
 
     isobaricInhPa_isel = [0, 1, 2, 3, 4, 5, 6]  # Dictionary to unpack for selecting indices in the datasets
 
-    chunk_sizes = {'latitude': 321, 'longitude': 961}
+    chunk_sizes = {'latitude': 721, 'longitude': 1440}
 
     dataset_dimensions = ('forecast_hour', 'pressure_level', 'latitude', 'longitude')
 
@@ -785,14 +785,14 @@ def grib_to_netcdf(year: int, month: int, day: int, hour: int, grib_indir: str, 
     raw_pressure_data_file = grib_files[raw_pressure_data_file_index]
     if 'mslp_data_file_index' in locals():
         mslp_data_file = grib_files[mslp_data_file_index]
-        mslp_data = xr.open_dataset(mslp_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks={'latitude': 721, 'longitude': 1440}).isel(**domain_indices_isel).drop_vars(['step'])
+        mslp_data = xr.open_dataset(mslp_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks=chunk_sizes).drop_vars(['step'])
 
     pressure_levels = [1000, 975, 950, 925, 900, 850, 700]
 
     # Open the datasets
-    pressure_level_data = xr.open_mfdataset(pressure_level_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks=chunk_sizes, combine='nested').isel(isobaricInhPa=isobaricInhPa_isel, **domain_indices_isel).drop_vars(['step'])
-    surface_data = xr.open_mfdataset(surface_data_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
-    raw_pressure_data = xr.open_dataset(raw_pressure_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
+    pressure_level_data = xr.open_mfdataset(pressure_level_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks=chunk_sizes, combine='nested').isel(isobaricInhPa=isobaricInhPa_isel).drop_vars(['step'])
+    surface_data = xr.open_mfdataset(surface_data_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks=chunk_sizes).drop_vars(['step'])
+    raw_pressure_data = xr.open_dataset(raw_pressure_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks=chunk_sizes).drop_vars(['step'])
 
     # Calculate the forecast hours using the surface_data dataset
     try:
@@ -811,10 +811,6 @@ def grib_to_netcdf(year: int, month: int, day: int, hour: int, grib_indir: str, 
 
     # Reformat the longitude coordinates to the 360 degree system
     if model in ['gdas', 'gfs']:
-        pressure_level_data['longitude'] = lon_coords_360
-        surface_data['longitude'] = lon_coords_360
-        raw_pressure_data['longitude'] = lon_coords_360
-        mslp_data['longitude'] = lon_coords_360
 
         mslp = mslp_data['mslet'].values  # mean sea level pressure (eta model reduction)
         mslp_z = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
@@ -934,8 +930,8 @@ def grib_to_netcdf(year: int, month: int, day: int, hour: int, grib_indir: str, 
     if 'mslp_data_file_index' in locals():
         full_dataset_variables['mslp_z'] = (('forecast_hour', 'pressure_level', 'latitude', 'longitude'), mslp_z)
 
-    full_dataset_coordinates['latitude'] = surface_data_latitudes
-    full_dataset_coordinates['longitude'] = lon_coords_360
+    full_dataset_coordinates['latitude'] = pressure_level_data['latitude']
+    full_dataset_coordinates['longitude'] = pressure_level_data['longitude']
 
     full_grib_dataset = xr.Dataset(data_vars=full_dataset_variables,
                                    coords=full_dataset_coordinates).astype('float32')
@@ -948,7 +944,7 @@ def grib_to_netcdf(year: int, month: int, day: int, hour: int, grib_indir: str, 
         os.mkdir(monthly_dir)
 
     for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
-        full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/{model.lower()}_%d%02d%02d%02d_f%03d_full.nc' % (monthly_dir, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
+        full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/{model.lower()}_%d%02d%02d%02d_f%03d_global.nc' % (monthly_dir, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
 
 
 def netcdf_to_tf(year: int, month: int, era5_netcdf_indir: str, fronts_netcdf_indir: str, tf_outdir: str, era5: bool, fronts: bool,
@@ -1122,7 +1118,7 @@ def netcdf_to_tf(year: int, month: int, era5_netcdf_indir: str, fronts_netcdf_in
     if variables is None:
         variables_to_use = all_variables
     else:
-        variables_to_use = sorted(variables)
+        variables_to_use = variables
 
     if pressure_levels is None:
         pressure_levels = all_pressure_levels
