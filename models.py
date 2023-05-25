@@ -12,7 +12,7 @@ TODO:
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 5/20/2023 7:26 PM CT
+Last updated: 5/24/2023 7:00 PM CT
 """
 
 from tensorflow.keras.models import Model
@@ -33,13 +33,13 @@ def unet(input_shape: tuple[int],
          activation: str = 'relu',
          padding: str = 'same',
          use_bias: bool = True,
-         kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
-         bias_initializer: str | tf.keras.initializers = 'zeros',
-         kernel_regularizer: str | tf.keras.regularizers = None,
-         bias_regularizer: str | tf.keras.regularizers = None,
-         activity_regularizer: str | tf.keras.regularizers = None,
-         kernel_constraint: str | tf.keras.constraints = None,
-         bias_constraint: str | tf.keras.constraints = None):
+         kernel_initializer: str = 'glorot_uniform',
+         bias_initializer: str = 'zeros',
+         kernel_regularizer: str = None,
+         bias_regularizer: str = None,
+         activity_regularizer: str = None,
+         kernel_constraint: str = None,
+         bias_constraint: str = None):
     """
     Builds a U-Net model.
 
@@ -212,13 +212,13 @@ def unet_ensemble(input_shape: tuple[int] | list[int],
                   activation: str = 'relu',
                   padding: str = 'same',
                   use_bias: bool = True,
-                  kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
-                  bias_initializer: str | tf.keras.initializers = 'zeros',
-                  kernel_regularizer: str | tf.keras.regularizers = None,
-                  bias_regularizer: str | tf.keras.regularizers = None,
-                  activity_regularizer: str | tf.keras.regularizers = None,
-                  kernel_constraint: str | tf.keras.constraints = None,
-                  bias_constraint: str | tf.keras.constraints = None):
+                  kernel_initializer: str = 'glorot_uniform',
+                  bias_initializer: str = 'zeros',
+                  kernel_regularizer: str = None,
+                  bias_regularizer: str = None,
+                  activity_regularizer: str = None,
+                  kernel_constraint: str = None,
+                  bias_constraint: str = None):
     """
     Builds a U-Net ensemble model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -401,13 +401,13 @@ def unet_plus(input_shape: tuple[int] | list[int],
               activation: str = 'relu',
               padding: str = 'same',
               use_bias: bool = True,
-              kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
-              bias_initializer: str | tf.keras.initializers = 'zeros',
-              kernel_regularizer: str | tf.keras.regularizers = None,
-              bias_regularizer: str | tf.keras.regularizers = None,
-              activity_regularizer: str | tf.keras.regularizers = None,
-              kernel_constraint: str | tf.keras.constraints = None,
-              bias_constraint: str | tf.keras.constraints = None):
+              kernel_initializer: str = 'glorot_uniform',
+              bias_initializer: str = 'zeros',
+              kernel_regularizer: str = None,
+              bias_regularizer: str = None,
+              activity_regularizer: str = None,
+              kernel_constraint: str = None,
+              bias_constraint: str = None):
     """
     Builds a U-Net+ model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -594,13 +594,13 @@ def unet_2plus(input_shape: tuple[int] | list[int],
                activation: str = 'relu',
                padding: str = 'same',
                use_bias: bool = True,
-               kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
-               bias_initializer: str | tf.keras.initializers = 'zeros',
-               kernel_regularizer: str | tf.keras.regularizers = None,
-               bias_regularizer: str | tf.keras.regularizers = None,
-               activity_regularizer: str | tf.keras.regularizers = None,
-               kernel_constraint: str | tf.keras.constraints = None,
-               bias_constraint: str | tf.keras.constraints = None):
+               kernel_initializer: str = 'glorot_uniform',
+               bias_initializer: str = 'zeros',
+               kernel_regularizer: str = None,
+               bias_regularizer: str = None,
+               activity_regularizer: str = None,
+               kernel_constraint: str = None,
+               bias_constraint: str = None):
     """
     Builds a U-Net++ model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -804,13 +804,13 @@ def unet_3plus(input_shape: tuple[int] | list[int],
                activation: str = 'relu',
                padding: str = 'same',
                use_bias: bool = True,
-               kernel_initializer: str | tf.keras.initializers = 'glorot_uniform',
-               bias_initializer: str | tf.keras.initializers = 'zeros',
-               kernel_regularizer: str | tf.keras.regularizers = None,
-               bias_regularizer: str | tf.keras.regularizers = None,
-               activity_regularizer: str | tf.keras.regularizers = None,
-               kernel_constraint: str | tf.keras.constraints = None,
-               bias_constraint: str | tf.keras.constraints = None):
+               kernel_initializer: str = 'glorot_uniform',
+               bias_initializer: str = 'zeros',
+               kernel_regularizer: str = None,
+               bias_regularizer: str = None,
+               activity_regularizer: str = None,
+               kernel_constraint: str = None,
+               bias_constraint: str = None):
     """
     Creates a U-Net 3+.
     https://arxiv.org/ftp/arxiv/papers/2004/2004.08790.pdf

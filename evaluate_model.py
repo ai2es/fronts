@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 5/20/2023 11:14 AM CT
+Last updated: 5/24/2023 7:00 PM CT
 
 TODO:
     * Remove the need for separate pickle files to be generated for spatial CSI maps
@@ -546,12 +546,12 @@ def generate_predictions(model_number: int, model_dir: str, variables_netcdf_ind
     variables = model_properties['variables']
     pressure_levels = model_properties['pressure_levels']
     normalization_parameters = model_properties['normalization_parameters']
-
     test_years, valid_years = model_properties['test_years'], model_properties['validation_years']
 
     if domain_images is None:
         domain_images = settings.DEFAULT_DOMAIN_IMAGES[domain]
     domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[domain]
+    domain_extent = settings.DEFAULT_DOMAIN_EXTENTS[domain]
 
     ### Properties of the final map made from stitched images ###
     domain_images_lon, domain_images_lat = domain_images[0], domain_images[1]
@@ -569,7 +569,6 @@ def generate_predictions(model_number: int, model_dir: str, variables_netcdf_ind
         lat_image_spacing = 0
 
     model = fm.load_model(model_number, model_dir)
-
     num_dimensions = len(model.layers[0].input_shape[0]) - 2
 
     ############################################### Load variable files ################################################
@@ -584,7 +583,8 @@ def generate_predictions(model_number: int, model_dir: str, variables_netcdf_ind
     ####################################################################################################################
 
     dataset_kwargs = {'engine': 'netcdf4'}  # Keyword arguments for loading variable files with xarray
-    coords_isel_kwargs = {'longitude': slice(domain_extent_indices[0], domain_extent_indices[1]), 'latitude': slice(domain_extent_indices[2], domain_extent_indices[3])}
+    coords_sel_kwargs = {'longitude': slice(domain_extent[0], domain_extent[1]),
+                         'latitude': slice(domain_extent[3], domain_extent[2])}
 
     if prediction_method == 'datetime':
         timestep_str = '%d%02d%02d%02d' % (datetime[0], datetime[1], datetime[2], datetime[3])
@@ -607,7 +607,7 @@ def generate_predictions(model_number: int, model_dir: str, variables_netcdf_ind
 
         files_in_chunk = variable_files[chunk_indices[chunk_no]:chunk_indices[chunk_no + 1]]
         print(f"Preparing chunk {chunk_no + 1}/{num_chunks}")
-        variable_ds = xr.open_mfdataset(files_in_chunk, **dataset_kwargs).isel(**coords_isel_kwargs)[variables]
+        variable_ds = xr.open_mfdataset(files_in_chunk, **dataset_kwargs).sel(**coords_sel_kwargs)[variables]
 
         if variable_data_source == 'era5':
             variable_ds = variable_ds.sel(pressure_level=pressure_levels).transpose('time', 'longitude', 'latitude', 'pressure_level')
@@ -641,7 +641,7 @@ def generate_predictions(model_number: int, model_dir: str, variables_netcdf_ind
             print(f"======== Chunk {chunk_no + 1}/{num_chunks}: batch {batch_no + 1}/{num_batches} ========")
 
             variable_batch_ds = variable_ds.isel(time=slice(batch_no * timestep_predict_size, (batch_no + 1) * timestep_predict_size))  # Select timesteps for the current batch
-            variable_batch_ds = data_utils.normalize_variables(variable_batch_ds, normalization_parameters).astype('float16')
+            variable_batch_ds = data_utils.normalize_variables(variable_batch_ds, normalization_parameters)
 
             timesteps = variable_batch_ds['time'].values
             num_timesteps_in_batch = len(timesteps)
@@ -705,10 +705,22 @@ def generate_predictions(model_number: int, model_dir: str, variables_netcdf_ind
                             image_probs = np.transpose(np.amax(prediction[:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
 
                     elif model_type == 'unet_3plus':
-                        if num_dims_in_pred == 5:  # 2D labels, prediction shape: (output level, time, lon, lat, front type)
-                            image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)  # transpose the predictions
-                        else:  # if num_dims_in_pred == 6; 3D labels, prediction shape: (output level, time, lat, lon, pressure level, front type)
-                            image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
+
+                        try:
+                            deep_supervision = model_properties['deep_supervision']
+                        except KeyError:
+                            deep_supervision = True  # older models do not have this dictionary key, so just set it to True
+
+                        if deep_supervision:
+                            if num_dims_in_pred == 5:  # 2D labels, prediction shape: (output level, time, lon, lat, front type)
+                                image_probs = np.transpose(prediction[0][:, :, :, 1:], transpose_indices)  # transpose the predictions
+                            else:  # if num_dims_in_pred == 6; 3D labels, prediction shape: (output level, time, lon, lat, pressure level, front type)
+                                image_probs = np.transpose(np.amax(prediction[0][:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
+                        else:
+                            if num_dims_in_pred == 4:  # 2D labels, prediction shape: (time, lon, lat, front type)
+                                image_probs = np.transpose(prediction[:, :, :, 1:], transpose_indices)  # transpose the predictions
+                            else:  # if num_dims_in_pred == 5; 3D labels, prediction shape: (time, lat, lon, pressure level, front type)
+                                image_probs = np.transpose(np.amax(prediction[:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
 
                     # Add predictions to the map
                     if variable_data_source != 'era5':
@@ -1415,7 +1427,7 @@ def prediction_plot(model_number: int, model_dir: str, fronts_netcdf_dir: str, t
         raise TypeError(f"same_map must be a boolean, received {type(same_map)}")
     ####################################################################################################################
 
-    DEFAULT_COLORBAR_POSITION = {'conus': 0.71, 'full': 0.78}
+    DEFAULT_COLORBAR_POSITION = {'conus': 0.71, 'full': 0.78, 'global': 0.74}
     cbar_position = DEFAULT_COLORBAR_POSITION[domain]
 
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
@@ -1441,16 +1453,19 @@ def prediction_plot(model_number: int, model_dir: str, fronts_netcdf_dir: str, t
 
     probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
 
-    fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
     probs_ds = xr.open_mfdataset(probs_file)
-
-    crs = ccrs.LambertConformal(central_longitude=250)
 
     front_types = model_properties['front_types']
 
-    fronts = data_utils.reformat_fronts(fronts, front_types=front_types)
-    labels = fronts.attrs['labels']
-    fronts = xr.where(fronts == 0, float('NaN'), fronts)
+    try:
+        fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
+        fronts = data_utils.reformat_fronts(fronts, front_types=front_types)
+        labels = fronts.attrs['labels']
+        fronts = xr.where(fronts == 0, float('NaN'), fronts)
+        fronts_found = True
+    except FileNotFoundError:
+        labels = front_types
+        fronts_found = False
 
     if type(front_types) == str:
         front_types = [front_types, ]
@@ -1467,111 +1482,70 @@ def prediction_plot(model_number: int, model_dir: str, fronts_netcdf_dir: str, t
     cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
-    if same_map:
-
-        data_arrays = {}
-        for key in list(probs_ds.keys()):
-            if calibration_km is not None:
-                ir_model = model_properties['calibration_models']['%s_%dx%d' % (domain, domain_images[0], domain_images[1])][key]['%d km' % calibration_km]
-                original_shape = np.shape(probs_ds[key].values)
-                data_arrays[key] = ir_model.predict(probs_ds[key].values.flatten()).reshape(original_shape)
-                cbar_label = 'Probability (calibrated - %d km)' % calibration_km
-            else:
-                data_arrays[key] = probs_ds[key].values
-                cbar_label = 'Probability (uncalibrated)'
-
-        all_possible_front_combinations = itertools.permutations(front_types, r=2)
-        for combination in all_possible_front_combinations:
-            probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
-
-        if variable_data_source != 'era5':
-            probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=forecast_hour)
-            valid_time = data_utils.add_or_subtract_hours_to_timestep(f'%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
-            data_title = f'Run: {variable_data_source.upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour)
-            fronts_valid_title = f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z'
+    data_arrays = {}
+    for key in list(probs_ds.keys()):
+        if calibration_km is not None:
+            ir_model = model_properties['calibration_models']['%s_%dx%d' % (domain, domain_images[0], domain_images[1])][key]['%d km' % calibration_km]
+            original_shape = np.shape(probs_ds[key].values)
+            data_arrays[key] = ir_model.predict(probs_ds[key].values.flatten()).reshape(original_shape)
+            cbar_label = 'Probability (calibrated - %d km)' % calibration_km
         else:
-            probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0)
-            data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz\n' \
-                         'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
-            fronts_valid_title = f'Fronts valid: %d-%02d-%02d-%02dz' % (year, month, day, hour)
+            data_arrays[key] = probs_ds[key].values
+            cbar_label = 'Probability (uncalibrated)'
 
-        fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
-        plot_background(extent, ax=ax, linewidth=0.5)
-        # ax.gridlines(draw_labels=True, zorder=0)
+    all_possible_front_combinations = itertools.permutations(front_types, r=2)
+    for combination in all_possible_front_combinations:
+        probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
 
-        cbar_front_labels = []
-        cbar_front_ticks = []
+    if variable_data_source != 'era5':
+        probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=forecast_hour)
+        valid_time = data_utils.add_or_subtract_hours_to_timestep(f'%d%02d%02d%02d' % (year, month, day, hour), num_hours=forecast_hour)
+        data_title = f'Run: {variable_data_source.upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour)
+        fronts_valid_title = f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z'
+    else:
+        probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0)
+        data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz\n' \
+                     'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
+        fronts_valid_title = f'Fronts valid: %d-%02d-%02d-%02dz' % (year, month, day, hour)
 
-        for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, front_types, contour_maps_by_type):
+    fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=250)})
+    plot_background(extent, ax=ax, linewidth=0.5)
+    # ax.gridlines(draw_labels=True, zorder=0)
 
-            cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
-            probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
+    cbar_front_labels = []
+    cbar_front_ticks = []
+
+    for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, front_types, contour_maps_by_type):
+
+        cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
+        probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
+
+        if fronts_found:
             fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
 
-            cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.24, 0.015, 0.64])
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
-            cbar.set_ticklabels([])
+        cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.24, 0.015, 0.64])
+        cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
+        cbar.set_ticklabels([])
 
-            cbar_front_labels.append(front_name)
-            cbar_front_ticks.append(front_no + 0.5)
+        cbar_front_labels.append(front_name)
+        cbar_front_ticks.append(front_no + 0.5)
 
-        cbar.set_label(cbar_label, rotation=90)
-        cbar.set_ticks(cbar_ticks)
-        cbar.set_ticklabels(cbar_ticks)
+    cbar.set_label(cbar_label, rotation=90)
+    cbar.set_ticks(cbar_ticks)
+    cbar.set_ticklabels(cbar_ticks)
 
+    if fronts_found:
         cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, orientation='horizontal', shrink=0.5, pad=0.02)
         cbar_front.set_ticks(cbar_front_ticks)
         cbar_front.set_ticklabels(cbar_front_labels)
 
-        ax.set_title('')
-        # ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
-        ax.set_title(data_title, loc='left')
-        ax.set_title(fronts_valid_title, loc='right')
+    ax.set_title('')
+    # ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
+    ax.set_title(data_title, loc='left')
+    ax.set_title(fronts_valid_title, loc='right')
 
-        plt.savefig('%s/model_%d/maps/%s/%s-same.png' % (model_dir, model_number, subdir_base, filename_base), bbox_inches='tight', dpi=300)
-        plt.close()
-
-    else:
-        probs_ds = xr.where(probs_ds > probability_mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=forecast_hour)
-        for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, labels, contour_maps_by_type):
-            if variable_data_source != 'era5':
-                fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
-                plot_background(extent, ax=ax, linewidth=0.5)
-                current_fronts = fronts
-                current_fronts = xr.where(current_fronts != front_no, float("NaN"), front_no)
-                cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
-                probs_ds[front_key].sel(forecast_hour=forecast_hour).plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs,
-                    transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
-                # current_fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
-                valid_time = data_utils.add_or_subtract_hours_to_timestep(f'{year}%02d%02d%02d' % (month, day, hour), num_hours=forecast_hour)
-                ax.set_title(f'{front_name} predictions')
-                ax.set_title(f'Run: {variable_data_source.upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z' % (month, day, hour, forecast_hour), loc='left')
-                # ax.set_title(f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z', loc='right')
-                cbar_ax = fig.add_axes([0.8365, 0.11, 0.015, 0.77])
-                cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
-                cbar.set_label('Probability (uncalibrated)', rotation=90)
-                cbar.set_ticks(cbar_ticks)
-                cbar.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-                plt.savefig('%s/model_%d/maps/%s/%s-%s.png' % (model_dir, model_number, subdir_base, filename_base, front_label), bbox_inches='tight', dpi=300)
-                plt.close()
-            else:
-                # current_fronts = fronts
-                # current_fronts = xr.where(current_fronts != front_no, float("NaN"), front_no)
-                fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': crs})
-                plot_background(extent, ax=ax, linewidth=0.5)
-                cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
-                probs_ds[front_key].isel().plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs,
-                    transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
-                ax.set_title(f'Data: ERA5 reanalysis {year}-%02d-%02d-%02dz' % (month, day, hour), loc='left')
-                # current_fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
-                ax.set_title(f'{front_name} predictions')
-                cbar_ax = fig.add_axes([0.8365, 0.11, 0.015, 0.77])
-                cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
-                cbar.set_label(f'{front_name} probability', rotation=90)
-                cbar.set_ticks(cbar_ticks)
-                cbar.set_ticklabels(cbar_tick_labels[int(probability_mask*cbar_label_adjust):])
-                plt.savefig('%s/model_%d/maps/%s/%s-%s.png' % (model_dir, model_number, subdir_base, filename_base, front_label), bbox_inches='tight', dpi=300)
-                plt.close()
+    plt.savefig('%s/model_%d/maps/%s/%s-same.png' % (model_dir, model_number, subdir_base, filename_base), bbox_inches='tight', dpi=300)
+    plt.close()
 
 
 def learning_curve(model_number: int, model_dir: str):

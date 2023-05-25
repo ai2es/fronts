@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 5/20/2023 11:24 AM CT
+Last updated: 5/24/2023 6:43 PM CT
 """
 
 import argparse
@@ -20,8 +20,6 @@ import models
 import datetime
 import utils.data_utils
 from utils import settings, misc
-
-tf.config.experimental.enable_tensor_float_32_execution(False)  # Disable TensorFloat32 for matrix multiplication (saves memory)
 
 
 def combine_datasets(input_files, label_files):
@@ -55,6 +53,7 @@ if __name__ == "__main__":
     ### GPU arguments ###
     parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth for GPUs')
+    parser.add_argument('--disable_tensorfloat32', action='store_true', help='Disable TensorFloat32 execution.')
 
     ### Hyperparameters ###
     parser.add_argument('--learning_rate', type=float, help='Learning rate for U-Net optimizer.')
@@ -72,7 +71,6 @@ if __name__ == "__main__":
     parser.add_argument('--filter_num_aggregate', type=int, help='Number of filters in aggregated feature maps')
     parser.add_argument('--filter_num_skip', type=int, help='Number of filters in full-scale skip connections')
     parser.add_argument('--first_encoder_connections', action='store_true', help='Enable first encoder connections in the U-Net 3+')
-    parser.add_argument('--image_size', type=int, nargs='+', default=(128, 128), help='Size of the U-Net input images.')
     parser.add_argument('--kernel_size', type=int, nargs='+', help='Size of the convolution kernels.')
     parser.add_argument('--levels', type=int, help='Number of levels in the U-Net.')
     parser.add_argument('--loss', type=str, help='Loss function for the U-Net')
@@ -89,9 +87,6 @@ if __name__ == "__main__":
     parser.add_argument('--use_bias', action='store_true', help='Use bias parameters in the U-Net')
 
     ### Data arguments ###
-    parser.add_argument('--front_types', type=str, nargs='+', help='Front types that the model will be trained on.')
-    parser.add_argument('--pressure_levels', type=str, nargs='+', help='Pressure levels to use')
-    parser.add_argument('--variables', type=str, nargs='+', help='Variables to use')
     parser.add_argument('--num_training_years', type=int, help='Number of years for the training dataset.')
     parser.add_argument('--training_years', type=int, nargs="+", help='Years for the training dataset.')
     parser.add_argument('--num_validation_years', type=int, help='Number of years for the validation set.')
@@ -120,6 +115,16 @@ if __name__ == "__main__":
         if args.memory_growth:
             tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args.gpu_device][0], enable=True)
 
+        if args.disable_tensorfloat32:
+            tf.config.experimental.enable_tensor_float_32_execution(False)  # Disable TensorFloat32 for matrix multiplication
+
+    dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args.era5_tf_indir)
+    front_types = dataset_properties['front_types']
+    variables = dataset_properties['variables']
+    pressure_levels = dataset_properties['pressure_levels']
+    image_size = dataset_properties['image_size']
+    num_dims = dataset_properties['num_dims']
+
     if not args.retrain:
 
         if args.loss == 'fractions_skill_score':
@@ -139,14 +144,6 @@ if __name__ == "__main__":
             metric_string = 'bss'
         else:
             metric_string = None
-
-        all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q']
-        all_pressure_levels = ['surface', '1000', '950', '900', '850']
-
-        variables_to_use = sorted([var for var in all_variables if var in args.variables])
-        pressure_levels = sorted([lvl for lvl in all_pressure_levels if lvl in args.pressure_levels])
-
-        args.variables = sorted(args.variables)
     
         all_years = np.arange(2008, 2021)
 
@@ -181,8 +178,6 @@ if __name__ == "__main__":
         # Convert pool size and upsample size to tuples
         pool_size, upsample_size = tuple(args.pool_size), tuple(args.upsample_size)
 
-        front_types = args.front_types
-
         if any(front_type == front_types for front_type in [['MERGED-F_BIN'], ['MERGED-T'], ['F_BIN']]):
             num_classes = 2
         elif front_types == ['MERGED-F']:
@@ -205,14 +200,14 @@ if __name__ == "__main__":
         model_properties['valid_freq'] = 1
         model_properties['optimizer'] = 'Adam'
         model_properties['learning_rate'] = args.learning_rate
-        model_properties['image_size'] = args.image_size
+        model_properties['image_size'] = image_size
         model_properties['kernel_size'] = args.kernel_size
         model_properties['normalization_parameters'] = utils.data_utils.normalization_parameters
         model_properties['loss_string'] = loss_string
         model_properties['loss_args'] = loss_args
         model_properties['metric_string'] = metric_string
         model_properties['metric_args'] = metric_args
-        model_properties['variables'] = variables_to_use
+        model_properties['variables'] = variables
         model_properties['pressure_levels'] = pressure_levels
         model_properties['front_types'] = front_types
         model_properties['classes'] = num_classes
