@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/8/2023 12:03 PM CT
+Last updated: 6/8/2023 6:45 PM CT
 """
 import argparse
 import cartopy.crs as ccrs
@@ -15,9 +15,10 @@ import pandas as pd
 import xarray as xr
 import os
 import sys
-sys.path.append(os.getcwd())
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
 from utils import settings
 from utils.plotting_utils import plot_background
+
 
 if __name__ == '__main__':
     """

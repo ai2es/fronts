@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/8/2023 1:38 PM CT
+Last updated: 6/8/2023 6:45 PM CT
 """
 import itertools
 import argparse
@@ -14,7 +14,7 @@ import xarray as xr
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
 import os
 import sys
-sys.path.append(os.getcwd())
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
 from utils import data_utils, settings
 from utils.plotting_utils import plot_background
 
