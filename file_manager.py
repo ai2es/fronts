@@ -2,16 +2,16 @@
 Functions in this code manage data files and models.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 4/29/2023 2:06 PM CT
+Last updated: 6/7/2023 11:48 PM CT
 """
 
-import shutil
-from glob import glob
-import tarfile
 import argparse
+from glob import glob
 import numpy as np
 import os
 import pandas as pd
+import shutil
+import tarfile
 from utils import data_utils
 
 
@@ -201,7 +201,7 @@ class DataFileLoader:
             Input directory for the netCDF or tensorflow datasets.
         data_file_type: str
             This string will contain two parts, separated by a hyphen: the source for the variable data, and the type of file/dataset.
-            Options for the variable data sources are: 'era5', 'gdas', and 'gfs'.
+            Options for the variable data sources are: 'era5', 'fronts', 'gdas', and 'gfs'.
             Options for the file/dataset type string are: 'netcdf', 'tensorflow'.
         synoptic_only: bool
             Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
