@@ -15,8 +15,8 @@ if __name__ == '__main__':
     All arguments listed in the examples are listed via argparse in alphabetical order below this comment block.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_dir', type=str, help='Directory for the models.')
-    parser.add_argument('--model_number', type=int, help='Model number.')
+    parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
+    parser.add_argument('--model_number', type=int, required=True, help='Model number.')
 
     args = vars(parser.parse_args())
 
