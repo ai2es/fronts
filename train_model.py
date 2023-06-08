@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 5/24/2023 6:43 PM CT
+Last updated: 6/7/2023 11:46 PM CT
 """
 
 import argparse
@@ -18,26 +18,7 @@ import custom_losses
 import custom_metrics
 import models
 import datetime
-import utils.data_utils
-from utils import settings, misc
-
-
-def combine_datasets(input_files, label_files):
-    """
-    Combine many tensorflow datasets into one entire dataset.
-
-    Returns
-    -------
-    complete_dataset: tf.data.Dataset object
-        - Concatenated tensorflow dataset.
-    """
-    inputs = tf.data.Dataset.load(input_files.pop(0))
-    labels = tf.data.Dataset.load(label_files.pop(0))
-    for input_file, label_file in zip(input_files, label_files):
-        inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
-        labels = labels.concatenate(tf.data.Dataset.load(label_file))
-
-    return tf.data.Dataset.zip((inputs, labels))
+from utils import settings, misc, data_utils
 
 
 if __name__ == "__main__":
@@ -202,7 +183,7 @@ if __name__ == "__main__":
         model_properties['learning_rate'] = args.learning_rate
         model_properties['image_size'] = image_size
         model_properties['kernel_size'] = args.kernel_size
-        model_properties['normalization_parameters'] = utils.data_utils.normalization_parameters
+        model_properties['normalization_parameters'] = data_utils.normalization_parameters
         model_properties['loss_string'] = loss_string
         model_properties['loss_args'] = loss_args
         model_properties['metric_string'] = metric_string
@@ -269,7 +250,13 @@ if __name__ == "__main__":
     ### Training dataset ###
     training_inputs = era5_files_obj.data_files_training
     training_labels = era5_files_obj.front_files_training
-    training_dataset = combine_datasets(training_inputs, training_labels)
+
+    # Shuffle monthly data
+    training_files = list(zip(training_inputs, training_labels))
+    np.random.shuffle(training_files)
+    training_inputs, training_labels = zip(*training_files)
+
+    training_dataset = data_utils.combine_datasets(training_inputs, training_labels)
     print(f"Images in training dataset: {len(training_dataset):,}")
     training_buffer_size = np.min([len(training_dataset), settings.MAX_TRAIN_BUFFER_SIZE])
     training_dataset = training_dataset.shuffle(buffer_size=training_buffer_size)
@@ -279,7 +266,7 @@ if __name__ == "__main__":
     ### Validation dataset ###
     validation_inputs = era5_files_obj.data_files_validation
     validation_labels = era5_files_obj.front_files_validation
-    validation_dataset = combine_datasets(validation_inputs, validation_labels)
+    validation_dataset = data_utils.combine_datasets(validation_inputs, validation_labels)
     print(f"Images in validation dataset: {len(validation_dataset):,}")
     validation_dataset = validation_dataset.batch(train_valid_batch_size[1], drop_remainder=True, num_parallel_calls=4)
     validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
