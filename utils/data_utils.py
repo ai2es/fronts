@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 5/15/2023 4:06 PM CT
+Last updated: 6/7/2023 11:44 PM CT
 """
 
 import math
@@ -89,6 +89,8 @@ normalization_parameters = {'mslp_z_surface': [1050., 960.],
                             'v_950': [55., -56.],
                             'v_900': [58., -59.],
                             'v_850': [58., -59.]}
+
+bad_timesteps = [np.datetime64("2018-03-26T09:00:00"), ]
 
 
 def expand_fronts(ds_fronts, iterations=1):
@@ -350,7 +352,7 @@ def reformat_fronts(fronts, front_types):
         WF-D (10): Warm front (dissipating)
         SF-D (11): Stationary front (dissipating)
         OF-D (12): Occluded front (dissipating)
-        OFB (13): Outflow boundary
+        INST (13): Instability axis
         TROF (14): Trough
         TT (15): Tropical Trough
         DL (16): Dryline
@@ -379,7 +381,7 @@ def reformat_fronts(fronts, front_types):
             (3): SF, SF-F, SF-D
             (4): OF, OF-F, OF-D
             (5): TROF, TT
-            (6): OFB
+            (6): INST
             (7): DL
 
         **** NOTE - Class 0 is always treated as 'no front'.
@@ -404,7 +406,7 @@ def reformat_fronts(fronts, front_types):
         where_function = tf.where
 
     front_types_classes = {'CF': 1, 'WF': 2, 'SF': 3, 'OF': 4, 'CF-F': 5, 'WF-F': 6, 'SF-F': 7, 'OF-F': 8, 'CF-D': 9, 'WF-D': 10,
-                           'SF-D': 11, 'OF-D': 12, 'OFB': 13, 'TROF': 14, 'TT': 15, 'DL': 16}
+                           'SF-D': 11, 'OF-D': 12, 'INST': 13, 'TROF': 14, 'TT': 15, 'DL': 16}
 
     if front_types == ['F_BIN', ]:
 
@@ -468,7 +470,7 @@ def reformat_fronts(fronts, front_types):
         fronts = where_function(fronts == 13, 6, fronts)  # Move outflow boundaries to class 6
         fronts = where_function(fronts == 16, 7, fronts)  # Move drylines to class 7
 
-        labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any', 'TR_any', 'OFB', 'DL']
+        labels = ['CF_any', 'WF_any', 'SF_any', 'OF_any', 'TR_any', 'INST', 'DL']
         num_types = 7
 
     else:
@@ -636,3 +638,31 @@ def randomize_variables(variable_ds: xr.Dataset, random_variables: list or tuple
         variable_ds[random_variable].values = np.reshape(flattened_variable_values, variable_shape)
 
     return variable_ds
+
+
+def combine_datasets(input_files, label_files=None):
+    """
+    Combine many tensorflow datasets into one entire dataset.
+
+    Returns
+    -------
+    complete_dataset: tf.data.Dataset object
+        - Concatenated tensorflow dataset.
+    """
+    inputs = tf.data.Dataset.load(input_files.pop(0))
+
+    if label_files is not None:
+
+        labels = tf.data.Dataset.load(label_files.pop(0))
+        for input_file, label_file in zip(input_files, label_files):
+            inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
+            labels = labels.concatenate(tf.data.Dataset.load(label_file))
+
+        return tf.data.Dataset.zip((inputs, labels))
+
+    else:
+
+        for input_file in input_files:
+            inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
+
+        return tf.data.Dataset(inputs)

@@ -2,10 +2,8 @@
 Default settings
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 5/22/2023 11:16 AM CT
+Last updated: 6/7/2023 11:43 PM CT
 """
-import platform
-
 DEFAULT_DOMAIN_EXTENTS = {'global': [0, 359.75, -89.75, 90],
                           'full': [130, 370, 0, 80],
                           'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains [start lon, end lon, start lat, end lat]
@@ -19,14 +17,14 @@ DEFAULT_DOMAIN_IMAGES = {'global': [17, 9],
 # colors for plotted ground truth fronts
 DEFAULT_FRONT_COLORS = {'CF': 'blue', 'WF': 'red', 'SF': 'limegreen', 'OF': 'darkviolet', 'CF-F': 'darkblue', 'WF-F': 'darkred',
                         'SF-F': 'darkgreen', 'OF-F': 'darkmagenta', 'CF-D': 'lightskyblue', 'WF-D': 'lightcoral', 'SF-D': 'lightgreen',
-                        'OF-D': 'violet', 'OFB': 'gold', 'TROF': 'goldenrod', 'TT': 'orange', 'DL': 'chocolate', 'CF-WF-SF-OF': 'tab:red',
+                        'OF-D': 'violet', 'INST': 'gold', 'TROF': 'goldenrod', 'TT': 'orange', 'DL': 'chocolate', 'CF-WF-SF-OF': 'tab:red',
                         'CF_any': 'blue', 'WF_any': 'red', 'SF_any': 'limegreen', 'OF_any': 'darkviolet', 'CF-WF-SF-OF_any': 'gray',
                         'TR_any': 'brown', 'F_BIN': 'tab:red', 'MERGED-F_BIN': 'tab:red'}
 
 # colormaps of probability contours for front predictions
 DEFAULT_CONTOUR_CMAPS = {'CF': 'Blues', 'WF': 'Reds', 'SF': 'Greens', 'OF': 'Purples', 'CF-F': 'Blues', 'WF-F': 'Reds',
                          'SF-F': 'Greens', 'OF-F': 'Purples', 'CF-D': 'Blues', 'WF-D': 'Reds', 'SF-D': 'Greens', 'OF-D': 'Purples',
-                         'OFB': 'YlOrBr', 'TROF': 'YlOrRed', 'TT': 'Oranges', 'DL': 'copper_r', 'CF-WF-SF-OF': 'Reds', 'CF_any': 'Blues',
+                         'INST': 'YlOrBr', 'TROF': 'YlOrRd', 'TT': 'Oranges', 'DL': 'copper_r', 'CF-WF-SF-OF': 'Reds', 'CF_any': 'Blues',
                          'WF_any': 'Reds', 'SF_any': 'Greens', 'OF_any': 'Purples', 'CF-WF-SF-OF_any': 'Greys', 'TR_any': 'YlOrBr',
                          'F_BIN': 'Greys', 'MERGED-F_BIN': 'Greys'}
 
@@ -34,7 +32,7 @@ DEFAULT_CONTOUR_CMAPS = {'CF': 'Blues', 'WF': 'Reds', 'SF': 'Greens', 'OF': 'Pur
 DEFAULT_FRONT_NAMES = {'CF': 'Cold front', 'WF': 'Warm front', 'SF': 'Stationary front', 'OF': 'Occluded front', 'CF-F': 'Cold front (forming)',
                        'WF-F': 'Warm front (forming)', 'SF-F': 'Stationary front (forming)', 'OF-F': 'Occluded front (forming)',
                        'CF-D': 'Cold front (dying)', 'WF-D': 'Warm front (dying)', 'SF-D': 'Stationary front (dying)', 'OF-D': 'Occluded front (dying)',
-                       'OFB': 'Outflow boundary', 'TROF': 'Trough', 'TT': 'Tropical trough', 'DL': 'Dryline', 'CF-WF-SF-OF': 'CF, WF, SF, OF',
+                       'INST': 'Outflow boundary', 'TROF': 'Trough', 'TT': 'Tropical trough', 'DL': 'Dryline', 'CF-WF-SF-OF': 'CF, WF, SF, OF',
                        'CF_any': 'Cold front (any)', 'WF_any': 'Warm front (any)', 'SF_any': 'Stationary front (any)', 'OF_any': 'Occluded front (any)',
                        'CF-WF-SF-OF_any': 'CF, WF, SF, OF (any)', 'TR_any': 'Trough (any)', 'F_BIN': 'Binary front', 'MERGED-F_BIN': 'Binary front (any)'}
 
@@ -82,4 +80,4 @@ does not efficiently use RAM during shuffling on Windows machines and can lead t
 relatively small. It is important to monitor RAM usage if you are training a model on Windows. Linux is able to shuffle much
 larger datasets than Windows, but crashes can still occur if the maximum buffer size is too large.
 """
-MAX_TRAIN_BUFFER_SIZE = {'Windows': 5000, 'Linux': 170000}[platform.uname().system]
+MAX_TRAIN_BUFFER_SIZE = 5000
