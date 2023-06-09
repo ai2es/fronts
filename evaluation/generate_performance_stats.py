@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/8/2023 6:45 PM CT
+Last updated: 6/9/2023 3:27 PM CT
 """
 import argparse
 import numpy as np
@@ -13,7 +13,9 @@ import xarray as xr
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directoryimport file_manager as fm
+import file_manager as fm
 from utils import data_utils
+from utils.settings import DEFAULT_DOMAIN_EXTENTS
 
 
 if __name__ == '__main__':
@@ -21,11 +23,9 @@ if __name__ == '__main__':
     All arguments listed in the examples are listed via argparse in alphabetical order below this comment block.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, required=True,
-        help="Dataset for which the statistics will be calculated. 'training, 'validation', 'test'")
-    parser.add_argument('--datetime', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
+    parser.add_argument('--dataset', type=str, required=True, help="Dataset for which the statistics will be calculated. 'training, 'validation', 'test'")
+    parser.add_argument('--years', type=int, nargs='+', help='Years for which to calculate performance statistics.')
     parser.add_argument('--domain', type=str, help='Domain of the data.')
-    parser.add_argument('--domain_size', type=int, nargs=2, help='Lengths of the dimensions of the final stitched map for predictions: lon, lat')
     parser.add_argument('--forecast_hour', type=int, help='Forecast hour for the GDAS data')
     parser.add_argument('--gpu_device', type=int, help='GPU device number.')
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU')
@@ -39,17 +39,22 @@ if __name__ == '__main__':
 
     model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']))
     front_types = model_properties['front_types']
-    years = model_properties['%s_years' % args['dataset']]
 
+    if args['years'] is None:
+        args['years'] = model_properties['%s_years' % args['dataset']]
 
     era5_files_obj = fm.DataFileLoader(args['fronts_netcdf_indir'], data_file_type='fronts-netcdf')
-    era5_files_obj.test_years = years  # does not matter which year attribute we set the years to
+    era5_files_obj.test_years = args['years']  # does not matter which year attribute we set the years to
     front_files = era5_files_obj.front_files_test
 
-    probs_ds = xr.open_dataset('%s/model_%d/probabilities/model_%d_pred_%s.nc' % (args['model_dir'], args['model_number'], args['model_number'], args['dataset']))
+    prediction_files = [f'%s/model_%d/probabilities/model_%d_pred_%s_{year}.nc' % (args['model_dir'], args['model_number'], args['model_number'], args['domain']) for year in args['years']]
+
+    probs_ds = xr.open_mfdataset(prediction_files, combine='nested', concat_dim='time')
 
     print("Opening fronts dataset")
-    fronts_ds = xr.open_mfdataset(front_files, combine='nested', concat_dim='time').sel(longitude=slice(228, 299.75), latitude=slice(56.75, 25))
+    fronts_ds = xr.open_mfdataset(front_files, combine='nested', concat_dim='time')\
+        .sel(longitude=slice(DEFAULT_DOMAIN_EXTENTS[args['domain']][0], DEFAULT_DOMAIN_EXTENTS[args['domain']][1]),
+             latitude=slice(DEFAULT_DOMAIN_EXTENTS[args['domain']][3], DEFAULT_DOMAIN_EXTENTS[args['domain']][2]))
     print("Reformatting fronts")
     fronts_ds = data_utils.reformat_fronts(fronts_ds, front_types)
 
@@ -180,4 +185,4 @@ if __name__ == '__main__':
         performance_ds["SR_97.5_%s" % front_type] = (('boundary', 'threshold'), CI_upper_SR[front_no, 1, :, :])
         performance_ds["SR_95_%s" % front_type] = (('boundary', 'threshold'), CI_upper_SR[front_no, 0, :, :])
 
-    performance_ds.to_netcdf(path='%s/model_%d/statistics/model_%d_statistics_test.nc' % (args['model_dir'], args['model_number'], args['model_number']), mode='w', engine='netcdf4')
+    performance_ds.to_netcdf(path='%s/model_%d/statistics/model_%d_statistics_%s_%s.nc' % (args['model_dir'], args['model_number'], args['model_number'], args['domain'], args['dataset']), mode='w', engine='netcdf4')

@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/8/2023 6:45 PM CT
+Last updated: 6/9/2023 3:32 PM CT
 """
 import argparse
 import cartopy.crs as ccrs
@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
     domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[args['domain']]
 
-    stats_ds = xr.open_dataset('%s/model_%d/statistics/model_%d_statistics_%s.nc' % (args['model_dir'], args['model_number'], args['model_number'], args['dataset']))
+    stats_ds = xr.open_dataset('%s/model_%d/statistics/model_%d_statistics_%s_%s.nc' % (args['model_dir'], args['model_number'], args['model_number'], args['domain'], args['dataset']))
 
     if type(front_types) == str:
         front_types = [front_types, ]
@@ -55,8 +55,8 @@ if __name__ == '__main__':
         thresholds = stats_ds['threshold'].values
 
         # Confidence intervals for POD and SR
-        CI_POD = [stats_ds[f"POD_2.5_{front_label}"].values, stats_ds[f"POD_97.5_{front_label}"].values]
-        CI_SR = [stats_ds[f"SR_2.5_{front_label}"].values, stats_ds[f"SR_97.5_{front_label}"].values]
+        CI_POD = [stats_ds[f"POD_0.5_{front_label}"].values, stats_ds[f"POD_99.5_{front_label}"].values]
+        CI_SR = [stats_ds[f"SR_0.5_{front_label}"].values, stats_ds[f"SR_99.5_{front_label}"].values]
 
         ### Statistics with shape (boundary, threshold) after taking the sum along the time axis (axis=0) ###
         true_positives_temporal_sum = np.sum(true_positives_temporal, axis=0)
@@ -216,7 +216,7 @@ if __name__ == '__main__':
         # plt.suptitle(f'{num_dimensions}D U-Net 3+ ({kernel_text} kernel): {front_text} over {domain_text}', fontsize=20)  # Create and plot the main title
         ################################################################################################################
 
-        filename = f"%s/model_%d/%s_performance_test_{args['data_source']}.png" % (args['model_dir'], args['model_number'], front_label)
+        filename = f"%s/model_%d/%s_performance_%s_{args['data_source']}.png" % (args['model_dir'], args['model_number'], front_label, args['dataset'])
         if args['data_source'] != 'era5':
             filename = filename.replace('.png', '_f%03d.png' % args['forecast_hour'])  # Add forecast hour to the end of the filename
 
