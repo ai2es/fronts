@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/7/2023 11:44 PM CT
+Last updated: 6/9/2023 1:33 PM CT
 """
 
 import math
@@ -665,4 +665,4 @@ def combine_datasets(input_files, label_files=None):
         for input_file in input_files:
             inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
 
-        return tf.data.Dataset(inputs)
+        return inputs
