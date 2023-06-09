@@ -2,7 +2,7 @@
 Convert netCDF files containing ERA5 and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/7/2023 6:14 PM CT
+Last updated: 6/9/2023 1:32 PM CT
 """
 import argparse
 from glob import glob
@@ -134,6 +134,7 @@ if __name__ == '__main__':
         dataset_props['variables'] = args['variables']
         dataset_props['pressure_levels'] = args['pressure_levels']
         dataset_props['num_dims'] = args['num_dims']
+        dataset_props['domain'] = args['domain']
         dataset_props['images'] = args['images']
         dataset_props['image_size'] = args['image_size']
         dataset_props['front_dilation'] = args['front_dilation']
