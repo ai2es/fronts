@@ -55,8 +55,14 @@ if __name__ == '__main__':
         thresholds = stats_ds['threshold'].values
 
         # Confidence intervals for POD and SR
-        CI_POD = [stats_ds[f"POD_0.5_{front_label}"].values, stats_ds[f"POD_99.5_{front_label}"].values]
-        CI_SR = [stats_ds[f"SR_0.5_{front_label}"].values, stats_ds[f"SR_99.5_{front_label}"].values]
+        CI_POD = np.stack((stats_ds[f"POD_0.5_{front_label}"].values, stats_ds[f"POD_99.5_{front_label}"].values), axis=0)
+        CI_SR = np.stack((stats_ds[f"SR_0.5_{front_label}"].values, stats_ds[f"SR_99.5_{front_label}"].values), axis=0)
+
+        # Remove the zeros
+        try:
+            polygon_stop_index = np.min(np.where(CI_POD == 0)[2])
+        except IndexError:
+            polygon_stop_index = 100
 
         ### Statistics with shape (boundary, threshold) after taking the sum along the time axis (axis=0) ###
         true_positives_temporal_sum = np.sum(true_positives_temporal, axis=0)
@@ -115,8 +121,8 @@ if __name__ == '__main__':
             axarr[1].plot(thresholds[1:] + 0.005, observed_relative_frequency[boundary], color=color, linewidth=1)
 
             # Confidence interval
-            xs = np.concatenate([CI_SR[0][boundary, ...], CI_SR[1][boundary, ...][::-1]])
-            ys = np.concatenate([CI_POD[0][boundary, ...], CI_POD[1][boundary, ...][::-1]])
+            xs = np.concatenate([CI_SR[0, boundary, :polygon_stop_index], CI_SR[1, boundary, :polygon_stop_index][::-1]])
+            ys = np.concatenate([CI_POD[0, boundary, :polygon_stop_index], CI_POD[1, boundary, :polygon_stop_index][::-1]])
             axarr[0].fill(xs, ys, alpha=0.3, color=color)  # Shade the confidence interval
 
         axarr[0].set_xlabel("Success Ratio (SR = 1 - FAR)")

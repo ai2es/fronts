@@ -649,12 +649,12 @@ def combine_datasets(input_files, label_files=None):
     complete_dataset: tf.data.Dataset object
         - Concatenated tensorflow dataset.
     """
-    inputs = tf.data.Dataset.load(input_files.pop(0))
+    inputs = tf.data.Dataset.load(input_files[0])
 
     if label_files is not None:
 
-        labels = tf.data.Dataset.load(label_files.pop(0))
-        for input_file, label_file in zip(input_files, label_files):
+        labels = tf.data.Dataset.load(label_files[0])
+        for input_file, label_file in zip(input_files[1:], label_files[1:]):
             inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
             labels = labels.concatenate(tf.data.Dataset.load(label_file))
 
@@ -662,7 +662,7 @@ def combine_datasets(input_files, label_files=None):
 
     else:
 
-        for input_file in input_files:
+        for input_file in input_files[1:]:
             inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
 
         return inputs
