@@ -2,12 +2,12 @@
 Script for running debug commands
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/27/2023 8:29 PM CT
+Last updated: 6/12/2023 10:03 PM CT
 """
 
 import argparse
 import os.path
-import utils.debug.era5, utils.debug.fronts, utils.debug.tf, utils.debug.model_data
+import utils.debug.era5, utils.debug.fronts, utils.debug.model_data
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

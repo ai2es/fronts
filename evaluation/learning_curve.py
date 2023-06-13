@@ -2,7 +2,7 @@
 Plot the learning curve for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/8/2023 10:35 AM CT
+Last updated: 6/12/2023 9:34 PM CT
 """
 import argparse
 import matplotlib.pyplot as plt
@@ -68,9 +68,10 @@ if __name__ == '__main__':
     fig, axs = plt.subplots(1, 2, figsize=(12, 6), dpi=300)
     axarr = axs.flatten()
 
-    plt.text(x=0, y=-0.02, s='Epoch %d' % min_val_loss_epoch, color='black', va='center', fontdict=dict(fontsize=11, fontweight='bold'))
-    plt.text(x=0, y=-0.03, s='Training/Validation loss: %.4e, %.4e' % (history['loss'][min_val_loss_epoch - 1], history['val_loss'][min_val_loss_epoch - 1]), color='black', va='center', fontdict=dict(fontsize=11))
-    plt.text(x=0, y=-0.04, s='Training/Validation metric: %.4f, %.4f' % (train_metric[min_val_loss_epoch - 1], val_metric[min_val_loss_epoch - 1]), color='black', va='center', fontdict=dict(fontsize=11))
+    annotate_kwargs = dict(color='black', va='center', xycoords='axes fraction', fontsize=11)
+    axarr[0].annotate('Epoch %d' % min_val_loss_epoch, xy=(0, -0.2), fontweight='bold', **annotate_kwargs)
+    axarr[0].annotate('Training/Validation loss: %.4e, %.4e' % (history['loss'][min_val_loss_epoch - 1], history['val_loss'][min_val_loss_epoch - 1]), xy=(0, -0.25), **annotate_kwargs)
+    axarr[0].annotate('Training/Validation metric: %.4f, %.4f' % (train_metric[min_val_loss_epoch - 1], val_metric[min_val_loss_epoch - 1]), xy=(0, -0.3), **annotate_kwargs)
 
     axarr[0].set_title(loss_title)
     axarr[0].plot(np.arange(1, num_epochs + 1), history['loss'], color='blue', label='Training loss')

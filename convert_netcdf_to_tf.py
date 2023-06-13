@@ -2,7 +2,7 @@
 Convert netCDF files containing ERA5 and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/9/2023 1:32 PM CT
+Last updated: 6/12/2023 9:34 PM CT
 """
 import argparse
 from glob import glob
@@ -142,6 +142,7 @@ if __name__ == '__main__':
         dataset_props['rotate_chance'] = args['rotate_chance']
         dataset_props['flip_chance_lon'] = args['flip_chance_lon']
         dataset_props['flip_chance_lat'] = args['flip_chance_lat']
+        dataset_props['normalization_parameters'] = data_utils.normalization_parameters
 
         with open(dataset_props_file, 'wb') as f:
             pickle.dump(dataset_props, f)
