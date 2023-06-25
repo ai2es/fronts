@@ -74,8 +74,18 @@ if __name__ == '__main__':
         help='The probability that the current image will have its latitude dimension reversed. Can be any float 0 <= x <= 1.')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite the contents of any existing ERA5 and fronts data.')
     parser.add_argument('--status_printout', action='store_true', help='Print out the progress of the dataset generation.')
+    parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
+    parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU')
 
     args = vars(parser.parse_args())
+
+    if args['gpu_device'] is not None:
+        gpus = tf.config.list_physical_devices(device_type='GPU')
+        tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args['gpu_device']], device_type='GPU')
+
+        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
+        if args['memory_growth']:
+            tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args['gpu_device']][0], enable=True)
 
     year, month = args['year_and_month'][0], args['year_and_month'][1]
 

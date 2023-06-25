@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/8/2023 6:45 PM CT
+Last updated: 6/25/2023 12:05 AM CT
 """
 import itertools
 import argparse
@@ -34,12 +34,15 @@ if __name__ == '__main__':
     parser.add_argument('--data_source', type=str, default='era5', help="Source of the variable data (ERA5, GDAS, etc.)")
     parser.add_argument('--prob_mask', type=float, nargs=2, default=[0.1, 0.1],
         help="Probability mask and the step/interval for the probability contours. Probabilities smaller than the mask will not be plotted.")
-    parser.add_argument('--calibration_km', type=int,
+    parser.add_argument('--calibration', type=int,
         help="Neighborhood calibration distance in kilometers. Possible neighborhoods are 50, 100, 150, 200, and 250 km.")
 
     args = vars(parser.parse_args())
-    
-    DEFAULT_COLORBAR_POSITION = {'conus': 0.71, 'full': 0.80, 'global': 0.74}
+
+    if args['domain_images'] is None:
+        args['domain_images'] = [1, 1]
+
+    DEFAULT_COLORBAR_POSITION = {'conus': 0.74, 'full': 0.80, 'global': 0.74}
     cbar_position = DEFAULT_COLORBAR_POSITION[args['domain']]
 
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
@@ -50,22 +53,30 @@ if __name__ == '__main__':
 
     year, month, day, hour = args['datetime'][0], args['datetime'][1], args['datetime'][2], args['datetime'][3]
 
-    subdir_base = '%s_%dx%d' % (args['domain'], args['domain_images'][0], args['domain_images'][1])
-    probs_dir = f"{args['model_dir']}/model_{args['model_number']}/probabilities/{subdir_base}"
-
-    if args['forecast_hour'] is not None:
-        forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=args['forecast_hour'])
-        new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], int(forecast_timestep[8:]) - (int(forecast_timestep[8:]) % 3)
-        fronts_file = '%s/%s%s/FrontObjects_%s%s%s%02d_full.nc' % (args['fronts_netcdf_indir'], new_year, new_month, new_year, new_month, new_day, new_hour)
-        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%s_f%03d_%dx%d' % (args['model_number'], month, day, hour, args['domain'], args['data_source'], args['forecast_hour'], args['domain_images'][0], args['domain_images'][1])
-    else:
+    ### Attempt to pull predictions from a yearly netcdf file generated with tensorflow datasets, otherwise try to pull a single netcdf file ###
+    try:
+        probs_file = f"{args['model_dir']}/model_{args['model_number']}/probabilities/model_{args['model_number']}_pred_{args['domain']}_{year}.nc"
         fronts_file = '%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (args['fronts_netcdf_indir'], year, month, year, month, day, hour)
-        filename_base = f'model_%d_{year}-%02d-%02d-%02dz_%s_%dx%d' % (args['model_number'], month, day, hour, args['domain'], args['domain_images'][0], args['domain_images'][1])
-        args['data_source'] = 'era5'
+        plot_filename = '%s/model_%d/maps/model_%d_%d%02d%02d%02d_%s.png' % (args['model_dir'], args['model_number'], args['model_number'], year, month, day, hour, args['domain'])
+        probs_ds = xr.open_mfdataset(probs_file).sel(time=['%d-%02d-%02dT%02d' % (year, month, day, hour), ])
+    except OSError:
+        subdir_base = '%s_%dx%d' % (args['domain'], args['domain_images'][0], args['domain_images'][1])
+        probs_dir = f"{args['model_dir']}/model_{args['model_number']}/probabilities/{subdir_base}"
 
-    probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
+        if args['forecast_hour'] is not None:
+            forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=args['forecast_hour'])
+            new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], int(forecast_timestep[8:]) - (int(forecast_timestep[8:]) % 3)
+            fronts_file = '%s/%s%s/FrontObjects_%s%s%s%02d_full.nc' % (args['fronts_netcdf_indir'], new_year, new_month, new_year, new_month, new_day, new_hour)
+            filename_base = f'model_%d_{year}%02d%02d%02d_%s_%s_f%03d_%dx%d' % (args['model_number'], month, day, hour, args['domain'], args['data_source'], args['forecast_hour'], args['domain_images'][0], args['domain_images'][1])
+        else:
+            fronts_file = '%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (args['fronts_netcdf_indir'], year, month, year, month, day, hour)
+            filename_base = f'model_%d_{year}%02d%02d%02d_%s_%dx%d' % (args['model_number'], month, day, hour, args['domain'], args['domain_images'][0], args['domain_images'][1])
+            args['data_source'] = 'era5'
 
-    probs_ds = xr.open_mfdataset(probs_file)
+        plot_filename = '%s/model_%d/maps/%s/%s-same.png' % (args['model_dir'], args['model_number'], subdir_base, filename_base)
+        probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
+        print(probs_file)
+        probs_ds = xr.open_mfdataset(probs_file)
 
     front_types = model_properties['front_types']
 
@@ -96,18 +107,21 @@ if __name__ == '__main__':
 
     data_arrays = {}
     for key in list(probs_ds.keys()):
-        if args['calibration_km'] is not None:
-            ir_model = model_properties['calibration_models']['%s_%dx%d' % (args['domain'], args['domain_images'][0], args['domain_images'][1])][key]['%d km' % args['calibration_km']]
+        if args['calibration'] is not None:
+            ir_model = model_properties['calibration_models'][args['domain']][key]['%d km' % args['calibration']]
             original_shape = np.shape(probs_ds[key].values)
             data_arrays[key] = ir_model.predict(probs_ds[key].values.flatten()).reshape(original_shape)
-            cbar_label = 'Probability (calibrated - %d km)' % args['calibration_km']
+            cbar_label = 'Probability (calibrated - %d km)' % args['calibration']
         else:
             data_arrays[key] = probs_ds[key].values
             cbar_label = 'Probability (uncalibrated)'
 
-    all_possible_front_combinations = itertools.permutations(front_types, r=2)
-    for combination in all_possible_front_combinations:
-        probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
+    if len(front_types) == 1:
+        probs_ds[key].values = data_arrays[key]
+    else:
+        all_possible_front_combinations = itertools.permutations(front_types, r=2)
+        for combination in all_possible_front_combinations:
+            probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
 
     if args['data_source'] != 'era5':
         probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=args['forecast_hour'])
@@ -120,7 +134,7 @@ if __name__ == '__main__':
                      'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
         fronts_valid_title = f'Fronts valid: %d-%02d-%02d-%02dz' % (year, month, day, hour)
 
-    fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': ccrs.Miller(central_longitude=250)})
+    fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': ccrs.Miller(central_longitude=0)})
     plot_background(extent, ax=ax, linewidth=0.5)
     # ax.gridlines(draw_labels=True, zorder=0)
 
@@ -156,5 +170,5 @@ if __name__ == '__main__':
     # ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
     ax.set_title(data_title, loc='left')
 
-    plt.savefig('%s/model_%d/maps/%s/%s-same.png' % (args['model_dir'], args['model_number'], subdir_base, filename_base), bbox_inches='tight', dpi=500)
+    plt.savefig(plot_filename, bbox_inches='tight', dpi=500)
     plt.close()

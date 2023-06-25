@@ -4,13 +4,15 @@ Generate predictions with a model.
 Author: Andrew Justin (andrewjustinwx@gmail.com)
 Last updated: 6/8/2023 11:20 PM CT
 """
-import os
 import argparse
 import pandas as pd
 import numpy as np
-import file_manager as fm
 import xarray as xr
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
 from utils import data_utils, settings
+import file_manager as fm
 
 
 def _add_image_to_map(stitched_map_probs: np.array, image_probs: np.array, map_created: bool, domain_images_lon: int, domain_images_lat: int,
@@ -611,7 +613,7 @@ if __name__ == '__main__':
                             for timestep_no, timestep in enumerate(timesteps):
                                 timestep = str(timestep)
                                 for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
-                                    time = f'{timestep[:4]}-%s-%s-%sz' % (timestep[5:7], timestep[8:10], timestep[11:13])
+                                    time = f'{timestep[:4]}%s%s%s' % (timestep[5:7], timestep[8:10], timestep[11:13])
                                     probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no][fcst_hr_index], image_lats, image_lons, front_types)
                                     probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep), 'forecast_hour': np.atleast_1d(forecast_hours[fcst_hr_index])})
                                     filename_base = 'model_%d_%s_%s_%s_f%03d_%dx%d' % (args['model_number'], time, args['domain'], args['data_source'], forecast_hours[fcst_hr_index], domain_images_lon, domain_images_lat)
@@ -622,7 +624,7 @@ if __name__ == '__main__':
                         else:
 
                             for timestep_no, timestep in enumerate(timesteps):
-                                time = f'{timestep[:4]}-%s-%s-%sz' % (timestep[5:7], timestep[8:10], timestep[11:13])
+                                time = f'{timestep[:4]}%s%s%s' % (timestep[5:7], timestep[8:10], timestep[11:13])
                                 probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no], image_lats, image_lons, front_types)
                                 probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep)})
                                 filename_base = 'model_%d_%s_%s_%dx%d' % (args['model_number'], time, args['domain'], domain_images_lon, domain_images_lat)

@@ -25,6 +25,7 @@ if __name__ == '__main__':
     All arguments listed in the examples are listed via argparse in alphabetical order below this comment block.
     """
     parser = argparse.ArgumentParser()
+    parser.add_argument('--confidence_level', type=int, default=95, help="Confidence interval. Options are: 90, 95, 99.")
     parser.add_argument('--dataset', type=str, help="'training', 'validation', or 'test'")
     parser.add_argument('--data_source', type=str, default='era5', help="Source of the variable data (ERA5, GDAS, etc.)")
     parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
@@ -36,7 +37,7 @@ if __name__ == '__main__':
     args = vars(parser.parse_args())
 
     model_properties = pd.read_pickle(f"{args['model_dir']}\\model_{args['model_number']}\\model_{args['model_number']}_properties.pkl")
-    front_types = model_properties['front_types']
+    front_types = model_properties['dataset_properties']['front_types']
 
     domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[args['domain']]
 
@@ -54,9 +55,17 @@ if __name__ == '__main__':
         spatial_csi_ds = (stats_ds[f'tp_spatial_{front_label}'] / (stats_ds[f'tp_spatial_{front_label}'] + stats_ds[f'fp_spatial_{front_label}'] + stats_ds[f'fn_spatial_{front_label}'])).max('threshold')
         thresholds = stats_ds['threshold'].values
 
+        if args['confidence_level'] != 90:
+            CI_low, CI_high = (100 - args['confidence_level']) / 2, 50 + (args['confidence_level'] / 2)
+            CI_low, CI_high = '%.1f' % CI_low, '%.1f' % CI_high
+        else:
+            CI_low, CI_high = 5, 95
+
         # Confidence intervals for POD and SR
-        CI_POD = np.stack((stats_ds[f"POD_0.5_{front_label}"].values, stats_ds[f"POD_99.5_{front_label}"].values), axis=0)
-        CI_SR = np.stack((stats_ds[f"SR_0.5_{front_label}"].values, stats_ds[f"SR_99.5_{front_label}"].values), axis=0)
+        CI_POD = np.stack((stats_ds[f"POD_{CI_low}_{front_label}"].values, stats_ds[f"POD_{CI_high}_{front_label}"].values), axis=0)
+        CI_SR = np.stack((stats_ds[f"SR_{CI_low}_{front_label}"].values, stats_ds[f"SR_{CI_high}_{front_label}"].values), axis=0)
+        CI_CSI = np.stack((CI_SR ** -1 + CI_POD ** -1 - 1.) ** -1, axis=0)
+        CI_FB = np.stack(CI_POD * (CI_SR ** -1), axis=0)
 
         # Remove the zeros
         try:
@@ -111,7 +120,12 @@ if __name__ == '__main__':
             max_CSI_sr = sr[boundary][max_CSI_index][0]  # SR where CSI is maximized
             max_CSI_fb = max_CSI_pod / max_CSI_sr  # Frequency bias
 
-            cell_text.append(['%.2f' % max_CSI_threshold, '%.2f' % max_CSI_scores_by_boundary[boundary], '%.2f' % max_CSI_pod, '%.2f' % max_CSI_sr, '%.2f' % (1 - max_CSI_sr), '%.2f' % max_CSI_fb])
+            cell_text.append([r'$\bf{%.2f}$' % max_CSI_threshold,
+                              r'$\bf{%.2f}$' % max_CSI_scores_by_boundary[boundary] + r'$^{%.2f}_{%.2f}$' % (CI_CSI[1, boundary, max_CSI_index], CI_CSI[0, boundary, max_CSI_index]),
+                              r'$\bf{%.2f}$' % max_CSI_pod + r'$^{%.2f}_{%.2f}$' % (CI_POD[1, boundary, max_CSI_index], CI_POD[0, boundary, max_CSI_index]),
+                              r'$\bf{%.2f}$' % max_CSI_sr + r'$^{%.2f}_{%.2f}$' % (CI_SR[1, boundary, max_CSI_index], CI_SR[0, boundary, max_CSI_index]),
+                              r'$\bf{%.2f}$' % (1 - max_CSI_sr) + r'$^{%.2f}_{%.2f}$' % (1 - CI_SR[1, boundary, max_CSI_index], 1 - CI_SR[0, boundary, max_CSI_index]),
+                              r'$\bf{%.2f}$' % max_CSI_fb + r'$^{%.2f}_{%.2f}$' % (CI_FB[1, boundary, max_CSI_index], CI_FB[0, boundary, max_CSI_index])])
 
             # Plot CSI lines
             axarr[0].plot(max_CSI_sr, max_CSI_pod, color=color, marker='*', markersize=10)
@@ -200,10 +214,6 @@ if __name__ == '__main__':
         ################################################################################################################
 
         ###################################### Generate title for the whole plot #######################################
-        # ### Kernel size text ###
-        # kernel_text = '%s' % model_properties['kernel_size']
-        # for dim in range(num_dimensions - 1):
-        #     kernel_text += 'x%s' % model_properties['kernel_size']
 
         ### Front name text ###
         front_text = settings.DEFAULT_FRONT_NAMES[front_label]
@@ -227,5 +237,5 @@ if __name__ == '__main__':
             filename = filename.replace('.png', '_f%03d.png' % args['forecast_hour'])  # Add forecast hour to the end of the filename
 
         plt.tight_layout()
-        plt.savefig(filename, bbox_inches='tight', dpi=300)
+        plt.savefig(filename, bbox_inches='tight', dpi=500)
         plt.close()

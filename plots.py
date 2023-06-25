@@ -18,20 +18,20 @@ import numpy as np
 import cartopy.crs as ccrs
 
 
-def plot_fronts(netcdf_indir, plot_outdir, timestep, front_types, extent=(130, 370, 0, 80)):
+def plot_fronts(netcdf_indir, plot_outdir, timestep, front_types, extent=(-180, 180, -90, 90)):
 
     fronts_ds = xr.open_dataset('%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % \
                                 (netcdf_indir, timestep[0], timestep[1], timestep[0], timestep[1], timestep[2], timestep[3]))
     fronts_ds = reformat_fronts(fronts_ds, front_types)
     labels = fronts_ds.attrs['labels']
-    fronts_ds = xr.where(fronts_ds == 0, float("NaN"), fronts_ds)
+    fronts_ds = xr.where(fronts_ds == 0, np.nan, fronts_ds)
 
     front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
     front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in labels]
     cmap_front = mpl.colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = mpl.colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
-    fig, ax = plt.subplots(1, 1, figsize=(16, 8), subplot_kw={'projection': ccrs.PlateCarree(central_longitude=250)})
+    fig, ax = plt.subplots(1, 1, figsize=(16, 8), subplot_kw={'projection': ccrs.PlateCarree(central_longitude=0)})
     plot_background(extent, ax=ax, linewidth=0.25)
 
     cbar_front = plt.colorbar(mpl.cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, shrink=0.8, pad=0.02)
@@ -41,6 +41,7 @@ def plot_fronts(netcdf_indir, plot_outdir, timestep, front_types, extent=(130, 3
 
     fronts_ds['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(),
                                  add_colorbar=False)
+    ax.gridlines()
 
     plt.tight_layout()
     plt.savefig(f"%s/fronts_%d%02d%02d%02d_{'_'.join(front_types)}_full.png" % (plot_outdir, timestep[0], timestep[1],

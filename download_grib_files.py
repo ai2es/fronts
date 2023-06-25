@@ -2,7 +2,7 @@
 Download grib files for GDAS and/or GFS data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/7/2023 8:06 PM CT
+Last updated: 6/25/2023 12:07 AM CT
 """
 
 import argparse
@@ -15,7 +15,7 @@ import warnings
 import wget
 
 
-def from_day_range(grib_outdir: str, year: int, model: str = 'gdas', day_range: tuple = (0, 364)):
+def from_day_range(grib_outdir: str, year: int, day_range: tuple | list, model: str, forecast_hours: tuple | list):
     """
     Download grib files containing data for a NWP model from the AWS server within a given day range.
 
@@ -24,11 +24,13 @@ def from_day_range(grib_outdir: str, year: int, model: str = 'gdas', day_range: 
     grib_outdir: str
         Output directory for the downloaded GRIB files.
     year: year
-    model: str
-        Model/source of the data. Current options are: 'gdas', 'gfs'.
-    day_range: tuple
+    day_range: tuple or list
         Tuple of two integers marking the start and end indices of the days of the year to download. The end index IS included.
         Example: to download all days (1-365), enter (0, 364).
+    model: str
+        Model/source of the data. Current options are: 'gdas', 'gfs'.
+    forecast_hours: tuple or list
+        List of forecast hours to download for the given days.
     """
 
     ######################################### Check the parameters for errors ##########################################
@@ -45,8 +47,6 @@ def from_day_range(grib_outdir: str, year: int, model: str = 'gdas', day_range: 
     ####################################################################################################################
 
     model_lowercase = model.lower()
-
-    forecast_hours = np.arange(0, 10, 3)
 
     if year % 4 == 0:
         month_2_days = 29  # Leap year
@@ -66,7 +66,7 @@ def from_day_range(grib_outdir: str, year: int, model: str = 'gdas', day_range: 
         month, day = date_list[day_index][1], date_list[day_index][2]
         hours = np.arange(0, 24, 6)[::-1]  # Hours that the GDAS model runs forecasts for
 
-        daily_directory = grib_outdir + '/%d%02d%02d' % (year, month, day)  # Directory for the GDAS grib files for the given day
+        monthly_directory = grib_outdir + '/%d%02d' % (year, month)  # Directory for the grib files for the given days
 
         # GDAS files have different naming patterns based on which year the data is for
         if year < 2014:
@@ -100,13 +100,13 @@ def from_day_range(grib_outdir: str, year: int, model: str = 'gdas', day_range: 
         for file, local_filename in zip(files, local_filenames):
 
             ### If the directory does not exist, check to see if the file link is valid. If the file link is NOT valid, then the directory will not be created since it will be empty. ###
-            if not os.path.isdir(daily_directory):
+            if not os.path.isdir(monthly_directory):
                 if requests.head(file).status_code == requests.codes.ok or requests.head(file.replace('/atmos', '')).status_code == requests.codes.ok:
-                    os.mkdir(daily_directory)
+                    os.mkdir(monthly_directory)
 
-            full_file_path = f'{daily_directory}/{local_filename}'
+            full_file_path = f'{monthly_directory}/{local_filename}'
 
-            if not os.path.isfile(full_file_path) and os.path.isdir(daily_directory):
+            if not os.path.isfile(full_file_path) and os.path.isdir(monthly_directory):
                 try:
                     wget.download(file, out=full_file_path)
                 except urllib.error.HTTPError:
@@ -116,8 +116,8 @@ def from_day_range(grib_outdir: str, year: int, model: str = 'gdas', day_range: 
                         print(f"Error downloading {file}")
                         pass
 
-            elif not os.path.isdir(daily_directory):
-                warnings.warn(f"Unknown problem encountered when creating the following directory: {daily_directory}, "
+            elif not os.path.isdir(monthly_directory):
+                warnings.warn(f"Unknown problem encountered when creating the following directory: {monthly_directory}, "
                               f"Consider checking the AWS server to make sure that data exists for the given day ({year}-%02d-%02d): "
                               f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/index.html#{model_lowercase}.{year}%02d%02d" % (date_list[day_index][1], date_list[day_index][2], date_list[day_index][1], date_list[day_index][2]))
                 break
@@ -162,7 +162,7 @@ def latest_data(grib_outdir: str, model: str = 'gdas'):
     for timestep in timesteps_available:
 
         year, month, day = timestep[:4], timestep[4:6], timestep[6:]
-        daily_directory = '%s/%s' % (grib_outdir, timestep)
+        monthly_directory = '%s/%s' % (grib_outdir, timestep[:6])
 
         url = f'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/{model_lowercase}.{timestep}/'
         page = requests.get(url).text
@@ -181,12 +181,12 @@ def latest_data(grib_outdir: str, model: str = 'gdas'):
             soup = BeautifulSoup(page, 'html.parser')
             files = [url + node.get('href') for node in soup.find_all('a') if any('.pgrb2.0p25.f%03d' % forecast_hour in node.get('href') for forecast_hour in forecast_hours)]
 
-            if not os.path.isdir(daily_directory):
-                os.mkdir(daily_directory)
+            if not os.path.isdir(monthly_directory):
+                os.mkdir(monthly_directory)
 
             for file in files:
                 local_filename = file.replace(url, '')
-                full_file_path = f'{daily_directory}/{local_filename}'
+                full_file_path = f'{monthly_directory}/{local_filename}'
                 if not os.path.isfile(full_file_path):
                     try:
                         wget.download(file, out=full_file_path)
@@ -204,6 +204,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--grib_outdir', type=str, required=True, help='Output directory for GDAS grib files downloaded from NCEP.')
     parser.add_argument('--model', type=str, required=True, help="model of the data for which grib files will be split: 'GDAS' or 'GFS'")
+    parser.add_argument('--forecast_hours', type=int, nargs="+", required=True, help="List of forecast hours to download for the given day.")
     parser.add_argument('--latest', action='store_true', help="Download the latest model data.")
 
     ### Both of these arguments must be passed together ###
@@ -216,4 +217,4 @@ if __name__ == "__main__":
         latest_data(args['grib_outdir'], args['model'])
 
     if args['year'] is not None and args['day_range'] is not None:
-        from_day_range(args['grib_outdir'], args['year'], args['model'], args['day_range'])
+        from_day_range(args['grib_outdir'], args['year'], args['day_range'], args['model'], args['forecast_hours'])

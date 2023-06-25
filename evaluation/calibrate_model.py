@@ -2,7 +2,7 @@
 Calibrate a trained model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/12/2023 10:03 PM CT
+Last updated: 6/24/2023 11:55 PM CT
 """
 import argparse
 import pandas as pd
@@ -33,7 +33,12 @@ if __name__ == '__main__':
     args = vars(parser.parse_args())
 
     model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']))
-    front_types = model_properties['front_types']
+
+    ### front_types argument is being moved into the dataset_properties dictionary within model_properties ###
+    try:
+        front_types = model_properties['front_types']
+    except KeyError:
+        front_types = model_properties['dataset_properties']['front_types']
 
     if type(front_types) == str:
         front_types = [front_types, ]
