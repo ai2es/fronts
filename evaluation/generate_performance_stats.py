@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/24/2023 11:59 PM CT
+Last updated: 6/25/2023 11:26 PM CT
 """
 import argparse
 import glob
@@ -27,6 +27,8 @@ def combine_statistics_for_dataset():
         statistics_files += list(sorted(glob.glob('%s/model_%d/statistics/model_%d_statistics_%s_%d*.nc' %
                                             (args['model_dir'], args['model_number'], args['model_number'], args['domain'], year))))
 
+    datasets_by_front_type = []
+
     for front_no, front_type in enumerate(front_types):
 
         ### Temporal and spatial datasets need to be loaded separately because of differing dimensions (xarray bugs) ###
@@ -40,9 +42,6 @@ def combine_statistics_for_dataset():
         tp_array_temporal = dataset_performance_ds['tp_temporal_%s' % front_type].values
         fp_array_temporal = dataset_performance_ds['fp_temporal_%s' % front_type].values
         fn_array_temporal = dataset_performance_ds['fn_temporal_%s' % front_type].values
-
-        for key in list(dataset_performance_ds.keys()):
-            print(key, np.min(dataset_performance_ds[key].values), np.max(dataset_performance_ds[key].values))
 
         time_array = dataset_performance_ds['time'].values
 
@@ -104,7 +103,10 @@ def combine_statistics_for_dataset():
         dataset_performance_ds["SR_97.5_%s" % front_type] = (('boundary', 'threshold'), CI_upper_SR[front_no, 1, :, :])
         dataset_performance_ds["SR_95_%s" % front_type] = (('boundary', 'threshold'), CI_upper_SR[front_no, 0, :, :])
 
-        dataset_performance_ds.to_netcdf(path='%s/model_%d/statistics/model_%d_statistics_%s_%s.nc' % (args['model_dir'], args['model_number'], args['model_number'], args['domain'], args['dataset']), mode='w', engine='netcdf4')
+        datasets_by_front_type.append(dataset_performance_ds)
+
+    final_performance_ds = xr.merge(datasets_by_front_type)
+    final_performance_ds.to_netcdf(path='%s/model_%d/statistics/model_%d_statistics_%s_%s.nc' % (args['model_dir'], args['model_number'], args['model_number'], args['domain'], args['dataset']), mode='w', engine='netcdf4')
 
 
 if __name__ == '__main__':
@@ -130,8 +132,16 @@ if __name__ == '__main__':
 
     model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']))
     domain = args['domain']
-    front_types = model_properties['dataset_properties']['front_types']
-    num_dims = model_properties['dataset_properties']['num_dims']
+
+    # Some older models do not have the 'dataset_properties' dictionary
+    try:
+        front_types = model_properties['dataset_properties']['front_types']
+        num_dims = model_properties['dataset_properties']['num_dims']
+    except KeyError:
+        front_types = model_properties['front_types']
+        if args['model_number'] in [6846496, 7236500, 7507525]:
+            num_dims = (3, 3)
+
     num_front_types = model_properties['classes'] - 1
 
     if args['dataset'] is not None and args['year_and_month'] is not None:
@@ -207,9 +217,10 @@ if __name__ == '__main__':
             performance_ds = xr.Dataset(coords={'time': time_array, 'longitude': lons, 'latitude': lats, 'boundary': boundaries, 'threshold': thresholds})
 
             for front_no, front_type in enumerate(front_types):
+                fronts_ds_month = data_utils.reformat_fronts(fronts_ds.sel(time='%d-%02d' % (year, month)), front_types)
+                print("%d-%02d: %s (TN/FN)" % (year, month, front_type))
                 ### Calculate true/false negatives ###
                 for i in range(100):
-                    print("TN/FN:", "%d%%" % (i + 1), end='\r')
                     """
                     True negative ==> model correctly predicts the lack of a front at a given point
                     False negative ==> model does not predict a front, but a front exists
@@ -225,15 +236,13 @@ if __name__ == '__main__':
                     fn_array_spatial[front_no, :, :, :, i] = tf.tile(tf.expand_dims(tf.reduce_sum(fn, axis=0), axis=-1), (1, 1, 5))
                     tn_array_temporal[front_no, :, :, i] = tf.tile(tf.expand_dims(tf.reduce_sum(tn, axis=(1, 2)), axis=-1), (1, 5))
                     fn_array_temporal[front_no, :, :, i] = tf.tile(tf.expand_dims(tf.reduce_sum(fn, axis=(1, 2)), axis=-1), (1, 5))
-                print("TN/FN:", "100%")
-                print(month, np.min(tn_array_temporal), np.max(tn_array_temporal))
 
                 ### Calculate true/false positives ###
                 for boundary in range(5):
                     fronts_ds_month = data_utils.expand_fronts(fronts_ds_month, iterations=2)  # Expand fronts
                     bool_tp_fp_dss[front_type] = tf.convert_to_tensor(xr.where(fronts_ds_month == front_no + 1, 1, 0)['identifier'].values)  # 1 = cold front, 0 = not a cold front
+                    print("%d-%02d: %s (%d km)" % (year, month, front_type, (boundary + 1) * 50))
                     for i in range(100):
-                        print("TP/FP:", "%d km" % ((boundary + 1) * 50), "(%d%%)" % (i + 1), end='\r')
                         """
                         True positive ==> model correctly identifies a front
                         False positive ==> model predicts a front, but no front is present within the given neighborhood
@@ -245,8 +254,6 @@ if __name__ == '__main__':
                         fp_array_spatial[front_no, :, :, boundary, i] = tf.reduce_sum(fp, axis=0)
                         tp_array_temporal[front_no, :, boundary, i] = tf.reduce_sum(tp, axis=(1, 2))
                         fp_array_temporal[front_no, :, boundary, i] = tf.reduce_sum(fp, axis=(1, 2))
-                    print("TP/FP:", "%d km" % ((boundary + 1) * 50), "(100%)")
-                    print(month, np.min(tp_array_temporal), np.max(tp_array_temporal))
 
                 performance_ds["tp_spatial_%s" % front_type] = (('latitude', 'longitude', 'boundary', 'threshold'), tp_array_spatial[front_no])
                 performance_ds["fp_spatial_%s" % front_type] = (('latitude', 'longitude', 'boundary', 'threshold'), fp_array_spatial[front_no])

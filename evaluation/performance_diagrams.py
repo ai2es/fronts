@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/9/2023 3:32 PM CT
+Last updated: 6/25/2023 11:34 PM CT
 """
 import argparse
 import cartopy.crs as ccrs
@@ -36,8 +36,13 @@ if __name__ == '__main__':
 
     args = vars(parser.parse_args())
 
-    model_properties = pd.read_pickle(f"{args['model_dir']}\\model_{args['model_number']}\\model_{args['model_number']}_properties.pkl")
-    front_types = model_properties['dataset_properties']['front_types']
+    model_properties = pd.read_pickle(f"{args['model_dir']}\\model_{args['model_number']}\\model_{args['model_number']}_properties.pkl")    # Some older models do not have the 'dataset_properties' dictionary
+
+    # Some older models do not have the 'dataset_properties' dictionary
+    try:
+        front_types = model_properties['dataset_properties']['front_types']
+    except KeyError:
+        front_types = model_properties['front_types']
 
     domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[args['domain']]
 

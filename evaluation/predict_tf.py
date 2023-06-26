@@ -4,7 +4,7 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/24/2023 11:10 PM CT
+Last updated: 6/25/2023 11:27 PM CT
 """
 import argparse
 import sys
@@ -36,8 +36,15 @@ if __name__ == '__main__':
     dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args['tf_indir'])
 
     domain = dataset_properties['domain']
-    front_types = model_properties['dataset_properties']['front_types']
-    num_dims = model_properties['dataset_properties']['num_dims']
+
+    # Some older models do not have the 'dataset_properties' dictionary
+    try:
+        front_types = model_properties['dataset_properties']['front_types']
+        num_dims = model_properties['dataset_properties']['num_dims']
+    except KeyError:
+        front_types = model_properties['front_types']
+        if args['model_number'] in [6846496, 7236500, 7507525]:
+            num_dims = (3, 3)
 
     if args['dataset'] is not None and args['year_and_month'] is not None:
         raise ValueError("--dataset and --year_and_month cannot be passed together.")
@@ -47,14 +54,25 @@ if __name__ == '__main__':
         years, months = [args['year_and_month'][0]], [args['year_and_month'][1]]
     else:
         years, months = model_properties['%s_years' % args['dataset']], range(1, 13)
-    
-    if args['gpu_device'] is not None:
-        gpus = tf.config.list_physical_devices(device_type='GPU')
-        tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args['gpu_device']], device_type='GPU')
+
+    gpus = tf.config.list_physical_devices(device_type='GPU')  # Find available GPUs
+    if len(gpus) > 0:
+
+        print("Number of GPUs available: %d" % len(gpus))
+
+        # Only make the selected GPU(s) visible to TensorFlow
+        if args['gpu_device'] is not None:
+            tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args['gpu_device']], device_type='GPU')
+            gpus = tf.config.get_visible_devices(device_type='GPU')  # List of selected GPUs
+            print("Using %d GPU(s):" % len(gpus), gpus)
 
         # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
         if args['memory_growth']:
-            tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args['gpu_device']][0], enable=True)
+            tf.config.experimental.set_memory_growth(device=[gpu for gpu in gpus][0], enable=True)
+
+    else:
+        print('WARNING: No GPUs found, all computations will be performed on CPUs.')
+        tf.config.set_visible_devices([], 'GPU')
 
     # The axis that the predicts will be concatenated on depends on the shape of the output, which is determined by deep supervision
     if model_properties['deep_supervision']:

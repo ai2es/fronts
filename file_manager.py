@@ -1,8 +1,8 @@
 """
 Functions in this code manage data files and models.
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/7/2023 11:48 PM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Last updated: 6/25/2023 11:27 PM CT
 """
 
 import argparse
@@ -654,9 +654,13 @@ def load_model(model_number: int, model_dir: str):
     custom_objects = {}
 
     if 'fss' in loss_string.lower():
+        if model_number in [6846496, 7236500, 7507525]:
+            loss_string = 'fss_loss'
         custom_objects[loss_string] = custom_losses.fractions_skill_score(**loss_args)
 
-    if 'brier' in metric_string.lower():
+    if 'brier' in metric_string.lower() or 'bss' in metric_string.lower():
+        if model_number in [6846496, 7236500, 7507525]:
+            metric_string = 'bss'
         custom_objects[metric_string] = custom_metrics.brier_skill_score(**metric_args)
 
     if 'csi' in metric_string.lower():
