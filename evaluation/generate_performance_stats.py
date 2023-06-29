@@ -124,7 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
     parser.add_argument('--num_iterations', type=int, default=10000, help='Number of iterations to perform when bootstrapping the data.')
-    parser.add_argument('--fronts_netcdf_indir', type=str, required=True, help='Main directory for the netcdf files containing frontal objects.')
+    parser.add_argument('--fronts_netcdf_indir', type=str, help='Main directory for the netcdf files containing frontal objects.')
     parser.add_argument('--data_source', type=str, default='era5', help='Data source for variables')
     parser.add_argument('--overwrite', action='store_true', help="Overwrite any existing prediction files.")
 
