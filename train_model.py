@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/20/2023 9:58 AM CT
+Last updated: 7/5/2023 2:20 PM CT
 
 Resources:
 * Kingman et al. (2014): https://arxiv.org/abs/1412.6980
@@ -108,6 +108,14 @@ if __name__ == "__main__":
     parser.add_argument('--epsilon', type=float, default=1e-7,
         help='A small constant for numerical stability. See Kingman et al. (2014) for more information.')
 
+    parser.add_argument('--override_directory_check', action='store_true',
+        help="Override the OSError caused by creating a new model directory that already exists. Normally, if the script "
+             "crashes before or during the training of a new model, an OSError will be returned if the script is immediately "
+             "ran again with the same model number as the model directory already exists. This is an intentional fail-safe "
+             "designed to prevent models that already exist from being overwritten. Passing this boolean flag disables the "
+             "fail-safe and can be useful if the script is being ran on a workload manager (e.g. SLURM) where jobs can fail "
+             "and then be immediately requeued and ran again.")
+
     args = vars(parser.parse_args())
 
     if args['shuffle'] != 'lazy' and args['shuffle'] != 'full':
@@ -198,8 +206,14 @@ if __name__ == "__main__":
 
         test_years = [year for year in all_years if year not in training_years + validation_years]
 
-        if args['model_number'] is None:  # If no model number is provided, select a number based on the current date and time
-            model_number = int(datetime.datetime.now().timestamp() - 1677265215)
+        """ 
+        If no model number was provided, select a number based on the current date and time. This counter resets every 100 
+        million seconds, or roughly every 38 months.
+        
+        Next reset: 11/14/2023 17:30:20 UTC
+        """
+        if args['model_number'] is None:
+            model_number = int(datetime.datetime.utcnow().timestamp() % 1e8)
         else:
             model_number = args['model_number']
 
@@ -344,10 +358,18 @@ if __name__ == "__main__":
     if not args['retrain']:
 
         model_properties = {key: model_properties[key] for key in sorted(model_properties.keys())}  # Sort model properties dictionary alphabetically
-        os.mkdir('%s/model_%d' % (args['model_dir'], model_number))  # Make folder for model
-        os.mkdir('%s/model_%d/maps' % (args['model_dir'], model_number))  # Make folder for model predicton maps
-        os.mkdir('%s/model_%d/probabilities' % (args['model_dir'], model_number))  # Make folder for prediction data files
-        os.mkdir('%s/model_%d/statistics' % (args['model_dir'], model_number))  # Make folder for statistics data files
+
+        if not os.path.isdir('%s/model_%d' % (args['model_dir'], model_number)):
+            os.mkdir('%s/model_%d' % (args['model_dir'], model_number))  # Make folder for model
+            os.mkdir('%s/model_%d/maps' % (args['model_dir'], model_number))  # Make folder for model predicton maps
+            os.mkdir('%s/model_%d/probabilities' % (args['model_dir'], model_number))  # Make folder for prediction data files
+            os.mkdir('%s/model_%d/statistics' % (args['model_dir'], model_number))  # Make folder for statistics data files
+        elif not args['override_directory_check']:
+            raise OSError('%s/model_%d already exists. If model %d still needs to be created and trained, run this script '
+                          'again with the --override_directory_check flag.' % (args['model_dir'], model_number, model_number))
+        elif os.path.isfile(model_filepath):
+            raise OSError('model %d already exists at %s. Choose a different model number and try again.' % (model_number, model_filepath))
+
         with open('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], model_number, model_number), 'wb') as f:
             pickle.dump(model_properties, f)
 

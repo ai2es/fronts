@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/25/2023 11:34 PM CT
+Last updated: 7/5/2023 11:11 AM CT
 """
 import argparse
 import cartopy.crs as ccrs
@@ -31,6 +31,8 @@ if __name__ == '__main__':
     parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data.')
     parser.add_argument('--forecast_hour', type=int, help='Forecast hour for the GDAS or GFS data.')
+    parser.add_argument('--map_neighborhood', type=int, default=250,
+        help="Neighborhood for the CSI map in kilometers. Options are: 50, 100, 150, 200, 250")
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
 
@@ -146,11 +148,11 @@ if __name__ == '__main__':
 
         axarr[0].set_xlabel("Success Ratio (SR = 1 - FAR)")
         axarr[0].set_ylabel("Probability of Detection (POD)")
-        axarr[0].set_title('a) CSI diagram')
+        axarr[0].set_title(r'$\bf{a)}$ $\bf{CSI}$ $\bf{diagram}$ [confidence level = %d%%]' % args['confidence_level'])
 
         axarr[1].set_xlabel("Forecast Probability (uncalibrated)")
         axarr[1].set_ylabel("Observed Relative Frequency")
-        axarr[1].set_title('b) Reliability diagram')
+        axarr[1].set_title(r'$\bf{b)}$ $\bf{Reliability}$ $\bf{diagram}$')
 
         for ax in axarr:
             ax.set_xticks(axis_ticks)
@@ -165,7 +167,7 @@ if __name__ == '__main__':
         rows = ['50 km', '100 km', '150 km', '200 km', '250 km']  # Row names
 
         table_axis = plt.axes([0.063, -0.06, 0.4, 0.2])
-        table_axis.set_title('c) Data table', x=0.415, y=0.135, pad=-4)
+        table_axis.set_title(r'$\bf{c)}$ $\bf{Data}$ $\bf{table}$ [confidence level = %d%%]' % args['confidence_level'], x=0.5, y=0.135, pad=-4)
         table_axis.axis('off')
         table_axis.text(0.16, -2.7, '* probability threshold where CSI is maximized')  # Add disclaimer for probability threshold column
         stats_table = table_axis.table(cellText=cell_text, rowLabels=rows, rowColours=boundary_colors, colLabels=columns, cellLoc='center')
@@ -183,29 +185,30 @@ if __name__ == '__main__':
 
         # Adjust the spatial CSI plot based on the domain
         if args['domain'] == 'conus':
-            spatial_axis_extent = [0.52, -0.59, 0.48, 0.535]
+            spatial_axis_extent = [0.52, -0.582, 0.512, 0.544]
+            cbar_kwargs['shrink'] = 0.919
             spatial_plot_xlabels = [-140, -105, -70]
             spatial_plot_ylabels = [30, 40, 50]
-            bottom_labels = False  # Disable longitude labels on the bottom of the subplot
         else:
             spatial_axis_extent = [0.538, -0.6, 0.48, 0.577]
             cbar_kwargs['shrink'] = 0.862
             spatial_plot_xlabels = [-150, -120, -90, -60, -30, 0, 120, 150, 180]
             spatial_plot_ylabels = [0, 20, 40, 60, 80]
-            bottom_labels = True  # Longitude labels on the bottom of the subplot
 
         right_labels = False  # Disable latitude labels on the right side of the subplot
-        top_labels = True  # Longitude labels on top of the subplot
+        top_labels = False  # Disable longitude labels on top of the subplot
         left_labels = True  # Latitude labels on the left side of the subplot
+        bottom_labels = True  # Longitude labels on the bottom of the subplot
 
         ## Set up the spatial CSI plot ###
         extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
         spatial_axis = plt.axes(spatial_axis_extent, projection=ccrs.Miller(central_longitude=250))
-        spatial_axis_title_text = '250 km CSI map'
+        spatial_axis_title_text = r'$\bf{d)}$ $\bf{%d}$ $\bf{km}$ $\bf{CSI}$ $\bf{map}$' % args['map_neighborhood']
         plot_background(extent=extent, ax=spatial_axis)
         norm_probs = colors.Normalize(vmin=0.1, vmax=1)
-        spatial_csi_ds = xr.where(spatial_csi_ds > 0.1, spatial_csi_ds, float("NaN"))
-        spatial_csi_ds.isel(boundary=-1).plot(ax=spatial_axis, x='longitude', y='latitude', norm=norm_probs, cmap='gnuplot2', transform=ccrs.PlateCarree(), alpha=0.6, cbar_kwargs=cbar_kwargs)
+        spatial_csi_ds = xr.where(spatial_csi_ds >= 0.1, spatial_csi_ds, float("NaN"))
+        spatial_csi_ds.sel(boundary=args['map_neighborhood']).plot(ax=spatial_axis, x='longitude', y='latitude', norm=norm_probs,
+            cmap='gnuplot2', transform=ccrs.PlateCarree(), alpha=0.6, cbar_kwargs=cbar_kwargs)
         spatial_axis.set_title(spatial_axis_title_text)
         gl = spatial_axis.gridlines(draw_labels=True, zorder=0, dms=True, x_inline=False, y_inline=False)
         gl.right_labels = right_labels
@@ -218,24 +221,11 @@ if __name__ == '__main__':
         gl.ylabel_style = {'size': 8}
         ################################################################################################################
 
-        ###################################### Generate title for the whole plot #######################################
-
-        ### Front name text ###
-        front_text = settings.DEFAULT_FRONT_NAMES[front_label]
-        if type(front_types) == list and front_types != ['F_BIN']:
-            front_text += 's'
-        elif front_types == ['F_BIN']:
-            front_text = 'Binary fronts (front / no front)'
-
-        ### Domain text ###
         if args['domain'] == 'conus':
-            domain_text = 'CONUS'
+            domain_text = args['domain'].upper()
         else:
             domain_text = args['domain']
-        # domain_text += f' domain ({int(domain_images[0] * domain_images[1])} images per map)'
-
-        # plt.suptitle(f'{num_dimensions}D U-Net 3+ ({kernel_text} kernel): {front_text} over {domain_text}', fontsize=20)  # Create and plot the main title
-        ################################################################################################################
+        plt.suptitle(f'Model %d: %ss over %s domain' % (args['model_number'], settings.DEFAULT_FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
 
         filename = f"%s/model_%d/%s_performance_%s_{args['data_source']}.png" % (args['model_dir'], args['model_number'], front_label, args['dataset'])
         if args['data_source'] != 'era5':

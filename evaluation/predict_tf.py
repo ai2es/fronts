@@ -4,7 +4,7 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/25/2023 11:27 PM CT
+Last updated: 6/29/2023 3:18 PM CT
 """
 import argparse
 import sys
@@ -54,6 +54,19 @@ if __name__ == '__main__':
         years, months = [args['year_and_month'][0]], [args['year_and_month'][1]]
     else:
         years, months = model_properties['%s_years' % args['dataset']], range(1, 13)
+
+    ### Make sure that the dataset has the same attributes as the model ###
+    if model_properties['normalization_parameters'] != dataset_properties['normalization_parameters']:
+        raise ValueError("Cannot evaluate model with the selected dataset. Reason: normalization parameters do not match")
+    if model_properties['dataset_properties']['front_types'] != dataset_properties['front_types']:
+        raise ValueError("Cannot evaluate model with the selected dataset. Reason: front types do not match "
+                         f"(model: {model_properties['dataset_properties']['front_types']}, dataset: {dataset_properties['front_types']})")
+    if model_properties['dataset_properties']['variables'] != dataset_properties['variables']:
+        raise ValueError("Cannot evaluate model with the selected dataset. Reason: variables do not match "
+                         f"(model: {model_properties['dataset_properties']['variables']}, dataset: {dataset_properties['variables']})")
+    if model_properties['dataset_properties']['pressure_levels'] != dataset_properties['pressure_levels']:
+        raise ValueError("Cannot evaluate model with the selected dataset. Reason: pressure levels do not match "
+                         f"(model: {model_properties['dataset_properties']['pressure_levels']}, dataset: {dataset_properties['pressure_levels']})")
 
     gpus = tf.config.list_physical_devices(device_type='GPU')  # Find available GPUs
     if len(gpus) > 0:

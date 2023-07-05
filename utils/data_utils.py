@@ -2,7 +2,7 @@
 Data tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/9/2023 1:33 PM CT
+Last updated: 7/5/2023 12:41 PM CT
 """
 
 import math
@@ -122,9 +122,9 @@ def expand_fronts(ds_fronts, iterations=1):
     if num_dims == 2:
         identifier = np.expand_dims(identifier, axis=0)
 
-    max_lat_index = np.shape(identifier)[num_dims - 2] - 1
-    max_lon_index = np.shape(identifier)[num_dims - 1] - 1
-    
+    max_lat_index = np.shape(identifier)[1] - 1
+    max_lon_index = np.shape(identifier)[2] - 1
+
     for iteration in range(iterations):
         
         # Indices where fronts are located
@@ -251,11 +251,6 @@ def haversine(lons, lats):
     """
     lat/lon ----> cartesian coordinates (km)
     """
-    if type(lons) == list:
-        lons = np.array(lons)
-    if type(lats) == list:
-        lats = np.array(lats)
-
     xs = lons * 40075 * np.cos(lats * math.pi / 360) / 360  # circumference of earth in km = 40075
     ys = lats * 40075 / 360
     return xs, ys
@@ -265,11 +260,6 @@ def reverse_haversine(xs, ys):
     """
     Cartesian coordinates (km) ---> lat/lon
     """
-    if type(xs) == list:
-        xs = np.array(xs)
-    if type(ys) == list:
-        ys = np.array(ys)
-
     lons = xs * 360 / np.cos(ys * math.pi / 40075) / 40075
     lats = ys * 360 / 40075
     return lons, lats

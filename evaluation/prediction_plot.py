@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/25/2023 12:05 AM CT
+Last updated: 7/1/2023 9:21 PM CT
 """
 import itertools
 import argparse
@@ -55,7 +55,7 @@ if __name__ == '__main__':
 
     ### Attempt to pull predictions from a yearly netcdf file generated with tensorflow datasets, otherwise try to pull a single netcdf file ###
     try:
-        probs_file = f"{args['model_dir']}/model_{args['model_number']}/probabilities/model_{args['model_number']}_pred_{args['domain']}_{year}.nc"
+        probs_file = f"{args['model_dir']}/model_{args['model_number']}/probabilities/model_{args['model_number']}_pred_{args['domain']}_{year}%02d.nc" % month
         fronts_file = '%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (args['fronts_netcdf_indir'], year, month, year, month, day, hour)
         plot_filename = '%s/model_%d/maps/model_%d_%d%02d%02d%02d_%s.png' % (args['model_dir'], args['model_number'], args['model_number'], year, month, day, hour, args['domain'])
         probs_ds = xr.open_mfdataset(probs_file).sel(time=['%d-%02d-%02dT%02d' % (year, month, day, hour), ])
@@ -78,7 +78,7 @@ if __name__ == '__main__':
         print(probs_file)
         probs_ds = xr.open_mfdataset(probs_file)
 
-    front_types = model_properties['front_types']
+    front_types = model_properties['dataset_properties']['front_types']
 
     try:
         fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))

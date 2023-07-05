@@ -2,7 +2,7 @@
 Convert netCDF files containing ERA5 and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/12/2023 9:34 PM CT
+Last updated: 7/1/2023 8:06 PM CT
 """
 import argparse
 from glob import glob
@@ -44,7 +44,6 @@ if __name__ == '__main__':
                 * keep_fraction will have no effect
                 * shuffle_timesteps = False
                 * shuffle_images = False
-                * front_dilation = 0
                 * noise_fraction = 0.0
                 * rotate_chance = 0.0
                 * flip_chance_lon = 0.0
@@ -61,6 +60,10 @@ if __name__ == '__main__':
         help='Shuffle the order of the images in each timestep. This does NOT shuffle the entire dataset for the provided '
              'month, but rather only the images in each respective timestep. This is particularly useful when generating '
              'very large datasets that cannot be shuffled on the fly during training.')
+    parser.add_argument('--add_previous_fronts', type=str, nargs='+',
+        help='Optional front types from previous timesteps to include as predictors. If the dataset is over conus, the fronts '
+             'will be pulled from the last 3-hour timestep. If the dataset is over the full domain, the fronts will be pulled '
+             'from the last 6-hour timestep.')
     parser.add_argument('--front_dilation', type=int, default=0, help='Number of pixels to expand the fronts by in all directions.')
     parser.add_argument('--keep_fraction', type=float, default=0.0,
         help='The fraction of timesteps WITHOUT all necessary front types that will be retained in the dataset. Can be any float 0 <= x <= 1.')
@@ -100,7 +103,10 @@ if __name__ == '__main__':
                                   "overwrite the existing datasets, pass the --overwrite flag into the command line.")
 
     if not os.path.isdir(args['tf_outdir']):
-        os.mkdir(args['tf_outdir'])
+        try:
+            os.mkdir(args['tf_outdir'])
+        except FileExistsError:  # When running in parallel, sometimes multiple instances will try to create this directory at once, resulting in a FileExistsError
+            pass
 
     dataset_props_file = '%s/dataset_properties.pkl' % args['tf_outdir']
 
@@ -122,7 +128,6 @@ if __name__ == '__main__':
                                   settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2])
             args['shuffle_timesteps'] = False
             args['shuffle_images'] = False
-            args['front_dilation'] = 0
             args['noise_fraction'] = 0.0
             args['rotate_chance'] = 0.0
             args['flip_chance_lon'] = 0.0
@@ -133,71 +138,35 @@ if __name__ == '__main__':
                   f"image_size = {args['image_size']}\n"
                   f"shuffle_timesteps = False\n"
                   f"shuffle_images = False\n"
-                  f"front_dilation = 0\n"
                   f"noise_fraction = 0.0\n"
                   f"rotate_chance = 0.0\n"
                   f"flip_chance_lon = 0.0\n"
                   f"flip_chance_lat = 0.0\n")
 
         dataset_props = dict({})
-        dataset_props['front_types'] = args['front_types']
-        dataset_props['variables'] = args['variables']
-        dataset_props['pressure_levels'] = args['pressure_levels']
-        dataset_props['num_dims'] = args['num_dims']
-        dataset_props['domain'] = args['domain']
-        dataset_props['images'] = args['images']
-        dataset_props['image_size'] = args['image_size']
-        dataset_props['front_dilation'] = args['front_dilation']
-        dataset_props['noise_fraction'] = args['noise_fraction']
-        dataset_props['rotate_chance'] = args['rotate_chance']
-        dataset_props['flip_chance_lon'] = args['flip_chance_lon']
-        dataset_props['flip_chance_lat'] = args['flip_chance_lat']
         dataset_props['normalization_parameters'] = data_utils.normalization_parameters
+        for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
+                    'noise_fraction', 'rotate_chance', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
+                    'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction']):
+            dataset_props[key] = args[key]
 
         with open(dataset_props_file, 'wb') as f:
             pickle.dump(dataset_props, f)
 
-        txt_lines = [f"Front types: {' '.join(args['front_types'])}\n",
-                     f"Variables: {' '.join(args['variables'])}\n",
-                     f"Pressure levels: {' '.join(args['pressure_levels'])}\n",
-                     "Num dims: (%d, %d)\n" % (args['num_dims'][0], args['num_dims'][1]),
-                     "Images: %d x %d\n" % (args['images'][0], args['images'][1]),
-                     "Image size: %d x %d\n" % (args['image_size'][0], args['image_size'][1]),
-                     "Front dilation: %d pixel(s)\n" % args['front_dilation'],
-                     f"Noise fraction: {args['noise_fraction']}\n",
-                     f"Rotate chance: {args['rotate_chance']}\n"
-                     f"Flip chance (lon, lat): {args['flip_chance_lon'], args['flip_chance_lat']}"]
-
         with open('%s/dataset_properties.txt' % args['tf_outdir'], 'w') as f:
-            f.writelines(txt_lines)
+            for key in sorted(dataset_props.keys()):
+                f.write(f"{key}: {dataset_props[key]}\n")
 
     else:
 
         print("WARNING: Dataset properties file was found in %s. The following settings will be used from the file." % args['tf_outdir'])
         dataset_props = pd.read_pickle(dataset_props_file)
 
-        args['front_types'] = dataset_props['front_types']
-        args['variables'] = dataset_props['variables']
-        args['pressure_levels'] = dataset_props['pressure_levels']
-        args['num_dims'] = dataset_props['num_dims']
-        args['images'] = dataset_props['images']
-        args['image_size'] = dataset_props['image_size']
-        args['front_dilation'] = dataset_props['front_dilation']
-        args['noise_fraction'] = dataset_props['noise_fraction']
-        args['rotate_chance'] = dataset_props['rotate_chance']
-        args['flip_chance_lon'] = dataset_props['flip_chance_lon']
-        args['flip_chance_lat'] = dataset_props['flip_chance_lat']
-
-        print("-----> Front types:", args['front_types'])
-        print("-----> Variables:", args['variables'])
-        print("-----> Pressure levels:", args['pressure_levels'])
-        print("-----> Number of dimensions:", args['num_dims'])
-        print("-----> Images:", args['images'])
-        print("-----> Image size:", args['image_size'])
-        print("-----> Front dilation:", args['front_dilation'])
-        print("-----> Noise fraction:", args['noise_fraction'])
-        print("-----> Front dilation:", args['rotate_chance'])
-        print("-----> Flip chance (lon, lat):", (args['flip_chance_lon'], args['flip_chance_lat']))
+        for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
+                           'noise_fraction', 'rotate_chance', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
+                           'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction']):
+            args[key] = dataset_props[key]
+            print(f"%s: {args[key]}" % key)
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
     all_pressure_levels = ['surface', '1000', '950', '900', '850']
@@ -207,6 +176,26 @@ if __name__ == '__main__':
 
     era5_netcdf_files = sorted(glob('%s/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
     fronts_netcdf_files = sorted(glob('%s/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
+
+    ### Grab front files from previous timesteps so previous fronts can be used as predictors ###
+    if args['add_previous_fronts'] is not None:
+        files_to_remove = []  # era5 and front files that will be removed from the dataset
+        previous_fronts_netcdf_files = []
+        for file in fronts_netcdf_files:
+            current_timestep = np.datetime64(f'{file[-18:-14]}-{file[-14:-12]}-{file[-12:-10]}T{file[-10:-8]}')
+            previous_timestep = (current_timestep - np.timedelta64(3, "h")).astype(object)
+            prev_year, prev_month, prev_day, prev_hour = previous_timestep.year, previous_timestep.month, previous_timestep.day, previous_timestep.hour
+            previous_fronts_file = '%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (args['fronts_netcdf_indir'], prev_year, prev_month, prev_year, prev_month, prev_day, prev_hour)
+            if os.path.isfile(previous_fronts_file):
+                previous_fronts_netcdf_files.append(previous_fronts_file)  # Add the previous fronts to the dataset
+            else:
+                files_to_remove.append(file)
+
+        ### Remove files from the dataset if previous fronts are not available ###
+        if len(files_to_remove) > 0:
+            for file in files_to_remove:
+                index_to_pop = fronts_netcdf_files.index(file)
+                era5_netcdf_files.pop(index_to_pop), fronts_netcdf_files.pop(index_to_pop)
 
     if args['shuffle_timesteps']:
         zipped_list = list(zip(era5_netcdf_files, fronts_netcdf_files))
@@ -236,12 +225,11 @@ if __name__ == '__main__':
     timesteps_kept = 0
     timesteps_discarded = 0
 
-    for era5_file, fronts_file, in zip(era5_netcdf_files, fronts_netcdf_files):
+    for timestep_no in range(num_timesteps):
 
-        era5_dataset = xr.open_dataset(era5_file, engine='netcdf4')[variables_to_use].isel(**isel_kwargs).sel(pressure_level=args['pressure_levels']).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
-        era5_dataset = data_utils.normalize_variables(era5_dataset).isel(time=0).to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable').astype('float16')
+        front_dataset = xr.open_dataset(fronts_netcdf_files[timestep_no], engine='netcdf4').isel(**isel_kwargs).expand_dims('time', axis=0).astype('float16')
 
-        front_dataset = xr.open_dataset(fronts_file, engine='netcdf4').isel(**isel_kwargs).expand_dims('time', axis=0).astype('float16')
+        ### Reformat the fronts in the current timestep ###
         if args['front_types'] is not None:
             front_dataset = data_utils.reformat_fronts(front_dataset, args['front_types'])
             num_front_types = front_dataset.attrs['num_types'] + 1
@@ -258,6 +246,29 @@ if __name__ == '__main__':
         all_fronts_present = all([front_count > 0 for front_count in front_bins]) > 0  # boolean flag that says if all front types are present in the current timestep
 
         if all_fronts_present or keep_timestep or args['evaluation_dataset']:
+
+            era5_dataset = xr.open_dataset(era5_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].isel(**isel_kwargs).sel(pressure_level=args['pressure_levels']).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
+            era5_dataset = data_utils.normalize_variables(era5_dataset).isel(time=0).transpose('longitude', 'latitude', 'pressure_level').astype('float16')
+
+            ### Reformat the fronts from the previous timestep ###
+            if args['add_previous_fronts'] is not None:
+                previous_front_dataset = xr.open_dataset(previous_fronts_netcdf_files[timestep_no], engine='netcdf4').isel(**isel_kwargs).astype('float16')
+                previous_front_dataset = data_utils.reformat_fronts(previous_front_dataset, args['add_previous_fronts'])
+
+                if args['front_dilation'] > 0:
+                    previous_front_dataset = data_utils.expand_fronts(previous_front_dataset, iterations=args['front_dilation'])
+
+                previous_front_dataset = previous_front_dataset.transpose('longitude', 'latitude')
+
+                previous_fronts = np.zeros([settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0],
+                                            settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2],
+                                            len(args['pressure_levels'])], dtype=np.float16)
+
+                for front_type_no, previous_front_type in enumerate(args['add_previous_fronts']):
+                    previous_fronts[..., 0] = np.where(previous_front_dataset['identifier'].values == front_type_no + 1, 1, 0)  # Place previous front labels at the surface level
+                    era5_dataset[previous_front_type] = (('longitude', 'latitude', 'pressure_level'), previous_fronts)  # Add previous fronts to the predictor dataset
+
+            era5_dataset = era5_dataset.to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable')
 
             try:
                 start_indices_lon = np.arange(0, settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0] - args['image_size'][0] + 1,
