@@ -2,7 +2,7 @@
 Convert netCDF files containing ERA5 and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/1/2023 8:06 PM CT
+Last updated: 7/24/2023 10:04 PM CT
 """
 import argparse
 from glob import glob
@@ -121,7 +121,6 @@ if __name__ == '__main__':
             """
             print("WARNING: This dataset will be used for model evaluation, so the following arguments will be set and "
                   "any provided values for these arguments will be overriden:")
-            args['num_dims'][1] = 2
             args['num_dims'] = tuple(args['num_dims'])
             args['images'] = (1, 1)
             args['image_size'] = (settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0],
@@ -133,8 +132,7 @@ if __name__ == '__main__':
             args['flip_chance_lon'] = 0.0
             args['flip_chance_lat'] = 0.0
 
-            print("num_dims[1] = 2\n"
-                  f"images = {args['images']}\n"
+            print(f"images = {args['images']}\n"
                   f"image_size = {args['image_size']}\n"
                   f"shuffle_timesteps = False\n"
                   f"shuffle_images = False\n"
@@ -176,6 +174,13 @@ if __name__ == '__main__':
 
     era5_netcdf_files = sorted(glob('%s/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
     fronts_netcdf_files = sorted(glob('%s/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
+
+    if args['domain'] == 'full':
+        zipped_list = list(zip(era5_netcdf_files, fronts_netcdf_files))
+        for file_pair in zipped_list:
+            if any(['%02d_full.nc' % hour in file_pair[0] for hour in np.arange(3, 27, 6)]):
+                zipped_list.pop(zipped_list.index(file_pair))
+        era5_netcdf_files, fronts_netcdf_files = zip(*zipped_list)
 
     ### Grab front files from previous timesteps so previous fronts can be used as predictors ###
     if args['add_previous_fronts'] is not None:

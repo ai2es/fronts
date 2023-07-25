@@ -2,7 +2,7 @@
 Miscellaneous tools
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/13/2023 8:28 PM CT
+Last updated: 7/7/2023 12:04 AM CT
 """
 
 
@@ -89,7 +89,12 @@ def string_arg_to_dict(arg_str: str):
                 try:
                     arg_dict[current_arg_name] = int(current_arg_value)
                 except ValueError:
-                    arg_dict[current_arg_name] = current_arg_value.replace("'", '')
+                    if current_arg_value == 'True':
+                        arg_dict[current_arg_name] = True
+                    elif current_arg_value == 'False':
+                        arg_dict[current_arg_name] = False
+                    else:
+                        arg_dict[current_arg_name] = current_arg_value.replace("'", '')
 
         arg_str = arg_str[comma_index + 1:]  # After the current argument has been added to the dictionary, remove it from the argument string
 

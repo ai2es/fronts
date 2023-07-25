@@ -4,7 +4,7 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/29/2023 3:18 PM CT
+Last updated: 7/24/2023 9:22 PM CT
 """
 import argparse
 import sys
@@ -36,6 +36,11 @@ if __name__ == '__main__':
     dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args['tf_indir'])
 
     domain = dataset_properties['domain']
+
+    if domain == 'conus':
+        hour_interval = 3
+    else:
+        hour_interval = 6
 
     # Some older models do not have the 'dataset_properties' dictionary
     try:
@@ -116,7 +121,7 @@ if __name__ == '__main__':
             tf_ds = tf.data.Dataset.load(input_file)
             time_array = np.arange(np.datetime64(f"{input_file[-9:-5]}-{input_file[-5:-3]}"),
                                    np.datetime64(f"{input_file[-9:-5]}-{input_file[-5:-3]}") + np.timedelta64(1, "M"),
-                                   np.timedelta64(3, "h"))
+                                   np.timedelta64(hour_interval, "h"))
 
             assert len(tf_ds) == len(time_array)  # make sure tensorflow dataset has all timesteps
 

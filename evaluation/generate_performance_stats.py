@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/25/2023 11:26 PM CT
+Last updated: 7/24/2023 8:50 PM CT
 """
 import argparse
 import glob
@@ -32,11 +32,11 @@ def combine_statistics_for_dataset():
     for front_no, front_type in enumerate(front_types):
 
         ### Temporal and spatial datasets need to be loaded separately because of differing dimensions (xarray bugs) ###
-        dataset_performance_ds_temporal = xr.open_dataset(statistics_files[0])[['%s_temporal_%s' % (stat, front_type) for stat in ['tp', 'fp', 'tn', 'fn']]]
-        dataset_performance_ds_spatial = xr.open_dataset(statistics_files[0])[['%s_spatial_%s' % (stat, front_type) for stat in ['tp', 'fp', 'tn', 'fn']]]
+        dataset_performance_ds_temporal = xr.open_dataset(statistics_files[0], chunks={'time': 16})[['%s_temporal_%s' % (stat, front_type) for stat in ['tp', 'fp', 'tn', 'fn']]]
+        dataset_performance_ds_spatial = xr.open_dataset(statistics_files[0], chunks={'time': 16})[['%s_spatial_%s' % (stat, front_type) for stat in ['tp', 'fp', 'tn', 'fn']]]
         for stats_file in statistics_files[1:]:
-            dataset_performance_ds_spatial += xr.open_dataset(stats_file)[['%s_spatial_%s' % (stat, front_type) for stat in ['tp', 'fp', 'tn', 'fn']]]
-            dataset_performance_ds_temporal = xr.merge([dataset_performance_ds_temporal, xr.open_dataset(stats_file)[['%s_temporal_%s' % (stat, front_type) for stat in ['tp', 'fp', 'tn', 'fn']]]])
+            dataset_performance_ds_spatial += xr.open_dataset(stats_file, chunks={'time': 16})[['%s_spatial_%s' % (stat, front_type) for stat in ['tp', 'fp', 'tn', 'fn']]]
+            dataset_performance_ds_temporal = xr.merge([dataset_performance_ds_temporal, xr.open_dataset(stats_file, chunks={'time': 16})[['%s_temporal_%s' % (stat, front_type) for stat in ['tp', 'fp', 'tn', 'fn']]]])
         dataset_performance_ds = xr.merge([dataset_performance_ds_spatial, dataset_performance_ds_temporal])  # Combine spatial and temporal data into one dataset
 
         tp_array_temporal = dataset_performance_ds['tp_temporal_%s' % front_type].values
@@ -126,7 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_iterations', type=int, default=10000, help='Number of iterations to perform when bootstrapping the data.')
     parser.add_argument('--fronts_netcdf_indir', type=str, help='Main directory for the netcdf files containing frontal objects.')
     parser.add_argument('--data_source', type=str, default='era5', help='Data source for variables')
-    parser.add_argument('--overwrite', action='store_true', help="Overwrite any existing prediction files.")
+    parser.add_argument('--overwrite', action='store_true', help="Overwrite any existing statistics files.")
 
     args = vars(parser.parse_args())
 
@@ -174,6 +174,12 @@ if __name__ == '__main__':
         for month in months:
 
             front_files_month = [file for file in front_files if '_%d%02d' % (year, month) in file]
+
+            if args['domain'] == 'full':
+                print("full")
+                for front_file in front_files_month:
+                    if any(['%02d_full.nc' % hour in front_file for hour in np.arange(3, 27, 6)]):
+                        front_files_month.pop(front_files_month.index(front_file))
 
             prediction_file = f'%s/model_%d/probabilities/model_%d_pred_%s_%d%02d.nc' % \
                               (args['model_dir'], args['model_number'], args['model_number'], args['domain'], year, month)

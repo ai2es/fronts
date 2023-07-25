@@ -2,7 +2,7 @@
 Generate predictions with a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/8/2023 11:20 PM CT
+Last updated: 7/24/2023 9:09 PM CT
 """
 import argparse
 import pandas as pd
@@ -408,11 +408,18 @@ if __name__ == '__main__':
     if args['image_size'] is None:
         args['image_size'] = model_properties['image_size']  # The image size does not include the last dimension of the input size as it only represents the number of channels
 
-    front_types = model_properties['front_types']
-    classes = model_properties['classes']
-    variables = model_properties['variables']
-    pressure_levels = model_properties['pressure_levels']
+    try:
+        front_types = model_properties['dataset_properties']['front_types']
+        variables = model_properties['dataset_properties']['variables']
+        pressure_levels = model_properties['dataset_properties']['pressure_levels']
+    except KeyError:  # Some older models do not have the dataset_properties dictionary
+        front_types = model_properties['front_types']
+        variables = model_properties['variables']
+        pressure_levels = model_properties['pressure_levels']
+
     normalization_parameters = model_properties['normalization_parameters']
+
+    classes = model_properties['classes']
     test_years, valid_years = model_properties['test_years'], model_properties['validation_years']
 
     if args['domain_images'] is None:

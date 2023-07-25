@@ -2,13 +2,13 @@
 Default settings
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/24/2023 11:49 PM CT
+Last updated: 7/24/2023 10:01 PM CT
 """
 DEFAULT_DOMAIN_EXTENTS = {'global': [0, 359.75, -89.75, 90],
-                          'full': [130, 370, 0, 80],
+                          'full': [130, 369.75, 0.25, 80],
                           'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains [start lon, end lon, start lat, end lat]
 DEFAULT_DOMAIN_INDICES = {'global': [0, 1440, 0, 720],
-                          'full': [0, 961, 0, 320],
+                          'full': [0, 960, 0, 320],
                           'conus': [392, 680, 93, 221]}  # indices corresponding to default extents of domains [start lon, end lon, start lat, end lat]
 DEFAULT_DOMAIN_IMAGES = {'global': [17, 9],
                          'full': [8, 3],

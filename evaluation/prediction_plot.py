@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/1/2023 9:21 PM CT
+Last updated: 7/24/2023 9:56 PM CT
 """
 import itertools
 import argparse
@@ -36,14 +36,15 @@ if __name__ == '__main__':
         help="Probability mask and the step/interval for the probability contours. Probabilities smaller than the mask will not be plotted.")
     parser.add_argument('--calibration', type=int,
         help="Neighborhood calibration distance in kilometers. Possible neighborhoods are 50, 100, 150, 200, and 250 km.")
+    parser.add_argument('--splines', action='store_true', help="Plot deterministic splines.")
 
     args = vars(parser.parse_args())
 
     if args['domain_images'] is None:
         args['domain_images'] = [1, 1]
 
-    DEFAULT_COLORBAR_POSITION = {'conus': 0.74, 'full': 0.80, 'global': 0.74}
-    cbar_position = DEFAULT_COLORBAR_POSITION[args['domain']]
+    DEFAULT_COLORBAR_POSITION = {'conus': 0.74, 'full': 0.84, 'global': 0.74}
+    cbar_position = DEFAULT_COLORBAR_POSITION['conus']
 
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
 
@@ -105,20 +106,19 @@ if __name__ == '__main__':
     cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
-    data_arrays = {}
     for key in list(probs_ds.keys()):
         if args['calibration'] is not None:
-            ir_model = model_properties['calibration_models'][args['domain']][key]['%d km' % args['calibration']]
+            try:
+                ir_model = model_properties['calibration_models'][args['domain']][key]['%d km' % args['calibration']]
+            except KeyError:
+                ir_model = model_properties['calibration_models']['conus'][key]['%d km' % args['calibration']]
             original_shape = np.shape(probs_ds[key].values)
-            data_arrays[key] = ir_model.predict(probs_ds[key].values.flatten()).reshape(original_shape)
+            probs_ds[key].values = ir_model.predict(probs_ds[key].values.flatten()).reshape(original_shape)
             cbar_label = 'Probability (calibrated - %d km)' % args['calibration']
         else:
-            data_arrays[key] = probs_ds[key].values
             cbar_label = 'Probability (uncalibrated)'
 
-    if len(front_types) == 1:
-        probs_ds[key].values = data_arrays[key]
-    else:
+    if len(front_types) > 1:
         all_possible_front_combinations = itertools.permutations(front_types, r=2)
         for combination in all_possible_front_combinations:
             probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
@@ -134,7 +134,7 @@ if __name__ == '__main__':
                      'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
         fronts_valid_title = f'Fronts valid: %d-%02d-%02d-%02dz' % (year, month, day, hour)
 
-    fig, ax = plt.subplots(1, 1, figsize=(20, 8), subplot_kw={'projection': ccrs.Miller(central_longitude=0)})
+    fig, ax = plt.subplots(1, 1, figsize=(22, 8), subplot_kw={'projection': ccrs.Miller(central_longitude=np.mean(extent[:2]))})
     plot_background(extent, ax=ax, linewidth=0.5)
     # ax.gridlines(draw_labels=True, zorder=0)
 
@@ -142,6 +142,13 @@ if __name__ == '__main__':
     cbar_front_ticks = []
 
     for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, front_types, contour_maps_by_type):
+
+        """ TODO: Add splines to workflow """
+        # if args['splines']:
+        #     cmap_front = colors.ListedColormap(['None', front_colors_by_type[front_no - 1]], name='from_list', N=2)
+        #     norm_front = colors.Normalize(vmin=0, vmax=1)
+        #     probs_ds = probs_ds.reindex(latitude=np.arange(-90, 90.25, 0.25)[::-1])
+        #     probs_ds[f'{front_key}_obj'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), alpha=0.9, add_colorbar=False)
 
         cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
         probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
@@ -170,5 +177,5 @@ if __name__ == '__main__':
     # ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
     ax.set_title(data_title, loc='left')
 
-    plt.savefig(plot_filename, bbox_inches='tight', dpi=500)
+    plt.savefig(plot_filename, bbox_inches='tight', dpi=300)
     plt.close()

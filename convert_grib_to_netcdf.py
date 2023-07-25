@@ -2,7 +2,7 @@
 Convert GDAS and/or GFS grib files to netCDF files.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/7/2023 11:33 PM CT
+Last updated: 7/24/2023 10:02 PM CT
 """
 
 import argparse
@@ -26,7 +26,7 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
 
     args['model'] = args['model'].lower()
-    year, month, day, hour = args['date'][0], args['date'][1], args['date'][2], args['date'][3]
+    year, month, day, hour = args['datetime'][0], args['datetime'][1], args['datetime'][2], args['datetime'][3]
 
     resolution = 0.25
 
@@ -54,18 +54,18 @@ if __name__ == "__main__":
     dataset_dimensions = ('forecast_hour', 'pressure_level', 'latitude', 'longitude')
 
     if year > 2014:
-        grib_filename_format = f"%s/%d%02d%02d/{args['model'].lower()}*.t%02dz.pgrb2.0p25.f*" % (args['grib_indir'], year, month, day, hour)
+        grib_filename_format = f"%s/%d%02d/{args['model'].lower()}*.t%02dz.pgrb2.0p25.f*" % (args['grib_indir'], year, month, hour)
     else:
-        grib_filename_format = f"%s/%d%02d%02d/{args['model'].lower()}*1.t%02dz.pgrbf*.grib2" % (args['grib_indir'], year, month, day, hour)
+        grib_filename_format = f"%s/%d%02d/{args['model'].lower()}*1.t%02dz.pgrbf*.grib2" % (args['grib_indir'], year, month, hour)
 
-    individual_variable_filename_format = f"'%s/%d%02d%02d/{args['model'].lower()}.*.t%02dz.pgrb2.0p25" % (args['grib_indir'], year, month, day, hour)
+    individual_variable_filename_format = f"%s/%d%02d/{args['model'].lower()}.*.t%02dz.pgrb2.0p25" % (args['grib_indir'], year, month, hour)
 
     ### Split grib files into one file per variable ###
     grib_files = sorted(glob.glob(grib_filename_format))
     grib_files = [file for file in grib_files if 'idx' not in file]
 
     for key in keys_to_extract:
-        output_file = f"%s/%d%02d%02d/{args['model'].lower()}.%s.t%02dz.pgrb2.0p25" % (args['grib_indir'], year, month, day, key, hour)
+        output_file = f"%s/%d%02d/{args['model'].lower()}.%s.t%02dz.pgrb2.0p25" % (args['grib_indir'], year, month, key, hour)
         if (os.path.isfile(output_file) and args['overwrite_grib']) or not os.path.isfile(output_file):
             os.system(f'grib_copy -w shortName={key} {" ".join(grib_files)} {output_file}')
 

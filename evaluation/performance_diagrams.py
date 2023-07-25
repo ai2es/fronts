@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/5/2023 11:11 AM CT
+Last updated: 7/24/2023 9:04 PM CT
 """
 import argparse
 import cartopy.crs as ccrs
@@ -38,7 +38,7 @@ if __name__ == '__main__':
 
     args = vars(parser.parse_args())
 
-    model_properties = pd.read_pickle(f"{args['model_dir']}\\model_{args['model_number']}\\model_{args['model_number']}_properties.pkl")    # Some older models do not have the 'dataset_properties' dictionary
+    model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
 
     # Some older models do not have the 'dataset_properties' dictionary
     try:
@@ -227,7 +227,7 @@ if __name__ == '__main__':
             domain_text = args['domain']
         plt.suptitle(f'Model %d: %ss over %s domain' % (args['model_number'], settings.DEFAULT_FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
 
-        filename = f"%s/model_%d/%s_performance_%s_{args['data_source']}.png" % (args['model_dir'], args['model_number'], front_label, args['dataset'])
+        filename = f"%s/model_%d/performance_%s_%s_%s_{args['data_source']}.png" % (args['model_dir'], args['model_number'], front_label, args['dataset'], args['domain'])
         if args['data_source'] != 'era5':
             filename = filename.replace('.png', '_f%03d.png' % args['forecast_hour'])  # Add forecast hour to the end of the filename
 
