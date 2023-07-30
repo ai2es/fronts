@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 9:56 PM CT
+Last updated: 7/29/2023 5:25 PM CT
 """
 import itertools
 import argparse
@@ -17,6 +17,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
 from utils import data_utils, settings
 from utils.plotting_utils import plot_background
+from skimage.morphology import skeletonize
 
 
 if __name__ == '__main__':
@@ -36,9 +37,14 @@ if __name__ == '__main__':
         help="Probability mask and the step/interval for the probability contours. Probabilities smaller than the mask will not be plotted.")
     parser.add_argument('--calibration', type=int,
         help="Neighborhood calibration distance in kilometers. Possible neighborhoods are 50, 100, 150, 200, and 250 km.")
-    parser.add_argument('--splines', action='store_true', help="Plot deterministic splines.")
+    parser.add_argument('--deterministic', action='store_true', help="Plot deterministic splines.")
+    parser.add_argument('--targets', action='store_true', help="Plot ground truth targets/labels.")
+    parser.add_argument('--contours', action='store_true', help="Plot probability contours.")
 
     args = vars(parser.parse_args())
+
+    if args['deterministic'] and args['targets']:
+        raise TypeError("Cannot plot deterministic splines and ground truth targets at the same time. Only one of --deterministic, --targets may be passed")
 
     if args['domain_images'] is None:
         args['domain_images'] = [1, 1]
@@ -76,20 +82,23 @@ if __name__ == '__main__':
 
         plot_filename = '%s/model_%d/maps/%s/%s-same.png' % (args['model_dir'], args['model_number'], subdir_base, filename_base)
         probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
-        print(probs_file)
         probs_ds = xr.open_mfdataset(probs_file)
 
     front_types = model_properties['dataset_properties']['front_types']
 
-    try:
-        fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
-        fronts = data_utils.reformat_fronts(fronts, front_types=front_types)
-        labels = fronts.attrs['labels']
-        fronts = xr.where(fronts == 0, float('NaN'), fronts)
-        fronts_found = True
-    except FileNotFoundError:
-        labels = front_types
-        fronts_found = False
+    labels = front_types
+    fronts_found = False
+
+    if args['targets']:
+        right_title = 'Splines: NOAA fronts'
+        try:
+            fronts = xr.open_dataset(fronts_file).sel(longitude=slice(extent[0], extent[1]), latitude=slice(extent[3], extent[2]))
+            fronts = data_utils.reformat_fronts(fronts, front_types=front_types)
+            labels = fronts.attrs['labels']
+            fronts = xr.where(fronts == 0, float('NaN'), fronts)
+            fronts_found = True
+        except FileNotFoundError:
+            print("No ground truth fronts found")
 
     if type(front_types) == str:
         front_types = [front_types, ]
@@ -106,7 +115,14 @@ if __name__ == '__main__':
     cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
+    probs_ds = probs_ds.isel(time=0)
+
     for key in list(probs_ds.keys()):
+
+        if args['deterministic']:
+            spline_threshold = model_properties['front_obj_thresholds'][args['domain']][key]['250']
+            probs_ds[f'{key}_obj'] = (('latitude', 'longitude'), skeletonize(xr.where(probs_ds[key] > spline_threshold, 1, 0).values))
+
         if args['calibration'] is not None:
             try:
                 ir_model = model_properties['calibration_models'][args['domain']][key]['%d km' % args['calibration']]
@@ -123,16 +139,14 @@ if __name__ == '__main__':
         for combination in all_possible_front_combinations:
             probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
 
+    probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN"))
     if args['data_source'] != 'era5':
-        probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0).sel(forecast_hour=args['forecast_hour'])
+        probs_ds = probs_ds.sel(forecast_hour=args['forecast_hour'])
         valid_time = data_utils.add_or_subtract_hours_to_timestep(f'%d%02d%02d%02d' % (year, month, day, hour), num_hours=args['forecast_hour'])
         data_title = f"Run: {args['data_source'].upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z" % (month, day, hour, args['forecast_hour'])
-        fronts_valid_title = f'Fronts valid: {new_year}-{"%02d" % int(new_month)}-{"%02d" % int(new_day)}-{"%02d" % new_hour}z'
     else:
-        probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN")).isel(time=0)
         data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz\n' \
                      'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
-        fronts_valid_title = f'Fronts valid: %d-%02d-%02d-%02dz' % (year, month, day, hour)
 
     fig, ax = plt.subplots(1, 1, figsize=(22, 8), subplot_kw={'projection': ccrs.Miller(central_longitude=np.mean(extent[:2]))})
     plot_background(extent, ax=ax, linewidth=0.5)
@@ -143,38 +157,39 @@ if __name__ == '__main__':
 
     for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, front_types, contour_maps_by_type):
 
-        """ TODO: Add splines to workflow """
-        # if args['splines']:
-        #     cmap_front = colors.ListedColormap(['None', front_colors_by_type[front_no - 1]], name='from_list', N=2)
-        #     norm_front = colors.Normalize(vmin=0, vmax=1)
-        #     probs_ds = probs_ds.reindex(latitude=np.arange(-90, 90.25, 0.25)[::-1])
-        #     probs_ds[f'{front_key}_obj'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), alpha=0.9, add_colorbar=False)
+        if args['contours']:
+            cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
+            probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
 
-        cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
-        probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
+            cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.24, 0.015, 0.64])
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
+            cbar.set_ticklabels([])
+
+            cbar_front_labels.append(front_name)
+            cbar_front_ticks.append(front_no + 0.5)
+
+        if args['deterministic']:
+            right_title = 'Splines: Deterministic first-guess fronts'
+            cmap_deterministic = colors.ListedColormap(['None', front_colors_by_type[front_no - 1]], name='from_list', N=2)
+            norm_deterministic = colors.Normalize(vmin=0, vmax=1)
+            probs_ds[f'{front_key}_obj'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_deterministic, norm=norm_deterministic,
+                                              transform=ccrs.PlateCarree(), alpha=0.9, add_colorbar=False)
 
         if fronts_found:
             fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
 
-        cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.24, 0.015, 0.64])
-        cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
-        cbar.set_ticklabels([])
+    if args['contours']:
+        cbar.set_label(cbar_label, rotation=90)
+        cbar.set_ticks(cbar_ticks)
+        cbar.set_ticklabels(cbar_ticks)
 
-        cbar_front_labels.append(front_name)
-        cbar_front_ticks.append(front_no + 0.5)
-
-    cbar.set_label(cbar_label, rotation=90)
-    cbar.set_ticks(cbar_ticks)
-    cbar.set_ticklabels(cbar_ticks)
-
-    if fronts_found:
+    if fronts_found or args['deterministic']:
         cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, orientation='horizontal', shrink=0.5, pad=0.02)
         cbar_front.set_ticks(cbar_front_ticks)
         cbar_front.set_ticklabels(cbar_front_labels)
-        ax.set_title(fronts_valid_title, loc='right')
+        ax.set_title(right_title, loc='right')
 
     ax.set_title('')
-    # ax.set_title(f"{'/'.join(front_name.replace(' front', '') for front_name in front_names_by_type)} predictions")
     ax.set_title(data_title, loc='left')
 
     plt.savefig(plot_filename, bbox_inches='tight', dpi=300)

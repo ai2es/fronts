@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 9:04 PM CT
+Last updated: 7/29/2023 5:25 PM CT
 """
 import argparse
 import cartopy.crs as ccrs
@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FixedLocator
 import numpy as np
 import pandas as pd
+import pickle
 import xarray as xr
 import os
 import sys
@@ -38,7 +39,8 @@ if __name__ == '__main__':
 
     args = vars(parser.parse_args())
 
-    model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
+    model_properties_filepath = f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl"
+    model_properties = pd.read_pickle(model_properties_filepath)
 
     # Some older models do not have the 'dataset_properties' dictionary
     try:
@@ -53,7 +55,16 @@ if __name__ == '__main__':
     if type(front_types) == str:
         front_types = [front_types, ]
 
+    # Probability threshold where CSI is maximized for each front type and domain
+    max_csi_thresholds = dict()
+
+    if args['domain'] not in list(max_csi_thresholds.keys()):
+        max_csi_thresholds[args['domain']] = dict()
+
     for front_no, front_label in enumerate(front_types):
+
+        if front_label not in list(max_csi_thresholds[args['domain']].keys()):
+            max_csi_thresholds[args['domain']][front_label] = dict()
 
         ################################ CSI and reliability diagrams (panels a and b) #################################
         true_positives_temporal = stats_ds[f'tp_temporal_{front_label}'].values
@@ -123,6 +134,7 @@ if __name__ == '__main__':
             max_CSI_scores_by_boundary[boundary] = np.nanmax(csi)
             max_CSI_index = np.where(csi == max_CSI_scores_by_boundary[boundary])[0]
             max_CSI_threshold = thresholds[max_CSI_index][0]  # Probability threshold where CSI is maximized
+            max_csi_thresholds[args['domain']][front_label]['%s' % int((boundary + 1) * 50)] = np.round(max_CSI_threshold, 2)
             max_CSI_pod = pod[boundary][max_CSI_index][0]  # POD where CSI is maximized
             max_CSI_sr = sr[boundary][max_CSI_index][0]  # SR where CSI is maximized
             max_CSI_fb = max_CSI_pod / max_CSI_sr  # Frequency bias
@@ -234,3 +246,9 @@ if __name__ == '__main__':
         plt.tight_layout()
         plt.savefig(filename, bbox_inches='tight', dpi=500)
         plt.close()
+
+    # Thresholds for creating deterministic splines with different front types and neighborhoods
+    model_properties['front_obj_thresholds'] = max_csi_thresholds
+
+    with open(model_properties_filepath, 'wb') as f:
+        pickle.dump(model_properties, f)
