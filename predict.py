@@ -273,6 +273,8 @@ if __name__ == '__main__':
         # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
         if args['memory_growth']:
             tf.config.experimental.set_memory_growth(device=gpus[args['gpu_device']], enable=True)
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
 

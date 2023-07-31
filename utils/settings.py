@@ -45,7 +45,7 @@ NOTES:
     - Increasing this parameter can speed up predictions on high-performance GPUs, but a value too large can cause OOM errors
         and GPU failure.
 """
-GPU_PREDICT_BATCH_SIZE = 4
+GPU_PREDICT_BATCH_SIZE = 1
 
 """
 MAX_FILE_CHUNK_SIZE is the maximum number of ERA5, GDAS, and/or GFS netCDF files that will be loaded into an xarray dataset at one
