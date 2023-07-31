@@ -2,7 +2,7 @@
 Download GDAS/GFS data and convert it to netCDF format
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 2/23/2023 7:54 PM CT
+Last updated: 7/30/2023 6:23 PM CT
 """
 
 import argparse
@@ -16,6 +16,7 @@ import wget
 import os
 import variables
 import sys
+from utils import settings
 
 
 def bar_progress(current, total, width=None):
@@ -35,21 +36,23 @@ if __name__ == "__main__":
     parser.add_argument('--netcdf_outdir', type=str, required=True, help="output directory for netcdf files")
     parser.add_argument('--init_time', type=int, required=True, nargs=4, help="Initialization time: year, month, day, hour")
     parser.add_argument('--forecast_hours', type=int, required=True, nargs='+', help='forecast hours to download')
+    parser.add_argument('--domain', type=str, required=True, default='full', 
+        help="Domain of the data to download. Options are: 'conus', 'full', 'global'")
     parser.add_argument('--model', type=str, required=True, help="'GDAS' or 'GFS' (case-insensitive)")
 
-    args = parser.parse_args()
-    provided_arguments = vars(args)
+    args = vars(parser.parse_args())
     
-    model = args.model.lower()
-    year, month, day, hour = args.init_time[0], args.init_time[1], args.init_time[2], args.init_time[3]
-    forecast_hours = args.forecast_hours
-    netcdf_outdir = args.netcdf_outdir
+    model = args['model'].lower()
+    year, month, day, hour = args['init_time']
+    forecast_hours = args['forecast_hours']
+    netcdf_outdir = args['netcdf_outdir']
+    domain = args['domain']
     
     ################################################### Download data ##################################################
-    files = [f'https://noaa-gfs-bdp-pds.s3.amazonaws.com/{args.model}.{year}%02d%02d/%02d/atmos/{args.model}.t%02dz.pgrb2.0p25.f%03d' % (month, day, hour, hour, forecast_hour)
+    files = [f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/{args['model']}.{year}%02d%02d/%02d/atmos/{args['model']}.t%02dz.pgrb2.0p25.f%03d" % (month, day, hour, hour, forecast_hour)
              for forecast_hour in forecast_hours]
 
-    local_grib_filenames = [f'{args.model}_{year}%02d%02d%02d_f%03d.grib' % (month, day, hour, forecast_hour)
+    local_grib_filenames = [f"{args['model']}_{year}%02d%02d%02d_f%03d.grib" % (month, day, hour, forecast_hour)
                             for forecast_hour in forecast_hours]
 
     print(f"{get_current_time()} ===> Downloading data files")
@@ -63,7 +66,7 @@ if __name__ == "__main__":
 
         full_file_path = f'{netcdf_outdir}/{local_filename}'
 
-        if not os.path.isfile(full_file_path) and os.path.isdir(netcdf_outdir):
+        if not any([os.path.isfile(full_file_path), os.path.isfile(full_file_path.replace('.grib', '.nc'))]) and os.path.isdir(netcdf_outdir):
             try:
                 wget.download(file, out=full_file_path, bar=bar_progress)
             except urllib.error.HTTPError:
@@ -73,8 +76,9 @@ if __name__ == "__main__":
                     print(f"Error downloading {file}")
                     pass
 
-        elif os.path.isfile(full_file_path):
-            print(f"{full_file_path} already exists, skipping file....")
+        elif any([os.path.isfile(full_file_path), os.path.isfile(full_file_path.replace('.grib', '.nc'))]):
+            print(f"{full_file_path.replace('.grib', '')} already exists, skipping file....")
+
     ####################################################################################################################
 
     ################################################ Convert to netCDF #################################################
@@ -86,18 +90,22 @@ if __name__ == "__main__":
     mslp_data_file_index = 1
 
     # all lon/lat values in degrees
-    start_lon, end_lon = 130, 370  # western boundary, eastern boundary
-    start_lat, end_lat = 80, 0  # northern boundary, southern boundary
-    unified_longitude_indices = np.append(np.arange(start_lon / 0.25, (end_lon - 10) / 0.25), np.arange(0, (end_lon - 360) / 0.25 + 1)).astype(int)
-    unified_latitude_indices = np.arange((90 - start_lat) / 0.25, (90 - end_lat) / 0.25 + 1).astype(int)
-    lon_coords_360 = np.arange(start_lon, end_lon + 0.25, 0.25)
+    start_lon, end_lon = settings.DEFAULT_DOMAIN_EXTENTS[domain][0], settings.DEFAULT_DOMAIN_EXTENTS[domain][1]  # western boundary, eastern boundary
+    start_lat, end_lat = settings.DEFAULT_DOMAIN_EXTENTS[domain][3], settings.DEFAULT_DOMAIN_EXTENTS[domain][2]  # northern boundary, southern boundary
+    
+    if domain == 'full':
+        longitude_indices = np.append(np.arange(start_lon / 0.25, (end_lon - 10) / 0.25 + 1),
+                                      np.arange(0, (end_lon - 360) / 0.25 + 1)).astype(int)
+    else:
+        longitude_indices = np.arange(start_lon / 0.25, end_lon / 0.25 + 1).astype(int)
+    latitude_indices = np.arange((90 - start_lat) / 0.25, (90 - end_lat) / 0.25 + 1).astype(int)
 
-    domain_indices_isel = {'longitude': unified_longitude_indices,
-                           'latitude': unified_latitude_indices}
+    domain_indices_isel = {'longitude': longitude_indices,
+                           'latitude': latitude_indices}
 
     isobaricInhPa_isel = [0, 1, 2, 3, 4, 5, 6]  # Dictionary to unpack for selecting indices in the datasets
 
-    chunk_sizes = {'latitude': 321, 'longitude': 961}
+    chunk_sizes = {'latitude': len(latitude_indices), 'longitude': len(longitude_indices)}
     dataset_dimensions = ('forecast_hour', 'pressure_level', 'latitude', 'longitude')
 
     grib_files = [f'%s/{model}_%d%02d%02d%02d_f%03d.grib' % (netcdf_outdir, year, month, day, hour, forecast_hour)
@@ -128,9 +136,12 @@ if __name__ == "__main__":
 
     print(f"{get_current_time()} ===> Opening new grib datasets")
     # Open the datasets
-    pressure_level_data = xr.open_mfdataset(pressure_level_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks=chunk_sizes, combine='nested').isel(isobaricInhPa=isobaricInhPa_isel, **domain_indices_isel).drop_vars(['step'])
-    surface_data = xr.open_mfdataset(surface_data_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
-    raw_pressure_data = xr.open_dataset(raw_pressure_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
+    pressure_level_data = xr.open_mfdataset(pressure_level_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}},
+                                            chunks=chunk_sizes, combine='nested').isel(isobaricInhPa=isobaricInhPa_isel, **domain_indices_isel).drop_vars(['step'])
+    surface_data = xr.open_mfdataset(surface_data_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}},
+                                     chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
+    raw_pressure_data = xr.open_dataset(raw_pressure_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}},
+                                        chunks=chunk_sizes).isel(**domain_indices_isel).drop_vars(['step'])
 
     # Calculate the forecast hours using the surface_data dataset
     try:
@@ -147,10 +158,12 @@ if __name__ == "__main__":
         num_forecast_hours = 1
         forecast_hours = [forecast_hours, ]
 
-    pressure_level_data['longitude'] = lon_coords_360
-    surface_data['longitude'] = lon_coords_360
-    raw_pressure_data['longitude'] = lon_coords_360
-    mslp_data['longitude'] = lon_coords_360
+    if domain == 'full':
+        lon_coords_360 = np.arange(start_lon, end_lon + 0.25, 0.25)
+        pressure_level_data['longitude'] = lon_coords_360
+        surface_data['longitude'] = lon_coords_360
+        raw_pressure_data['longitude'] = lon_coords_360
+        mslp_data['longitude'] = lon_coords_360
 
     mslp = mslp_data['mslet'].values  # mean sea level pressure (eta model reduction)
     mslp_z = np.empty(shape=(num_forecast_hours, len(pressure_levels) + 1, chunk_sizes['latitude'], chunk_sizes['longitude']))
@@ -183,6 +196,7 @@ if __name__ == "__main__":
 
     # Create arrays of coordinates for the surface data
     surface_data_latitudes = pressure_level_data['latitude'].values
+    surface_data_longitudes = pressure_level_data['longitude'].values
 
     print(f"{get_current_time()} ===> Generating surface data")
 
@@ -270,8 +284,9 @@ if __name__ == "__main__":
     if 'mslp_data_file_index' in locals():
         full_dataset_variables['mslp_z'] = (('forecast_hour', 'pressure_level', 'latitude', 'longitude'), mslp_z)
 
-    full_dataset_coordinates['latitude'] = surface_data_latitudes
-    full_dataset_coordinates['longitude'] = lon_coords_360
+    # Add latitude and longitude coordinates to the dataset
+    full_dataset_coordinates['latitude'] = pressure_level_data['latitude'].values
+    full_dataset_coordinates['longitude'] = pressure_level_data['longitude'].values
 
     full_grib_dataset = xr.Dataset(data_vars=full_dataset_variables,
                                    coords=full_dataset_coordinates).astype('float32')
@@ -280,7 +295,8 @@ if __name__ == "__main__":
 
     print(f"{get_current_time()} ===> Saving netCDF files to: {netcdf_outdir}")
     for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
-        full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/{model}_%d%02d%02d%02d_f%03d.nc' % (netcdf_outdir, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
+        full_grib_dataset.isel(forecast_hour=np.atleast_1d(fcst_hr_index)).to_netcdf(path=f'%s/{model}_%d%02d%02d%02d_f%03d.nc' %
+            (netcdf_outdir, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
 
     print(f"{get_current_time()} ===> Removing grib files")
 
