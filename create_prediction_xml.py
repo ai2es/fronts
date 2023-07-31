@@ -82,7 +82,7 @@ if __name__ == '__main__':
             splines_made = 0
             points_in_current_spline = []
 
-            if len(front_points) > 0:
+            if len(front_points) > 1:
 
                 splines = dict()
                 splines['1'] = [front_points[0], ]
@@ -111,20 +111,22 @@ if __name__ == '__main__':
 
                 for spline in splines.keys():
 
-                    Line = ET.SubElement(DrawableElement, "Line", pgenType=XML_FRONT_TYPE[key], **LINE_KWARGS)
-                    if 'SF' in key:
-                        ET.SubElement(Line, "Color", red="255", green="0", blue="0", alpha="255")
-                        ET.SubElement(Line, "Color", red="0", green="0", blue="255", alpha="255")
-                    else:
-                        ET.SubElement(Line, "Color", **XML_FRONT_COLORS[key], alpha="255")
+                    if len(splines[spline]) > 1:  # do not save any splines with only one point
 
-                    spline_points = splines[spline]
-                    for spline_point in spline_points:
-                        if 180 < spline_point[0]:
-                            lon_point = spline_point[0] - 360
+                        Line = ET.SubElement(DrawableElement, "Line", pgenType=XML_FRONT_TYPE[key], **LINE_KWARGS)
+                        if 'SF' in key:
+                            ET.SubElement(Line, "Color", red="255", green="0", blue="0", alpha="255")
+                            ET.SubElement(Line, "Color", red="0", green="0", blue="255", alpha="255")
                         else:
-                            lon_point = spline_point[0]
-                        ET.SubElement(Line, "Point", Lat="%.2f" % spline_point[1], Lon="%.2f" % lon_point)
+                            ET.SubElement(Line, "Color", **XML_FRONT_COLORS[key], alpha="255")
+
+                        spline_points = splines[spline]
+                        for spline_point in spline_points:
+                            if 180 < spline_point[0]:
+                                lon_point = spline_point[0] - 360
+                            else:
+                                lon_point = spline_point[0]
+                            ET.SubElement(Line, "Point", Lat="%.2f" % spline_point[1], Lon="%.2f" % lon_point)
 
         save_path_file = "%s/model_%d_splines_%s_%s_%d%02d%02d%02df%03d.xml" % \
                          (args['xml_dir'], args['model_number'], args['variable_data_source'], args['domain'], args['init_time'][0],
