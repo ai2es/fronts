@@ -2,7 +2,7 @@
 Functions used for evaluating a U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/30/2023 6:24 PM CT
+Last updated: 7/31/2023 3:41 PM CT
 
 TODO:
     * Clean up code (much needed)
@@ -76,7 +76,7 @@ if __name__ == '__main__':
         front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in front_types]
         front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in front_types]
 
-        probs_ds = xr.where(probs_ds > mask, probs_ds, 0).isel(time=0, forecast_hour=0)
+        probs_ds = probs_ds.isel(time=0, forecast_hour=0)
 
         for key in list(probs_ds.keys()):
 
@@ -99,6 +99,8 @@ if __name__ == '__main__':
                 cbar_label = 'Probability (calibrated - %d km)' % args['calibration']
             else:
                 cbar_label = 'Probability (uncalibrated)'
+
+        probs_ds = xr.where(probs_ds > mask, probs_ds, 0)
 
         if len(front_types) > 1:
             all_possible_front_combinations = itertools.permutations(front_types, r=2)
