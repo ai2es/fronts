@@ -2,13 +2,13 @@
 Function that trains a new U-Net model.
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 8:47 PM CT
+Last updated: 7/31/2023 12:14 PM CT
 """
 
 import argparse
 import pandas as pd
+from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 import tensorflow as tf
-from tensorflow.callbacks import EarlyStopping, CSVLogger
 import pickle
 import numpy as np
 import file_manager as fm
