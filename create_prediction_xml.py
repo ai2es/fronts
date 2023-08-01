@@ -2,7 +2,7 @@
 Create an XML file containing model predictions in the form of splines.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/30/2023 6:59 PM CT
+Last updated: 8/1/2023 12:36 PM CT
 """
 import pandas as pd
 from lxml import etree as ET
@@ -36,7 +36,8 @@ if __name__ == '__main__':
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data.')
     parser.add_argument('--domain_images', type=int, nargs=2, help='Lon x lat images for the predictions')
     parser.add_argument('--variable_data_source', type=str, help='Data source for variables used in the predictions.')
-
+    parser.add_argument('--interval', type=int, default=10, help='Interval of points to save for each front. E.g. 10 = keep every 10th point for each spline')
+    
     ### Model and directory arguments ###
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
@@ -73,43 +74,44 @@ if __name__ == '__main__':
                 probs_ds[f'{key}_obj'] = (('longitude', 'latitude'), skeletonize(xr.where(probs_ds[key] > front_obj_thresholds['full'][key]['250'], 1, 0).values))
 
             front_point_indices = np.where(probs_ds[f'{key}_obj'].values == 1)
-            front_points = []
+            front_points = np.vstack([lons[front_point_indices[0]], lats[front_point_indices[1]]])
 
-            for lon, lat in zip(lons[front_point_indices[0]], lats[front_point_indices[1]]):
-                front_points.append([lon, lat])
-            front_points_copy = front_points.copy()
-
-            splines_made = 0
-            points_in_current_spline = []
-
-            if len(front_points) > 1:
+            if np.shape(front_points)[1] > 1:  # if the current front type exists in the predictions
 
                 splines = dict()
-                splines['1'] = [front_points[0], ]
+                splines['1'] = np.expand_dims(front_points[:, 0], axis=0)  # create the first spline for the current front type
+                front_points = np.delete(front_points, 0, axis=-1)  # remove the first point
                 number_of_splines = 1
 
-                for point in front_points[1:]:
+                while np.shape(front_points)[1] > 0:  # iterate over the points and splines repeatedly until all points have been used
 
-                    point_adjacent_to_spline = False
+                    for front_point_no in range(len(front_points[0])):  # iterate through unused points
 
-                    for spline in splines.keys():
-                        current_spline_points = np.array(splines[spline])
-                        spline_dist_from_point = np.abs(current_spline_points - np.array(point))
+                        point_adjacent_to_spline = False  # boolean flag that indicates whether a point is adjacent to any existing spline
 
-                        for spline_dist in spline_dist_from_point:
-                            if spline_dist[0] <= 0.25 and spline_dist[1] <= 0.25 and not any(point == point_in_spline for point_in_spline in splines[spline]) and not spline_dist[0] == spline_dist[1] == 0:
-                                point_adjacent_to_spline = True
-                                splines[spline].append(point)
-                                break
+                        for spline in splines.keys():
+                            for spline_point in splines[spline]:
+                                lon_dist = np.abs(front_points[0, :] - spline_point[0])  # longitudinal distance between current point and all other points
+                                lat_dist = np.abs(front_points[1, :] - spline_point[1])  # latitudinal distance between current point and all other points
 
-                        if point_adjacent_to_spline:
+                                adjacent_indices = np.where((lon_dist <= 0.25) & (lat_dist <= 0.25))[0]  # indices where adjacent points exist
+
+                                if len(adjacent_indices) > 0:
+                                    point_adjacent_to_spline = True
+                                    for adjacent_point in adjacent_indices:
+                                        splines[spline] = np.append(splines[spline], np.expand_dims(front_points[:, adjacent_point], axis=0), axis=0)
+                                    front_points = np.delete(front_points, adjacent_indices, axis=-1)  # remove points from the array
+                                    break
+
+                        if not point_adjacent_to_spline:  # if no adjacent points are found, start a new spline
+                            number_of_splines += 1
+                            splines[str(number_of_splines)] = np.expand_dims(front_points[:, front_point_no], axis=0)  # create the first spline for the current front type
+                        else:
                             break
 
-                    if not point_adjacent_to_spline:
-                        number_of_splines += 1
-                        splines[str(number_of_splines)] = [point, ]
-
                 for spline in splines.keys():
+
+                    splines[spline] = np.unique(splines[spline], axis=0)  # remove any existing duplicates
 
                     if len(splines[spline]) > 1:  # do not save any splines with only one point
 
@@ -120,8 +122,10 @@ if __name__ == '__main__':
                         else:
                             ET.SubElement(Line, "Color", **XML_FRONT_COLORS[key], alpha="255")
 
-                        spline_points = splines[spline]
-                        for spline_point in spline_points:
+                        if args['interval'] > 1:
+                            splines[spline] = np.append(splines[spline][:-1, :][::args['interval'], :], splines[spline][-1:, :], axis=0)
+
+                        for spline_point in splines[spline]:
                             if 180 < spline_point[0]:
                                 lon_point = spline_point[0] - 360
                             else:
