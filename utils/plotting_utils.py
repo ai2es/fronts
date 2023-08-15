@@ -2,14 +2,13 @@
 Plotting tools
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 12/24/2022 5:44 PM CDT
+Last updated: 8/14/2023 6:39 PM CDT
 """
 
 import cartopy.feature as cfeature
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
-from matplotlib.cm import ScalarMappable
+import matplotlib as mpl
 import numpy as np
 
 
@@ -42,23 +41,9 @@ def plot_background(extent, ax=None, linewidth=0.5):
     return ax
 
 
-def create_colorbar_for_fronts(names, cmap, norm, axis_loc=(0.8465, 0.11, 0.015, 0.77)):
-    """
-    Create colorbar for given front types.
-
-    Parameters
-    ----------
-    names: list of strs
-        Names of the front types.
-    axis_loc: tuple or list of 4 floats
-        Location of the new axis for the colorbar: xmin, xmax, ymin, ymax
-    cmap: matplotlib.colors.Colormap object
-        Colormap for the fronts.
-    norm: matplotlib.colors.Normalize
-        Colorbar normalization.
-    """
-    number_of_front_types = len(names)
-    cbar_ax = plt.axes(axis_loc)  # Create an axis for the colorbar to the right of the plot
-    cbar = plt.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax, orientation='horizontal')  # Create the colorbar
-    cbar.set_ticks(np.arange(1, number_of_front_types + 1) + 0.5)  # Place ticks in the middle of each color
-    cbar.set_ticklabels([name.replace(' front', '') for name in names])  # Label each tick with its respective front type
+def truncated_colormap(cmap, minval=0.0, maxval=1.0, n=100):
+    cmap = plt.get_cmap(cmap)
+    new_cmap = mpl.colors.LinearSegmentedColormap.from_list(
+        'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
+        cmap(np.linspace(minval, maxval, n)))
+    return new_cmap

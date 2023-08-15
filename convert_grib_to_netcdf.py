@@ -26,7 +26,7 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
 
     args['model'] = args['model'].lower()
-    year, month, day, hour = args['datetime'][0], args['datetime'][1], args['datetime'][2], args['datetime'][3]
+    year, month, day, hour = args['datetime']
 
     resolution = 0.25
 
@@ -47,25 +47,19 @@ if __name__ == "__main__":
     domain_indices_isel = {'longitude': unified_longitude_indices,
                            'latitude': unified_latitude_indices}
 
-    isobaricInhPa_isel = [0, 1, 2, 3, 4, 5, 6]  # Dictionary to unpack for selecting indices in the datasets
-
     chunk_sizes = {'latitude': 721, 'longitude': 1440}
 
     dataset_dimensions = ('forecast_hour', 'pressure_level', 'latitude', 'longitude')
 
-    if year > 2014:
-        grib_filename_format = f"%s/%d%02d/{args['model'].lower()}*.t%02dz.pgrb2.0p25.f*" % (args['grib_indir'], year, month, hour)
-    else:
-        grib_filename_format = f"%s/%d%02d/{args['model'].lower()}*1.t%02dz.pgrbf*.grib2" % (args['grib_indir'], year, month, hour)
-
-    individual_variable_filename_format = f"%s/%d%02d/{args['model'].lower()}.*.t%02dz.pgrb2.0p25" % (args['grib_indir'], year, month, hour)
+    grib_filename_format = f"%s/%d%02d/%s_%d%02d%02d%02d_f*.grib" % (args['grib_indir'], year, month, args['model'], year, month, day, hour)
+    individual_variable_filename_format = f"%s/%d%02d/%s_*_%d%02d%02d%02d.grib" % (args['grib_indir'], year, month, args['model'], year, month, day, hour)
 
     ### Split grib files into one file per variable ###
-    grib_files = sorted(glob.glob(grib_filename_format))
+    grib_files = list(glob.glob(grib_filename_format))
     grib_files = [file for file in grib_files if 'idx' not in file]
 
     for key in keys_to_extract:
-        output_file = f"%s/%d%02d/{args['model'].lower()}.%s.t%02dz.pgrb2.0p25" % (args['grib_indir'], year, month, key, hour)
+        output_file = f"%s/%d%02d/%s_%s_%d%02d%02d%02d.grib" % (args['grib_indir'], year, month, args['model'], key, year, month, day, hour)
         if (os.path.isfile(output_file) and args['overwrite_grib']) or not os.path.isfile(output_file):
             os.system(f'grib_copy -w shortName={key} {" ".join(grib_files)} {output_file}')
 
@@ -85,10 +79,10 @@ if __name__ == "__main__":
         mslp_data_file = grib_files[mslp_data_file_index]
         mslp_data = xr.open_dataset(mslp_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'meanSea'}}, chunks=chunk_sizes).drop_vars(['step'])
 
-    pressure_levels = [1000, 975, 950, 925, 900, 850, 700]
+    pressure_levels = [1000, 950, 900, 850, 700, 500]
 
     # Open the datasets
-    pressure_level_data = xr.open_mfdataset(pressure_level_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks=chunk_sizes, combine='nested').isel(isobaricInhPa=isobaricInhPa_isel).drop_vars(['step'])
+    pressure_level_data = xr.open_mfdataset(pressure_level_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}}, chunks=chunk_sizes, combine='nested').sel(isobaricInhPa=pressure_levels).drop_vars(['step'])
     surface_data = xr.open_mfdataset(surface_data_files, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'sigma'}}, chunks=chunk_sizes).drop_vars(['step'])
     raw_pressure_data = xr.open_dataset(raw_pressure_data_file, engine='cfgrib', backend_kwargs={'filter_by_keys': {'typeOfLevel': 'surface', 'stepType': 'instant'}}, chunks=chunk_sizes).drop_vars(['step'])
 
@@ -204,7 +198,7 @@ if __name__ == "__main__":
     sp_z[:, 0, :, :] = sp / 100
     sp_z[:, 1:, :, :] = z
 
-    pressure_levels = ['surface', '1000', '975', '950', '925', '900', '850', '700']
+    pressure_levels = ['surface', '1000', '950', '900', '850', '700', '500']
 
     print("Building final dataset")
 

@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/29/2023 5:25 PM CT
+Last updated: 8/14/2023 7:27 PM CT
 """
 import argparse
 import cartopy.crs as ccrs
@@ -17,8 +17,7 @@ import xarray as xr
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
-from utils import settings
-from utils.plotting_utils import plot_background
+from utils import settings, plotting_utils
 
 
 if __name__ == '__main__':
@@ -213,14 +212,15 @@ if __name__ == '__main__':
         bottom_labels = True  # Longitude labels on the bottom of the subplot
 
         ## Set up the spatial CSI plot ###
+        csi_cmap = plotting_utils.truncated_colormap('gnuplot2', maxval=0.9, n=10)
         extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
         spatial_axis = plt.axes(spatial_axis_extent, projection=ccrs.Miller(central_longitude=250))
         spatial_axis_title_text = r'$\bf{d)}$ $\bf{%d}$ $\bf{km}$ $\bf{CSI}$ $\bf{map}$' % args['map_neighborhood']
-        plot_background(extent=extent, ax=spatial_axis)
+        plotting_utils.plot_background(extent=extent, ax=spatial_axis)
         norm_probs = colors.Normalize(vmin=0.1, vmax=1)
         spatial_csi_ds = xr.where(spatial_csi_ds >= 0.1, spatial_csi_ds, float("NaN"))
         spatial_csi_ds.sel(boundary=args['map_neighborhood']).plot(ax=spatial_axis, x='longitude', y='latitude', norm=norm_probs,
-            cmap='gnuplot2', transform=ccrs.PlateCarree(), alpha=0.6, cbar_kwargs=cbar_kwargs)
+            cmap=csi_cmap, transform=ccrs.PlateCarree(), alpha=0.6, cbar_kwargs=cbar_kwargs)
         spatial_axis.set_title(spatial_axis_title_text)
         gl = spatial_axis.gridlines(draw_labels=True, zorder=0, dms=True, x_inline=False, y_inline=False)
         gl.right_labels = right_labels

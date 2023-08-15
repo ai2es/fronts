@@ -2,7 +2,7 @@
 Convert netCDF files containing ERA5 and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 10:04 PM CT
+Last updated: 8/13/2023 9:32 PM CT
 """
 import argparse
 from glob import glob
@@ -33,6 +33,8 @@ if __name__ == '__main__':
     parser.add_argument('--pressure_levels', type=str, nargs='+', help='ERA5 pressure levels to select')
     parser.add_argument('--num_dims', type=int, nargs=2, default=[3, 3], help='Number of dimensions in the ERA5 and front object images, repsectively.')
     parser.add_argument('--domain', type=str, default='conus', help='Domain from which to pull the images.')
+    parser.add_argument('--override_extent', type=float, nargs=4,
+        help='Override the default domain extent by selecting a custom extent. [min lon, max lon, min lat, max lat]')
     parser.add_argument('--evaluation_dataset', action='store_true',
         help=''' 
             Boolean flag that determines if the dataset being generated will be used for evaluating a model.
@@ -76,7 +78,7 @@ if __name__ == '__main__':
     parser.add_argument('--flip_chance_lat', type=float, default=0.0,
         help='The probability that the current image will have its latitude dimension reversed. Can be any float 0 <= x <= 1.')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite the contents of any existing ERA5 and fronts data.')
-    parser.add_argument('--status_printout', action='store_true', help='Print out the progress of the dataset generation.')
+    parser.add_argument('--verbose', action='store_true', help='Print out the progress of the dataset generation.')
     parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU')
 
@@ -123,8 +125,14 @@ if __name__ == '__main__':
                   "any provided values for these arguments will be overriden:")
             args['num_dims'] = tuple(args['num_dims'])
             args['images'] = (1, 1)
-            args['image_size'] = (settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0],
-                                  settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2])
+
+            if args['override_extent'] is None:
+                args['image_size'] = (settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0],
+                                      settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2])
+            else:
+                args['image_size'] = (int((args['override_extent'][1] - args['override_extent'][0]) / 0.25 + 1),
+                                      int((args['override_extent'][3] - args['override_extent'][2]) / 0.25 + 1))
+
             args['shuffle_timesteps'] = False
             args['shuffle_images'] = False
             args['noise_fraction'] = 0.0
@@ -145,7 +153,7 @@ if __name__ == '__main__':
         dataset_props['normalization_parameters'] = data_utils.normalization_parameters
         for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
                     'noise_fraction', 'rotate_chance', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
-                    'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction']):
+                    'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction', 'override_extent']):
             dataset_props[key] = args[key]
 
         with open(dataset_props_file, 'wb') as f:
@@ -209,22 +217,25 @@ if __name__ == '__main__':
 
     files_match_flag = all(era5_file[-18:] == fronts_file[-18:] for era5_file, fronts_file in zip(era5_netcdf_files, fronts_netcdf_files))
 
-    isel_kwargs = {'longitude': slice(settings.DEFAULT_DOMAIN_INDICES[args['domain']][0], settings.DEFAULT_DOMAIN_INDICES[args['domain']][1]),
-                   'latitude': slice(settings.DEFAULT_DOMAIN_INDICES[args['domain']][2], settings.DEFAULT_DOMAIN_INDICES[args['domain']][3])}
+    if args['override_extent'] is None:
+        isel_kwargs = {'longitude': slice(settings.DEFAULT_DOMAIN_INDICES[args['domain']][0], settings.DEFAULT_DOMAIN_INDICES[args['domain']][1]),
+                       'latitude': slice(settings.DEFAULT_DOMAIN_INDICES[args['domain']][2], settings.DEFAULT_DOMAIN_INDICES[args['domain']][3])}
+        domain_size = (int(settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0]),
+                       int(settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2]))
+    else:
+        isel_kwargs = {'longitude': slice(int((args['override_extent'][0] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25),
+                                          int((args['override_extent'][1] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25)),
+                       'latitude': slice(int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - args['override_extent'][3]) // 0.25),
+                                         int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - args['override_extent'][2]) // 0.25))}
+        domain_size = (int((args['override_extent'][1] - args['override_extent'][0]) // 0.25),
+                       int((args['override_extent'][3] - args['override_extent'][2]) // 0.25))
 
     if not files_match_flag:
         raise OSError("ERA5/fronts files do not match")
 
-    # Normalization parameters are not available for theta_v and theta, so we will only select the following variables
-    if args['variables'] is None:
-        variables_to_use = all_variables
-    else:
-        variables_to_use = args['variables']
+    variables_to_use = all_variables if args['variables'] is None else args['variables']
 
-    if args['pressure_levels'] is None:
-        args['pressure_levels'] = all_pressure_levels
-    else:
-        args['pressure_levels'] = [lvl for lvl in all_pressure_levels if lvl in args['pressure_levels']]
+    args['pressure_levels'] = all_pressure_levels if args['pressure_levels'] is None else [lvl for lvl in all_pressure_levels if lvl in args['pressure_levels']]
 
     num_timesteps = len(era5_netcdf_files)
     timesteps_kept = 0
@@ -265,8 +276,8 @@ if __name__ == '__main__':
 
                 previous_front_dataset = previous_front_dataset.transpose('longitude', 'latitude')
 
-                previous_fronts = np.zeros([settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0],
-                                            settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2],
+                previous_fronts = np.zeros([len(previous_front_dataset['longitude'].values),
+                                            len(previous_front_dataset['latitude'].values),
                                             len(args['pressure_levels'])], dtype=np.float16)
 
                 for front_type_no, previous_front_type in enumerate(args['add_previous_fronts']):
@@ -275,19 +286,32 @@ if __name__ == '__main__':
 
             era5_dataset = era5_dataset.to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable')
 
-            try:
-                start_indices_lon = np.arange(0, settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0] - args['image_size'][0] + 1,
-                                              int((settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0] - args['image_size'][0]) / (args['images'][0] - 1)))
-            except ZeroDivisionError:
-                start_indices_lon = np.zeros([args['images'][0]], dtype=int)
+            if args['override_extent'] is None:
+                if args['images'][0] > 1 and domain_size[0] > args['image_size'][0] + args['images'][0]:
+                    start_indices_lon = np.linspace(0, settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0] - args['image_size'][0],
+                                                    args['images'][0]).astype(int)
+                else:
+                    start_indices_lon = np.zeros((args['images'][0], ), dtype=int)
 
-            try:
-                start_indices_lat = np.arange(0, settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2] - args['image_size'][1] + 1,
-                                              int((settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2] - args['image_size'][1]) / (args['images'][1] - 1)))
-            except ZeroDivisionError:
-                start_indices_lat = np.zeros([args['images'][1]], dtype=int)
+                if args['images'][1] > 1 and domain_size[1] > args['image_size'][1] + args['images'][1]:
+                    start_indices_lat = np.linspace(0, settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2] - args['image_size'][1],
+                                                    args['images'][1]).astype(int)
+                else:
+                    start_indices_lat = np.zeros((args['images'][1], ), dtype=int)
+
+            else:
+                if args['images'][0] > 1 and domain_size[0] > args['image_size'][0] + args['images'][0]:
+                    start_indices_lon = np.linspace(0, domain_size[0] - args['image_size'][0], args['images'][0]).astype(int)
+                else:
+                    start_indices_lon = np.zeros((args['images'][0], ), dtype=int)
+
+                if args['images'][1] > 1 and domain_size[1] > args['image_size'][1] + args['images'][1]:
+                    start_indices_lat = np.linspace(0, domain_size[1] - args['image_size'][1], args['images'][1]).astype(int)
+                else:
+                    start_indices_lat = np.zeros((args['images'][1], ), dtype=int)
 
             image_order = list(itertools.product(start_indices_lon, start_indices_lat))  # Every possible combination of longitude and latitude starting points
+
             if args['shuffle_images']:
                 np.random.shuffle(image_order)
 
@@ -360,7 +384,7 @@ if __name__ == '__main__':
         else:
             timesteps_discarded += 1
 
-        if args['status_printout']:
+        if args['verbose']:
             print("Timesteps complete: %d/%d  (Retained/discarded: %d/%d)" % (timesteps_kept + timesteps_discarded, num_timesteps, timesteps_kept, timesteps_discarded), end='\r')
 
     print("Timesteps complete: %d/%d  (Retained/discarded: %d/%d)" % (timesteps_kept + timesteps_discarded, num_timesteps, timesteps_kept, timesteps_discarded))

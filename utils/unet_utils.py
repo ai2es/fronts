@@ -7,15 +7,71 @@ Functions for building U-Net models:
     - U-Net 3+
 
 Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 3/13/2022 9:09 PM CT
+Last updated: 8/13/2022 5:13 PM CT
 """
 
 import numpy as np
-from tensorflow.keras.layers import Conv2D, Conv3D, BatchNormalization, MaxPooling2D, MaxPooling3D, UpSampling2D, UpSampling3D, Softmax
+from tensorflow.keras.layers import Activation, Conv2D, Conv3D, BatchNormalization, MaxPooling2D, MaxPooling3D, UpSampling2D, UpSampling3D, Softmax
 from tensorflow.keras import layers
 import tensorflow as tf
 import custom_activations
+
+
+def attention_gate(x, g, kernel_size, pool_size, name=None):
+    """
+    Attention gate for the Attention U-Net.
+
+    Parameters
+    ----------
+    x: tf.Tensor
+        - Signal that originates from the encoder node on the same level as the attention gate.
+    g: tf.Tensor
+        - Signal that originates from the level below the attention gate, which has higher resolution features.
+    kernel_size: int or tuple
+        - Size of the kernel in the Conv2D/Conv3D layer(s). Only applies to layers that are not forced to a kernel size of 1.
+    pool_size: tuple or list
+        - Pool size for the UpSampling layers, as well as the number of strides in the first
+    name: str or None
+        - Prefix of the layer names. If left as None, the layer names are set automatically.
+
+    References
+    ----------
+    https://towardsdatascience.com/a-detailed-explanation-of-the-attention-u-net-b371a5590831
+    """
+
+    conv_layer = getattr(tf.keras.layers, f'Conv{len(x.shape) - 2}D')  # Select the convolution layer for the x and g tensors
+    upsample_layer = getattr(tf.keras.layers, f'UpSampling{len(x.shape) - 2}D')  # Select the upsampling layer
+
+    shape_x = x.shape  # Shapes of the ORIGINAL inputs
+    filters_x = shape_x[-1]
+
+    """
+    x: Get the x tensor to the same shape as the gating signal (g tensor)
+    g: Perform a 1x1-style convolution on the gating signal so it has the same number of filters as the x signal  
+    """
+    x_conv = conv_layer(filters=filters_x,
+                        kernel_size=kernel_size,
+                        strides=pool_size,
+                        padding='same',
+                        name=f'{name}_Conv{len(x.shape) - 2}D_x')(x)
+    g_conv = conv_layer(filters=filters_x, kernel_size=1, padding='same', name=f'{name}_Conv{len(x.shape) - 2}D_g')(g)
+
+    xg = tf.add(x_conv, g_conv, name=f'{name}_sum')  # Sum the x and g signals element-wise
+    xg = Activation(activation='relu', name=f'{name}_relu')(xg)  # Pass the summed signals through a ReLU activation layer
+
+    xg_collapse = conv_layer(filters=1, kernel_size=1, padding='same', name=f'{name}_collapse')(xg)  # Collapse the number of filters to just 1
+    xg_collapse = Activation(activation='sigmoid', name=f'{name}_sigmoid')(xg_collapse)  # Pass collapsed tensor through a sigmoid activation layer
+
+    # Upsample the collapsed tensor so its dimensions match the original shape of the x signal, then expand the filters to match the g signal filters
+    upsample_xg = upsample_layer(size=pool_size, name=f'{name}_UpSampling{len(x.shape) - 2}D')(xg_collapse)
+    upsample_xg = tf.repeat(upsample_xg, filters_x, axis=-1, name=f'{name}_repeat')
+
+    coeffs = tf.multiply(upsample_xg, x, name=f'{name}_multiply')  # Element-wise multiplication onto the original x signal
+
+    attention_tensor = Conv3D(filters=filters_x, kernel_size=1, strides=1, padding='same', name=f'{name}_Conv{len(x.shape) - 2}D_coeffs')(coeffs)
+    attention_tensor = BatchNormalization(name=f'{name}_BatchNorm')(attention_tensor)
+
+    return attention_tensor
 
 
 def convolution_module(tensor, filters, kernel_size, num_modules=1, padding='same', use_bias=False, batch_normalization=True,
@@ -101,7 +157,7 @@ def convolution_module(tensor, filters, kernel_size, num_modules=1, padding='sam
       will have no effect.
     """
     activation_kwargs = dict({})
-    if activation_layer == layers.Activation:
+    if activation_layer == Activation:
         activation_kwargs['activation'] = activation
 
     # Insert convolution modules
@@ -682,7 +738,7 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
     ### Squeeze the given dimensions/axes ###
     if squeeze_dims is not None:
 
-        conv_kwargs['kernel_size'] = [1 for dim in range(tensor_dims - 2)]
+        conv_kwargs['kernel_size'] = [1 for _ in range(tensor_dims - 2)]
 
         if type(squeeze_dims) == int:
             squeeze_dims = [squeeze_dims, ]  # Turn integer into a list of length 1 to make indexing easier
