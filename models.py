@@ -5,6 +5,7 @@ Deep learning models:
     - U-Net+
     - U-Net++
     - U-Net 3+
+    - Attention U-Net
 
 TODO:
     * Allow models to have a unique number of encoder and decoder levels (e.g. 3 encoder levels and 5 decoder levels)
@@ -12,7 +13,7 @@ TODO:
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
 
-Last updated: 8/14/2023 7:26 PM CT
+Last updated: 8/18/2023 9:42 AM CT
 """
 
 from tensorflow.keras.models import Model
@@ -119,80 +120,61 @@ def unet(input_shape: tuple[int],
 
     # Keyword arguments for the convolution modules
     module_kwargs = dict({})
-    module_kwargs['activation'] = activation
-    module_kwargs['batch_normalization'] = batch_normalization
     module_kwargs['num_modules'] = modules_per_node
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+        module_kwargs[arg] = locals()[arg]
 
     # MaxPooling keyword arguments
-    pool_kwargs = dict({})
-    pool_kwargs['pool_size'] = pool_size
+    pool_kwargs = {'pool_size': pool_size}
 
     # Keyword arguments for upsampling
     upsample_kwargs = dict({})
-    upsample_kwargs['activation'] = activation
-    upsample_kwargs['batch_normalization'] = batch_normalization
-    upsample_kwargs['padding'] = padding
-    upsample_kwargs['kernel_initializer'] = kernel_initializer
-    upsample_kwargs['bias_initializer'] = bias_initializer
-    upsample_kwargs['kernel_regularizer'] = kernel_regularizer
-    upsample_kwargs['bias_regularizer'] = bias_regularizer
-    upsample_kwargs['activity_regularizer'] = activity_regularizer
-    upsample_kwargs['kernel_constraint'] = kernel_constraint
-    upsample_kwargs['bias_constraint'] = bias_constraint
-    upsample_kwargs['upsample_size'] = upsample_size
-    upsample_kwargs['use_bias'] = use_bias
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'upsample_size']:
+        upsample_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
-    supervision_kwargs['upsample_size'] = upsample_size
-    supervision_kwargs['use_bias'] = True
-    supervision_kwargs['squeeze_dims'] = squeeze_dims
-    supervision_kwargs['padding'] = padding
-    supervision_kwargs['kernel_initializer'] = kernel_initializer
-    supervision_kwargs['bias_initializer'] = bias_initializer
-    supervision_kwargs['kernel_regularizer'] = kernel_regularizer
-    supervision_kwargs['bias_regularizer'] = bias_regularizer
-    supervision_kwargs['activity_regularizer'] = activity_regularizer
-    supervision_kwargs['kernel_constraint'] = kernel_constraint
-    supervision_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
+                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_dims']:
+        supervision_kwargs[arg] = locals()[arg]
+        supervision_kwargs['use_bias'] = True
 
     tensors = dict({})  # Tensors associated with each node and skip connections
 
     """ Setup the first encoder node with an input layer and a convolution module """
     tensors['input'] = Input(shape=input_shape, name='Input')
-    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], kernel_size=kernel_size, name='En1', **module_kwargs)
+    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], name='En1', **module_kwargs)
 
     """ The rest of the encoder nodes are handled here. Each encoder node is connected with a MaxPooling layer and contains convolution modules """
     for encoder in np.arange(2, levels+1):  # Iterate through the rest of the encoder nodes
-        pool_tensor = unet_utils.max_pool(tensors[f'En{encoder - 1}'], name=f'En{encoder - 1}-En{encoder}', **pool_kwargs)  # Connect the next encoder node with a MaxPooling layer
-        tensors[f'En{encoder}'] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], kernel_size=kernel_size, name=f'En{encoder}', **module_kwargs)  # Convolution modules
+        current_node, previous_node = f'En{encoder}', f'En{encoder - 1}'
+        pool_tensor = unet_utils.max_pool(tensors[previous_node], name=f'{previous_node}-{current_node}', **pool_kwargs)  # Connect the next encoder node with a MaxPooling layer
+        tensors[current_node] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], name=current_node, **module_kwargs)  # Convolution modules
 
     # Connect the bottom encoder node to a decoder node
-    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'En{levels}-De{levels}', **upsample_kwargs)
+    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], name=f'En{levels}-De{levels}', **upsample_kwargs)
 
     """ Bottom decoder node """
-    tensors[f'De{levels - 1}'] = Concatenate(name=f'De{levels - 1}_Concatenate')([tensors[f'En{levels - 1}'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
-    tensors[f'De{levels - 1}'] = unet_utils.convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'De{levels - 1}', **module_kwargs)  # Convolution module
-    upsample_tensor = unet_utils.upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], kernel_size=kernel_size, name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+    current_node, next_node = f'De{levels - 1}', f'De{levels - 2}'
+    skip_node = f'En{levels - 1}'  # node with an incoming skip connection that connects to 'current_node'
+    tensors[current_node] = Concatenate(name=f'{current_node}_Concatenate')([tensors[skip_node], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
+    tensors[current_node] = unet_utils.convolution_module(tensors[current_node], filters=filter_num[levels - 2], name=current_node, **module_kwargs)  # Convolution module
+    upsample_tensor = unet_utils.upsample(tensors[current_node], filters=filter_num[levels - 3], name=f'{current_node}-{next_node}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
     """ The rest of the decoder nodes (except the final node) are handled in this loop. Each node contains one concatenation of an upsampled tensor and a skip connection """
     for decoder in np.arange(2, levels-1)[::-1]:
-        tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')([tensors[f'En{decoder}'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
-        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'De{decoder}', **module_kwargs)  # Convolution module
-        upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+        current_node, next_node = f'De{decoder}', f'De{decoder - 1}'
+        skip_node = f'En{decoder}'  # node with an incoming skip connection that connects to 'current_node'
+        tensors[current_node] = Concatenate(name=f'{current_node}_Concatenate')([tensors[skip_node], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
+        tensors[current_node] = unet_utils.convolution_module(tensors[current_node], filters=filter_num[decoder - 1], name=current_node, **module_kwargs)  # Convolution module
+        upsample_tensor = unet_utils.upsample(tensors[current_node], filters=filter_num[decoder - 2], name=f'{current_node}-{next_node}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
     """ Final decoder node begins with a concatenation and convolution module, followed by deep supervision """
     tensor_De1 = Concatenate(name='De1_Concatenate')([tensors['En1'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
-    tensor_De1 = unet_utils.convolution_module(tensor_De1, filters=filter_num[0], kernel_size=kernel_size, name='De1', **module_kwargs)  # Convolution module
+    tensor_De1 = unet_utils.convolution_module(tensor_De1, filters=filter_num[0], name='De1', **module_kwargs)  # Convolution module
     tensors['output'] = unet_utils.deep_supervision_side_output(tensor_De1, num_classes=num_classes, kernel_size=1, output_level=1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
 
     model = Model(inputs=tensors['input'], outputs=tensors['output'], name=f'unet_{ndims}D')
@@ -295,92 +277,72 @@ def unet_ensemble(input_shape: tuple[int] | list[int],
 
     # Keyword arguments for the convolution modules
     module_kwargs = dict({})
-    module_kwargs['activation'] = activation
-    module_kwargs['batch_normalization'] = batch_normalization
     module_kwargs['num_modules'] = modules_per_node
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+        module_kwargs[arg] = locals()[arg]
 
     # MaxPooling keyword arguments
-    pool_kwargs = dict({})
-    pool_kwargs['pool_size'] = pool_size
+    pool_kwargs = {'pool_size': pool_size}
 
     # Keyword arguments for upsampling
     upsample_kwargs = dict({})
-    upsample_kwargs['activation'] = activation
-    upsample_kwargs['batch_normalization'] = batch_normalization
-    upsample_kwargs['padding'] = padding
-    upsample_kwargs['kernel_initializer'] = kernel_initializer
-    upsample_kwargs['bias_initializer'] = bias_initializer
-    upsample_kwargs['kernel_regularizer'] = kernel_regularizer
-    upsample_kwargs['bias_regularizer'] = bias_regularizer
-    upsample_kwargs['activity_regularizer'] = activity_regularizer
-    upsample_kwargs['kernel_constraint'] = kernel_constraint
-    upsample_kwargs['bias_constraint'] = bias_constraint
-    upsample_kwargs['upsample_size'] = upsample_size
-    upsample_kwargs['use_bias'] = use_bias
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'upsample_size']:
+        upsample_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
-    supervision_kwargs['upsample_size'] = upsample_size
-    supervision_kwargs['use_bias'] = True
-    supervision_kwargs['squeeze_dims'] = squeeze_dims
-    supervision_kwargs['padding'] = padding
-    supervision_kwargs['kernel_initializer'] = kernel_initializer
-    supervision_kwargs['bias_initializer'] = bias_initializer
-    supervision_kwargs['kernel_regularizer'] = kernel_regularizer
-    supervision_kwargs['bias_regularizer'] = bias_regularizer
-    supervision_kwargs['activity_regularizer'] = activity_regularizer
-    supervision_kwargs['kernel_constraint'] = kernel_constraint
-    supervision_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
+                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_dims', 'num_classes']:
+        supervision_kwargs[arg] = locals()[arg]
+        supervision_kwargs['use_bias'] = True
+        supervision_kwargs['output_level'] = 1
+        supervision_kwargs['kernel_size'] = 1
 
     tensors = dict({})  # Tensors associated with each node and skip connections
     tensors_with_supervision = []  # list of output tensors. If deep supervision is used, more than one output will be produced
 
     """ Setup the first encoder node with an input layer and a convolution module """
     tensors['input'] = Input(shape=input_shape, name='Input')
-    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], kernel_size=kernel_size, name='En1', **module_kwargs)
+    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], name='En1', **module_kwargs)
 
     """ The rest of the encoder nodes are handled here. Each encoder node is connected with a MaxPooling layer and contains convolution modules """
     for encoder in np.arange(2, levels+1):  # Iterate through the rest of the encoder nodes
-        pool_tensor = unet_utils.max_pool(tensors[f'En{encoder - 1}'], name=f'En{encoder - 1}-En{encoder}', **pool_kwargs)  # Connect the next encoder node with a MaxPooling layer
-        tensors[f'En{encoder}'] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], kernel_size=kernel_size, name=f'En{encoder}', **module_kwargs)  # Convolution modules
+        current_node, previous_node = f'En{encoder}', f'En{encoder - 1}'
+        pool_tensor = unet_utils.max_pool(tensors[previous_node], name=f'{previous_node}-{current_node}', **pool_kwargs)  # Connect the next encoder node with a MaxPooling layer
+        tensors[current_node] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], name=current_node, **module_kwargs)  # Convolution modules
 
     # Connect the bottom encoder node to a decoder node
-    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'En{levels}-De{levels}', **upsample_kwargs)
+    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], name=f'En{levels}-De{levels}', **upsample_kwargs)
 
     """ Bottom decoder node """
-    tensors[f'De{levels - 1}'] = Concatenate(name=f'De{levels - 1}_Concatenate')([upsample_tensor, tensors[f'En{levels - 1}']])  # Concatenate the upsampled tensor and skip connection
-    tensors[f'De{levels - 1}'] = unet_utils.convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'De{levels - 1}', **module_kwargs)  # Convolution module
-    upsample_tensor = unet_utils.upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], kernel_size=kernel_size, name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+    current_node, next_node = f'De{levels - 1}', f'De{levels - 2}'
+    skip_node = f'En{levels - 1}'
+    tensors[current_node] = Concatenate(name=f'{current_node}_Concatenate')([upsample_tensor, tensors[skip_node]])  # Concatenate the upsampled tensor and skip connection
+    tensors[current_node] = unet_utils.convolution_module(tensors[current_node], filters=filter_num[levels - 2], name=current_node, **module_kwargs)  # Convolution module
+    upsample_tensor = unet_utils.upsample(tensors[current_node], filters=filter_num[levels - 3], name=f'{current_node}-{next_node}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
-    """ The rest of the decoder nodes (except the final node) are handled in this loop. Each node contains one concatenation of an upsampled tensor and a skip connection """
     for decoder in np.arange(1, levels-1)[::-1]:
         num_middle_nodes = levels - decoder - 1
         for node in range(1, num_middle_nodes + 1):
             if node == 1:  # if on the first middle node at the given level
-                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'En{decoder + 1}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'En{decoder + 1}-Me{decoder}-1', **upsample_kwargs)
+                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'En{decoder + 1}'], filters=filter_num[decoder - 2], name=f'En{decoder + 1}-Me{decoder}-1', **upsample_kwargs)
             else:
-                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'Me{decoder + 1}-{node - 1}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'Me{decoder + 1}-{node - 1}-Me{decoder}-{node}', **upsample_kwargs)
+                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'Me{decoder + 1}-{node - 1}'], filters=filter_num[decoder - 2], name=f'Me{decoder + 1}-{node - 1}-Me{decoder}-{node}', **upsample_kwargs)
             tensors[f'Me{decoder}-{node}'] = Concatenate(name=f'Me{decoder}-{node}_Concatenate')([tensors[f'En{decoder}'], upsample_tensor_for_middle_node])
-            tensors[f'Me{decoder}-{node}'] = unet_utils.convolution_module(tensors[f'Me{decoder}-{node}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'Me{decoder}-{node}', **module_kwargs)  # Convolution module
+            tensors[f'Me{decoder}-{node}'] = unet_utils.convolution_module(tensors[f'Me{decoder}-{node}'], filters=filter_num[decoder - 1], name=f'Me{decoder}-{node}', **module_kwargs)  # Convolution module
             if decoder == 1:
-                tensors[f'sup{decoder}-{node}'] = unet_utils.deep_supervision_side_output(tensors[f'Me{decoder}-{node}'], num_classes=num_classes, output_level=1, kernel_size=1, name=f'sup{decoder}-{node}', **supervision_kwargs)  # deep supervision on middle node located on top level
+                tensors[f'sup{decoder}-{node}'] = unet_utils.deep_supervision_side_output(tensors[f'Me{decoder}-{node}'], name=f'sup{decoder}-{node}', **supervision_kwargs)  # deep supervision on middle node located on top level
                 tensors_with_supervision.append(tensors[f'sup{decoder}-{node}'])
         tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')([tensors[f'En{decoder}'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
-        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'De{decoder}', **module_kwargs)  # Convolution module
+        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], name=f'De{decoder}', **module_kwargs)  # Convolution module
 
         if decoder != 1:  # if not currently on the final decoder node (De1)
-            upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+            upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
         else:
-            tensors['output'] = unet_utils.deep_supervision_side_output(tensors['De1'], num_classes=num_classes, kernel_size=1, output_level=1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
+            tensors['output'] = unet_utils.deep_supervision_side_output(tensors['De1'], name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
             tensors_with_supervision.append(tensors['output'])
 
     model = Model(inputs=tensors['input'], outputs=tensors_with_supervision, name=f'unet_ensemble_{ndims}D')
@@ -487,93 +449,71 @@ def unet_plus(input_shape: tuple[int] | list[int],
 
     # Keyword arguments for the convolution modules
     module_kwargs = dict({})
-    module_kwargs['activation'] = activation
-    module_kwargs['batch_normalization'] = batch_normalization
     module_kwargs['num_modules'] = modules_per_node
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+        module_kwargs[arg] = locals()[arg]
 
     # MaxPooling keyword arguments
-    pool_kwargs = dict({})
-    pool_kwargs['pool_size'] = pool_size
+    pool_kwargs = {'pool_size': pool_size}
 
     # Keyword arguments for upsampling
     upsample_kwargs = dict({})
-    upsample_kwargs['activation'] = activation
-    upsample_kwargs['batch_normalization'] = batch_normalization
-    upsample_kwargs['padding'] = padding
-    upsample_kwargs['kernel_initializer'] = kernel_initializer
-    upsample_kwargs['bias_initializer'] = bias_initializer
-    upsample_kwargs['kernel_regularizer'] = kernel_regularizer
-    upsample_kwargs['bias_regularizer'] = bias_regularizer
-    upsample_kwargs['activity_regularizer'] = activity_regularizer
-    upsample_kwargs['kernel_constraint'] = kernel_constraint
-    upsample_kwargs['bias_constraint'] = bias_constraint
-    upsample_kwargs['upsample_size'] = upsample_size
-    upsample_kwargs['use_bias'] = use_bias
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'upsample_size']:
+        upsample_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
-    supervision_kwargs['upsample_size'] = upsample_size
-    supervision_kwargs['use_bias'] = True
-    supervision_kwargs['squeeze_dims'] = squeeze_dims
-    supervision_kwargs['padding'] = padding
-    supervision_kwargs['kernel_initializer'] = kernel_initializer
-    supervision_kwargs['bias_initializer'] = bias_initializer
-    supervision_kwargs['kernel_regularizer'] = kernel_regularizer
-    supervision_kwargs['bias_regularizer'] = bias_regularizer
-    supervision_kwargs['activity_regularizer'] = activity_regularizer
-    supervision_kwargs['kernel_constraint'] = kernel_constraint
-    supervision_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
+                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_dims', 'num_classes']:
+        supervision_kwargs[arg] = locals()[arg]
+        supervision_kwargs['use_bias'] = True
+        supervision_kwargs['output_level'] = 1
+        supervision_kwargs['kernel_size'] = 1
 
     tensors = dict({})  # Tensors associated with each node and skip connections
     tensors_with_supervision = []  # list of output tensors. If deep supervision is used, more than one output will be produced
 
     """ Setup the first encoder node with an input layer and a convolution module """
     tensors['input'] = Input(shape=input_shape, name='Input')
-    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], kernel_size=kernel_size, name='En1', **module_kwargs)
+    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], name='En1', **module_kwargs)
 
     """ The rest of the encoder nodes are handled here. Each encoder node is connected with a MaxPooling layer and contains convolution modules """
     for encoder in np.arange(2, levels+1):  # Iterate through the rest of the encoder nodes
         pool_tensor = unet_utils.max_pool(tensors[f'En{encoder - 1}'], name=f'En{encoder - 1}-En{encoder}', **pool_kwargs)  # Connect the next encoder node with a MaxPooling layer
-        tensors[f'En{encoder}'] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], kernel_size=kernel_size, name=f'En{encoder}', **module_kwargs)  # Convolution modules
+        tensors[f'En{encoder}'] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], name=f'En{encoder}', **module_kwargs)  # Convolution modules
 
     # Connect the bottom encoder node to a decoder node
-    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'En{levels}-De{levels}', **upsample_kwargs)
+    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], name=f'En{levels}-De{levels}', **upsample_kwargs)
 
     """ Bottom decoder node """
     tensors[f'De{levels - 1}'] = Concatenate(name=f'De{levels - 1}_Concatenate')([upsample_tensor, tensors[f'En{levels - 1}']])  # Concatenate the upsampled tensor and skip connection
-    tensors[f'De{levels - 1}'] = unet_utils.convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'De{levels - 1}', **module_kwargs)  # Convolution module
-    upsample_tensor = unet_utils.upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], kernel_size=kernel_size, name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+    tensors[f'De{levels - 1}'] = unet_utils.convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], name=f'De{levels - 1}', **module_kwargs)  # Convolution module
+    upsample_tensor = unet_utils.upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
     """ The rest of the decoder nodes (except the final node) are handled in this loop. Each node contains one concatenation of an upsampled tensor and a skip connection """
     for decoder in np.arange(1, levels-1)[::-1]:
         num_middle_nodes = levels - decoder - 1
         for node in range(1, num_middle_nodes + 1):
             if node == 1:  # if on the first middle node at the given level
-                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'En{decoder + 1}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'En{decoder + 1}-Me{decoder}-1', **upsample_kwargs)
+                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'En{decoder + 1}'], filters=filter_num[decoder - 2], name=f'En{decoder + 1}-Me{decoder}-1', **upsample_kwargs)
                 tensors[f'Me{decoder}-1'] = Concatenate(name=f'Me{decoder}-1_Concatenate')([tensors[f'En{decoder}'], upsample_tensor_for_middle_node])
             else:
-                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'Me{decoder + 1}-{node - 1}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'Me{decoder + 1}-{node - 1}-Me{decoder}-{node}', **upsample_kwargs)
+                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'Me{decoder + 1}-{node - 1}'], filters=filter_num[decoder - 2], name=f'Me{decoder + 1}-{node - 1}-Me{decoder}-{node}', **upsample_kwargs)
                 tensors[f'Me{decoder}-{node}'] = Concatenate(name=f'Me{decoder}-{node}_Concatenate')([tensors[f'Me{decoder}-{node - 1}'], upsample_tensor_for_middle_node])
-            tensors[f'Me{decoder}-{node}'] = unet_utils.convolution_module(tensors[f'Me{decoder}-{node}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'Me{decoder}-{node}', **module_kwargs)  # Convolution module
+            tensors[f'Me{decoder}-{node}'] = unet_utils.convolution_module(tensors[f'Me{decoder}-{node}'], filters=filter_num[decoder - 1], name=f'Me{decoder}-{node}', **module_kwargs)  # Convolution module
             if decoder == 1 and deep_supervision:
-                tensors[f'sup{decoder}-{node}'] = unet_utils.deep_supervision_side_output(tensors[f'Me{decoder}-{node}'], num_classes=num_classes, output_level=1, kernel_size=1, name=f'sup{decoder}-{node}', **supervision_kwargs)  # deep supervision on middle node located on top level
+                tensors[f'sup{decoder}-{node}'] = unet_utils.deep_supervision_side_output(tensors[f'Me{decoder}-{node}'], name=f'sup{decoder}-{node}', **supervision_kwargs)  # deep supervision on middle node located on top level
                 tensors_with_supervision.append(tensors[f'sup{decoder}-{node}'])
         tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')([tensors[f'Me{decoder}-{num_middle_nodes}'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
-        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'De{decoder}', **module_kwargs)  # Convolution module
+        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], name=f'De{decoder}', **module_kwargs)  # Convolution module
 
         if decoder != 1:  # if not currently on the final decoder node (De1)
-            upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+            upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
         else:
-            tensors['output'] = unet_utils.deep_supervision_side_output(tensors['De1'], num_classes=num_classes, kernel_size=1, output_level=1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
+            tensors['output'] = unet_utils.deep_supervision_side_output(tensors['De1'], **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
             tensors_with_supervision.append(tensors['output'])
 
     model = Model(inputs=tensors['input'], outputs=tensors_with_supervision, name=f'unet_plus_{ndims}D')
@@ -1225,16 +1165,17 @@ def attention_unet(
 
     """ The rest of the decoder nodes (except the final node) are handled in this loop. Each node contains one concatenation of an upsampled tensor and a skip connection """
     for decoder in np.arange(2, levels-1)[::-1]:
-        tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')([tensors[f'En{decoder}'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
+        tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')([tensors[f'AG{decoder}'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
         tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'De{decoder}', **module_kwargs)  # Convolution module
-        tensors[f'AG{decoder - 1}'] = unet_utils.attention_gate(tensors[f'En{decoder - 1}'], tensors[f'De{decoder}'], kernel_size, pool_size, name=f'AG{levels - 2}')
+        tensors[f'AG{decoder - 1}'] = unet_utils.attention_gate(tensors[f'En{decoder - 1}'], tensors[f'De{decoder}'], kernel_size, pool_size, name=f'AG{decoder - 1}')
         upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
+    print(tensors.keys())
     """ Final decoder node begins with a concatenation and convolution module, followed by deep supervision """
     tensor_De1 = Concatenate(name='De1_Concatenate')([tensors['AG1'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
     tensor_De1 = unet_utils.convolution_module(tensor_De1, filters=filter_num[0], kernel_size=kernel_size, name='De1', **module_kwargs)  # Convolution module
     tensors['output'] = unet_utils.deep_supervision_side_output(tensor_De1, num_classes=num_classes, kernel_size=1, output_level=1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
 
-    model = Model(inputs=tensors['input'], outputs=tensors['output'], name=f'unet_{ndims}D')
+    model = Model(inputs=tensors['input'], outputs=tensors['output'], name=f'attention_unet_{ndims}D')
 
     return model
