@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/14/2023 7:27 PM CT
+Last updated: 8/20/2023 6:05 PM CT
 """
 import argparse
 import cartopy.crs as ccrs
@@ -139,11 +139,11 @@ if __name__ == '__main__':
             max_CSI_fb = max_CSI_pod / max_CSI_sr  # Frequency bias
 
             cell_text.append([r'$\bf{%.2f}$' % max_CSI_threshold,
-                              r'$\bf{%.2f}$' % max_CSI_scores_by_boundary[boundary] + r'$^{%.2f}_{%.2f}$' % (CI_CSI[1, boundary, max_CSI_index], CI_CSI[0, boundary, max_CSI_index]),
-                              r'$\bf{%.2f}$' % max_CSI_pod + r'$^{%.2f}_{%.2f}$' % (CI_POD[1, boundary, max_CSI_index], CI_POD[0, boundary, max_CSI_index]),
-                              r'$\bf{%.2f}$' % max_CSI_sr + r'$^{%.2f}_{%.2f}$' % (CI_SR[1, boundary, max_CSI_index], CI_SR[0, boundary, max_CSI_index]),
-                              r'$\bf{%.2f}$' % (1 - max_CSI_sr) + r'$^{%.2f}_{%.2f}$' % (1 - CI_SR[1, boundary, max_CSI_index], 1 - CI_SR[0, boundary, max_CSI_index]),
-                              r'$\bf{%.2f}$' % max_CSI_fb + r'$^{%.2f}_{%.2f}$' % (CI_FB[1, boundary, max_CSI_index], CI_FB[0, boundary, max_CSI_index])])
+                              r'$\bf{%.3f}$' % max_CSI_scores_by_boundary[boundary] + r'$^{%.3f}_{%.3f}$' % (CI_CSI[1, boundary, max_CSI_index], CI_CSI[0, boundary, max_CSI_index]),
+                              r'$\bf{%.1f}$' % (max_CSI_pod * 100) + r'$^{%.1f}_{%.1f}$' % (CI_POD[1, boundary, max_CSI_index] * 100, CI_POD[0, boundary, max_CSI_index] * 100),
+                              r'$\bf{%.1f}$' % (max_CSI_sr * 100) + r'$^{%.1f}_{%.1f}$' % (CI_SR[1, boundary, max_CSI_index] * 100, CI_SR[0, boundary, max_CSI_index] * 100),
+                              r'$\bf{%.1f}$' % ((1 - max_CSI_sr) * 100) + r'$^{%.1f}_{%.1f}$' % ((1 - CI_SR[1, boundary, max_CSI_index]) * 100, (1 - CI_SR[0, boundary, max_CSI_index]) * 100),
+                              r'$\bf{%.3f}$' % max_CSI_fb + r'$^{%.3f}_{%.3f}$' % (CI_FB[1, boundary, max_CSI_index], CI_FB[0, boundary, max_CSI_index])])
 
             # Plot CSI lines
             axarr[0].plot(max_CSI_sr, max_CSI_pod, color=color, marker='*', markersize=10)
@@ -174,7 +174,7 @@ if __name__ == '__main__':
         ################################################################################################################
 
         ############################################# Data table (panel c) #############################################
-        columns = ['Threshold*', 'CSI', 'POD', 'SR', 'FAR', 'FB']  # Column names
+        columns = ['Threshold*', 'CSI', 'POD %', 'SR %', 'FAR %', 'FB']  # Column names
         rows = ['50 km', '100 km', '150 km', '200 km', '250 km']  # Row names
 
         table_axis = plt.axes([0.063, -0.06, 0.4, 0.2])
