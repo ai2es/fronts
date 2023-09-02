@@ -2,7 +2,7 @@
 Convert front XML files to netCDF files.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/5/2023 8:32 AM CT
+Script version: 2023.7.5
 """
 
 import argparse
@@ -24,7 +24,7 @@ full: 130 E pointing eastward to 10 E, 80 N to 0.25 N
 global: 179.75 W to 180 E, 90 N to 89.75 N
 """
 domain_coords = {'conus': {'lons': np.arange(-132, -60, 0.25), 'lats': np.arange(57, 25, -0.25)},
-                 'full': {'lons': np.append(np.arange(130, 180.25, 0.25), np.arange(-179.75, 10, 0.25)), 'lats': np.arange(80, 0, -0.25)},
+                 'full': {'lons': np.append(np.arange(-179.75, 10, 0.25), np.arange(130, 180.25, 0.25)), 'lats': np.arange(80, 0, -0.25)},
                  'global': {'lons': np.arange(-179.75, 180.25, 0.25), 'lats': np.arange(90, -90, -0.25)}}
 
 
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     parser.add_argument('--xml_indir', type=str, required=True, help="Input directory for front XML files.")
     parser.add_argument('--netcdf_outdir', type=str, required=True, help="Output directory for front netCDF files.")
     parser.add_argument('--date', type=int, nargs=3, required=True, help="Date for the data to be read in. (year, month, day)")
-    parser.add_argument('--distance', type=int, default=1, help="Interpolation distance in kilometers.")
+    parser.add_argument('--distance', type=float, default=1., help="Interpolation distance in kilometers.")
     parser.add_argument('--domain', type=str, default='full', help="Domain for which to generate fronts.")
 
     args = vars(parser.parse_args())
@@ -82,9 +82,13 @@ if __name__ == "__main__":
             gridded_indices = np.dstack((np.digitize(lon_new, gridded_lons), np.digitize(lat_new, gridded_lats)))[0]  # translate coordinate indices to grid
             gridded_indices_unique = np.unique(gridded_indices, axis=0)  # remove duplicate coordinate indices
 
+            # Remove points outside of the domain
+            gridded_indices_unique = gridded_indices_unique[np.where(gridded_indices_unique[:, 0] != len(gridded_lons))]
+            gridded_indices_unique = gridded_indices_unique[np.where(gridded_indices_unique[:, 1] != len(gridded_lats))]
+
             identifier[gridded_indices_unique[:, 0], gridded_indices_unique[:, 1]] = pgenType_identifiers[type_of_front]  # assign labels to the gridded points based on the front type
 
-        date_and_time = np.datetime64('%d-%02d-%02dT%s' % (year, month, day, hour))
+        date_and_time = np.datetime64('%04d-%02d-%02dT%02d' % (year, month, day, int(hour)), 'ns')
 
         filename_netcdf = "FrontObjects_%s_%s.nc" % (date, args['domain'])
         fronts_ds = xr.Dataset({"identifier": (('longitude', 'latitude'), identifier)},

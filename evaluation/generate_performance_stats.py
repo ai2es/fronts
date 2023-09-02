@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 8:50 PM CT
+Script version: 2023.9.2
 """
 import argparse
 import glob
@@ -13,7 +13,7 @@ import tensorflow as tf
 import xarray as xr
 import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directoryimport file_manager as fm
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
 import file_manager as fm
 from utils import data_utils
 from utils.settings import DEFAULT_DOMAIN_EXTENTS
@@ -197,10 +197,9 @@ if __name__ == '__main__':
                 .sel(longitude=slice(DEFAULT_DOMAIN_EXTENTS[args['domain']][0], DEFAULT_DOMAIN_EXTENTS[args['domain']][1]),
                      latitude=slice(DEFAULT_DOMAIN_EXTENTS[args['domain']][3], DEFAULT_DOMAIN_EXTENTS[args['domain']][2]))
 
-            probs_ds_month = probs_ds.sel(time='%d-%02d' % (year, month))
             fronts_ds_month = data_utils.reformat_fronts(fronts_ds.sel(time='%d-%02d' % (year, month)), front_types)
 
-            time_array = probs_ds_month['time'].values
+            time_array = probs_ds['time'].values
             num_timesteps = len(time_array)
 
             tp_array_spatial = np.zeros(shape=[num_front_types, len(lats), len(lons), 5, 100]).astype('int64')
@@ -218,7 +217,7 @@ if __name__ == '__main__':
 
             bool_tn_fn_dss = dict({front: tf.convert_to_tensor(xr.where(fronts_ds_month == front_no + 1, 1, 0)['identifier'].values) for front_no, front in enumerate(front_types)})
             bool_tp_fp_dss = dict({front: None for front in front_types})
-            probs_dss = dict({front: tf.convert_to_tensor(probs_ds_month[front].values) for front in front_types})
+            probs_dss = dict({front: tf.convert_to_tensor(probs_ds[front].values) for front in front_types})
 
             performance_ds = xr.Dataset(coords={'time': time_array, 'longitude': lons, 'latitude': lats, 'boundary': boundaries, 'threshold': thresholds})
 

@@ -2,7 +2,7 @@
 Generate predictions with a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 9:09 PM CT
+Script version: 2023.9.2
 """
 import argparse
 import pandas as pd
@@ -10,6 +10,7 @@ import numpy as np
 import xarray as xr
 import os
 import sys
+import tensorflow as tf
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
 from utils import data_utils, settings
 import file_manager as fm
@@ -401,6 +402,19 @@ if __name__ == '__main__':
 
     args = vars(parser.parse_args())
 
+    gpus = tf.config.list_physical_devices(device_type='GPU')  # Find available GPUs
+    if len(gpus) > 0:
+        tf.config.set_visible_devices(devices=gpus[0], device_type='GPU')
+        gpus = tf.config.get_visible_devices(device_type='GPU')  # List of selected GPUs
+
+        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
+        if args['memory_growth']:
+            tf.config.experimental.set_memory_growth(device=gpus[0], enable=True)
+
+    else:
+        print('WARNING: No GPUs found, all computations will be performed on CPUs.')
+        tf.config.set_visible_devices([], 'GPU')
+
     ### Model properties ###
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
     model_type = model_properties['model_type']
@@ -541,19 +555,6 @@ if __name__ == '__main__':
                         variable_batch_ds_new_shape = np.shape(variable_batch_ds_new)
                         variable_batch_ds_new = variable_batch_ds_new.reshape(*[dim_size for dim_size in variable_batch_ds_new_shape[:-2]], variable_batch_ds_new_shape[-2] * variable_batch_ds_new_shape[-1])
 
-                        ### Variables in older 2D models are in a weird order, so we will reshape the input array to account for this ###
-                        if args['model_number'] in [7805504, 7866106, 7961517]:
-                            variable_batch_ds_new_2D = np.empty(shape=np.shape(variable_batch_ds_new))
-                            variable_index_order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-                                                    23, 12, 15, 16, 14, 13, 18, 19, 22, 17, 20, 21,
-                                                    35, 24, 27, 28, 26, 25, 30, 31, 34, 29, 32, 33,
-                                                    47, 36, 39, 40, 38, 37, 42, 43, 46, 41, 44, 45,
-                                                    59, 48, 51, 52, 50, 49, 54, 55, 58, 53, 56, 57]
-
-                            for variable_index_new, variable_index_old in enumerate(variable_index_order):
-                                variable_batch_ds_new_2D[:, :, :, variable_index_new] = np.array(variable_batch_ds_new[:, :, :, variable_index_old])
-                            variable_batch_ds_new = variable_batch_ds_new_2D
-
                     transpose_indices = (0, 3, 1, 2)  # New order of indices for model predictions (time, front type, longitude, latitude)
 
                     ##################################### Generate the predictions #####################################
@@ -606,13 +607,11 @@ if __name__ == '__main__':
 
                         ### Create subdirectories for the data if they do not exist ###
                         if not os.path.isdir('%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base)):
-                            os.mkdir('%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base))
+                            os.makedirs('%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base))
                             print("New subdirectory made:", '%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base))
-                        if not os.path.isdir('%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base)):
-                            os.mkdir('%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base))
+                            os.makedirs('%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base))
                             print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base))
-                        if not os.path.isdir('%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base)):
-                            os.mkdir('%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base))
+                            os.makedirs('%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base))
                             print("New subdirectory made:", '%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base))
 
                         if args['data_source'] != 'era5':

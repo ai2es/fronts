@@ -1,21 +1,19 @@
 """
-Function that creates new variable datasets.
+Functions for deriving various thermodynamic variables.
 
 References
 ----------
-    - Bolton 1980: https://doi.org/10.1175/1520-0493(1980)108<1046:TCOEPT>2.0.CO;2
-    - Davies-Jones 2008: https://doi.org/10.1175/2007MWR2224.1
-    - Stull 2011: https://doi.org/10.1175/JAMC-D-11-0143.1
+* Bolton 1980: https://doi.org/10.1175/1520-0493(1980)108<1046:TCOEPT>2.0.CO;2
+* Davies-Jones 2008: https://doi.org/10.1175/2007MWR2224.1
+* Stull 2011: https://doi.org/10.1175/JAMC-D-11-0143.1
+* Vasaila 2013: https://www.vaisala.com/sites/default/files/documents/Humidity_Conversion_Formulas_B210973EN-F.pdf
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-    - Modified for Xarray by: John Allen (allen4jt@cmich.edu)
-
-Last updated: 10/4/2022 8:13 PM CDT by Andrew Justin
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.9.2
 """
-
-import xarray as xr
 import numpy as np
 from utils import data_utils
+import tensorflow as tf
 
 Rd = 287.04  # Gas constant for dry air (J/kg/K)
 Rv = 461.5  # Gas constant for water vapor (J/kg/K)
@@ -32,66 +30,64 @@ kB = 1.380649e-23  # Boltzmann constant (J/K)
 
 def absolute_humidity(T, Td):
     """
-    Calculates absolute humidity for a given dewpoint temperature in kelvin (K).
+    Calculates absolute humidity from temperature and dewpoint temperature.
 
     Parameters
     ----------
-    T: float, iterable, xr.Dataset
-        Air temperature in kelvin (K).
-    Td: float, iterable, xr.Dataset
-        Dewpoint temperature in kelvin (K).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
 
     Returns
     -------
-    AH: float, iterable, or xr.Dataset
-        Absolute humidity.
+    AH: float or iterable object
+        Absolute humidity expressed as kilograms of water vapor per cubic meter of air (kg/m^3).
     """
-    e = vapor_pressure(Td)
-    return e / (Rv * T)  # Absolute humidity
+    e = vapor_pressure(Td)  # vapor pressure expressed as pascals
+    AH = e / (Rv * T)  # absolute humidity
+    return AH
 
 
 def dewpoint_from_vapor_pressure(vapor_pressure):
     """
-    Calculates vapor pressure in pascals (Pa) for a given dewpoint temperature in kelvin (K).
+    Calculates dewpoint temperature from vapor pressure.
 
     Parameters
     ----------
-    vapor_pressure: float, iterable, or xr.Dataset
-        Vapor pressure in pascals (Pa).
+    vapor_pressure: float or iterable object
+        Vapor pressure expressed as pascals (Pa).
 
     Returns
     -------
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
     """
-    return (1/273.15 - (np.log(vapor_pressure/e_knot)*(Rv/Lv))) ** -1  # Td
+    Td = (1/273.15 - (tf.math.log(vapor_pressure/e_knot)*(Rv/Lv))) ** -1 if tf.is_tensor(vapor_pressure) else \
+         (1/273.15 - (np.log(vapor_pressure/e_knot)*(Rv/Lv))) ** -1
+    return Td
 
 
 def dewpoint_from_specific_humidity(P, T, q):
     """
-    Returns dewpoint temperature in kelvin (K).
-
-    Written for wrapped FORTRAN by John T. Allen - July 2015
-    Written in python by Chiara Lepore - April 2019
-    Updated to xarray by Chiara and John - August 2019
-    Modified for fronts project by Andrew Justin - July 2021
-    https://www.vaisala.com/sites/default/files/documents/Humidity_Conversion_Formulas_B210973EN-F.pdf
+    Calculates dewpoint temperature from specific humidity, pressure, and temperature.
 
     Parameters
     ----------
-    P: float, iterable, or xr.Dataset
-        Air pressure in pascals (Pa).
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    q: float, iterable, or xr.Dataset
-        Specific humidity in grams of water vapor per gram of dry air (g/g).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    q: float or iterable object
+        Specific humidity expressed as grams of water vapor per gram of dry air (unitless; g/g or kg/kg).
 
     Returns
     -------
-    Td: float, iterable, or xr.Dataset
-        Dew-point temperature in kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
     """
 
+    # Constants needed to perform dewpoint calculation (Vasaila 2013)
     m = 7.591386
     A = 6.116441
     Tn = 240.7263
@@ -99,91 +95,94 @@ def dewpoint_from_specific_humidity(P, T, q):
     A1 = 6.114742
     Tn1 = 273.1466
 
-    E = (P * q) / (0.622 + 0.378 * q)  # (Bolton 1980, Eq. 16)
-    E /= 100  # convert to hPa
+    vap_pres = (P * q) / (0.622 + 0.378 * q)  # (Bolton 1980, Eq. 16) expressed as pascals (Pa)
+    vap_pres /= 100  # convert to hPa
 
-    # for T>=0
-    Td_gt = Tn / ((m / (np.log10(E / A))) - 1)
-    Td_lt = Tn1 / ((m1 / (np.log10(E / A1))) - 1)
-    Td = xr.where(T >= 0, Td_gt, Td_lt)
+    # Dewpoint calculation from Vasaila 2013
+    Td_gt = Tn / ((m / (np.log10(vap_pres / A))) - 1)
+    Td_lt = Tn1 / ((m1 / (np.log10(vap_pres / A1))) - 1)
+    Td = np.where(T >= 0, Td_gt, Td_lt)
     return Td + 273.15
 
 
 def mixing_ratio_from_dewpoint(Td, P):
     """
-    Returns mixing ratio in of grams of water per gram of dry air (g/g).
+    Calculates mixing ratio from dewpoint temperature and air pressure.
 
     Parameters
     ----------
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
-    P: float, iterable, or xr.Dataset
-        Pressure in pascals (Pa).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
 
     Returns
     -------
-    r: float, iterable, or xr.Dataset
-        Mixing ratio in grams of water per gram of dry air (g/g).
+    r: float or iterable object
+        Mixing ratio expressed as grams of water per gram of dry air (unitless; g/g or kg/kg).
     """
     e = vapor_pressure(Td)
-    return epsilon * e / (P - e)  # Mixing ratio with units of g/g
+    r = epsilon * e / (P - e)  # mixing ratio
+    return r
 
 
 def potential_temperature(T, P):
     """
-    Returns potential temperature in kelvin (K).
+    Returns potential temperature expressed as kelvin (K).
 
     Parameters
     ----------
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    P: float, iterable, or xr.Dataset
-        Pressure in pascals (Pa).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
 
     Returns
     -------
-    theta: float, iterable, or xr.Dataset
-        Potential temperature in kelvin (K).
+    theta: float or iterable object
+        Potential temperature expressed as kelvin (K).
     """
-    return T * np.power(1e5 / P, kd)
+    theta = T * tf.pow(1e5 / P, kd) if tf.is_tensor(T) and tf.is_tensor(P) else T * np.power(1e5 / P, kd)
+    return theta
 
 
 def relative_humidity(T, Td):
     """
-    Returns relative humidity.
+    Returns relative humidity from temperature and dewpoint temperature.
 
     Parameters
     ----------
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
 
     Returns
     -------
-    RH: float, iterable, or xr.Dataset
+    RH: float or iterable object
         Relative humidity.
     """
     e = vapor_pressure(Td)
-    es = vapor_pressure(T)  # Saturation vapor pressure, when Td increases to T if T is held constant
-    return e / es  # relative humidity
+    es = vapor_pressure(T)  # saturation vapor pressure
+    RH = e / es  # relative humidity
+    return RH
 
 
 def specific_humidity_from_dewpoint(Td, P):
     """
-    Returns specific humidity in grams of water vapor per gram of dry air (g/g).
+    Calculates specific humidity from dewpoint and pressure.
 
     Parameters
     ----------
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
-    P: float, iterable, or xr.Dataset
-        Pressure in pascals (Pa).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
 
     Returns
     -------
-    q: float, iterable, or xr.Dataset
-        Specific humidity in grams of water vapor per gram of dry air (g/g).
+    q: float or iterable object
+        Specific humidity expressed as grams of water vapor per gram of dry air (unitless; g/g or kg/kg).
     """
     e = vapor_pressure(Td)
     return epsilon * e / (P - (0.378 * e))  # q: specific humidity
@@ -191,38 +190,38 @@ def specific_humidity_from_dewpoint(Td, P):
 
 def specific_humidity_from_mixing_ratio(r):
     """
-    Returns specific humidity in grams of water vapor per gram of dry air (g/g).
+    Calculates specific humidity from mixing ratio.
 
     Parameters
     ----------
-    r: float, iterable, or xr.Dataset
-        Mixing ratio in in grams of water vapor per gram of dry air (g/g).
+    r: float or iterable object
+        Mixing ratio expressed as grams of water per gram of dry air (unitless; g/g or kg/kg).
 
     Returns
     -------
-    q: float, iterable, or xr.Dataset
-        Specific humidity in grams of water vapor per gram of dry air (g/g).
+    q: float or iterable object
+        Specific humidity expressed as grams of water vapor per gram of dry air (unitless; g/g or kg/kg).
     """
     return r / (1 + r)  # q: specific humidity
 
 
 def specific_humidity_from_relative_humidity(RH, T, P):
     """
-    Returns specific humidity in grams of water vapor per gram of dry air (g/g).
+    Calculates specific humidity from relative humidity, air temperature, and pressure.
 
     Parameters
     ----------
-    RH: float, iterable, or xr.Dataset
+    RH: float or iterable object
         Relative humidity.
-    T: float, iterable, or xr.Dataset
-        Temperature in kelvin (K).
-    P: float, iterable, or xr.Dataset
-        Pressure in pascals (Pa).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
 
     Returns
     -------
-    q: float, iterable, or xr.Dataset
-        Specific humidity in grams of water vapor per gram of dry air (g/g).
+    q: float or iterable object
+        Specific humidity expressed as grams of water vapor per gram of dry air (unitless; g/g or kg/kg).
     """
     es = vapor_pressure(T)
     e = RH * es
@@ -233,43 +232,45 @@ def specific_humidity_from_relative_humidity(RH, T, P):
 
 def equivalent_potential_temperature(T, Td, P):
     """
-    Returns equivalent potential temperature (theta-e) in kelvin (K).
+    Calculates equivalent potential temperature (theta-e) from temperature, dewpoint, and pressure.
 
     Parameters
     ----------
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
-    P: float, iterable, or xr.Dataset
-        Pressure in pascals (Pa).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
 
     Returns
     -------
-    theta_e: float, iterable, or xr.Dataset
-        Equivalent potential temperature in kelvin (K).
+    theta_e: float or iterable object
+        Equivalent potential temperature expressed as kelvin (K).
     """
     RH = relative_humidity(T, Td)
     theta = potential_temperature(T, P)
     rv = mixing_ratio_from_dewpoint(Td, P)
-    return theta * np.power(RH, -rv * Rv / Cpd) * np.exp(Lv * rv / (Cpd * T))  # theta-e (https://glossary.ametsoc.org/wiki/Equivalent_potential_temperature)
+    theta_e = theta * tf.pow(RH, -rv * Rv / Cpd) * tf.exp(Lv * rv / (Cpd * T)) if all(tf.is_tensor(var) for var in [T, Td, P]) else \
+        theta * np.power(RH, -rv * Rv / Cpd) * np.exp(Lv * rv / (Cpd * T))
+    return theta_e
 
 
 def wet_bulb_temperature(T, Td):
     """
-    Returns wet-bulb temperature with units of kelvin (K).
+    Calculates wet-bulb temperature from temperature and dewpoint.
 
     Parameters
     ----------
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
 
     Returns
     -------
-    Tw: float, iterable, or xr.Dataset
-        Wet-bulb temperature in kelvin (K).
+    Tw: float or iterable object
+        Wet-bulb temperature expressed as kelvin (K).
     """
     RH = relative_humidity(T, Td) * 100
     c1 = 0.151977
@@ -280,8 +281,15 @@ def wet_bulb_temperature(T, Td):
     c6 = 4.686035
 
     # Wet-bulb temperature approximation (Stull 2011, Eq. 1)
-    Tw = (T - 273.15) * np.arctan(c1 * np.power(RH + c2, 0.5)) + np.arctan(T - 273.15 + RH) - np.arctan(RH - c3) + (
-            c4 * np.power(RH, 1.5) * np.arctan(c5 * RH)) - c6 + 273.15
+    if tf.is_tensor(T):
+        Tw = (T - 273.15) * tf.atan(c1 * tf.sqrt(RH + c2))
+        Tw += tf.atan(T - 273.15 + RH) - tf.atan(RH - c3)
+        Tw += (c4 * tf.pow(RH, 1.5) * tf.atan(c5 * RH))
+    else:
+        Tw = (T - 273.15) * np.arctan(c1 * np.sqrt(RH + c2))
+        Tw += np.arctan(T - 273.15 + RH) - np.arctan(RH - c3)
+        Tw += (c4 * np.power(RH, 1.5) * np.arctan(c5 * RH))
+    Tw += 273.15 - c6
 
     return Tw
 
@@ -292,25 +300,18 @@ def wet_bulb_potential_temperature(T, Td, P):
 
     Parameters
     ----------
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
-    P: float, iterable, or xr.Dataset
-        Pressure in pascals (Pa).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
 
     Returns
     -------
-    theta_w: float, iterable, or xr.Dataset
-        Wet-bulb potential temperature in kelvin (K).
+    theta_w: float or iterable object
+        Wet-bulb potential temperature expressed as kelvin (K).
     """
-
-    e = vapor_pressure(Td)
-    r = mixing_ratio_from_dewpoint(Td, P)
-    TL = (((1 / (Td - 56)) + (np.log(T / Td) / 800)) ** (-1)) + 56  # LCL temperature (Bolton 1980, Eq. 15)
-    theta_L = T * ((P_knot / (P - e)) ** kd) * (
-            (T / TL) ** (0.28 * r))  # LCL potential temperature (Bolton 1980, Eq. 24)
-    theta_e = theta_L * (np.exp(((3036 / TL) - 1.78) * r * (1 + (0.448 * r))))  # (Bolton 1980, Eq. 39)
 
     # Wet-bulb potential temperature constants and X variable (Davies-Jones 2008, Section 3).
     a0 = 7.101574
@@ -322,139 +323,132 @@ def wet_bulb_potential_temperature(T, Td, P):
     b2 = 3.781782
     b3 = -0.6899655
     b4 = -0.592934
-    C = 273.15  # K (Davies-Jones 2008, Section 2)
+    C = 273.15
+
+    theta_e = equivalent_potential_temperature(T, Td, P)
     X = theta_e / C
 
     # Wet-bulb potential temperature approximation (Davies-Jones 2008, Eq. 3.8).
-    theta_wc = theta_e - np.exp(
-        (a0 + (a1 * X) + (a2 * np.power(X, 2)) + (a3 * np.power(X, 3)) + (a4 * np.power(X, 4))) /
-        (1 + (b1 * X) + (b2 * np.power(X, 2)) + (b3 * np.power(X, 3)) + (b4 * np.power(X, 4))))
-    theta_w = xr.where(theta_e > 173.15, theta_wc, theta_e)
+    if all(tf.is_tensor(var) for var in [T, Td, P]):
+        theta_wc = theta_e - tf.exp(
+            (a0 + (a1 * X) + (a2 * tf.pow(X, 2)) + (a3 * tf.pow(X, 3)) + (a4 * tf.pow(X, 4))) /
+            (1 + (b1 * X) + (b2 * tf.pow(X, 2)) + (b3 * tf.pow(X, 3)) + (b4 * tf.pow(X, 4))))
+        theta_w = tf.where(theta_e > 173.15, theta_wc, theta_e)
+    else:
+        theta_wc = theta_e - np.exp(
+            (a0 + (a1 * X) + (a2 * np.power(X, 2)) + (a3 * np.power(X, 3)) + (a4 * np.power(X, 4))) /
+            (1 + (b1 * X) + (b2 * np.power(X, 2)) + (b3 * np.power(X, 3)) + (b4 * np.power(X, 4))))
+        theta_w = np.where(theta_e > 173.15, theta_wc, theta_e)
 
     return theta_w
 
 
 def vapor_pressure(Td):
     """
-    Calculates vapor pressure in pascals (Pa) for a given dewpoint temperature in kelvin (K).
+    Calculates vapor pressure in pascals (Pa) for a given Dewpoint temperature expressed as kelvin (K).
 
     Parameters
     ----------
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
 
     Returns
     -------
-    vapor_pressure: float, iterable, or xr.Dataset
-        Vapor pressure in pascals (Pa).
+    vapor_pressure: float or iterable object
+        Vapor pressure expressed as pascals (Pa).
     """
-    return e_knot * np.exp((Lv/Rv) * ((1/273.15) - (1/Td)))
+
+    vap_pres = e_knot * tf.exp((Lv/Rv) * ((1/273.15) - (1/Td))) if tf.is_tensor(Td) else e_knot * np.exp((Lv/Rv) * ((1/273.15) - (1/Td)))
+    return vap_pres
 
 
 def virtual_potential_temperature(T, Td, P):
     """
-    Returns virtual potential temperature (theta-v) in kelvin (K).
+    Calculates virtual potential temperature (theta-v) from temperature, dewpoint, and pressure.
 
     Parameters
     ----------
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
-    P: float, iterable, or xr.Dataset
-        Pressure in pascals (Pa).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
 
     Returns
     -------
-    theta_v: float, iterable, or xr.Dataset
-        Virtual potential temperature in kelvin (K).
+    theta_v: float or iterable object
+        Virtual potential temperature expressed as kelvin (K).
     """
     Tv = virtual_temperature_from_dewpoint(T, Td, P)
-    return potential_temperature(Tv, P)
+    theta_v = potential_temperature(Tv, P)
+    return theta_v
 
 
 def virtual_temperature_from_mixing_ratio(T, r):
     """
-    Calculates virtual temperature.
+    Calculates virtual temperature from temperature and mixing ratio.
 
     Parameters
     ----------
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    r: float, iterable, or xr.Dataset
-        Mixing ratio in grams of water per gram of dry air (g/g).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    r: float or iterable object
+        Mixing ratio expressed as grams of water per gram of dry air (unitless; g/g or kg/kg).
 
     Returns
     -------
-    Tv: float, iterable, or xr.Dataset
-        Virtual temperature in kelvin (K).
+    Tv: float or iterable object
+        Virtual temperature expressed as kelvin (K).
     """
-    return T * (1 + (r / epsilon)) / (1 + r)  # Tv: virtual temperature
+    return T * (1 + (r / epsilon)) / (1 + r)
 
 
 def virtual_temperature_from_dewpoint(T, Td, P):
     """
-    Calculates virtual temperature.
+    Calculates virtual temperature from temperature, dewpoint, and pressure.
 
     Parameters
     ----------
-    T: float, iterable, or xr.Dataset
-        Air temperature in kelvin (K).
-    Td: float, iterable, or xr.Dataset
-        Dewpoint temperature in kelvin (K).
-    P: float, iterable, or xr.Dataset
-        Pressure in pascals (Pa).
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    Td: float or iterable object
+        Dewpoint temperature expressed as kelvin (K).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
 
     Returns
     -------
-    Tv: float, iterable, or xr.Dataset
-        Virtual temperature in kelvin (K).
+    Tv: float or iterable object
+        Virtual temperature expressed as kelvin (K).
     """
     r = mixing_ratio_from_dewpoint(Td, P)
-    return virtual_temperature_from_mixing_ratio(T, r)  # virtual temperature
+    Tv = virtual_temperature_from_mixing_ratio(T, r)
+    return Tv
 
 
 def advection(field, u, v, lons, lats):
     """
-    Calculates relative vorticity.
+    Calculates advection of a scalar field.
 
     Parameters
     ----------
     field: Array-like with shape (M, N)
         Scalar field that is being advected.
     u: Array-like with shape (M, N)
-        Zonal wind velocities in units of meters per second (m/s).
+        Zonal wind velocities expressed as meters per second (m/s).
     v: Array-like with shape (M, N)
-        Meridional wind velocities in units of meters per second (m/s).
+        Meridional wind velocities expressed as meters per second (m/s).
     lons: Array-like with shape (M, )
-        Longitude values in units of degrees east.
+        Longitude values expressed as degrees east.
     lats: Array-like with shape (N, )
-        Latitude values in units of degrees north.
-    """
-
-
-def advection(field, u, v, lons, lats, n=2):
-    """
-    Calculates relative vorticity.
-
-    Parameters
-    ----------
-    field: Array-like with shape (M, N)
-        Scalar field that is being advected.
-    u: Array-like with shape (M, N)
-        Zonal wind velocities in units of meters per second (m/s).
-    v: Array-like with shape (M, N)
-        Meridional wind velocities in units of meters per second (m/s).
-    lons: Array-like with shape (M, )
-        Longitude values in units of degrees east.
-    lats: Array-like with shape (N, )
-        Latitude values in units of degrees north.
+        Latitude values expressed as degrees north.
     """
 
     advect = np.ones(u.shape) * np.nan
 
     Lons, Lats = np.meshgrid(lons, lats)
-    x, y = data_utils.haversine(Lons, Lats)
+    x, y = data_utils.haversine(Lons, Lats)  # x and y are expressed as kilometers
     x = x.T; y = y.T  # transpose x and y so arrays have shape M x N
     x *= 1e3; y *= 1e3  # convert x and y coordinates to meters
 

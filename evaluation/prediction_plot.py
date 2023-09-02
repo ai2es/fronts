@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/29/2023 5:25 PM CT
+Script version: 2023.9.2
 """
 import itertools
 import argparse
@@ -84,7 +84,10 @@ if __name__ == '__main__':
         probs_file = f'{probs_dir}/{filename_base}_probabilities.nc'
         probs_ds = xr.open_mfdataset(probs_file)
 
-    front_types = model_properties['dataset_properties']['front_types']
+    try:
+        front_types = model_properties['dataset_properties']['front_types']
+    except KeyError:
+        front_types = model_properties['front_types']
 
     labels = front_types
     fronts_found = False
@@ -148,7 +151,7 @@ if __name__ == '__main__':
         data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz\n' \
                      'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
 
-    fig, ax = plt.subplots(1, 1, figsize=(22, 8), subplot_kw={'projection': ccrs.Miller(central_longitude=np.mean(extent[:2]))})
+    fig, ax = plt.subplots(1, 1, figsize=(22, 8), subplot_kw={'projection': ccrs.PlateCarree(central_longitude=np.mean(extent[:2]))})
     plot_background(extent, ax=ax, linewidth=0.5)
     # ax.gridlines(draw_labels=True, zorder=0)
 

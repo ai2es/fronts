@@ -1,8 +1,8 @@
 """
-Convert netCDF files containing ERA5 and frontal boundary data into tensorflow datasets for model training.
+Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/13/2023 9:32 PM CT
+Script version: 2023.8.13
 """
 import argparse
 from glob import glob
@@ -20,8 +20,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--year_and_month', type=int, nargs=2, required=True,
         help="Year and month for the netcdf data to be converted to tensorflow datasets.")
-    parser.add_argument('--era5_netcdf_indir', type=str, required=True,
-        help="Input directory for the netCDF files containing ERA5 data.")
+    parser.add_argument('--variable_data_source', type=str, default='era5', help="Data source or model containing the variable data.")
+    parser.add_argument('--variables_netcdf_indir', type=str, required=True,
+        help="Input directory for the netCDF files containing variable data.")
     parser.add_argument('--fronts_netcdf_indir', type=str, required=True,
         help="Input directory for the netCDF files containing frontal boundary data.")
     parser.add_argument('--tf_outdir', type=str, required=True,
@@ -29,9 +30,9 @@ if __name__ == '__main__':
     parser.add_argument('--front_types', type=str, nargs='+', required=True,
         help="Code(s) for the front types that will be generated in the tensorflow datasets. Refer to documentation in 'utils.data_utils.reformat_fronts' "
              "for more information on these codes.")
-    parser.add_argument('--variables', type=str, nargs='+', help='ERA5 variables to select')
-    parser.add_argument('--pressure_levels', type=str, nargs='+', help='ERA5 pressure levels to select')
-    parser.add_argument('--num_dims', type=int, nargs=2, default=[3, 3], help='Number of dimensions in the ERA5 and front object images, repsectively.')
+    parser.add_argument('--variables', type=str, nargs='+', help='Variables to select')
+    parser.add_argument('--pressure_levels', type=str, nargs='+', help='Variables pressure levels to select')
+    parser.add_argument('--num_dims', type=int, nargs=2, default=[3, 3], help='Number of dimensions in the variables and front object images, repsectively.')
     parser.add_argument('--domain', type=str, default='conus', help='Domain from which to pull the images.')
     parser.add_argument('--override_extent', type=float, nargs=4,
         help='Override the default domain extent by selecting a custom extent. [min lon, max lon, min lat, max lat]')
@@ -52,7 +53,7 @@ if __name__ == '__main__':
                 * flip_chance_lat = 0.0
             ''')
     parser.add_argument('--images', type=int, nargs=2, default=[9, 1],
-        help='Number of ERA5/front images along the longitude and latitude dimensions to generate for each timestep. The product of the 2 integers '
+        help='Number of variables/front images along the longitude and latitude dimensions to generate for each timestep. The product of the 2 integers '
              'will be the total number of images generated per timestep.')
     parser.add_argument('--image_size', type=int, nargs=2, default=[128, 128], help='Size of the longitude and latitude dimensions of the images.')
     parser.add_argument('--shuffle_timesteps', action='store_true',
@@ -77,10 +78,10 @@ if __name__ == '__main__':
         help='The probability that the current image will have its longitude dimension reversed. Can be any float 0 <= x <= 1.')
     parser.add_argument('--flip_chance_lat', type=float, default=0.0,
         help='The probability that the current image will have its latitude dimension reversed. Can be any float 0 <= x <= 1.')
-    parser.add_argument('--overwrite', action='store_true', help='Overwrite the contents of any existing ERA5 and fronts data.')
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite the contents of any existing variables and fronts data.')
     parser.add_argument('--verbose', action='store_true', help='Print out the progress of the dataset generation.')
     parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
-    parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU')
+    parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU(s).')
 
     args = vars(parser.parse_args())
 
@@ -94,10 +95,10 @@ if __name__ == '__main__':
 
     year, month = args['year_and_month'][0], args['year_and_month'][1]
 
-    tf_dataset_folder_era5 = f'%s/era5_%d%02d_tf' % (args['tf_outdir'], year, month)
+    tf_dataset_folder_variables = f'%s/%s_%d%02d_tf' % (args['tf_outdir'], args['variable_data_source'], year, month)
     tf_dataset_folder_fronts = f"%s/fronts_{'_'.join(front_type for front_type in args['front_types'])}_%d%02d_tf" % (args['tf_outdir'], year, month)
 
-    if os.path.isdir(tf_dataset_folder_era5) or os.path.isdir(tf_dataset_folder_fronts):
+    if os.path.isdir(tf_dataset_folder_variables) or os.path.isdir(tf_dataset_folder_fronts):
         if args['overwrite']:
             print("WARNING: Tensorflow dataset(s) already exist for the provided year and month and will be overwritten.")
         else:
@@ -175,24 +176,26 @@ if __name__ == '__main__':
             print(f"%s: {args[key]}" % key)
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
-    all_pressure_levels = ['surface', '1000', '950', '900', '850']
 
-    era5_monthly_directory = '%s/%d%02d' % (args['era5_netcdf_indir'], year, month)
+    variables_monthly_directory = '%s/%d%02d' % (args['variables_netcdf_indir'], year, month)
     fronts_monthly_directory = '%s/%d%02d' % (args['fronts_netcdf_indir'], year, month)
 
-    era5_netcdf_files = sorted(glob('%s/era5_%d%02d*_full.nc' % (era5_monthly_directory, year, month)))
+    variable_file_suffix = 'full' if args['variable_data_source'] == 'era5' else 'global'
+    all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['variable_data_source'] == 'era5' else ['surface', '1000', '950', '900', '850', '700', '500']
+
+    variables_netcdf_files = sorted(glob('%s/%s_%d%02d*_%s.nc' % (variables_monthly_directory, args['variable_data_source'], year, month, variable_file_suffix)))
     fronts_netcdf_files = sorted(glob('%s/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
 
     if args['domain'] == 'full':
-        zipped_list = list(zip(era5_netcdf_files, fronts_netcdf_files))
+        zipped_list = list(zip(variables_netcdf_files, fronts_netcdf_files))
         for file_pair in zipped_list:
             if any(['%02d_full.nc' % hour in file_pair[0] for hour in np.arange(3, 27, 6)]):
                 zipped_list.pop(zipped_list.index(file_pair))
-        era5_netcdf_files, fronts_netcdf_files = zip(*zipped_list)
+        variables_netcdf_files, fronts_netcdf_files = zip(*zipped_list)
 
     ### Grab front files from previous timesteps so previous fronts can be used as predictors ###
     if args['add_previous_fronts'] is not None:
-        files_to_remove = []  # era5 and front files that will be removed from the dataset
+        files_to_remove = []  # variables and front files that will be removed from the dataset
         previous_fronts_netcdf_files = []
         for file in fronts_netcdf_files:
             current_timestep = np.datetime64(f'{file[-18:-14]}-{file[-14:-12]}-{file[-12:-10]}T{file[-10:-8]}')
@@ -208,14 +211,15 @@ if __name__ == '__main__':
         if len(files_to_remove) > 0:
             for file in files_to_remove:
                 index_to_pop = fronts_netcdf_files.index(file)
-                era5_netcdf_files.pop(index_to_pop), fronts_netcdf_files.pop(index_to_pop)
+                variables_netcdf_files.pop(index_to_pop), fronts_netcdf_files.pop(index_to_pop)
 
     if args['shuffle_timesteps']:
-        zipped_list = list(zip(era5_netcdf_files, fronts_netcdf_files))
+        zipped_list = list(zip(variables_netcdf_files, fronts_netcdf_files))
         np.random.shuffle(zipped_list)
-        era5_netcdf_files, fronts_netcdf_files = zip(*zipped_list)
+        variables_netcdf_files, fronts_netcdf_files = zip(*zipped_list)
 
-    files_match_flag = all(era5_file[-18:] == fronts_file[-18:] for era5_file, fronts_file in zip(era5_netcdf_files, fronts_netcdf_files))
+    # assert that the dates of the files match
+    files_match_flag = all(os.path.basename(variables_file).split('_')[1] == os.path.basename(fronts_file).split('_')[1] for variables_file, fronts_file in zip(variables_netcdf_files, fronts_netcdf_files))
 
     if args['override_extent'] is None:
         isel_kwargs = {'longitude': slice(settings.DEFAULT_DOMAIN_INDICES[args['domain']][0], settings.DEFAULT_DOMAIN_INDICES[args['domain']][1]),
@@ -224,26 +228,25 @@ if __name__ == '__main__':
                        int(settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2]))
     else:
         isel_kwargs = {'longitude': slice(int((args['override_extent'][0] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25),
-                                          int((args['override_extent'][1] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25)),
+                                          int((args['override_extent'][1] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25) + 1),
                        'latitude': slice(int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - args['override_extent'][3]) // 0.25),
-                                         int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - args['override_extent'][2]) // 0.25))}
+                                         int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - args['override_extent'][2]) // 0.25) + 1)}
         domain_size = (int((args['override_extent'][1] - args['override_extent'][0]) // 0.25),
                        int((args['override_extent'][3] - args['override_extent'][2]) // 0.25))
 
     if not files_match_flag:
-        raise OSError("ERA5/fronts files do not match")
+        raise OSError("%s/fronts files do not match")
 
     variables_to_use = all_variables if args['variables'] is None else args['variables']
-
     args['pressure_levels'] = all_pressure_levels if args['pressure_levels'] is None else [lvl for lvl in all_pressure_levels if lvl in args['pressure_levels']]
 
-    num_timesteps = len(era5_netcdf_files)
+    num_timesteps = len(variables_netcdf_files)
     timesteps_kept = 0
     timesteps_discarded = 0
 
     for timestep_no in range(num_timesteps):
 
-        front_dataset = xr.open_dataset(fronts_netcdf_files[timestep_no], engine='netcdf4').isel(**isel_kwargs).expand_dims('time', axis=0).astype('float16')
+        front_dataset = xr.open_dataset(fronts_netcdf_files[timestep_no], engine='netcdf4').isel(**isel_kwargs).astype('float16')
 
         ### Reformat the fronts in the current timestep ###
         if args['front_types'] is not None:
@@ -263,8 +266,11 @@ if __name__ == '__main__':
 
         if all_fronts_present or keep_timestep or args['evaluation_dataset']:
 
-            era5_dataset = xr.open_dataset(era5_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].isel(**isel_kwargs).sel(pressure_level=args['pressure_levels']).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
-            era5_dataset = data_utils.normalize_variables(era5_dataset).isel(time=0).transpose('longitude', 'latitude', 'pressure_level').astype('float16')
+            if args['variable_data_source'] != 'era5':
+                isel_kwargs['forecast_hour'] = 0
+
+            variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].isel(**isel_kwargs).sel(pressure_level=args['pressure_levels']).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
+            variables_dataset = data_utils.normalize_variables(variables_dataset).isel(time=0).transpose('longitude', 'latitude', 'pressure_level').astype('float16')
 
             ### Reformat the fronts from the previous timestep ###
             if args['add_previous_fronts'] is not None:
@@ -282,9 +288,9 @@ if __name__ == '__main__':
 
                 for front_type_no, previous_front_type in enumerate(args['add_previous_fronts']):
                     previous_fronts[..., 0] = np.where(previous_front_dataset['identifier'].values == front_type_no + 1, 1, 0)  # Place previous front labels at the surface level
-                    era5_dataset[previous_front_type] = (('longitude', 'latitude', 'pressure_level'), previous_fronts)  # Add previous fronts to the predictor dataset
+                    variables_dataset[previous_front_type] = (('longitude', 'latitude', 'pressure_level'), previous_fronts)  # Add previous fronts to the predictor dataset
 
-            era5_dataset = era5_dataset.to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable')
+            variables_dataset = variables_dataset.to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable')
 
             if args['override_extent'] is None:
                 if args['images'][0] > 1 and domain_size[0] > args['image_size'][0] + args['images'][0]:
@@ -331,31 +337,31 @@ if __name__ == '__main__':
                     rotation_direction = np.random.randint(0, 2)  # 0 = clockwise, 1 = counter-clockwise
                     num_rotations = np.random.randint(1, 4)  # n * 90 degrees
 
-                era5_tensor = tf.convert_to_tensor(era5_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :, :], dtype=tf.float16)
+                variables_tensor = tf.convert_to_tensor(variables_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :, :], dtype=tf.float16)
                 if flip_lon:
-                    era5_tensor = tf.reverse(era5_tensor, axis=[0])  # Reverse values along the longitude dimension
+                    variables_tensor = tf.reverse(variables_tensor, axis=[0])  # Reverse values along the longitude dimension
                 if flip_lat:
-                    era5_tensor = tf.reverse(era5_tensor, axis=[1])  # Reverse values along the latitude dimension
+                    variables_tensor = tf.reverse(variables_tensor, axis=[1])  # Reverse values along the latitude dimension
                 if rotate_image:
                     for rotation in range(num_rotations):
-                        era5_tensor = tf.reverse(tf.transpose(era5_tensor, perm=[1, 0, 2, 3]), axis=[rotation_direction])  # Rotate image 90 degrees
+                        variables_tensor = tf.reverse(tf.transpose(variables_tensor, perm=[1, 0, 2, 3]), axis=[rotation_direction])  # Rotate image 90 degrees
 
                     if args['noise_fraction'] > 0:
                         ### Add noise to image ###
-                        random_values = tf.random.uniform(shape=era5_tensor.shape)
-                        era5_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, era5_tensor)  # add 0s to image
-                        era5_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, era5_tensor)  # add 1s to image
+                        random_values = tf.random.uniform(shape=variables_tensor.shape)
+                        variables_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, variables_tensor)  # add 0s to image
+                        variables_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, variables_tensor)  # add 1s to image
 
                     if args['num_dims'][0] == 2:
-                        era5_tensor_shape_3d = era5_tensor.shape
+                        variables_tensor_shape_3d = variables_tensor.shape
                         # Combine pressure level and variables dimensions, making the images 2D (excluding the final dimension)
-                        era5_tensor = tf.reshape(era5_tensor, [era5_tensor_shape_3d[0], era5_tensor_shape_3d[1], era5_tensor_shape_3d[2] * era5_tensor_shape_3d[3]])
+                        variables_tensor = tf.reshape(variables_tensor, [variables_tensor_shape_3d[0], variables_tensor_shape_3d[1], variables_tensor_shape_3d[2] * variables_tensor_shape_3d[3]])
 
-                era5_tensor_for_timestep = tf.data.Dataset.from_tensors(era5_tensor)
-                if 'era5_tensors_for_month' not in locals():
-                    era5_tensors_for_month = era5_tensor_for_timestep
+                variables_tensor_for_timestep = tf.data.Dataset.from_tensors(variables_tensor)
+                if 'variables_tensors_for_month' not in locals():
+                    variables_tensors_for_month = variables_tensor_for_timestep
                 else:
-                    era5_tensors_for_month = era5_tensors_for_month.concatenate(era5_tensor_for_timestep)
+                    variables_tensors_for_month = variables_tensors_for_month.concatenate(variables_tensor_for_timestep)
 
                 front_tensor = tf.convert_to_tensor(front_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :], dtype=tf.int32)
 
@@ -390,13 +396,13 @@ if __name__ == '__main__':
     print("Timesteps complete: %d/%d  (Retained/discarded: %d/%d)" % (timesteps_kept + timesteps_discarded, num_timesteps, timesteps_kept, timesteps_discarded))
 
     if args['overwrite']:
-        if os.path.isdir(tf_dataset_folder_era5):
-            os.rmdir(tf_dataset_folder_era5)
+        if os.path.isdir(tf_dataset_folder_variables):
+            os.rmdir(tf_dataset_folder_variables)
         if os.path.isdir(tf_dataset_folder_fronts):
             os.rmdir(tf_dataset_folder_fronts)
 
     try:
-        tf.data.Dataset.save(era5_tensors_for_month, path=tf_dataset_folder_era5)
+        tf.data.Dataset.save(variables_tensors_for_month, path=tf_dataset_folder_variables)
         tf.data.Dataset.save(front_tensors_for_month, path=tf_dataset_folder_fronts)
         print("Tensorflow datasets for %d-%02d saved to %s." % (year, month, args['tf_outdir']))
     except NameError:
