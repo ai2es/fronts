@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/20/2023 6:05 PM CT
+Script version: 2023.8.20
 """
 import argparse
 import cartopy.crs as ccrs

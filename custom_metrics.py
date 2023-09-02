@@ -4,8 +4,8 @@ Custom metrics for U-Net models.
     - Critical Success Index (CSI)
     - Fractions Skill Score (FSS)
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 5/20/2023 11:00 AM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.5.20
 """
 import tensorflow as tf
 

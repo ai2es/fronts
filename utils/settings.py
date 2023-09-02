@@ -1,8 +1,8 @@
 """
 Default settings
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 10:01 PM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.7.24
 """
 DEFAULT_DOMAIN_EXTENTS = {'global': [0, 359.75, -89.75, 90],
                           'full': [130, 369.75, 0.25, 80],

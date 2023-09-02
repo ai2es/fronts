@@ -4,7 +4,7 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 9:22 PM CT
+Script version: 2023.7.24
 """
 import argparse
 import sys

@@ -5,9 +5,8 @@ Custom activation functions:
     - SmeLU (Smooth ReLU)
     - Snake
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 3/3/2023 12:51 PM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.3.3
 """
 from tensorflow.keras.layers import Layer
 import tensorflow as tf

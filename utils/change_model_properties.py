@@ -3,7 +3,7 @@ Changes values of dictionary keys in a model_properties.pkl file.
 This script is mainly used to address bugs in train_model.py, where the dictionaries are created.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/12/2023 11:07 PM
+Script version: 2023.8.12
 """
 import argparse
 import pandas as pd

@@ -1,8 +1,8 @@
 """
-Data tools
+Various data tools.
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/5/2023 12:41 PM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.7.5
 """
 
 import math

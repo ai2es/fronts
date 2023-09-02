@@ -1,8 +1,8 @@
 """
 Code for generating various plots.
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/24/2023 10:06 PM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.7.24
 
 TODO: Add functions for plotting ERA5, GDAS, and GFS data.
 """

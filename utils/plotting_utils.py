@@ -1,8 +1,8 @@
 """
 Plotting tools
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/14/2023 6:39 PM CDT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.8.14
 """
 
 import cartopy.feature as cfeature

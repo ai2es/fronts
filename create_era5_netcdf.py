@@ -2,7 +2,7 @@
 Create ERA5 netCDF datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/7/2023 7:47 PM CT
+Script version: 2023.6.7
 """
 
 import argparse

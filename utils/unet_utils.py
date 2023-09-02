@@ -6,8 +6,8 @@ Functions for building U-Net models:
     - U-Net++
     - U-Net 3+
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/13/2022 5:13 PM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.8.12
 """
 
 import numpy as np

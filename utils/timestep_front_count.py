@@ -7,7 +7,7 @@ A dictionary containing front counts for timesteps across a given domain will be
 tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/13/2023 3:58 PM CT
+Script version: 2023.6.13
 """
 import os
 import sys

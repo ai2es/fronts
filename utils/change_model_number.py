@@ -2,7 +2,7 @@
 Script that changes the number of a model and its data files.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/26/2023 11:42 PM
+Script version: 2023.6.26
 """
 import os
 from glob import glob

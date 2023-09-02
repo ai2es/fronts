@@ -1,8 +1,8 @@
 """
-Miscellaneous tools
+Miscellaneous tools.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 7/7/2023 12:04 AM CT
+Script version: 2023.7.7
 """
 
 

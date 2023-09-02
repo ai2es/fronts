@@ -1,8 +1,8 @@
 """
 Function that trains a new U-Net model.
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 8/9/2023 10:04 PM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2023.8.9
 """
 
 import argparse

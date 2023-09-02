@@ -2,7 +2,7 @@
 Functions in this code manage data files and models.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 6/25/2023 11:27 PM CT
+Script version: 2023.6.25
 """
 
 import argparse

@@ -12,8 +12,7 @@ TODO:
     * Add temporal U-Nets
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-
-Last updated: 8/18/2023 9:42 AM CT
+Script version: 2023.8.18
 """
 
 from tensorflow.keras.models import Model
