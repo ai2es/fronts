@@ -2,7 +2,7 @@
 Generate predictions with a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.2
+Script version: 2023.9.18
 """
 import argparse
 import pandas as pd
@@ -11,13 +11,22 @@ import xarray as xr
 import os
 import sys
 import tensorflow as tf
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 from utils import data_utils, settings
 import file_manager as fm
 
 
-def _add_image_to_map(stitched_map_probs: np.array, image_probs: np.array, map_created: bool, domain_images_lon: int, domain_images_lat: int,
-    lon_image: int, lat_image: int, image_size_lon: int, image_size_lat: int, lon_image_spacing: int, lat_image_spacing: int):
+def _add_image_to_map(stitched_map_probs: np.array,
+                      image_probs: np.array,
+                      map_created: bool,
+                      domain_images_lon: int,
+                      domain_images_lat: int,
+                      lon_image: int,
+                      lat_image: int,
+                      image_size_lon: int,
+                      image_size_lat: int,
+                      lon_image_spacing: int,
+                      lat_image_spacing: int):
     """
     Add model prediction to the stitched map.
 
@@ -28,7 +37,7 @@ def _add_image_to_map(stitched_map_probs: np.array, image_probs: np.array, map_c
     image_probs: Numpy array
         Array of front probabilities for the current prediction/image.
     map_created: bool
-        Boolean flag that declares whether or not the final map has been completed.
+        Boolean flag that declares whether the final map has been completed.
     domain_images_lon: int
         Number of images along the longitude dimension of the domain.
     domain_images_lat: int
@@ -49,7 +58,7 @@ def _add_image_to_map(stitched_map_probs: np.array, image_probs: np.array, map_c
     Returns
     -------
     map_created: bool
-        Boolean flag that declares whether or not the final map has been completed.
+        Boolean flag that declares whether the final map has been completed.
     stitched_map_probs: array
         Array of front probabilities for the final map.
     """
@@ -199,7 +208,7 @@ def find_matches_for_domain(domain_size: tuple | list, image_size: tuple | list,
     image_size: iterable object with 2 integers
         Number of pixels along each dimension of the model's output (lon lat).
     compatibility_mode: bool
-        Boolean flag that declares whether or not the function is being used to check compatibility of given parameters.
+        Boolean flag that declares whether the function is being used to check compatibility of given parameters.
     compat_images: iterable object with 2 integers
         Number of images declared for the stitched map in each dimension (lon lat). (Compatibility mode only)
     """
@@ -407,7 +416,7 @@ if __name__ == '__main__':
         tf.config.set_visible_devices(devices=gpus[0], device_type='GPU')
         gpus = tf.config.get_visible_devices(device_type='GPU')  # List of selected GPUs
 
-        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
+        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all the GPU's memory.
         if args['memory_growth']:
             tf.config.experimental.set_memory_growth(device=gpus[0], enable=True)
 
@@ -527,7 +536,7 @@ if __name__ == '__main__':
 
             timesteps = variable_batch_ds['time'].values
             num_timesteps_in_batch = len(timesteps)
-            map_created = False  # Boolean that determines whether or not the final stitched map has been created
+            map_created = False  # Boolean that determines whether the final stitched map has been created
 
             if args['data_source'] == 'era5':
                 stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, classes-1, domain_size_lon, domain_size_lat])
@@ -609,8 +618,10 @@ if __name__ == '__main__':
                         if not os.path.isdir('%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base)):
                             os.makedirs('%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base))
                             print("New subdirectory made:", '%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base))
+                        if not os.path.isdir('%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base)):
                             os.makedirs('%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base))
                             print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base))
+                        if not os.path.isdir('%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base)):
                             os.makedirs('%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base))
                             print("New subdirectory made:", '%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base))
 

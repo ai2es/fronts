@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.2
+Script version: 2023.9.2.D1
 """
 import argparse
 import glob
@@ -13,7 +13,7 @@ import tensorflow as tf
 import xarray as xr
 import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
 from utils import data_utils
 from utils.settings import DEFAULT_DOMAIN_EXTENTS
@@ -25,7 +25,7 @@ def combine_statistics_for_dataset():
 
     for year in years:
         statistics_files += list(sorted(glob.glob('%s/model_%d/statistics/model_%d_statistics_%s_%d*.nc' %
-                                            (args['model_dir'], args['model_number'], args['model_number'], args['domain'], year))))
+                                                  (args['model_dir'], args['model_number'], args['model_number'], args['domain'], year))))
 
     datasets_by_front_type = []
 
@@ -161,7 +161,7 @@ if __name__ == '__main__':
         gpus = tf.config.list_physical_devices(device_type='GPU')
         tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args['gpu_device']], device_type='GPU')
 
-        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
+        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all the GPU's memory.
         if args['memory_growth']:
             tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args['gpu_device']][0], enable=True)
 
@@ -213,7 +213,7 @@ if __name__ == '__main__':
             fn_array_temporal = np.zeros(shape=[num_front_types, num_timesteps, 5, 100]).astype('int64')
 
             thresholds = np.linspace(0.01, 1, 100)  # Probability thresholds for calculating performance statistics
-            boundaries = np.array([50, 100, 150, 200, 250])  # Boundaries for checking whether or not a front is present (kilometers)
+            boundaries = np.array([50, 100, 150, 200, 250])  # Boundaries for checking whether a front is present (kilometers)
 
             bool_tn_fn_dss = dict({front: tf.convert_to_tensor(xr.where(fronts_ds_month == front_no + 1, 1, 0)['identifier'].values) for front_no, front in enumerate(front_types)})
             bool_tp_fp_dss = dict({front: None for front in front_types})

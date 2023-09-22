@@ -12,7 +12,7 @@ Script version: 2023.6.13
 import os
 import sys
 import csv
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
 from utils.settings import DEFAULT_DOMAIN_INDICES
 import argparse

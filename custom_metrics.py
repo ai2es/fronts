@@ -5,26 +5,26 @@ Custom metrics for U-Net models.
     - Fractions Skill Score (FSS)
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.5.20
+Script version: 2023.9.21
 """
 import tensorflow as tf
 
 
-def brier_skill_score(class_weights=None):
+def brier_skill_score(class_weights: list[int | float] = None):
     """
     Brier skill score (BSS).
 
     class_weights: list of values or None
-        - List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+        List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
     """
 
     @tf.function
     def bss(y_true, y_pred):
         """
         y_true: tf.Tensor
-            - One-hot encoded tensor containing labels.
+            One-hot encoded tensor containing labels.
         y_pred: tf.Tensor
-            - Tensor containing model predictions.
+            Tensor containing model predictions.
         """
 
         squared_errors = tf.math.square(tf.subtract(y_true, y_pred))
@@ -38,29 +38,29 @@ def brier_skill_score(class_weights=None):
     return bss
 
 
-def critical_success_index(threshold=None, class_weights=None):
+def critical_success_index(threshold: float = None, class_weights: list[int | float] = None):
     """
     Critical success index (CSI).
 
     y_true: tf.Tensor
-        - One-hot encoded tensor containing labels.
+        One-hot encoded tensor containing labels.
     y_pred: tf.Tensor
-        - Tensor containing model predictions.
+        Tensor containing model predictions.
     threshold: float or None
-        - Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
+        Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
             set to 1, and 0 otherwise.
-        - If the threshold is set, it must be greater than 0 and less than 1.
+        If the threshold is set, it must be greater than 0 and less than 1.
     class_weights: list of values or None
-        - List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+        List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
     """
 
     @tf.function
     def csi(y_true, y_pred):
         """
         y_true: tf.Tensor
-            - One-hot encoded tensor containing labels.
+            One-hot encoded tensor containing labels.
         y_pred: tf.Tensor
-            - Tensor containing model predictions.
+            Tensor containing model predictions.
         """
 
         if threshold is not None:
@@ -86,30 +86,36 @@ def critical_success_index(threshold=None, class_weights=None):
     return csi
 
 
-def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_discretization=False, class_weights=None):
+def fractions_skill_score(
+    num_dims: int,
+    mask_size: int = 3,
+    c: float = 1.0,
+    cutoff: float = 0.5,
+    want_hard_discretization: bool = False,
+    class_weights: list[int | float] = None):
     """
-    Fractions skill score. Visit https://github.com/CIRA-ML/custom_loss_functions for documentation.
+    Fractions skill score loss function. Visit https://github.com/CIRA-ML/custom_loss_functions for documentation.
 
     Parameters
     ----------
-    mask_size: int or tuple
-        - Size of the mask/pool in the AveragePooling layers.
     num_dims: int
-        - Number of dimensions for the mask.
+        Number of dimensions for the mask.
+    mask_size: int or tuple
+        Size of the mask/pool in the AveragePooling layers.
     c: int or float
-        - C parameter in the sigmoid function. This will only be used if 'want_hard_discretization' is False.
+        C parameter in the sigmoid function. This will only be used if 'want_hard_discretization' is False.
     cutoff: float
-        - If 'want_hard_discretization' is True, y_true and y_pred will be discretized to only have binary values (0/1)
+        If 'want_hard_discretization' is True, y_true and y_pred will be discretized to only have binary values (0/1)
     want_hard_discretization: bool
-        - If True, y_true and y_pred will be discretized to only have binary values (0/1).
-        - If False, y_true and y_pred will be discretized using a sigmoid function.
+        If True, y_true and y_pred will be discretized to only have binary values (0/1).
+        If False, y_true and y_pred will be discretized using a sigmoid function.
     class_weights: list of values or None
-        - List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+        List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
 
     Returns
     -------
     fractions_skill_score: float
-        - Fractions skill score.
+        Fractions skill score.
     """
 
     pool_kwargs = {'pool_size': (mask_size, ) * num_dims,
@@ -127,9 +133,9 @@ def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_disc
     def fss(y_true, y_pred):
         """
         y_true: tf.Tensor
-            - One-hot encoded tensor containing labels.
+            One-hot encoded tensor containing labels.
         y_pred: tf.Tensor
-            - Tensor containing model predictions.
+            Tensor containing model predictions.
         """
 
         if want_hard_discretization:

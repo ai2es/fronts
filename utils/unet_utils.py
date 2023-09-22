@@ -5,9 +5,10 @@ Functions for building U-Net models:
     - U-Net+
     - U-Net++
     - U-Net 3+
+    - Attention U-Net
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.12
+Script version: 2023.9.18
 """
 
 import numpy as np
@@ -17,22 +18,27 @@ import tensorflow as tf
 import custom_activations
 
 
-def attention_gate(x, g, kernel_size, pool_size, name=None):
+def attention_gate(
+    x: tf.Tensor,
+    g: tf.Tensor,
+    kernel_size: int | tuple[int],
+    pool_size: tuple[int],
+    name: str or None = None):
     """
     Attention gate for the Attention U-Net.
 
     Parameters
     ----------
     x: tf.Tensor
-        - Signal that originates from the encoder node on the same level as the attention gate.
+        Signal that originates from the encoder node on the same level as the attention gate.
     g: tf.Tensor
-        - Signal that originates from the level below the attention gate, which has higher resolution features.
+        Signal that originates from the level below the attention gate, which has higher resolution features.
     kernel_size: int or tuple
-        - Size of the kernel in the Conv2D/Conv3D layer(s). Only applies to layers that are not forced to a kernel size of 1.
+        Size of the kernel in the Conv2D/Conv3D layer(s). Only applies to layers that are not forced to a kernel size of 1.
     pool_size: tuple or list
-        - Pool size for the UpSampling layers, as well as the number of strides in the first
+        Pool size for the UpSampling layers, as well as the number of strides in the first
     name: str or None
-        - Prefix of the layer names. If left as None, the layer names are set automatically.
+        Prefix of the layer names. If left as None, the layer names are set automatically.
 
     References
     ----------
@@ -74,53 +80,67 @@ def attention_gate(x, g, kernel_size, pool_size, name=None):
     return attention_tensor
 
 
-def convolution_module(tensor, filters, kernel_size, num_modules=1, padding='same', use_bias=False, batch_normalization=True,
-    activation='relu', kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None,
-    activity_regularizer=None, kernel_constraint=None, bias_constraint=None, name=None):
+def convolution_module(
+    tensor: tf.Tensor,
+    filters: int,
+    kernel_size: int | tuple[int],
+    num_modules: int = 1,
+    padding: str = 'same',
+    use_bias: bool = False,
+    batch_normalization: bool = True,
+    activation: str = 'relu',
+    kernel_initializer = 'glorot_uniform',
+    bias_initializer = 'zeros',
+    kernel_regularizer = None,
+    bias_regularizer = None,
+    activity_regularizer = None,
+    kernel_constraint = None,
+    bias_constraint = None,
+    name: str = None):
     """
     Insert modules into an encoder or decoder node.
 
     Parameters
     ----------
     tensor: tf.Tensor
-        - Input tensor for the convolution module(s).
+        Input tensor for the convolution module(s).
     filters: int
-        - Number of filters in the Conv2D/Conv3D layer(s).
-    kernel_size: int or tuple
-        - Size of the kernel in the Conv2D/Conv3D layer(s).
+        Number of filters in the Conv2D/Conv3D layer(s).
+    kernel_size: int or tuple of ints
+        Size of the kernel in the Conv2D/Conv3D layer(s).
     num_modules: int
-        - Number of convolution modules to insert. Must be greater than 0, otherwise a ValueError exception is raised.
+        Number of convolution modules to insert. Must be greater than 0, otherwise a ValueError exception is raised.
     padding: str
-        - Padding in the Conv2D/Conv3D layer(s). 'valid' will apply no padding, while 'same' will apply padding such that the
+        Padding in the Conv2D/Conv3D layer(s). 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
     use_bias: bool
-        - If True, a bias vector will be used in the Conv2D/Conv3D layers.
+        If True, a bias vector will be used in the Conv2D/Conv3D layers.
     batch_normalization: bool
-        - If True, a BatchNormalization layer will follow every Conv2D/Conv3D layer.
+        If True, a BatchNormalization layer will follow every Conv2D/Conv3D layer.
     activation: str
-        - Activation function to use after every Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        - Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        Activation function to use after every Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
+        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
     kernel_initializer: str or tf.keras.initializers object
-        - Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
+        Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
-        - Initializer for the bias vector in the Conv2D/Conv3D layers.
+        Initializer for the bias vector in the Conv2D/Conv3D layers.
     kernel_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
+        Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
+        Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
     activity_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the output of the Conv2D/Conv3D layers.
+        Regularizer function applied to the output of the Conv2D/Conv3D layers.
     kernel_constraint: str or tf.keras.constraints object
-        - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
+        Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
-        - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+        Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
     name: str or None
-        - Prefix of the layer names. If left as None, the layer names are set automatically.
+        Prefix of the layer names. If left as None, the layer names are set automatically.
 
     Returns
     -------
     tensor: tf.Tensor
-        - Output tensor.
+        Output tensor.
     """
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
@@ -180,61 +200,77 @@ def convolution_module(tensor, filters, kernel_size, num_modules=1, padding='sam
     return tensor
 
 
-def aggregated_feature_map(tensor, filters, kernel_size, level1, level2, upsample_size, padding='same', use_bias=False,
-    batch_normalization=True, activation='relu', kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, name=None):
+def aggregated_feature_map(
+    tensor: tf.Tensor,
+    filters: int,
+    kernel_size: int | tuple[int],
+    level1: int,
+    level2: int,
+    upsample_size: tuple[int],
+    padding: str = 'same',
+    use_bias: bool = False,
+    batch_normalization: bool = True,
+    activation: str = 'relu',
+    kernel_initializer = 'glorot_uniform',
+    bias_initializer = 'zeros',
+    kernel_regularizer = None,
+    bias_regularizer = None,
+    activity_regularizer = None,
+    kernel_constraint = None,
+    bias_constraint = None,
+    name: str = None):
     """
     Connect two nodes in the U-Net 3+ with an aggregated feature map (AFM).
 
     Parameters
     ----------
     tensor: tf.Tensor
-        - Input tensor for the convolution module.
+        Input tensor for the convolution module.
     filters: int
-        - Number of filters in the Conv2D/Conv3D layer.
+        Number of filters in the Conv2D/Conv3D layer.
     kernel_size: int or tuple
-        - Size of the kernel in the Conv2D/Conv3D layer.
+        Size of the kernel in the Conv2D/Conv3D layer.
     level1: int
-        - Level of the first node that is connected to the AFM. This node will provide the input tensor to the AFM. Must be
+        Level of the first node that is connected to the AFM. This node will provide the input tensor to the AFM. Must be
         greater than level2 (i.e. the first node must be on a lower level in the U-Net 3+ since we are up-sampling), otherwise
         a ValueError exception is raised.
     level2: int
-        - Level of the second node that is connected to the AFM. This node will receive the output of the AFM. Must be smaller
+        Level of the second node that is connected to the AFM. This node will receive the output of the AFM. Must be smaller
         than level1 (i.e. the second node must be on a higher level in the U-Net 3+ since we are up-sampling), otherwise
         a ValueError exception is raised.
-    upsample_size: tuple or list
-        - Upsampling size for rows and columns in the UpSampling2D/UpSampling3D layer.
+    upsample_size: tuple or list of ints
+        Upsampling size for rows and columns in the UpSampling2D/UpSampling3D layer.
     padding: str
-        - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
+        Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
     use_bias: bool
-        - If True, a bias vector will be used in the Conv2D/Conv3D layer.
+        If True, a bias vector will be used in the Conv2D/Conv3D layer.
     batch_normalization: bool
-        - If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
+        If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
     activation: str
-        - Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        - Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
+        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
     kernel_initializer: str or tf.keras.initializers object
-        - Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
+        Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
-        - Initializer for the bias vector in the Conv2D/Conv3D layers.
+        Initializer for the bias vector in the Conv2D/Conv3D layers.
     kernel_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
+        Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
+        Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
     activity_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the output of the Conv2D/Conv3D layers.
+        Regularizer function applied to the output of the Conv2D/Conv3D layers.
     kernel_constraint: str or tf.keras.constraints object
-        - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
+        Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
-        - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+        Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
     name: str or None
-        - Prefix of the layer names. If left as None, the layer names are set automatically.
+        Prefix of the layer names. If left as None, the layer names are set automatically.
 
     Returns
     -------
     tensor: tf.Tensor
-        - Output tensor.
+        Output tensor.
     """
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
@@ -283,61 +319,77 @@ def aggregated_feature_map(tensor, filters, kernel_size, level1, level2, upsampl
     return tensor
 
 
-def full_scale_skip_connection(tensor, filters, kernel_size, level1, level2, pool_size=None, padding='same', use_bias=False,
-    batch_normalization=True, activation='relu', kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None,
-    bias_regularizer=None, activity_regularizer=None, kernel_constraint=None, bias_constraint=None, name=None):
+def full_scale_skip_connection(
+    tensor: tf.Tensor,
+    filters: int,
+    kernel_size: int | tuple[int],
+    level1: int,
+    level2: int,
+    pool_size: tuple[int],
+    padding: str = 'same',
+    use_bias: bool = False,
+    batch_normalization: bool = True,
+    activation: str = 'relu',
+    kernel_initializer = 'glorot_uniform',
+    bias_initializer = 'zeros',
+    kernel_regularizer = None,
+    bias_regularizer = None,
+    activity_regularizer = None,
+    kernel_constraint = None,
+    bias_constraint = None,
+    name: str = None):
     """
     Connect two nodes in the U-Net 3+ with a full-scale skip connection (FSC).
 
     Parameters
     ----------
     tensor: tf.Tensor
-        - Input tensor for the convolution module.
+        Input tensor for the convolution module.
     filters: int
-        - Number of filters in the Conv2D/Conv3D layer.
+        Number of filters in the Conv2D/Conv3D layer.
     kernel_size: int or tuple
-        - Size of the kernel in the Conv2D/Conv3D layer.
+        Size of the kernel in the Conv2D/Conv3D layer.
     level1: int
-        - Level of the first node that is connected to the FSC. This node will provide the input tensor to the FSC. Must be
+        Level of the first node that is connected to the FSC. This node will provide the input tensor to the FSC. Must be
         smaller than level2 (i.e. the first node must be on a higher level in the U-Net 3+ since we are max-pooling), otherwise
         a ValueError exception is raised.
     level2: int
-        - Level of the second node that is connected to the FSC. This node will receive the output of the FSC. Must be greater
+        Level of the second node that is connected to the FSC. This node will receive the output of the FSC. Must be greater
         than level1 (i.e. the second node must be on a lower level in the U-Net 3+ since we are max-pooling), otherwise
         a ValueError exception is raised.
     pool_size: tuple or list
-        - Pool size for the MaxPooling2D/MaxPooling3D layer.
+        Pool size for the MaxPooling2D/MaxPooling3D layer.
     padding: str
-        - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
+        Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
     use_bias: bool
-        - If True, a bias vector will be used in the Conv2D/Conv3D layer.
+        If True, a bias vector will be used in the Conv2D/Conv3D layer.
     batch_normalization: bool
-        - If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
+        If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
     activation: str
-        - Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        - Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
+        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
     kernel_initializer: str or tf.keras.initializers object
-        - Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
+        Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
-        - Initializer for the bias vector in the Conv2D/Conv3D layers.
+        Initializer for the bias vector in the Conv2D/Conv3D layers.
     kernel_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
+        Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
+        Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
     activity_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the output of the Conv2D/Conv3D layers.
+        Regularizer function applied to the output of the Conv2D/Conv3D layers.
     kernel_constraint: str or tf.keras.constraints object
-        - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
+        Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
-        - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+        Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
     name: str or None
-        - Prefix of the layer names. If left as None, the layer names are set automatically.
+        Prefix of the layer names. If left as None, the layer names are set automatically.
 
     Returns
     -------
     tensor: tf.Tensor
-        - Output tensor.
+        Output tensor.
     """
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
@@ -382,51 +434,64 @@ def full_scale_skip_connection(tensor, filters, kernel_size, level1, level2, poo
     return tensor
 
 
-def conventional_skip_connection(tensor, filters, kernel_size, padding='same', use_bias=False, batch_normalization=True,
-    activation='relu', kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None,
-    activity_regularizer=None, kernel_constraint=None, bias_constraint=None, name=None):
+def conventional_skip_connection(
+    tensor: tf.Tensor,
+    filters: int,
+    kernel_size: int | tuple[int],
+    padding: str = 'same',
+    use_bias: bool = False,
+    batch_normalization: bool = True,
+    activation: str = 'relu',
+    kernel_initializer = 'glorot_uniform',
+    bias_initializer = 'zeros',
+    kernel_regularizer = None,
+    bias_regularizer = None,
+    activity_regularizer = None,
+    kernel_constraint = None,
+    bias_constraint = None,
+    name: str = None):
     """
     Connect two nodes in the U-Net 3+ with a conventional skip connection.
 
     Parameters
     ----------
     tensor: tf.Tensor
-        - Input tensor for the convolution module.
+        Input tensor for the convolution module.
     filters: int
-        - Number of filters in the Conv2D/Conv3D layer.
+        Number of filters in the Conv2D/Conv3D layer.
     kernel_size: int or tuple
-        - Size of the kernel in the Conv2D/Conv3D layer.
+        Size of the kernel in the Conv2D/Conv3D layer.
     padding: str
-        - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
+        Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
     use_bias: bool
-        - If True, a bias vector will be used in the Conv2D/Conv3D layer.
+        If True, a bias vector will be used in the Conv2D/Conv3D layer.
     batch_normalization: bool
-        - If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
+        If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
     activation: str
-        - Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        - Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
+        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
     kernel_initializer: str or tf.keras.initializers object
-        - Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
+        Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
-        - Initializer for the bias vector in the Conv2D/Conv3D layers.
+        Initializer for the bias vector in the Conv2D/Conv3D layers.
     kernel_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
+        Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
+        Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
     activity_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the output of the Conv2D/Conv3D layers.
+        Regularizer function applied to the output of the Conv2D/Conv3D layers.
     kernel_constraint: str or tf.keras.constraints object
-        - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
+        Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
-        - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+        Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
     name: str or None
-        - Prefix of the layer names. If left as None, the layer names are set automatically.
+        Prefix of the layer names. If left as None, the layer names are set automatically.
 
     Returns
     -------
     tensor: tf.Tensor
-        - Output tensor.
+        Output tensor.
     """
 
     # Arguments for the convolution module.
@@ -452,23 +517,26 @@ def conventional_skip_connection(tensor, filters, kernel_size, padding='same', u
     return tensor
 
 
-def max_pool(tensor, pool_size=None, name=None):
+def max_pool(
+    tensor: tf.Tensor,
+    pool_size: tuple[int],
+    name: str = None):
     """
     Connect two encoder nodes with a max-pooling operation.
 
     Parameters
     ----------
     tensor: tf.Tensor
-        - Input tensor for the convolution module.
+        Input tensor for the convolution module.
     pool_size: tuple or list
-        - Pool size for the MaxPooling2D/MaxPooling3D layer.
+        Pool size for the MaxPooling2D/MaxPooling3D layer.
     name: str or None
-        - Prefix of the layer names. If left as None, the layer names are set automatically.
+        Prefix of the layer names. If left as None, the layer names are set automatically.
 
     Returns
     -------
     tensor: tf.Tensor
-        - Output tensor.
+        Output tensor.
     """
 
     if type(pool_size) != tuple and type(pool_size) != list:
@@ -496,53 +564,67 @@ def max_pool(tensor, pool_size=None, name=None):
     return pool_tensor
 
 
-def upsample(tensor, filters, kernel_size, upsample_size, padding='same', use_bias=False, batch_normalization=True,
-    activation='relu', kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None,
-    activity_regularizer=None, kernel_constraint=None, bias_constraint=None, name=None):
+def upsample(
+    tensor: tf.Tensor,
+    filters: int,
+    kernel_size: int | tuple[int],
+    upsample_size: tuple[int],
+    padding: str = 'same',
+    use_bias: bool = False,
+    batch_normalization: bool = True,
+    activation: str = 'relu',
+    kernel_initializer='glorot_uniform',
+    bias_initializer='zeros',
+    kernel_regularizer = None,
+    bias_regularizer = None,
+    activity_regularizer = None,
+    kernel_constraint = None,
+    bias_constraint = None,
+    name: str = None):
     """
     Connect decoder nodes with an up-sampling operation.
 
     Parameters
     ----------
     tensor: tf.Tensor
-        - Input tensor for the convolution module.
+        Input tensor for the convolution module.
     filters: int
-        - Number of filters in the Conv2D/Conv3D layer.
+        Number of filters in the Conv2D/Conv3D layer.
     kernel_size: int or tuple
-        - Size of the kernel in the Conv2D/Conv3D layer.
+        Size of the kernel in the Conv2D/Conv3D layer.
     upsample_size: tuple or list
-        - Upsampling size in the UpSampling2D/UpSampling3D layer.
+        Upsampling size in the UpSampling2D/UpSampling3D layer.
     padding: str
-        - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
+        Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
     use_bias: bool
-        - If True, a bias vector will be used in the Conv2D/Conv3D layer.
+        If True, a bias vector will be used in the Conv2D/Conv3D layer.
     batch_normalization: bool
-        - If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
+        If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
     activation: str
-        - Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        - Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
+        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
     kernel_initializer: str or tf.keras.initializers object
-        - Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
+        Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
-        - Initializer for the bias vector in the Conv2D/Conv3D layers.
+        Initializer for the bias vector in the Conv2D/Conv3D layers.
     kernel_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
+        Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
+        Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
     activity_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the output of the Conv2D/Conv3D layers.
+        Regularizer function applied to the output of the Conv2D/Conv3D layers.
     kernel_constraint: str or tf.keras.constraints object
-        - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
+        Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
-        - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+        Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
     name: str or None
-        - Prefix of the layer names. If left as None, the layer names are set automatically.
+        Prefix of the layer names. If left as None, the layer names are set automatically.
 
     Returns
     -------
     tensor: tf.Tensor
-        - Output tensor.
+        Output tensor.
     """
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
@@ -598,12 +680,12 @@ def choose_activation_layer(activation: str):
     Parameters
     ----------
     activation: str
-        - Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
+        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
 
     Returns
     -------
     activation_layer: tf.keras.layers.Activation, tf.keras.layers.PReLU, tf.keras.layers.LeakyReLU, or any layer from custom_activations
-        - Activation layer.
+        Activation layer.
     """
 
     activation = activation.lower()
@@ -632,9 +714,23 @@ def choose_activation_layer(activation: str):
     return activation_layer
 
 
-def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level, upsample_size, padding='same', use_bias=True,
-    kernel_initializer='glorot_uniform', bias_initializer='zeros', kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None,
-    kernel_constraint=None, bias_constraint=None, squeeze_dims=None, name=None):
+def deep_supervision_side_output(
+    tensor: tf.Tensor,
+    num_classes: int,
+    kernel_size: int | tuple[int],
+    output_level: int,
+    upsample_size: tuple[int],
+    padding: str = 'same',
+    use_bias: bool = False,
+    kernel_initializer='glorot_uniform',
+    bias_initializer='zeros',
+    kernel_regularizer = None,
+    bias_regularizer = None,
+    activity_regularizer = None,
+    kernel_constraint = None,
+    bias_constraint = None,
+    squeeze_dims: int | tuple[int] = None,
+    name: str = None):
     """
     Deep supervision output. This is usually used on a decoder node in the U-Net 3+ or the final decoder node of a standard
     U-Net.
@@ -642,44 +738,44 @@ def deep_supervision_side_output(tensor, num_classes, kernel_size, output_level,
     Parameters
     ----------
     tensor: tf.Tensor
-        - Input tensor for the convolution module.
+        Input tensor for the convolution module.
     num_classes: int
-        - Number of classes that the model is trying to predict.
+        Number of classes that the model is trying to predict.
     kernel_size: int or tuple
-        - Size of the kernel in the Conv2D/Conv3D layer.
+        Size of the kernel in the Conv2D/Conv3D layer.
     output_level: int
-        - Level of the decoder node from which the deep supervision output is based.
+        Level of the decoder node from which the deep supervision output is based.
     upsample_size: tuple or list
-        - Upsampling size for rows and columns in the UpSampling2D/UpSampling3D layer. Tuples are currently not supported
+        Upsampling size for rows and columns in the UpSampling2D/UpSampling3D layer. Tuples are currently not supported
         but will be supported in a future update.
     padding: str
-        - Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
+        Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
     use_bias: bool
-        - If True, a bias vector will be used in the Conv2D/Conv3D layer.
+        If True, a bias vector will be used in the Conv2D/Conv3D layer.
     kernel_initializer: str or tf.keras.initializers object
-        - Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
+        Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
-        - Initializer for the bias vector in the Conv2D/Conv3D layers.
+        Initializer for the bias vector in the Conv2D/Conv3D layers.
     kernel_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
+        Regularizer function applied to the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
+        Regularizer function applied to the bias vector in the Conv2D/Conv3D layers.
     activity_regularizer: str or tf.keras.regularizers object
-        - Regularizer function applied to the output of the Conv2D/Conv3D layers.
+        Regularizer function applied to the output of the Conv2D/Conv3D layers.
     kernel_constraint: str or tf.keras.constraints object
-        - Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
+        Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
-        - Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+        Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
     squeeze_dims: int, tuple, or None
-        - Dimension(s) of the input tensor to squeeze.
+        Dimension(s) of the input tensor to squeeze.
     name: str or None
-        - Prefix of the layer names. If left as None, the layer names are set automatically.
+        Prefix of the layer names. If left as None, the layer names are set automatically.
 
     Returns
     -------
     tensor: tf.Tensor
-        - Output tensor.
+        Output tensor.
     """
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)

@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.20
+Script version: 2023.9.18
 """
 import argparse
 import cartopy.crs as ccrs
@@ -16,7 +16,7 @@ import pickle
 import xarray as xr
 import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 from utils import settings, plotting_utils
 
 
@@ -106,13 +106,14 @@ if __name__ == '__main__':
         fig, axs = plt.subplots(1, 2, figsize=(15, 6))
         axarr = axs.flatten()
 
-        sr_matrix, pod_matrix = np.meshgrid(np.linspace(0, 1, 100), np.linspace(0, 1, 100))
-        csi_matrix = (sr_matrix ** -1 + pod_matrix ** -1 - 1.) ** -1  # CSI coordinates
+        sr_matrix, pod_matrix = np.meshgrid(np.linspace(0, 1, 101), np.linspace(0, 1, 101))
+        csi_matrix = 1 / ((1/sr_matrix) + (1/pod_matrix) - 1)  # CSI coordinates
         fb_matrix = pod_matrix * (sr_matrix ** -1)  # Frequency Bias coordinates
         CSI_LEVELS = np.linspace(0, 1, 11)  # CSI contour levels
         FB_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3]  # Frequency Bias levels
         cmap = 'Blues'  # Colormap for the CSI contours
-        axis_ticks = np.arange(0, 1.1, 0.1)
+        axis_ticks = np.arange(0, 1.01, 0.1)
+        axis_ticklabels = np.arange(0, 100.1, 10).astype(int)
 
         cs = axarr[0].contour(sr_matrix, pod_matrix, fb_matrix, FB_LEVELS, colors='black', linewidths=0.5, linestyles='--')  # Plot FB levels
         axarr[0].clabel(cs, FB_LEVELS, fontsize=8)
@@ -127,7 +128,7 @@ if __name__ == '__main__':
 
         ### CSI and reliability lines for each boundary ###
         boundary_colors = ['red', 'purple', 'brown', 'darkorange', 'darkgreen']
-        max_CSI_scores_by_boundary = np.empty(shape=(5,))
+        max_CSI_scores_by_boundary = np.zeros(shape=(5,))
         for boundary, color in enumerate(boundary_colors):
             csi = np.power((1/sr[boundary]) + (1/pod[boundary]) - 1, -1)
             max_CSI_scores_by_boundary[boundary] = np.nanmax(csi)
@@ -139,35 +140,38 @@ if __name__ == '__main__':
             max_CSI_fb = max_CSI_pod / max_CSI_sr  # Frequency bias
 
             cell_text.append([r'$\bf{%.2f}$' % max_CSI_threshold,
-                              r'$\bf{%.3f}$' % max_CSI_scores_by_boundary[boundary] + r'$^{%.3f}_{%.3f}$' % (CI_CSI[1, boundary, max_CSI_index], CI_CSI[0, boundary, max_CSI_index]),
-                              r'$\bf{%.1f}$' % (max_CSI_pod * 100) + r'$^{%.1f}_{%.1f}$' % (CI_POD[1, boundary, max_CSI_index] * 100, CI_POD[0, boundary, max_CSI_index] * 100),
-                              r'$\bf{%.1f}$' % (max_CSI_sr * 100) + r'$^{%.1f}_{%.1f}$' % (CI_SR[1, boundary, max_CSI_index] * 100, CI_SR[0, boundary, max_CSI_index] * 100),
-                              r'$\bf{%.1f}$' % ((1 - max_CSI_sr) * 100) + r'$^{%.1f}_{%.1f}$' % ((1 - CI_SR[1, boundary, max_CSI_index]) * 100, (1 - CI_SR[0, boundary, max_CSI_index]) * 100),
-                              r'$\bf{%.3f}$' % max_CSI_fb + r'$^{%.3f}_{%.3f}$' % (CI_FB[1, boundary, max_CSI_index], CI_FB[0, boundary, max_CSI_index])])
+                              r'$\bf{%.3f}$' % max_CSI_scores_by_boundary[boundary] + r'$^{%.3f}_{%.3f}$' % (CI_CSI[1, boundary, max_CSI_index][0], CI_CSI[0, boundary, max_CSI_index][0]),
+                              r'$\bf{%.1f}$' % (max_CSI_pod * 100) + r'$^{%.1f}_{%.1f}$' % (CI_POD[1, boundary, max_CSI_index][0] * 100, CI_POD[0, boundary, max_CSI_index][0] * 100),
+                              r'$\bf{%.1f}$' % (max_CSI_sr * 100) + r'$^{%.1f}_{%.1f}$' % (CI_SR[1, boundary, max_CSI_index][0] * 100, CI_SR[0, boundary, max_CSI_index][0] * 100),
+                              r'$\bf{%.1f}$' % ((1 - max_CSI_sr) * 100) + r'$^{%.1f}_{%.1f}$' % ((1 - CI_SR[1, boundary, max_CSI_index][0]) * 100, (1 - CI_SR[0, boundary, max_CSI_index][0]) * 100),
+                              r'$\bf{%.3f}$' % max_CSI_fb + r'$^{%.3f}_{%.3f}$' % (CI_FB[1, boundary, max_CSI_index][0], CI_FB[0, boundary, max_CSI_index][0])])
 
             # Plot CSI lines
             axarr[0].plot(max_CSI_sr, max_CSI_pod, color=color, marker='*', markersize=10)
             axarr[0].plot(sr[boundary], pod[boundary], color=color, linewidth=1)
 
             # Plot reliability curve
-            axarr[1].plot(thresholds[1:] + 0.005, observed_relative_frequency[boundary], color=color, linewidth=1)
+            axarr[1].plot(thresholds[1:], observed_relative_frequency[boundary], color=color, linewidth=1)
 
             # Confidence interval
             xs = np.concatenate([CI_SR[0, boundary, :polygon_stop_index], CI_SR[1, boundary, :polygon_stop_index][::-1]])
             ys = np.concatenate([CI_POD[0, boundary, :polygon_stop_index], CI_POD[1, boundary, :polygon_stop_index][::-1]])
             axarr[0].fill(xs, ys, alpha=0.3, color=color)  # Shade the confidence interval
 
-        axarr[0].set_xlabel("Success Ratio (SR = 1 - FAR)")
-        axarr[0].set_ylabel("Probability of Detection (POD)")
+        axarr[0].set_xticklabels(axis_ticklabels[::-1])  # False alarm rate on x-axis means values are reversed
+        axarr[0].set_xlabel("False Alarm Rate (FAR; %)")
+        axarr[0].set_ylabel("Probability of Detection (POD; %)")
         axarr[0].set_title(r'$\bf{a)}$ $\bf{CSI}$ $\bf{diagram}$ [confidence level = %d%%]' % args['confidence_level'])
 
-        axarr[1].set_xlabel("Forecast Probability (uncalibrated)")
-        axarr[1].set_ylabel("Observed Relative Frequency")
+        axarr[1].set_xticklabels(axis_ticklabels)
+        axarr[1].set_xlabel("Forecast Probability (uncalibrated; %)")
+        axarr[1].set_ylabel("Observed Relative Frequency (%)")
         axarr[1].set_title(r'$\bf{b)}$ $\bf{Reliability}$ $\bf{diagram}$')
 
         for ax in axarr:
             ax.set_xticks(axis_ticks)
             ax.set_yticks(axis_ticks)
+            ax.set_yticklabels(axis_ticklabels)
             ax.grid(color='black', alpha=0.1)
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)

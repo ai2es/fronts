@@ -4,12 +4,12 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.7.24
+Script version: 2023.7.24.D1
 """
 import argparse
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
 import numpy as np
 import pandas as pd
@@ -84,7 +84,7 @@ if __name__ == '__main__':
             gpus = tf.config.get_visible_devices(device_type='GPU')  # List of selected GPUs
             print("Using %d GPU(s):" % len(gpus), gpus)
 
-        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
+        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all the GPU's memory.
         if args['memory_growth']:
             tf.config.experimental.set_memory_growth(device=[gpu for gpu in gpus][0], enable=True)
 

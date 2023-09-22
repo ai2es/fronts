@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.2
+Script version: 2023.9.10
 """
 import itertools
 import argparse
@@ -14,7 +14,7 @@ import xarray as xr
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
 import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 from utils import data_utils, settings
 from utils.plotting_utils import plot_background
 from skimage.morphology import skeletonize
@@ -71,8 +71,9 @@ if __name__ == '__main__':
         probs_dir = f"{args['model_dir']}/model_{args['model_number']}/probabilities/{subdir_base}"
 
         if args['forecast_hour'] is not None:
-            forecast_timestep = data_utils.add_or_subtract_hours_to_timestep('%d%02d%02d%02d' % (year, month, day, hour), num_hours=args['forecast_hour'])
-            new_year, new_month, new_day, new_hour = forecast_timestep[:4], forecast_timestep[4:6], forecast_timestep[6:8], int(forecast_timestep[8:]) - (int(forecast_timestep[8:]) % 3)
+            timestep = np.datetime64('%d-%02d-%02dT%02d' % (year, month, day, hour)).astype(object)
+            forecast_timestep = timestep if args['forecast_hour'] == 0 else timestep + np.timedelta64(args['forecast_hour'], 'h').astype(object)
+            new_year, new_month, new_day, new_hour = forecast_timestep.year, forecast_timestep.month, forecast_timestep.day, forecast_timestep.hour - (forecast_timestep.hour % 3)
             fronts_file = '%s/%s%s/FrontObjects_%s%s%s%02d_full.nc' % (args['fronts_netcdf_indir'], new_year, new_month, new_year, new_month, new_day, new_hour)
             filename_base = f'model_%d_{year}%02d%02d%02d_%s_%s_f%03d_%dx%d' % (args['model_number'], month, day, hour, args['domain'], args['data_source'], args['forecast_hour'], args['domain_images'][0], args['domain_images'][1])
         else:
@@ -118,13 +119,14 @@ if __name__ == '__main__':
     cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
-    probs_ds = probs_ds.isel(time=0)
+    probs_ds = probs_ds.isel(time=0) if args['data_source'] == 'era5' else probs_ds.isel(time=0, forecast_hour=0)
+    probs_ds = probs_ds.transpose('latitude', 'longitude')
 
     for key in list(probs_ds.keys()):
 
         if args['deterministic']:
-            spline_threshold = model_properties['front_obj_thresholds'][args['domain']][key]['250']
-            probs_ds[f'{key}_obj'] = (('latitude', 'longitude'), skeletonize(xr.where(probs_ds[key] > spline_threshold, 1, 0).values))
+            spline_threshold = model_properties['front_obj_thresholds'][args['domain']][key]['100']
+            probs_ds[f'{key}_obj'] = (('latitude', 'longitude'), skeletonize(xr.where(probs_ds[key] > spline_threshold, 1, 0).values.copy(order='C')))
 
         if args['calibration'] is not None:
             try:
@@ -144,9 +146,8 @@ if __name__ == '__main__':
 
     probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN"))
     if args['data_source'] != 'era5':
-        probs_ds = probs_ds.sel(forecast_hour=args['forecast_hour'])
-        valid_time = data_utils.add_or_subtract_hours_to_timestep(f'%d%02d%02d%02d' % (year, month, day, hour), num_hours=args['forecast_hour'])
-        data_title = f"Run: {args['data_source'].upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: {valid_time[:4]}-{valid_time[4:6]}-{valid_time[6:8]}-{valid_time[8:]}z" % (month, day, hour, args['forecast_hour'])
+        valid_time = timestep + np.timedelta64(args['forecast_hour'], 'h').astype(object)
+        data_title = f"Run: {args['data_source'].upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: %d-%02d-%02d-%02dz" % (month, day, hour, args['forecast_hour'], valid_time.year, valid_time.month, valid_time.day, valid_time.hour)
     else:
         data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz\n' \
                      'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
@@ -168,9 +169,6 @@ if __name__ == '__main__':
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
             cbar.set_ticklabels([])
 
-            cbar_front_labels.append(front_name)
-            cbar_front_ticks.append(front_no + 0.5)
-
         if args['deterministic']:
             right_title = 'Splines: Deterministic first-guess fronts'
             cmap_deterministic = colors.ListedColormap(['None', front_colors_by_type[front_no - 1]], name='from_list', N=2)
@@ -181,15 +179,20 @@ if __name__ == '__main__':
         if fronts_found:
             fronts['identifier'].plot(ax=ax, x='longitude', y='latitude', cmap=cmap_front, norm=norm_front, transform=ccrs.PlateCarree(), add_colorbar=False)
 
+        cbar_front_labels.append(front_name)
+        cbar_front_ticks.append(front_no + 0.5)
+
     if args['contours']:
         cbar.set_label(cbar_label, rotation=90)
         cbar.set_ticks(cbar_ticks)
         cbar.set_ticklabels(cbar_ticks)
 
+    cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, orientation='horizontal', shrink=0.5, pad=0.02)
+    cbar_front.set_ticks(cbar_front_ticks)
+    cbar_front.set_ticklabels(cbar_front_labels)
+    cbar_front.set_label(r'$\bf{Front}$ $\bf{type}$')
+
     if fronts_found or args['deterministic']:
-        cbar_front = plt.colorbar(cm.ScalarMappable(norm=norm_front, cmap=cmap_front), ax=ax, alpha=0.75, orientation='horizontal', shrink=0.5, pad=0.02)
-        cbar_front.set_ticks(cbar_front_ticks)
-        cbar_front.set_ticklabels(cbar_front_labels)
         ax.set_title(right_title, loc='right')
 
     ax.set_title('')

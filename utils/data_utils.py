@@ -1,11 +1,14 @@
 """
 Various data tools.
 
+References
+----------
+* Snyder 1987: https://doi.org/10.3133/pp1395
+
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.7.5
+Script version: 2023.9.18
 """
 
-import math
 import pandas as pd
 from shapely.geometry import LineString
 import numpy as np
@@ -90,179 +93,222 @@ normalization_parameters = {'mslp_z_surface': [1050., 960.],
                             'v_900': [58., -59.],
                             'v_850': [58., -59.]}
 
-bad_timesteps = [np.datetime64("2018-03-26T09:00:00"), ]
 
-
-def expand_fronts(ds_fronts, iterations=1):
+def expand_fronts(fronts: np.ndarray | tf.Tensor | xr.Dataset | xr.DataArray, iterations: int = 1):
     """
-    Expands fronts in all directions.
+    Expands front labels in all directions.
 
     Parameters
     ----------
-    ds_fronts: xr.Dataset
-        - Dataset that contains frontal objects.
+    fronts: array_like of ints of shape (T, M, N) or (M, N)
+        2-D or 3-D array of integers that identify the front type at each point. The longitude and latitude dimensions with
+            shapes (M,) and (N,) can be in any order, but the time dimension must be the first dimension if it is passed.
     iterations: int
-        - Number of pixels that the fronts will be expanded by in all directions, determined by the number of iterations across this expansion method.
+        Integer representing the number of times to expand the fronts in all directions.
 
     Returns
     -------
-    ds_fronts: xr.Dataset
-        Dataset that contains expanded frontal objects.
+    fronts: array_like of ints of shape (T, M, N) or (1, M, N)
+        Array of integers for the expanded fronts. If the array_like object passed into the function was 2-D, a third dimension
+            will be added to the beginning of the array with size 1.
+
+    Examples
+    --------
+    * Expanding labels for one front type.
+    >>> arr = np.zeros((5, 5))
+    >>> arr[2, 2] = 1  # add cold front point
+    >>> arr
+    array([[0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0.],
+           [0., 0., 1., 0., 0.],
+           [0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0.]])
+    >>> expand_fronts(arr, iterations=1)
+    array([[[0., 0., 0., 0., 0.],
+            [0., 1., 1., 1., 0.],
+            [0., 1., 1., 1., 0.],
+            [0., 1., 1., 1., 0.],
+            [0., 0., 0., 0., 0.]]])
+
+    * Expanding labels for two front types.
+    >>> arr = np.zeros((5, 5))
+    >>> arr[1, 1] = 1  # add cold front point
+    >>> arr[3, 3] = 2  # add warm front point
+    >>> arr
+    array([[0., 0., 0., 0., 0.],
+           [0., 1., 0., 0., 0.],
+           [0., 0., 0., 0., 0.],
+           [0., 0., 0., 2., 0.],
+           [0., 0., 0., 0., 0.]])
+    >>> expand_fronts(arr, iterations=1)
+    array([[[1., 1., 1., 0., 0.],
+            [1., 1., 1., 0., 0.],
+            [1., 1., 2., 2., 2.],
+            [0., 0., 2., 2., 2.],
+            [0., 0., 2., 2., 2.]]])
     """
-    try:
-        identifier = ds_fronts['identifier'].values
-    except KeyError:
-        identifier = ds_fronts.values
+    if type(fronts) in [xr.Dataset, xr.DataArray]:
+        identifier = fronts['identifier'].values if type(fronts) == xr.Dataset else fronts.values
+    elif tf.is_tensor(fronts):
+        identifier = tf.expand_dims(fronts, axis=0) if len(fronts.shape) == 2 else fronts
+    else:
+        identifier = np.expand_dims(fronts, axis=0) if len(fronts.shape) == 2 else fronts
 
-    identifier_temp = identifier
-    identifier = identifier_temp
+    if tf.is_tensor(identifier):
+        for _ in range(iterations):
+            # 8 tensors representing all directions for the front expansion
+            identifier_up_left = tf.Variable(tf.zeros_like(identifier))
+            identifier_up_right = tf.Variable(tf.zeros_like(identifier))
+            identifier_down_left = tf.Variable(tf.zeros_like(identifier))
+            identifier_down_right = tf.Variable(tf.zeros_like(identifier))
+            identifier_up = tf.Variable(tf.zeros_like(identifier))
+            identifier_down = tf.Variable(tf.zeros_like(identifier))
+            identifier_left = tf.Variable(tf.zeros_like(identifier))
+            identifier_right = tf.Variable(tf.zeros_like(identifier))
 
-    num_dims = len(np.shape(identifier))
+            identifier_down_left[:, 1:, :-1].assign(tf.where((identifier[:, :-1, 1:] > 0) & (identifier[:, 1:, :-1] == 0),
+                                                             identifier[:, :-1, 1:], identifier[:, 1:, :-1]))
+            identifier_down[:, 1:, :].assign(tf.where((identifier[:, :-1, :] > 0) & (identifier[:, 1:, :] == 0),
+                                                      identifier[:, :-1, :], identifier[:, 1:, :]))
+            identifier_down_right[:, 1:, 1:].assign(tf.where((identifier[:, :-1, :-1] > 0) & (identifier[:, 1:, 1:] == 0),
+                                                             identifier[:, :-1, :-1], identifier[:, 1:, 1:]))
+            identifier_up_left[:, :-1, :-1].assign(tf.where((identifier[:, 1:, 1:] > 0) & (identifier[:, :-1, :-1] == 0),
+                                                            identifier[:, 1:, 1:], identifier[:, :-1, :-1]))
+            identifier_up[:, :-1, :].assign(tf.where((identifier[:, 1:, :] > 0) & (identifier[:, :-1, :] == 0),
+                                                     identifier[:, 1:, :], identifier[:, :-1, :]))
+            identifier_up_right[:, :-1, 1:].assign(tf.where((identifier[:, 1:, :-1] > 0) & (identifier[:, :-1, 1:] == 0),
+                                                            identifier[:, 1:, :-1], identifier[:, :-1, 1:]))
+            identifier_left[:, :, :-1].assign(tf.where((identifier[:, :, 1:] > 0) & (identifier[:, :, :-1] == 0),
+                                                       identifier[:, :, 1:], identifier[:, :, :-1]))
+            identifier_right[:, :, 1:].assign(tf.where((identifier[:, :, :-1] > 0) & (identifier[:, :, 1:] == 0),
+                                                       identifier[:, :, :-1], identifier[:, :, 1:]))
 
-    if num_dims == 2:
-        identifier = np.expand_dims(identifier, axis=0)
+            identifier = tf.reduce_max([identifier_up_left, identifier_up, identifier_up_right,
+                                        identifier_down_left, identifier_down, identifier_down_right,
+                                        identifier_left, identifier_right], axis=0)
 
-    max_lat_index = np.shape(identifier)[1] - 1
-    max_lon_index = np.shape(identifier)[2] - 1
+    else:
+        for _ in range(iterations):
+            # 8 arrays representing all directions for the front expansion
+            identifier_up_left = np.zeros_like(identifier)
+            identifier_up_right = np.zeros_like(identifier)
+            identifier_down_left = np.zeros_like(identifier)
+            identifier_down_right = np.zeros_like(identifier)
+            identifier_up = np.zeros_like(identifier)
+            identifier_down = np.zeros_like(identifier)
+            identifier_left = np.zeros_like(identifier)
+            identifier_right = np.zeros_like(identifier)
 
-    for iteration in range(iterations):
-        
-        # Indices where fronts are located
-        indices = np.where(identifier != 0)
-        num_indices = np.shape(indices)[-1]
+            identifier_down_left[:, 1:, :-1] = np.where((identifier[:, :-1, 1:] > 0) & (identifier[:, 1:, :-1] == 0),
+                                                        identifier[:, :-1, 1:], identifier[:, 1:, :-1])  # down-left
+            identifier_down[:, 1:, :] = np.where((identifier[:, :-1, :] > 0) & (identifier[:, 1:, :] == 0),
+                                                 identifier[:, :-1, :], identifier[:, 1:, :])  # down
+            identifier_down_right[:, 1:, 1:] = np.where((identifier[:, :-1, :-1] > 0) & (identifier[:, 1:, 1:] == 0),
+                                                        identifier[:, :-1, :-1], identifier[:, 1:, 1:])  # down-right
+            identifier_up_left[:, :-1, :-1] = np.where((identifier[:, 1:, 1:] > 0) & (identifier[:, :-1, :-1] == 0),
+                                                       identifier[:, 1:, 1:], identifier[:, :-1, :-1])  # up-left
+            identifier_up[:, :-1, :] = np.where((identifier[:, 1:, :] > 0) & (identifier[:, :-1, :] == 0),
+                                                identifier[:, 1:, :], identifier[:, :-1, :])  # up
+            identifier_up_right[:, :-1, 1:] = np.where((identifier[:, 1:, :-1] > 0) & (identifier[:, :-1, 1:] == 0),
+                                                       identifier[:, 1:, :-1], identifier[:, :-1, 1:])  # up-right
+            identifier_left[:, :, :-1] = np.where((identifier[:, :, 1:] > 0) & (identifier[:, :, :-1] == 0),
+                                                  identifier[:, :, 1:], identifier[:, :, :-1])  # left
+            identifier_right[:, :, 1:] = np.where((identifier[:, :, :-1] > 0) & (identifier[:, :, 1:] == 0),
+                                                  identifier[:, :, :-1], identifier[:, :, 1:])  # right
 
-        timestep_ind = indices[0]
-        lats_ind = indices[1]
-        lons_ind = indices[2]
+            identifier = np.max([identifier_up_left, identifier_up, identifier_up_right,
+                                 identifier_down_left, identifier_down, identifier_down_right,
+                                 identifier_left, identifier_right], axis=0)
 
-        for index in range(num_indices):
+    if type(fronts) == xr.Dataset:
+        fronts['identifier'].values = identifier
+    elif type(fronts) == xr.DataArray:
+        fronts.values = identifier
+    else:
+        fronts = identifier
 
-            timestep, lat, lon = timestep_ind[index], lats_ind[index], lons_ind[index]
-            front_value = identifier[timestep, lat, lon]
-
-            if lat == 0:
-                # If the front pixel is at the north end of the domain (max lat), and there is no front directly
-                # to the south, expand the front 1 pixel south.
-                if identifier[timestep][lat][lon] == 0:
-                    identifier[timestep][lat][lon] = front_value
-                # If the front pixel is at the northwest end of the domain (max/min lat/lon), check the pixels to the
-                # southeast and east for fronts, and expand the front there if no other fronts are already present.
-                if lon == 0:
-                    if identifier[timestep][lat + 1][lon + 1] == 0:
-                        identifier[timestep][lat + 1][lon + 1] = front_value
-                    if identifier[timestep][lat][lon + 1] == 0:
-                        identifier[timestep][lat][lon + 1] = front_value
-                # If the front pixel is at the northeast end of the domain (max/max lat/lon), check the pixels to the
-                # southwest and west for fronts, and expand the front there if no other fronts are already present.
-                elif lon == max_lon_index:
-                    if identifier[timestep][lat + 1][lon - 1] == 0:
-                        identifier[timestep][lat + 1][lon - 1] = front_value
-                    if identifier[timestep][lat][lon - 1] == 0:
-                        identifier[timestep][lat][lon - 1] = front_value
-                # If the front pixel is at the north end of the domain (max lat), but not at the west or east end (min lon
-                # or max lon) check the pixels to the west and east for fronts, and expand the front there if no other
-                # fronts are already present.
-                else:
-                    if identifier[timestep][lat][lon - 1] == 0:
-                        identifier[timestep][lat][lon - 1] = front_value
-                    if identifier[timestep][lat][lon + 1] == 0:
-                        identifier[timestep][lat][lon + 1] = front_value
-            elif 0 < lat < max_lat_index:
-                # If there is no front directly to the south, expand the front 1 pixel south.
-                if identifier[timestep][lat + 1][lon] == 0:
-                    identifier[timestep][lat + 1][lon] = front_value
-                # If there is no front directly to the north, expand the front 1 pixel north.
-                if identifier[timestep][lat - 1][lon] == 0:
-                    identifier[timestep][lat - 1][lon] = front_value
-                # If the front pixel is at the west end of the domain (min lon), check the pixels to the southeast,
-                # east, and northeast for fronts, and expand the front there if no other fronts are already present.
-                if lon == 0:
-                    if identifier[timestep][lat + 1][lon + 1] == 0:
-                        identifier[timestep][lat + 1][lon + 1] = front_value
-                    if identifier[timestep][lat][lon + 1] == 0:
-                        identifier[timestep][lat][lon + 1] = front_value
-                    if identifier[timestep][lat - 1][lon + 1] == 0:
-                        identifier[timestep][lat - 1][lon + 1] = front_value
-                # If the front pixel is at the east end of the domain (min lon), check the pixels to the southwest,
-                # west, and northwest for fronts, and expand the front there if no other fronts are already present.
-                elif lon == max_lon_index:
-                    if identifier[timestep][lat + 1][lon - 1] == 0:
-                        identifier[timestep][lat + 1][lon - 1] = front_value
-                    if identifier[timestep][lat][lon - 1] == 0:
-                        identifier[timestep][lat][lon - 1] = front_value
-                    if identifier[timestep][lat - 1][lon - 1] == 0:
-                        identifier[timestep][lat - 1][lon - 1] = front_value
-                # If the front pixel is not at the end of the domain in any direction, check the northeast, east,
-                # southeast, northwest, west, and southwest for fronts, and expand the front there if no other fronts
-                # are already present.
-                else:
-                    if identifier[timestep][lat + 1][lon + 1] == 0:
-                        identifier[timestep][lat + 1][lon + 1] = front_value
-                    if identifier[timestep][lat][lon + 1] == 0:
-                        identifier[timestep][lat][lon + 1] = front_value
-                    if identifier[timestep][lat - 1][lon + 1] == 0:
-                        identifier[timestep][lat - 1][lon + 1] = front_value
-                    if identifier[timestep][lat + 1][lon - 1] == 0:
-                        identifier[timestep][lat + 1][lon - 1] = front_value
-                    if identifier[timestep][lat][lon - 1] == 0:
-                        identifier[timestep][lat][lon - 1] = front_value
-                    if identifier[timestep][lat - 1][lon - 1] == 0:
-                        identifier[timestep][lat - 1][lon - 1] = front_value
-            else:
-                # If the front pixel is at the south end of the domain (max lat), and there is no front directly
-                # to the north, expand the front 1 pixel north.
-                if identifier[timestep][lat - 1][lon] == 0:
-                    identifier[timestep][lat - 1][lon] = front_value
-                # If the front pixel is at the southwest end of the domain (max/min lat/lon), check the pixels to the
-                # northeast and east for fronts, and expand the front there if no other fronts are already present.
-                if lon == 0:
-                    if identifier[timestep][lat - 1][lon + 1] == 0:
-                        identifier[timestep][lat - 1][lon + 1] = front_value
-                    if identifier[timestep][lat][lon + 1] == 0:
-                        identifier[timestep][lat][lon + 1] = front_value
-                # If the front pixel is at the southeast end of the domain (max/max lat/lon), check the pixels to the
-                # northwest and west for fronts, and expand the front there if no other fronts are already present.
-                elif lon == max_lon_index:
-                    if identifier[timestep][lat - 1][lon - 1] == 0:
-                        identifier[timestep][lat - 1][lon - 1] = front_value
-                    if identifier[timestep][lat][lon - 1] == 0:
-                        identifier[timestep][lat][lon - 1] = front_value
-                # If the front pixel is at the south end of the domain (max lat), but not at the west or east end (min lon
-                # or max lon) check the pixels to the west and east for fronts, and expand the front there if no other
-                # fronts are already present.
-                else:
-                    if identifier[timestep][lat][lon - 1] == 0:
-                        identifier[timestep][lat][lon - 1] = front_value
-                    if identifier[timestep][lat][lon + 1] == 0:
-                        identifier[timestep][lat][lon + 1] = front_value
-
-    if num_dims == 2:
-        identifier = identifier[0]
-
-    try:
-        ds_fronts['identifier'].values = identifier
-    except KeyError:
-        ds_fronts.values = identifier
-
-    return ds_fronts
+    return fronts
 
 
-def haversine(lons, lats):
+def haversine(lon: np.ndarray | int | float,
+              lat: np.ndarray | int | float):
     """
-    lat/lon ----> cartesian coordinates (km)
+    Haversine formula. Transforms lon/lat points to an x/y cartesian plane.
+
+    Parameters
+    ----------
+    lon: array_like of shape (N,), int, or float
+        Longitude component of the point(s) expressed in degrees.
+    lat: array_like of shape (N,), int, or float
+        Latitude component of the point(s) expressed in degrees.
+
+    Returns
+    -------
+    x: array_like of shape (N,) or float
+        X component of the transformed points expressed in kilometers.
+    y: array_like of shape (N,) or float
+        Y component of the transformed points expressed in kilometers.
+
+    Examples
+    --------
+    >>> lon = -95
+    >>> lat = 35
+    >>> x, y = haversine(lon, lat)
+    >>> x, y
+    (-10077.330945462296, 3892.875)
+
+    >>> lon = np.arange(10, 80.1, 10)
+    >>> lat = np.arange(10, 80.1, 10)
+    >>> x, y = haversine(lon, lat)
+    >>> x, y
+    (array([1108.01755295, 2190.70484658, 3223.05300087, 4180.69246988,
+           5040.20418066, 5779.42053216, 6377.71302882, 6816.26345487]), array([1112.25, 2224.5 , 3336.75, 4449.  , 5561.25, 6673.5 , 7785.75,
+           8898.  ]))
     """
-    xs = lons * 40075 * np.cos(lats * math.pi / 360) / 360  # circumference of earth in km = 40075
-    ys = lats * 40075 / 360
-    return xs, ys
+    C = 40041  # average circumference of earth in kilometers
+    x = lon * C * np.cos(lat * np.pi / 360) / 360
+    y = lat * C / 360
+    return x, y
 
 
-def reverse_haversine(xs, ys):
+def reverse_haversine(x, y):
     """
-    Cartesian coordinates (km) ---> lat/lon
+    Reverse haversine formula. Transforms x/y cartesian coordinates to a lon/lat grid.
+
+    Parameters
+    ----------
+    x: array_like of shape (N,), int, or float
+        X component of the point(s) expressed in kilometers.
+    y: array_like of shape (N,), int, or float
+        Y component of the point(s) expressed in kilometers.
+
+    Returns
+    -------
+    lon: array_like of shape (N,) or float
+        Longitude component of the transformed point(s) expressed in degrees.
+    lat: array_like of shape (N,) or float
+        Latitude component of the transformed point(s) expressed in degrees.
+
+    Examples
+    --------
+    Values pulled from haversine examples.
+
+    >>> x = -10077.330945462296
+    >>> y = 3892.875
+    >>> lon, lat = reverse_haversine(x, y)
+    >>> lon, lat
+    (-95.0, 35.0)
+
+    >>> x = np.array([1108.01755295, 2190.70484658, 3223.05300087, 4180.69246988, 5040.20418066, 5779.42053216, 6377.71302882, 6816.26345487])
+    >>> y = np.array([1112.25, 2224.5, 3336.75, 4449., 5561.25, 6673.5, 7785.75, 8898.])
+    >>> lon, lat = reverse_haversine(x, y)
+    >>> lon, lat
+    (array([10., 20., 30., 40., 50., 60., 70., 80.]), array([10., 20., 30., 40., 50., 60., 70., 80.]))
     """
-    lons = xs * 360 / np.cos(ys * math.pi / 40075) / 40075
-    lats = ys * 360 / 40075
-    return lons, lats
+    C = 40041  # average circumference of earth in kilometers
+    lon = x * 360 / np.cos(y * np.pi / C) / C
+    lat = y * 360 / C
+    return lon, lat
 
 
 def geometric(x_km_new, y_km_new):
@@ -322,9 +368,9 @@ def reformat_fronts(fronts, front_types):
     Parameters
     ----------
     front_types: str or list of strs
-        - Code(s) that determine how the dataset will be reformatted.
+        Code(s) that determine how the dataset will be reformatted.
     fronts: xarray Dataset or DataArray, tensor, or np.ndarray
-        - Dataset containing the front data.
+        Dataset containing the front data.
         '''
         Available options for individual front types (cannot be passed with any special codes):
 
@@ -486,120 +532,43 @@ def reformat_fronts(fronts, front_types):
     return fronts
 
 
-def add_or_subtract_hours_to_timestep(timestep, num_hours):
-    """
-    Find the valid timestep for a given number of added or subtracted hours.
-    
-    Parameters
-    ----------
-    timestep: int, str, tuple
-        * Int format for the timestep: YYYYMMDDHH
-        * String format for the timestep: YYYY-MM-DD-HH (no dashes)
-        * Tuple format for the timestep (all integers): (YYYY, MM, DD, HH)
-    num_hours: int
-        Number of hours to add or subtract to the new timestep.
-    
-    Returns
-    -------
-    New timestep after adding or subtracting the given number of hours. This new timestep will be returned to the same format
-    as the input timestep.
-    """
-
-    timestep_type = type(timestep)
-
-    if timestep_type == str or timestep_type == np.str_:
-        year = int(timestep[:4])
-        month = int(timestep[4:6])
-        day = int(timestep[6:8])
-        hour = int(timestep[8:])
-    elif timestep_type == tuple:
-        if all(type(timestep_tuple_element) == int for timestep_tuple_element in timestep):
-            timestep = tuple([str(timestep_element) for timestep_element in timestep])
-        year, month, day, hour = timestep[0], timestep[1], timestep[2], timestep[3]
-    else:
-        raise TypeError("Timestep must be a string or a tuple with integers in one of the following formats: YYYYMMDDHH or (YYYY, MM, DD, HH)")
-
-    if year % 4 == 0:  # Check if the current year is a leap year
-        month_2_days = 29
-    else:
-        month_2_days = 28
-
-    days_per_month = [31, month_2_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-
-    new_year, new_month, new_day, new_hour = year, month, day, hour + num_hours
-    if new_hour > 0:
-        # If the new timestep is in a future day, this loop will be activated
-        while new_hour > 23:
-            new_hour -= 24
-            new_day += 1
-
-        # If the new timestep is in a future month, this loop will be activated
-        while new_day > days_per_month[new_month - 1]:
-            new_day -= days_per_month[new_month - 1]
-            if new_month < 12:
-                new_month += 1
-            else:
-                new_month = 1
-                new_year += 1
-    else:
-        # If the new timestep is in a past day, this loop will be activated
-        while new_hour < 0:
-            new_hour += 24
-            new_day -= 1
-
-        # If the new timestep is in a past month, this loop will be activated
-        while new_day < 1:
-            new_day += days_per_month[new_month - 2]
-            if new_month > 1:
-                new_month -= 1
-            else:
-                new_month = 12
-                new_year -= 1
-
-    return '%d%02d%02d%02d' % (new_year, new_month, new_day, new_hour)
-
-
 def normalize_variables(variable_ds, normalization_parameters=normalization_parameters):
     """
-    Function that normalizes GDAS variables via min-max normalization.
+    Function that normalizes thermodynamic variables via min-max normalization.
 
     Parameters
     ----------
     variable_ds: xr.Dataset
-        - Dataset containing ERA5, GDAS, or GFS variable data.
+        Dataset containing thermodynamic variable data.
     normalization_parameters: dict
-        - Dictionary containing parameters for normalization.
+        Dictionary containing parameters for normalization.
 
     Returns
     -------
     variable_ds: xr.Dataset
-        - Same as input dataset, but the variables are normalized via min-max normalization.
+        Same as input dataset, but the variables are normalized via min-max normalization.
     """
+
+    # Place pressure levels as the last dimension of the dataset
+    original_dim_order = variable_ds.dims
+    variable_ds = variable_ds.transpose(*[dim for dim in original_dim_order if dim != 'pressure_level'], 'pressure_level').astype('float64')
 
     variable_list = list(variable_ds.keys())
     pressure_levels = variable_ds['pressure_level'].values
 
-    new_var_shape = np.shape(variable_ds[variable_list[0]].values)
-
     for var in variable_list:
 
-        new_values_for_variable = np.empty(shape=new_var_shape)
+        current_variable_values = variable_ds[var].values
+        new_variable_values = np.zeros_like(current_variable_values)
 
-        for pressure_level_index in range(len(pressure_levels)):
+        for idx, pressure_level in enumerate(pressure_levels):
+            norm_var = '_'.join([var, pressure_level])  # name of the variable as it appears in the normalization parameters dictionary
+            max_val, min_val = normalization_parameters[norm_var]
+            new_variable_values[..., idx] = np.nan_to_num((variable_ds[var].values[..., idx] - min_val) / (max_val - min_val))
 
-            norm_var = '%s_%s' % (var, pressure_levels[pressure_level_index])
+        variable_ds[var].values = new_variable_values  # assign new values for variable
 
-            # Min-max normalization
-            if len(np.shape(new_values_for_variable)) == 4:
-                new_values_for_variable[:, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, pressure_level_index] - normalization_parameters[norm_var][1]) /
-                                                                                       (normalization_parameters[norm_var][0] - normalization_parameters[norm_var][1]))
-
-            elif len(np.shape(new_values_for_variable)) == 5:  # If forecast hours are in the dataset
-                new_values_for_variable[:, :, :, :, pressure_level_index] = np.nan_to_num((variable_ds[var].values[:, :, :, :, pressure_level_index] - normalization_parameters[norm_var][1]) /
-                                                                                          (normalization_parameters[norm_var][0] - normalization_parameters[norm_var][1]))
-
-        variable_ds[var].values = new_values_for_variable
-
+    variable_ds = variable_ds.transpose(*[dim for dim in original_dim_order])
     return variable_ds
 
 
@@ -610,14 +579,14 @@ def randomize_variables(variable_ds: xr.Dataset, random_variables: list or tuple
     Parameters
     ----------
     variable_ds: xr.Dataset
-        - ERA5 or GDAS variable dataset.
+        Xarray dataset containing thermodynamic variable data.
     random_variables: list or tuple
-        - List of variables to randomize the values of.
+        List of variables to randomize the values of.
 
     Returns
     -------
     variable_ds: xr.Dataset
-        - Same as input, but with the given variables having scrambled values.
+        Same as input, but with the given variables having scrambled values.
     """
 
     for random_variable in random_variables:
@@ -630,14 +599,15 @@ def randomize_variables(variable_ds: xr.Dataset, random_variables: list or tuple
     return variable_ds
 
 
-def combine_datasets(input_files, label_files=None):
+def combine_datasets(input_files: list[str],
+                     label_files: list[str] = None):
     """
     Combine many tensorflow datasets into one entire dataset.
 
     Returns
     -------
     complete_dataset: tf.data.Dataset object
-        - Concatenated tensorflow dataset.
+        Concatenated tensorflow dataset.
     """
     inputs = tf.data.Dataset.load(input_files[0])
 
@@ -656,3 +626,78 @@ def combine_datasets(input_files, label_files=None):
             inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
 
         return inputs
+
+
+def lambert_conformal_to_cartesian(
+        lon: np.ndarray | tuple | list | int | float,
+        lat: np.ndarray | tuple | list | int | float,
+        std_parallels: tuple | list = (20., 50.),
+        lon_ref: int | float = 0.,
+        lat_ref: int | float = 0.):
+    """
+    Transform points on a Lambert Conformal lat/lon grid to cartesian coordinates.
+
+    Parameters
+    ----------
+    lon: array_like of shape (N,), int, or float
+        Longitude point(s) expressed as degrees.
+    lat: array_like of shape (N,), int, or float
+        Latitude point(s) expressed as degrees.
+    std_parallels: tuple or list of 2 ints or floats
+        Standard parallels to use in the coordinate transformation, expressed as degrees.
+    lon_ref: int or float
+        Reference longitude point expressed as degrees.
+    lat_ref: int or float
+        Reference latitude point expressed as degrees.
+
+    Returns
+    -------
+    x: array_like of shape (N,) or float
+        X-component of the transformed coordinates, expressed as meters.
+    y: array_like of shape (N,) or float
+        Y-component of the transformed coordinates, expressed as meters.
+
+    Examples
+    --------
+    * Using parameters from example on Page 295 of Snyder 1987 (except the output here is expressed as meters):
+    >>> x, y = lambert_conformal_to_cartesian(lon=-75, lat=35, std_parallels=(33, 45), lon_ref=-96, lat_ref=23)
+    >>> x, y
+    (1890206.4076610378, 1568668.1244433122)
+
+    * Same as above but with longitudes expressed from 0 to 360 degrees east:
+    >>> x, y = lambert_conformal_to_cartesian(lon=285, lat=35, std_parallels=(33, 45), lon_ref=264, lat_ref=23)
+    >>> x, y
+    (1890206.4076610343, 1568668.1244433112)
+
+    References
+    ----------
+    * Snyder 1987: https://doi.org/10.3133/pp1395
+
+    Notes
+    -----
+    lon and lon_ref must be both expressed in the same longitude range (e.g. -180 to 180 degrees or 0 to 360 degrees)
+        to get correct values for x and y.
+    """
+
+    R = 6371229  # radius of earth (meters)
+
+    # Points and standard parallels need to be expressed as radians for the transformation formulas
+    lon = np.radians(lon)
+    lon_ref = np.radians(lon_ref)
+    lat = np.radians(lat)
+    lat_ref = np.radians(lat_ref)
+    std_parallels = np.radians(std_parallels)
+
+    if std_parallels[0] == std_parallels[1]:
+        n = np.sin(std_parallels[0])
+    else:
+        n = np.divide(np.log(np.cos(std_parallels[0]) / np.cos(std_parallels[1])),
+                      np.log(np.tan(np.pi/4 + std_parallels[1]/2) / np.tan(np.pi/4 + std_parallels[0]/2)))
+    F = np.cos(std_parallels[0]) * np.power(np.tan(np.pi/4 + std_parallels[0]/2), n) / n
+    rho = R * F / np.power(np.tan(np.pi/4 + lat/2), n)
+    rho0 = R * F / np.power(np.tan(np.pi/4 + lat_ref/2), n)
+
+    x = rho * np.sin(n * (lon - lon_ref))
+    y = rho0 - rho * np.cos(n * (lon - lon_ref))
+
+    return x, y

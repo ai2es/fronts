@@ -9,7 +9,7 @@ References
 * Vasaila 2013: https://www.vaisala.com/sites/default/files/documents/Humidity_Conversion_Formulas_B210973EN-F.pdf
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.2
+Script version: 2023.9.21
 """
 import numpy as np
 from utils import data_utils
@@ -28,7 +28,8 @@ NA = 6.02214076e23  # Avogrado constant (mol^-1)
 kB = 1.380649e-23  # Boltzmann constant (J/K)
 
 
-def absolute_humidity(T, Td):
+def absolute_humidity(T: int | float | np.ndarray | tf.Tensor,
+                      Td: int | float | np.ndarray | tf.Tensor):
     """
     Calculates absolute humidity from temperature and dewpoint temperature.
 
@@ -43,13 +44,32 @@ def absolute_humidity(T, Td):
     -------
     AH: float or iterable object
         Absolute humidity expressed as kilograms of water vapor per cubic meter of air (kg/m^3).
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> Td = 290  # K
+    >>> AH = absolute_humidity(T, Td)  # kg * m^-3
+    >>> AH
+    0.012493639535490526
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> AH = absolute_humidity(T, Td)  # kg * m^-3
+    >>> AH
+    array([0.00198323, 0.00277676, 0.00383828, 0.00524175, 0.00707688,
+           0.00945143, 0.01249364, 0.0163548 , 0.02121195])
     """
     e = vapor_pressure(Td)  # vapor pressure expressed as pascals
     AH = e / (Rv * T)  # absolute humidity
     return AH
 
 
-def dewpoint_from_vapor_pressure(vapor_pressure):
+def dewpoint_from_vapor_pressure(vapor_pressure: int | float | np.ndarray | tf.Tensor):
     """
     Calculates dewpoint temperature from vapor pressure.
 
@@ -62,13 +82,31 @@ def dewpoint_from_vapor_pressure(vapor_pressure):
     -------
     Td: float or iterable object
         Dewpoint temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> vap_pres = 1000  # Pa
+    >>> Td = dewpoint_from_vapor_pressure(vap_pres)
+    >>> Td
+    280.8734119482131
+
+    >>> vap_pres = np.arange(500, 4001, 500)  # Pa
+    >>> vap_pres
+    array([ 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000])
+    >>> Td = dewpoint_from_vapor_pressure(vap_pres)
+    >>> Td
+    array([270.12031682, 280.87341195, 287.56990934, 292.51813134,
+           296.4751267 , 299.7885851 , 302.64840758, 305.170169  ])
     """
     Td = (1/273.15 - (tf.math.log(vapor_pressure/e_knot)*(Rv/Lv))) ** -1 if tf.is_tensor(vapor_pressure) else \
          (1/273.15 - (np.log(vapor_pressure/e_knot)*(Rv/Lv))) ** -1
     return Td
 
 
-def dewpoint_from_specific_humidity(P, T, q):
+def dewpoint_from_specific_humidity(
+    P: int | float | np.ndarray | tf.Tensor,
+    T: int | float | np.ndarray | tf.Tensor,
+    q: int | float | np.ndarray | tf.Tensor):
     """
     Calculates dewpoint temperature from specific humidity, pressure, and temperature.
 
@@ -85,6 +123,32 @@ def dewpoint_from_specific_humidity(P, T, q):
     -------
     Td: float or iterable object
         Dewpoint temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> P = 1e5  # Pa
+    >>> T = 300  # K
+    >>> q = 20 / 1000  # g/kg -> kg/kg
+    >>> Td = dewpoint_from_specific_humidity(P, T, q)
+    >>> Td
+    298.199585429495
+
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> q = np.arange(5, 25.01, 2.5) / 1000  # g/kg -> kg/kg
+    >>> q
+    array([0.005 , 0.0075, 0.01  , 0.0125, 0.015 , 0.0175, 0.02  , 0.0225,
+           0.025 ])
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> Td = dewpoint_from_specific_humidity(P, T, q)
+    >>> Td
+    array([273.80033167, 279.97353235, 284.66312436, 288.51045188,
+           291.80950762, 294.72063163, 297.34130998, 299.7354364 ,
+           301.94726732])
     """
 
     # Constants needed to perform dewpoint calculation (Vasaila 2013)
@@ -105,7 +169,8 @@ def dewpoint_from_specific_humidity(P, T, q):
     return Td + 273.15
 
 
-def mixing_ratio_from_dewpoint(Td, P):
+def mixing_ratio_from_dewpoint(Td: int | float | np.ndarray | tf.Tensor,
+                               P: int | float | np.ndarray | tf.Tensor):
     """
     Calculates mixing ratio from dewpoint temperature and air pressure.
 
@@ -120,13 +185,34 @@ def mixing_ratio_from_dewpoint(Td, P):
     -------
     r: float or iterable object
         Mixing ratio expressed as grams of water per gram of dry air (unitless; g/g or kg/kg).
+
+    Examples
+    --------
+    >>> Td = 290  # K
+    >>> P = 1e5  # Pa
+    >>> r = mixing_ratio_from_dewpoint(Td, P)
+    >>> r
+    0.010947893449979635
+
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> r = mixing_ratio_from_dewpoint(Td, P)
+    >>> r
+    array([0.00192723, 0.0026682 , 0.00365056, 0.00493959, 0.00661507,
+           0.00877413, 0.01153478, 0.01504042, 0.01946563])
     """
     e = vapor_pressure(Td)
     r = epsilon * e / (P - e)  # mixing ratio
     return r
 
 
-def potential_temperature(T, P):
+def potential_temperature(T: int | float | np.ndarray | tf.Tensor,
+                          P: int | float | np.ndarray | tf.Tensor):
     """
     Returns potential temperature expressed as kelvin (K).
 
@@ -141,12 +227,34 @@ def potential_temperature(T, P):
     -------
     theta: float or iterable object
         Potential temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> T = 275  # K
+    >>> P = 9e4  # Pa
+    >>> theta = potential_temperature(T, P)
+    >>> theta
+    283.3951954331142
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> theta = potential_temperature(T, P)
+    >>> theta
+    array([287.75518363, 290.52120387, 293.2937428 , 296.07144546,
+           298.85311518, 301.63769299, 304.42424008, 307.21192283,
+           310.        ])
     """
     theta = T * tf.pow(1e5 / P, kd) if tf.is_tensor(T) and tf.is_tensor(P) else T * np.power(1e5 / P, kd)
     return theta
 
 
-def relative_humidity(T, Td):
+def relative_humidity(T: int | float | np.ndarray | tf.Tensor,
+                      Td: int | float | np.ndarray | tf.Tensor):
     """
     Returns relative humidity from temperature and dewpoint temperature.
 
@@ -161,6 +269,25 @@ def relative_humidity(T, Td):
     -------
     RH: float or iterable object
         Relative humidity.
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> Td = 290  # K
+    >>> RH = relative_humidity(T, Td)
+    >>> RH
+    0.5699908521249278
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> RH = relative_humidity(T, Td)
+    >>> RH
+    array([0.49824518, 0.51115071, 0.52366592, 0.53579872, 0.54755768,
+           0.5589519 , 0.56999085, 0.58068426, 0.591042  ])
     """
     e = vapor_pressure(Td)
     es = vapor_pressure(T)  # saturation vapor pressure
@@ -168,7 +295,8 @@ def relative_humidity(T, Td):
     return RH
 
 
-def specific_humidity_from_dewpoint(Td, P):
+def specific_humidity_from_dewpoint(Td: int | float | np.ndarray | tf.Tensor,
+                                    P: int | float | np.ndarray | tf.Tensor):
     """
     Calculates specific humidity from dewpoint and pressure.
 
@@ -183,12 +311,65 @@ def specific_humidity_from_dewpoint(Td, P):
     -------
     q: float or iterable object
         Specific humidity expressed as grams of water vapor per gram of dry air (unitless; g/g or kg/kg).
+
+    Examples
+    --------
+    >>> Td = 290  # K
+    >>> P = 1e5  # Pa
+    >>> q = specific_humidity_from_dewpoint(Td, P)
+    >>> q
+    0.010829329732443743
+
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> q = specific_humidity_from_dewpoint(Td, P)
+    >>> q
+    array([0.00192352, 0.0026611 , 0.00363728, 0.00491531, 0.0065716 ,
+           0.00869781, 0.01140324, 0.01481755, 0.01909393])
     """
     e = vapor_pressure(Td)
     return epsilon * e / (P - (0.378 * e))  # q: specific humidity
 
 
-def specific_humidity_from_mixing_ratio(r):
+def mixing_ratio_from_specific_humidity(q: int | float | np.ndarray | tf.Tensor):
+    """
+    Calculates mixing ratio from specific humidity.
+
+    Parameters
+    ----------
+    q: float or iterable object
+        Specific humidity expressed as grams of water vapor per gram of dry air (unitless; g/g or kg/kg).
+
+    Returns
+    -------
+    r: float or iterable object
+        Mixing ratio expressed as grams of water per gram of dry air (unitless; g/g or kg/kg).
+
+    Examples
+    --------
+    >>> q = 20 / 1000  # g/kg -> kg/kg
+    >>> r = mixing_ratio_from_specific_humidity(q)
+    >>> r * 1000  # kg/kg -> g/kg
+    20.408163265306126
+
+    >>> q = np.arange(5, 25.01, 2.5) / 1000  # g/kg -> kg/kg
+    >>> q
+    array([0.005 , 0.0075, 0.01  , 0.0125, 0.015 , 0.0175, 0.02  , 0.0225,
+           0.025 ])
+    >>> r = mixing_ratio_from_specific_humidity(q)
+    >>> r * 1000  # kg/kg -> g/kg
+    array([ 5.02512563,  7.55667506, 10.1010101 , 12.65822785, 15.2284264 ,
+           17.81170483, 20.40816327, 23.01790281, 25.64102564])
+    """
+    return q / (1 - q)  # r: mixing ratio
+
+
+def specific_humidity_from_mixing_ratio(r: int | float | np.ndarray | tf.Tensor):
     """
     Calculates specific humidity from mixing ratio.
 
@@ -201,11 +382,30 @@ def specific_humidity_from_mixing_ratio(r):
     -------
     q: float or iterable object
         Specific humidity expressed as grams of water vapor per gram of dry air (unitless; g/g or kg/kg).
+
+    Examples
+    --------
+    >>> r = 20 / 1000  # g/kg -> kg/kg
+    >>> q = specific_humidity_from_mixing_ratio(r)
+    >>> q * 1000  # kg/kg -> g/kg
+    19.607843137254903
+
+    >>> r = np.arange(5, 25.01, 2.5) / 1000  # g/kg -> kg/kg
+    >>> r
+    array([0.005 , 0.0075, 0.01  , 0.0125, 0.015 , 0.0175, 0.02  , 0.0225,
+           0.025 ])
+    >>> q = specific_humidity_from_mixing_ratio(r)
+    >>> q * 1000  # kg/kg -> g/kg
+    array([ 4.97512438,  7.44416873,  9.9009901 , 12.34567901, 14.77832512,
+           17.1990172 , 19.60784314, 22.00488998, 24.3902439 ])
     """
     return r / (1 + r)  # q: specific humidity
 
 
-def specific_humidity_from_relative_humidity(RH, T, P):
+def specific_humidity_from_relative_humidity(
+    RH: int | float | np.ndarray | tf.Tensor,
+    T: int | float | np.ndarray | tf.Tensor,
+    P: int | float | np.ndarray | tf.Tensor):
     """
     Calculates specific humidity from relative humidity, air temperature, and pressure.
 
@@ -222,6 +422,30 @@ def specific_humidity_from_relative_humidity(RH, T, P):
     -------
     q: float or iterable object
         Specific humidity expressed as grams of water vapor per gram of dry air (unitless; g/g or kg/kg).
+
+    Examples
+    --------
+    >>> RH = 0.8
+    >>> T = 300  # K
+    >>> P = 1e5  # Pa
+    >>> q = specific_humidity_from_relative_humidity(RH, T, P)
+    >>> q * 1000  # kg/kg -> g/kg
+    15.239787946316241
+
+    >>> RH = np.arange(0.5, 0.91, 0.05)
+    >>> RH
+    array([0.5 , 0.55, 0.6 , 0.65, 0.7 , 0.75, 0.8 , 0.85, 0.9 ])
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> q = specific_humidity_from_relative_humidity(RH, T, P)
+    >>> q * 1000
+    array([ 1.93030564,  2.86370132,  4.16882688,  5.96677284,  8.41051444,
+           11.6918278 , 16.04970636, 21.78077898, 29.25247145])
     """
     es = vapor_pressure(T)
     e = RH * es
@@ -230,7 +454,10 @@ def specific_humidity_from_relative_humidity(RH, T, P):
     return q
 
 
-def equivalent_potential_temperature(T, Td, P):
+def equivalent_potential_temperature(
+    T: int | float | np.ndarray | tf.Tensor,
+    Td: int | float | np.ndarray | tf.Tensor,
+    P: int | float | np.ndarray | tf.Tensor):
     """
     Calculates equivalent potential temperature (theta-e) from temperature, dewpoint, and pressure.
 
@@ -247,6 +474,31 @@ def equivalent_potential_temperature(T, Td, P):
     -------
     theta_e: float or iterable object
         Equivalent potential temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> Td = 290  # K
+    >>> P = 1e5  # Pa
+    >>> theta_e = equivalent_potential_temperature(T, Td, P)
+    >>> theta_e
+    326.52430009577137
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> theta_e = equivalent_potential_temperature(T, Td, P)
+    >>> theta_e
+    array([292.582033  , 297.1606042 , 302.3295548 , 308.2501438 ,
+           315.12588597, 323.21500183, 332.84798857, 344.45298499,
+           358.59322677])
     """
     RH = relative_humidity(T, Td)
     theta = potential_temperature(T, P)
@@ -256,7 +508,8 @@ def equivalent_potential_temperature(T, Td, P):
     return theta_e
 
 
-def wet_bulb_temperature(T, Td):
+def wet_bulb_temperature(T: int | float | np.ndarray | tf.Tensor,
+                         Td: int | float | np.ndarray | tf.Tensor):
     """
     Calculates wet-bulb temperature from temperature and dewpoint.
 
@@ -271,6 +524,26 @@ def wet_bulb_temperature(T, Td):
     -------
     Tw: float or iterable object
         Wet-bulb temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> Td = 290  # K
+    >>> Tw = wet_bulb_temperature(T, Td)
+    >>> Tw
+    293.8520102695189
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> Tw = wet_bulb_temperature(T, Td)
+    >>> Tw
+    array([266.93692268, 271.30728293, 275.72885706, 280.1976556 ,
+           284.70999386, 289.26248252, 293.85201027, 298.47572385,
+           303.13100751])
     """
     RH = relative_humidity(T, Td) * 100
     c1 = 0.151977
@@ -294,7 +567,9 @@ def wet_bulb_temperature(T, Td):
     return Tw
 
 
-def wet_bulb_potential_temperature(T, Td, P):
+def wet_bulb_potential_temperature(T: int | float | np.ndarray | tf.Tensor,
+                                   Td: int | float | np.ndarray | tf.Tensor,
+                                   P: int | float | np.ndarray | tf.Tensor):
     """
     Returns wet-bulb potential temperature (theta-w) in kelvin (K).
 
@@ -311,6 +586,31 @@ def wet_bulb_potential_temperature(T, Td, P):
     -------
     theta_w: float or iterable object
         Wet-bulb potential temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> Td = 290  # K
+    >>> P = 1e5  # Pa
+    >>> theta_w = wet_bulb_potential_temperature(T, Td, P)
+    >>> theta_w
+    array(290.65670769)
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> theta_w = wet_bulb_potential_temperature(T, Td, P)
+    >>> theta_w
+    array([277.86226914, 280.00624048, 282.24273162, 284.58957316,
+           287.06192678, 289.67108554, 292.42350276, 295.32019538,
+           298.35666949])
     """
 
     # Wet-bulb potential temperature constants and X variable (Davies-Jones 2008, Section 3).
@@ -343,7 +643,7 @@ def wet_bulb_potential_temperature(T, Td, P):
     return theta_w
 
 
-def vapor_pressure(Td):
+def vapor_pressure(Td: int | float | np.ndarray | tf.Tensor):
     """
     Calculates vapor pressure in pascals (Pa) for a given Dewpoint temperature expressed as kelvin (K).
 
@@ -356,13 +656,31 @@ def vapor_pressure(Td):
     -------
     vapor_pressure: float or iterable object
         Vapor pressure expressed as pascals (Pa).
+
+    Examples
+    --------
+    >>> Td = 290  # K
+    >>> vap_pres = vapor_pressure(Td)
+    >>> vap_pres
+    1729.7443936886634
+
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> vap_pres = vapor_pressure(Td)
+    >>> vap_pres
+    array([ 247.12075845,  352.40493817,  495.98223586,  689.43450819,
+            947.13483326, 1286.74161001, 1729.74439369, 2302.0614118 ,
+           3034.68799059])
     """
 
     vap_pres = e_knot * tf.exp((Lv/Rv) * ((1/273.15) - (1/Td))) if tf.is_tensor(Td) else e_knot * np.exp((Lv/Rv) * ((1/273.15) - (1/Td)))
     return vap_pres
 
 
-def virtual_potential_temperature(T, Td, P):
+def virtual_potential_temperature(T: int | float | np.ndarray | tf.Tensor,
+                                  Td: int | float | np.ndarray | tf.Tensor,
+                                  P: int | float | np.ndarray | tf.Tensor):
     """
     Calculates virtual potential temperature (theta-v) from temperature, dewpoint, and pressure.
 
@@ -379,13 +697,39 @@ def virtual_potential_temperature(T, Td, P):
     -------
     theta_v: float or iterable object
         Virtual potential temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> Td = 290  # K
+    >>> P = 1e5  # Pa
+    >>> theta_v = virtual_potential_temperature(T, Td, P)
+    >>> theta_v
+    301.9745879930382
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> theta_v = virtual_potential_temperature(T, Td, P)
+    >>> theta_v
+    array([288.09159758, 290.9910892 , 293.94212815, 296.95595223,
+           300.04678011, 303.23228364, 306.53413747, 309.97866221,
+           313.59758378])
     """
     Tv = virtual_temperature_from_dewpoint(T, Td, P)
     theta_v = potential_temperature(Tv, P)
     return theta_v
 
 
-def virtual_temperature_from_mixing_ratio(T, r):
+def virtual_temperature_from_mixing_ratio(T: int | float | np.ndarray | tf.Tensor,
+                                          r: int | float | np.ndarray | tf.Tensor):
     """
     Calculates virtual temperature from temperature and mixing ratio.
 
@@ -400,11 +744,34 @@ def virtual_temperature_from_mixing_ratio(T, r):
     -------
     Tv: float or iterable object
         Virtual temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> r = 20 / 1000  # g/kg -> kg/kg
+    >>> Tv = virtual_temperature_from_mixing_ratio(T, r)
+    >>> Tv
+    303.5752344416027
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> r = np.arange(5, 25.01, 2.5) / 1000  # g/kg -> kg/kg
+    >>> r
+    array([0.005 , 0.0075, 0.01  , 0.0125, 0.015 , 0.0175, 0.02  , 0.0225,
+           0.025 ])
+    >>> Tv = virtual_temperature_from_mixing_ratio(T, r)
+    >>> Tv
+    array([270.81643413, 276.24423481, 281.68496197, 287.13851986,
+           292.60481366, 298.08374951, 303.57523444, 309.07917641,
+           314.59548427])
     """
     return T * (1 + (r / epsilon)) / (1 + r)
 
 
-def virtual_temperature_from_dewpoint(T, Td, P):
+def virtual_temperature_from_dewpoint(T: int | float | np.ndarray | tf.Tensor,
+                                      Td: int | float | np.ndarray | tf.Tensor,
+                                      P: int | float | np.ndarray | tf.Tensor):
     """
     Calculates virtual temperature from temperature, dewpoint, and pressure.
 
@@ -421,6 +788,31 @@ def virtual_temperature_from_dewpoint(T, Td, P):
     -------
     Tv: float or iterable object
         Virtual temperature expressed as kelvin (K).
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> Td = 290  # K
+    >>> P = 1e5  # Pa
+    >>> Tv = virtual_temperature_from_dewpoint(T, Td, P)
+    >>> Tv
+    301.9745879930382
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> Td = np.arange(260, 301, 5)  # K
+    >>> Td
+    array([260, 265, 270, 275, 280, 285, 290, 295, 300])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> Tv = virtual_temperature_from_dewpoint(T, Td, P)
+    >>> Tv
+    array([270.3156564 , 275.44478153, 280.61899683, 285.85143108,
+           291.15830423, 296.55950086, 302.07923396, 307.74681888,
+           313.59758378])
     """
     r = mixing_ratio_from_dewpoint(Td, P)
     Tv = virtual_temperature_from_mixing_ratio(T, r)

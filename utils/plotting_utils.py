@@ -1,8 +1,8 @@
 """
-Plotting tools
+Plotting tools.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.14
+Script version: 2023.9.15
 """
 
 import cartopy.feature as cfeature
@@ -18,17 +18,18 @@ def plot_background(extent, ax=None, linewidth=0.5):
 
     Parameters
     ----------
-    extent: iterable with 4 ints
-        - Iterable containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat].
+    extent: Iterable object with 4 integers
+        Iterable containing the extent/boundaries of the plot in the format of [min lon, max lon, min lat, max lat] expressed
+            in degrees.
     ax: matplotlib.axes.Axes instance or None
-        - Axis on which the background will be plotted.
-    linewidth: float
-        - Thickness of coastlines and the borders of states and countries.
+        Axis on which the background will be plotted.
+    linewidth: float or int
+        Thickness of coastlines and the borders of states and countries.
 
     Returns
     -------
     ax: matplotlib.axes.Axes instance
-        - New plot background.
+        New plot background.
     """
     if ax is None:
         crs = ccrs.LambertConformal(central_longitude=250)
@@ -42,6 +43,25 @@ def plot_background(extent, ax=None, linewidth=0.5):
 
 
 def truncated_colormap(cmap, minval=0.0, maxval=1.0, n=100):
+    """
+    Get an instance of a truncated matplotlib.colors.Colormap object.
+
+    Parameters
+    ----------
+    cmap: str
+        Matplotlib colormap to truncate.
+    minval: float
+        Starting point of the colormap, represented by a float of 0 <= minval < 1.
+    maxval: float
+        End point of the colormap, represented by a float of 0 < maxval <= 1.
+    n: int
+        Number of colors for the colormap.
+
+    Returns
+    -------
+    new_cmap: matplotlib.colors.Colormap instance
+        Truncated colormap.
+    """
     cmap = plt.get_cmap(cmap)
     new_cmap = mpl.colors.LinearSegmentedColormap.from_list(
         'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),

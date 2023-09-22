@@ -2,7 +2,7 @@
 Miscellaneous tools.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.7.7
+Script version: 2023.7.7.D1
 """
 
 
@@ -19,7 +19,7 @@ def string_arg_to_dict(arg_str: str):
     arg_str = arg_str.replace(' ', '')  # Remove all spaces from the string.
     arg_dict = {}  # Dictionary that will contain the arguments and their respective values
 
-    # Iterate through all of the arguments within the string
+    # Iterate through all the arguments within the string
     while True:
 
         equals_index = arg_str.find('=')  # Index representing where an equals sign is located, marking the end of the argument name

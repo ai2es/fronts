@@ -12,7 +12,7 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from utils import settings
-from utils.data_utils import reformat_fronts
+from utils.data_utils import reformat_fronts, expand_fronts
 from utils.plotting_utils import plot_background
 import numpy as np
 import cartopy.crs as ccrs
@@ -27,6 +27,8 @@ def plot_fronts(netcdf_indir, plot_outdir, timestep, front_types, domain, extent
     if front_types is not None:
         fronts_ds = reformat_fronts(fronts_ds, front_types)
     labels = fronts_ds.attrs['labels']
+
+    fronts_ds = expand_fronts(fronts_ds, iterations=1)
     fronts_ds = xr.where(fronts_ds == 0, np.nan, fronts_ds)
 
     front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
@@ -58,7 +60,7 @@ if __name__ == '__main__':
     parser.add_argument('--plot_outdir', type=str, help='Directory for the plots.')
     parser.add_argument('--front_types', type=str, nargs='+', help='Directory for the netcdf files.')
     parser.add_argument('--domain', type=str, default='full', help="Domain for which the fronts will be plotted.")
-    parser.add_argument('--extent', type=int, nargs=4, default=[130, 370, 0, 80], help="Extent of the plot [min lon, max lon, min lat, max lat]")
+    parser.add_argument('--extent', type=float, nargs=4, default=[-180., 180., -90., 90.], help="Extent of the plot [min lon, max lon, min lat, max lat]")
     args = vars(parser.parse_args())
 
     plot_fronts(args['netcdf_indir'], args['plot_outdir'], args['timestep'], args['front_types'], args['domain'], args['extent'])

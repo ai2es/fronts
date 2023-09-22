@@ -2,13 +2,13 @@
 Calibrate a trained model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.6.24
+Script version: 2023.6.24.D1
 """
 import argparse
 import pandas as pd
 import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside of the current directory
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 from utils.settings import DEFAULT_FRONT_NAMES
 import matplotlib.pyplot as plt
 import pickle

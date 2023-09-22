@@ -5,13 +5,13 @@ Author: Andrew Justin (andrewjustinwx@gmail.com)
 Script version: 2023.8.13
 """
 import argparse
-from glob import glob
 import itertools
 import numpy as np
 import os
 import pandas as pd
 import pickle
 import tensorflow as tf
+import file_manager as fm
 from utils import data_utils, settings
 import xarray as xr
 
@@ -96,7 +96,7 @@ if __name__ == '__main__':
     year, month = args['year_and_month'][0], args['year_and_month'][1]
 
     tf_dataset_folder_variables = f'%s/%s_%d%02d_tf' % (args['tf_outdir'], args['variable_data_source'], year, month)
-    tf_dataset_folder_fronts = f"%s/fronts_{'_'.join(front_type for front_type in args['front_types'])}_%d%02d_tf" % (args['tf_outdir'], year, month)
+    tf_dataset_folder_fronts = f"%s/fronts_%d%02d_tf" % (args['tf_outdir'], year, month)
 
     if os.path.isdir(tf_dataset_folder_variables) or os.path.isdir(tf_dataset_folder_fronts):
         if args['overwrite']:
@@ -176,22 +176,17 @@ if __name__ == '__main__':
             print(f"%s: {args[key]}" % key)
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
-
-    variables_monthly_directory = '%s/%d%02d' % (args['variables_netcdf_indir'], year, month)
-    fronts_monthly_directory = '%s/%d%02d' % (args['fronts_netcdf_indir'], year, month)
-
-    variable_file_suffix = 'full' if args['variable_data_source'] == 'era5' else 'global'
     all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['variable_data_source'] == 'era5' else ['surface', '1000', '950', '900', '850', '700', '500']
 
-    variables_netcdf_files = sorted(glob('%s/%s_%d%02d*_%s.nc' % (variables_monthly_directory, args['variable_data_source'], year, month, variable_file_suffix)))
-    fronts_netcdf_files = sorted(glob('%s/FrontObjects_%d%02d*_full.nc' % (fronts_monthly_directory, year, month)))
+    synoptic_only = True if args['domain'] == 'full' else False
 
-    if args['domain'] == 'full':
-        zipped_list = list(zip(variables_netcdf_files, fronts_netcdf_files))
-        for file_pair in zipped_list:
-            if any(['%02d_full.nc' % hour in file_pair[0] for hour in np.arange(3, 27, 6)]):
-                zipped_list.pop(zipped_list.index(file_pair))
-        variables_netcdf_files, fronts_netcdf_files = zip(*zipped_list)
+    file_loader = fm.DataFileLoader(args['variables_netcdf_indir'], '%s-netcdf' % args['variable_data_source'], synoptic_only)
+    file_loader.pair_with_fronts(args['fronts_netcdf_indir'])
+
+    variables_netcdf_files = file_loader.data_files
+    fronts_netcdf_files = file_loader.front_files
+
+    print(stop)
 
     ### Grab front files from previous timesteps so previous fronts can be used as predictors ###
     if args['add_previous_fronts'] is not None:

@@ -12,7 +12,7 @@ TODO:
     * Add temporal U-Nets
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.18
+Script version: 2023.8.18.D1
 """
 
 from tensorflow.keras.models import Model
@@ -21,26 +21,27 @@ from utils import unet_utils
 import numpy as np
 
 
-def unet(input_shape: tuple[int],
-         num_classes: int,
-         pool_size: int | tuple[int] | list[int],
-         upsample_size: int | tuple[int] | list[int],
-         levels: int,
-         filter_num: tuple[int] | list[int],
-         kernel_size: int = 3,
-         squeeze_dims: int | tuple[int] | list[int] = None,
-         modules_per_node: int = 5,
-         batch_normalization: bool = True,
-         activation: str = 'relu',
-         padding: str = 'same',
-         use_bias: bool = True,
-         kernel_initializer: str = 'glorot_uniform',
-         bias_initializer: str = 'zeros',
-         kernel_regularizer: str = None,
-         bias_regularizer: str = None,
-         activity_regularizer: str = None,
-         kernel_constraint: str = None,
-         bias_constraint: str = None):
+def unet(
+    input_shape: tuple[int],
+    num_classes: int,
+    pool_size: int | tuple[int] | list[int],
+    upsample_size: int | tuple[int] | list[int],
+    levels: int,
+    filter_num: tuple[int] | list[int],
+    kernel_size: int = 3,
+    squeeze_dims: int | tuple[int] | list[int] = None,
+    modules_per_node: int = 5,
+    batch_normalization: bool = True,
+    activation: str = 'relu',
+    padding: str = 'same',
+    use_bias: bool = True,
+    kernel_initializer: str = 'glorot_uniform',
+    bias_initializer: str = 'zeros',
+    kernel_regularizer: str = None,
+    bias_regularizer: str = None,
+    activity_regularizer: str = None,
+    kernel_constraint: str = None,
+    bias_constraint: str = None):
     """
     Builds a U-Net model.
 
@@ -181,26 +182,27 @@ def unet(input_shape: tuple[int],
     return model
 
 
-def unet_ensemble(input_shape: tuple[int] | list[int],
-                  num_classes: int,
-                  pool_size: int | tuple[int] | list[int],
-                  upsample_size: int | tuple[int] | list[int],
-                  levels: int,
-                  filter_num: tuple[int] | list[int],
-                  kernel_size: int = 3,
-                  squeeze_dims: int | tuple[int] | list[int] = None,
-                  modules_per_node: int = 5,
-                  batch_normalization: bool = True,
-                  activation: str = 'relu',
-                  padding: str = 'same',
-                  use_bias: bool = True,
-                  kernel_initializer: str = 'glorot_uniform',
-                  bias_initializer: str = 'zeros',
-                  kernel_regularizer: str = None,
-                  bias_regularizer: str = None,
-                  activity_regularizer: str = None,
-                  kernel_constraint: str = None,
-                  bias_constraint: str = None):
+def unet_ensemble(
+    input_shape: tuple[int] | list[int],
+    num_classes: int,
+    pool_size: int | tuple[int] | list[int],
+    upsample_size: int | tuple[int] | list[int],
+    levels: int,
+    filter_num: tuple[int] | list[int],
+    kernel_size: int = 3,
+    squeeze_dims: int | tuple[int] | list[int] = None,
+    modules_per_node: int = 5,
+    batch_normalization: bool = True,
+    activation: str = 'relu',
+    padding: str = 'same',
+    use_bias: bool = True,
+    kernel_initializer: str = 'glorot_uniform',
+    bias_initializer: str = 'zeros',
+    kernel_regularizer: str = None,
+    bias_regularizer: str = None,
+    activity_regularizer: str = None,
+    kernel_constraint: str = None,
+    bias_constraint: str = None):
     """
     Builds a U-Net ensemble model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -349,27 +351,28 @@ def unet_ensemble(input_shape: tuple[int] | list[int],
     return model
 
 
-def unet_plus(input_shape: tuple[int] | list[int],
-              num_classes: int,
-              pool_size: int | tuple[int] | list[int],
-              upsample_size: int | tuple[int] | list[int],
-              levels: int,
-              filter_num: tuple[int] | list[int],
-              kernel_size: int = 3,
-              squeeze_dims: int | tuple[int] | list[int] = None,
-              modules_per_node: int = 5,
-              batch_normalization: bool = True,
-              deep_supervision: bool = True,
-              activation: str = 'relu',
-              padding: str = 'same',
-              use_bias: bool = True,
-              kernel_initializer: str = 'glorot_uniform',
-              bias_initializer: str = 'zeros',
-              kernel_regularizer: str = None,
-              bias_regularizer: str = None,
-              activity_regularizer: str = None,
-              kernel_constraint: str = None,
-              bias_constraint: str = None):
+def unet_plus(
+    input_shape: tuple[int] | list[int],
+    num_classes: int,
+    pool_size: int | tuple[int] | list[int],
+    upsample_size: int | tuple[int] | list[int],
+    levels: int,
+    filter_num: tuple[int] | list[int],
+    kernel_size: int = 3,
+    squeeze_dims: int | tuple[int] | list[int] = None,
+    modules_per_node: int = 5,
+    batch_normalization: bool = True,
+    deep_supervision: bool = True,
+    activation: str = 'relu',
+    padding: str = 'same',
+    use_bias: bool = True,
+    kernel_initializer: str = 'glorot_uniform',
+    bias_initializer: str = 'zeros',
+    kernel_regularizer: str = None,
+    bias_regularizer: str = None,
+    activity_regularizer: str = None,
+    kernel_constraint: str = None,
+    bias_constraint: str = None):
     """
     Builds a U-Net+ model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -520,27 +523,28 @@ def unet_plus(input_shape: tuple[int] | list[int],
     return model
 
 
-def unet_2plus(input_shape: tuple[int] | list[int],
-               num_classes: int,
-               pool_size: int | tuple[int] | list[int],
-               upsample_size: int | tuple[int] | list[int],
-               levels: int,
-               filter_num: tuple[int] | list[int],
-               kernel_size: int = 3,
-               squeeze_dims: int | tuple[int] | list[int] = None,
-               modules_per_node: int = 5,
-               batch_normalization: bool = True,
-               deep_supervision: bool = True,
-               activation: str = 'relu',
-               padding: str = 'same',
-               use_bias: bool = True,
-               kernel_initializer: str = 'glorot_uniform',
-               bias_initializer: str = 'zeros',
-               kernel_regularizer: str = None,
-               bias_regularizer: str = None,
-               activity_regularizer: str = None,
-               kernel_constraint: str = None,
-               bias_constraint: str = None):
+def unet_2plus(
+    input_shape: tuple[int] | list[int],
+    num_classes: int,
+    pool_size: int | tuple[int] | list[int],
+    upsample_size: int | tuple[int] | list[int],
+    levels: int,
+    filter_num: tuple[int] | list[int],
+    kernel_size: int = 3,
+    squeeze_dims: int | tuple[int] | list[int] = None,
+    modules_per_node: int = 5,
+    batch_normalization: bool = True,
+    deep_supervision: bool = True,
+    activation: str = 'relu',
+    padding: str = 'same',
+    use_bias: bool = True,
+    kernel_initializer: str = 'glorot_uniform',
+    bias_initializer: str = 'zeros',
+    kernel_regularizer: str = None,
+    bias_regularizer: str = None,
+    activity_regularizer: str = None,
+    kernel_constraint: str = None,
+    bias_constraint: str = None):
     """
     Builds a U-Net++ model.
     https://arxiv.org/pdf/1912.05074.pdf
@@ -727,30 +731,31 @@ def unet_2plus(input_shape: tuple[int] | list[int],
     return model
 
 
-def unet_3plus(input_shape: tuple[int] | list[int],
-               num_classes: int,
-               pool_size: int | tuple[int] | list[int],
-               upsample_size: int | tuple[int] | list[int],
-               levels: int,
-               filter_num: tuple[int] | list[int],
-               filter_num_skip: int = None,
-               filter_num_aggregate: tuple[int] | list[int] = None,
-               kernel_size: int = 3,
-               first_encoder_connections: bool = True,
-               squeeze_dims: int | tuple[int] | list[int] = None,
-               modules_per_node: int = 5,
-               batch_normalization: bool = True,
-               deep_supervision: bool = True,
-               activation: str = 'relu',
-               padding: str = 'same',
-               use_bias: bool = True,
-               kernel_initializer: str = 'glorot_uniform',
-               bias_initializer: str = 'zeros',
-               kernel_regularizer: str = None,
-               bias_regularizer: str = None,
-               activity_regularizer: str = None,
-               kernel_constraint: str = None,
-               bias_constraint: str = None):
+def unet_3plus(
+    input_shape: tuple[int] | list[int],
+    num_classes: int,
+    pool_size: int | tuple[int] | list[int],
+    upsample_size: int | tuple[int] | list[int],
+    levels: int,
+    filter_num: tuple[int] | list[int],
+    filter_num_skip: int = None,
+    filter_num_aggregate: tuple[int] | list[int] = None,
+    kernel_size: int = 3,
+    first_encoder_connections: bool = True,
+    squeeze_dims: int | tuple[int] | list[int] = None,
+    modules_per_node: int = 5,
+    batch_normalization: bool = True,
+    deep_supervision: bool = True,
+    activation: str = 'relu',
+    padding: str = 'same',
+    use_bias: bool = True,
+    kernel_initializer: str = 'glorot_uniform',
+    bias_initializer: str = 'zeros',
+    kernel_regularizer: str = None,
+    bias_regularizer: str = None,
+    activity_regularizer: str = None,
+    kernel_constraint: str = None,
+    bias_constraint: str = None):
     """
     Creates a U-Net 3+.
     https://arxiv.org/ftp/arxiv/papers/2004/2004.08790.pdf
@@ -1001,25 +1006,25 @@ def unet_3plus(input_shape: tuple[int] | list[int],
 
 
 def attention_unet(
-        input_shape: tuple[int],
-        num_classes: int,
-        pool_size: int | tuple[int] | list[int],
-        levels: int,
-        filter_num: tuple[int] | list[int],
-        kernel_size: int = 3,
-        squeeze_dims: int | tuple[int] | list[int] = None,
-        modules_per_node: int = 5,
-        batch_normalization: bool = True,
-        activation: str = 'relu',
-        padding: str = 'same',
-        use_bias: bool = True,
-        kernel_initializer: str = 'glorot_uniform',
-        bias_initializer: str = 'zeros',
-        kernel_regularizer: str = None,
-        bias_regularizer: str = None,
-        activity_regularizer: str = None,
-        kernel_constraint: str = None,
-        bias_constraint: str = None):
+    input_shape: tuple[int],
+    num_classes: int,
+    pool_size: int | tuple[int] | list[int],
+    levels: int,
+    filter_num: tuple[int] | list[int],
+    kernel_size: int = 3,
+    squeeze_dims: int | tuple[int] | list[int] = None,
+    modules_per_node: int = 5,
+    batch_normalization: bool = True,
+    activation: str = 'relu',
+    padding: str = 'same',
+    use_bias: bool = True,
+    kernel_initializer: str = 'glorot_uniform',
+    bias_initializer: str = 'zeros',
+    kernel_regularizer: str = None,
+    bias_regularizer: str = None,
+    activity_regularizer: str = None,
+    kernel_constraint: str = None,
+    bias_constraint: str = None):
     """
     Builds a U-Net model.
 
