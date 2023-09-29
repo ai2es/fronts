@@ -2,12 +2,14 @@
 Functions in this code manage data files and models.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.6.25.D1
+Script version: 2023.9.28
 """
 
 import argparse
+import time
 from glob import glob
 import os
+import numpy as np
 import pandas as pd
 import shutil
 import tarfile
@@ -77,7 +79,7 @@ def compress_files(
     ### Create the TAR file ###
     with tarfile.open(f"{main_dir}/{tar_filename}.tar.gz", "w:gz") as tarF:
 
-        ### Iterate through all of the available files ###
+        ### Iterate through all the available files ###
         for file in range(num_files):
             tarF.add(files[file], arcname=files[file].replace(main_dir, ''))  # Add the file to the TAR file
             tarF_size = os.path.getsize(f"{main_dir}/{tar_filename}.tar.gz")/1e6  # Compressed size of the files within the TAR file (megabytes)
@@ -139,7 +141,7 @@ def delete_grouped_files(
     ####################################################################################################################
 
     subdir_string = ''  # This string will be modified depending on the provided value of num_subdir
-    for i in range(num_subdir):
+    for _ in range(num_subdir):
         subdir_string += '/*'
     subdir_string += '/'
     glob_file_string = subdir_string + glob_file_string  # String that will be used to match with patterns in filenames
@@ -264,18 +266,19 @@ class DataFileLoader:
             self._file_prefix = data_file_type[0]
 
         self._all_data_files = sorted(glob("%s%s%s*%s" % (file_dir, self._subdir_glob, self._file_prefix, self._file_extension)))  # All data files without filtering
-        self.data_file_information = [os.path.basename(file).split('_')[1:] for file in self._all_data_files]  # timesteps in the unfiltered data files
+        self._data_file_information = [os.path.basename(file).split('_')[1:] for file in self._all_data_files]  # timesteps in the unfiltered data files
+        [data_file_info.insert(1, 'f000') for data_file_info in self._data_file_information if len(data_file_info) == 2]
 
         if synoptic_only:
             ### Filter out non-synoptic hours (3, 9, 15, 21z) ###
-            for file_info in self.data_file_information:
+            for file_info in self._data_file_information:
                 if any('%02d' % hour in file_info[0][-2:] for hour in [3, 9, 15, 21]):
-                    self._all_data_files.pop(self.data_file_information.index(file_info))
-                    self.data_file_information.pop(self.data_file_information.index(file_info))
+                    self._all_data_files.pop(self._data_file_information.index(file_info))
+                    self._data_file_information.pop(self._data_file_information.index(file_info))
 
         ### All available options for specific filters ###
         self._all_forecast_hours = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
-        self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
+        self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
 
         self.reset_all_filters()  # Resetting the filters simply creates the list of data files
 
@@ -547,12 +550,15 @@ class DataFileLoader:
         ----------
         front_indir: str
             Directory where the frontal object files are stored.
-        match: 'same', 'forecast', or 'all'
+        match: 'same', 'data-forecast', 'fronts-forecast', 'forecast', or 'any'
             Method to use when creating the final paired file lists.
             * 'same' will only match variable and front files that have the same file information (timestep, forecast hour, domain)
-            * 'forecast' will attempt to match variable files with forecast hours greater than 0 to front files with forecast hours of 0.
+            * 'data-forecast' will attempt to match variable files with forecast hours greater than 0 to front files with forecast hours of 0.
                 For example, gfs_2023033100_f006_global.nc will be paired with FrontObjects_2023033106_f000_global.nc.
-            * 'all' will perform the actions described in both 'same' and 'forecast'.
+            * 'fronts-forecast' will attempt to match front files with forecast hours greater than 0 to variable files with forecast hours of 0.
+                For example, FrontObjects_2023033100_f006_global.nc will be paired with gfs_2023033106_f000_global.nc.
+            * 'forecast' will perform actions in 'data-forecast' and 'fronts-forecast'
+            * 'any' will perform the actions in both 'same' and 'forecast'.
         """
 
         if self._file_prefix == 'FrontObjects':
@@ -562,24 +568,97 @@ class DataFileLoader:
         ######################################### Check the parameters for errors ######################################
         if not isinstance(front_indir, str):
             raise TypeError(f"front_indir must be a string, received {type(front_indir)}")
+        if match not in ['same', 'data-forecast', 'fronts-forecast', 'forecast', 'any']:
+            raise ValueError("Invalid match type: '%s'" % match)
         ################################################################################################################
 
         if self._file_type == 'netcdf':
             file_prefix = 'FrontObjects'
         elif self._file_type == 'tensorflow':
             file_prefix = 'fronts'
+            if match != 'same':
+                raise TypeError(f"Matching method must be 'same' with tensorflow datasets. Received: {match}")
         else:
             raise ValueError(f"The available options for 'file_type' are: 'netcdf', 'tensorflow'. Received: {self._file_type}")
 
         self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self._subdir_glob, file_prefix, self._file_extension)))  # All front files without filtering
         front_file_information = [os.path.basename(file).split('_')[1:] for file in self._all_front_files]
 
-        if match == 'same':
-            file_info_to_retain = [file_info for file_info in self.data_file_information if file_info in front_file_information]
-            self.data_files = [self._all_data_files[self.data_file_information.index(file_info)] for file_info in file_info_to_retain]
-            self.front_files = [self._all_front_files[front_file_information.index(file_info)] for file_info in file_info_to_retain]
+        # Add forecast hour 0 to file information if a forecast hour is not in the filename(s)
+        [front_file_info.insert(1, 'f000') for front_file_info in front_file_information if len(front_file_info) == 2]
 
-            data_timesteps_used = [file_info[0] for file_info in file_info_to_retain]
+        if self._file_type == 'tensorflow':
+            # Dates in tensorflow dataset filenames are only the year and month, so we will add a day and hour to the file information
+            self._data_file_information = [[data_file_info[0] + '0100', *data_file_info[1:]] for data_file_info in self._data_file_information]
+            front_file_information = [[front_file_info[0] + '0100', *front_file_info[1:]] for front_file_info in front_file_information]
+
+        new_data_file_list = []
+        new_front_file_list = []
+        data_timesteps_used = []  # timesteps used in the data; used to sort into training/validation/test datasets
+
+        if match == 'same':
+            # Indices in the data and front file lists where all file information is the same
+            index_pairs = np.array([[data_idx, front_file_information.index(file_info)] for data_idx, file_info in enumerate(self._data_file_information)
+                                    if file_info in front_file_information])
+
+            # Files corresponding to the above indices
+            _data_files = [self._all_data_files[idx] for idx in index_pairs[:, 0]]
+            _front_files = [self._all_front_files[idx] for idx in index_pairs[:, 1]]
+
+            # Update file information to only include information for the selected files
+            self._data_file_information = [self._data_file_information[idx] for idx in index_pairs[:, 0]]
+            front_file_information = [front_file_information[idx] for idx in index_pairs[:, 1]]
+
+        if 'forecast' in match:
+
+            data_file_info_to_retain = []
+            front_file_info_to_retain = []
+
+            if match == 'data-forecast':
+                # Remove all data files with forecast hours equal to 0 and all front files with forecast hours NOT equal to 0
+                data_file_info_to_retain.append([file_info for file_info in self._data_file_information if file_info[1] != 'f000'])
+                front_file_info_to_retain.append([file_info for file_info in front_file_information if file_info[1] == 'f000'])
+
+            elif match == 'fronts-forecast':
+                # Remove all data files with forecast hours NOT equal to 0 and all front files with forecast hours equal to 0
+                data_file_info_to_retain.append([file_info for file_info in self._data_file_information if file_info[1] == 'f000'])
+                front_file_info_to_retain.append([file_info for file_info in front_file_information if file_info[1] != 'f000'])
+
+            _data_files = [self._all_data_files[self._data_file_information.index(file_info)] for file_info in data_file_info_to_retain]
+            _front_files = [self._all_front_files[front_file_information.index(file_info)] for file_info in front_file_info_to_retain]
+
+            self._data_file_information = [self._data_file_information[self._data_file_information.index(file_info)] for file_info in data_file_info_to_retain]
+            front_file_information = [front_file_information[front_file_information.index(file_info)] for file_info in front_file_info_to_retain]
+
+        # Valid time = initialization time + forecast hours
+        data_file_valid_times = [np.datetime64(
+            '%s-%s-%sT%s' % (file_info[0][:4], file_info[0][4:6], file_info[0][6:8], file_info[0][8:]))
+                                 + np.timedelta64(int(file_info[1][1:])) for file_info in
+                                 self._data_file_information]
+        front_file_valid_times = [np.datetime64(
+            '%s-%s-%sT%s' % (file_info[0][:4], file_info[0][4:6], file_info[0][6:8], file_info[0][8:]))
+                                  + np.timedelta64(int(file_info[1][1:])) for file_info in
+                                  front_file_information]
+
+        if match == 'any':
+            _data_files = [self._all_data_files[self._data_file_information.index(file_info)] for file_info in self._data_file_information]
+            _front_files = [self._all_front_files[front_file_information.index(file_info)] for file_info in front_file_information]
+
+            index_pairs = [[idx, np.where(front_file_valid_times == data_file_valid_time)[0]] for idx, data_file_valid_time in enumerate(data_file_valid_times)]
+
+            [new_data_file_list.append(_data_files[idx_pair[0]]) for idx_pair in index_pairs if len(idx_pair[1]) > 0 for _ in range(len(idx_pair[1]))]
+            [new_front_file_list.append(_front_files[idx]) for idx_pair in index_pairs if len(idx_pair[1]) > 0 for idx in idx_pair[1]]
+            [data_timesteps_used.append(pd.to_datetime(front_file_valid_times[idx]).strftime('%Y%m%d%H')) for idx_pair in index_pairs if len(idx_pair[1]) > 0 for idx in idx_pair[1]]
+
+        else:
+            _, data_indices, front_indices = np.intersect1d(data_file_valid_times, front_file_valid_times, return_indices=True)
+
+            [new_data_file_list.append(_data_files[idx]) for idx in data_indices]
+            [new_front_file_list.append(_front_files[idx]) for idx in front_indices]
+            [data_timesteps_used.append(pd.to_datetime(data_file_valid_times[idx]).strftime('%Y%m%d%H')) for idx in data_indices]
+
+        self.data_files = new_data_file_list
+        self.front_files = new_front_file_list
 
         self.__sort_files_by_dataset(data_timesteps_used, sort_fronts=True)
 
