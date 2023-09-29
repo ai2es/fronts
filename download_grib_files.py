@@ -2,7 +2,7 @@
 Download grib files for GDAS and/or GFS data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.23
+Script version: 2023.9.28
 """
 
 import argparse
@@ -89,7 +89,7 @@ if __name__ == "__main__":
                     folder = 'forecast'  # forecast hours other than 0, 1, 2, 3, 6 do not have analysis data
                 files.append(f"https://www.ncei.noaa.gov/data/north-american-mesoscale-model/access/%s/%d%02d/%d%02d%02d/nam_218_%d%02d%02d_%02d00_%03d.grb2" %
                              (folder, init_time.year, init_time.month, init_time.year, init_time.month, init_time.day, init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
-        [local_filenames.append("%s_%d%02d%02d%02d_f%03d.grib" % (args['model'], init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour)) for forecast_hour in args['forecast_hours']]
+        [local_filenames.append("%s_%d%02d%02d%02d_f%03d.grib" % (args['model'].replace('_', ''), init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour)) for forecast_hour in args['forecast_hours']]
 
     for file, local_filename in zip(files, local_filenames):
 
