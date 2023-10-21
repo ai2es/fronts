@@ -2,11 +2,10 @@
 Functions in this code manage data files and models.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.28
+Script version: 2023.10.20
 """
 
 import argparse
-import time
 from glob import glob
 import os
 import numpy as np
@@ -242,7 +241,7 @@ class DataFileLoader:
             raise TypeError(f"synoptic_only must be a boolean, received {type(synoptic_only)}")
         ################################################################################################################
 
-        valid_data_sources = ['era5', 'fronts', 'gdas', 'gfs']
+        valid_data_sources = ['era5', 'ecmwf', 'fronts', 'gdas', 'gfs']
         valid_file_types = ['netcdf', 'tensorflow']
 
         data_file_type = data_file_type.lower().split('-')
