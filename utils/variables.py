@@ -9,7 +9,7 @@ References
 * Vasaila 2013: https://www.vaisala.com/sites/default/files/documents/Humidity_Conversion_Formulas_B210973EN-F.pdf
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.21
+Script version: 2023.10.21
 """
 import numpy as np
 from utils import data_utils
@@ -253,8 +253,8 @@ def potential_temperature(T: int | float | np.ndarray | tf.Tensor,
     return theta
 
 
-def relative_humidity(T: int | float | np.ndarray | tf.Tensor,
-                      Td: int | float | np.ndarray | tf.Tensor):
+def relative_humidity_from_dewpoint(T, Td):
+
     """
     Returns relative humidity from temperature and dewpoint temperature.
 
@@ -274,7 +274,7 @@ def relative_humidity(T: int | float | np.ndarray | tf.Tensor,
     --------
     >>> T = 300  # K
     >>> Td = 290  # K
-    >>> RH = relative_humidity(T, Td)
+    >>> RH = relative_humidity_from_dewpoint(T, Td)
     >>> RH
     0.5699908521249278
 
@@ -284,14 +284,62 @@ def relative_humidity(T: int | float | np.ndarray | tf.Tensor,
     >>> Td = np.arange(260, 301, 5)  # K
     >>> Td
     array([260, 265, 270, 275, 280, 285, 290, 295, 300])
-    >>> RH = relative_humidity(T, Td)
+    >>> RH = relative_humidity_from_dewpoint(T, Td)
     >>> RH
     array([0.49824518, 0.51115071, 0.52366592, 0.53579872, 0.54755768,
            0.5589519 , 0.56999085, 0.58068426, 0.591042  ])
     """
-    e = vapor_pressure(Td)
-    es = vapor_pressure(T)  # saturation vapor pressure
-    RH = e / es  # relative humidity
+
+    exp_func = tf.exp if tf.is_tensor(T) and tf.is_tensor(Td) else np.exp
+    RH = exp_func(Lv/Rv * (1/T - 1/Td))
+
+    return RH
+
+
+def relative_humidity_from_mixing_ratio(T, r, P):
+    """
+    Returns relative humidity from temperature, mixing ratio, and pressure.
+
+    Parameters
+    ----------
+    T: float or iterable object
+        Air temperature expressed as kelvin (K).
+    r: float or iterable object
+        Mixing ratio expressed as grams of water per gram of dry air (unitless; g/g or kg/kg).
+    P: float or iterable object
+        Air pressure expressed as pascals (Pa).
+
+    Returns
+    -------
+    RH: float or iterable object
+        Relative humidity.
+
+    Examples
+    --------
+    >>> T = 300  # K
+    >>> r = 15 / 1000  # g/kg ---> g/g
+    >>> P = 1e5  # Pa
+    >>> relative_humidity_from_mixing_ratio(T, r, P)
+    0.7759915394735595
+
+    >>> T = np.arange(270, 311, 5)  # K
+    >>> T
+    array([270, 275, 280, 285, 290, 295, 300, 305, 310])
+    >>> r = np.arange(1, 9.01, 1) / 1000  # g/kg -> kg/kg
+    >>> r
+    array([0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009])
+    >>> P = np.arange(800, 1001, 25) * 100  # Pa
+    >>> P
+    array([ 80000,  82500,  85000,  87500,  90000,  92500,  95000,  97500,
+           100000])
+    >>> relative_humidity_from_mixing_ratio(T, r, P)
+    array([0.25891395, 0.38355349, 0.4307923 , 0.43453214, 0.41493737,
+           0.38391574, 0.3483986 , 0.31231771, 0.27780294])
+    """
+
+    exp_func = tf.exp if tf.is_tensor(T) else np.exp
+    RH = (P * r / (e_knot * (epsilon + r))) * exp_func(Lv/Rv * (1/T - 1/273.15))
+
     return RH
 
 
@@ -500,7 +548,7 @@ def equivalent_potential_temperature(
            315.12588597, 323.21500183, 332.84798857, 344.45298499,
            358.59322677])
     """
-    RH = relative_humidity(T, Td)
+    RH = relative_humidity_from_dewpoint(T, Td)
     theta = potential_temperature(T, P)
     rv = mixing_ratio_from_dewpoint(Td, P)
     theta_e = theta * tf.pow(RH, -rv * Rv / Cpd) * tf.exp(Lv * rv / (Cpd * T)) if all(tf.is_tensor(var) for var in [T, Td, P]) else \
@@ -545,7 +593,7 @@ def wet_bulb_temperature(T: int | float | np.ndarray | tf.Tensor,
            284.70999386, 289.26248252, 293.85201027, 298.47572385,
            303.13100751])
     """
-    RH = relative_humidity(T, Td) * 100
+    RH = relative_humidity_from_dewpoint(T, Td) * 100
     c1 = 0.151977
     c2 = 8.313659
     c3 = 1.676331
