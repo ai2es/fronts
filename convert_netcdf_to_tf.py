@@ -2,7 +2,10 @@
 Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.13
+Script version: 2023.10.23
+
+TODO:
+    * fix bug in file manager script that incorrectly matches files with different initialization times and/or forecast hours
 """
 import argparse
 import itertools
@@ -20,7 +23,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--year_and_month', type=int, nargs=2, required=True,
         help="Year and month for the netcdf data to be converted to tensorflow datasets.")
-    parser.add_argument('--variable_data_source', type=str, default='era5', help="Data source or model containing the variable data.")
+    parser.add_argument('--data_source', type=str, default='era5', help="Data source or model containing the variable data.")
     parser.add_argument('--variables_netcdf_indir', type=str, required=True,
         help="Input directory for the netCDF files containing variable data.")
     parser.add_argument('--fronts_netcdf_indir', type=str, required=True,
@@ -89,13 +92,13 @@ if __name__ == '__main__':
         gpus = tf.config.list_physical_devices(device_type='GPU')
         tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args['gpu_device']], device_type='GPU')
 
-        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
+        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all the GPU's memory.
         if args['memory_growth']:
             tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args['gpu_device']][0], enable=True)
 
     year, month = args['year_and_month'][0], args['year_and_month'][1]
 
-    tf_dataset_folder_variables = f'%s/%s_%d%02d_tf' % (args['tf_outdir'], args['variable_data_source'], year, month)
+    tf_dataset_folder_variables = f'%s/%s_%d%02d_tf' % (args['tf_outdir'], args['data_source'], year, month)
     tf_dataset_folder_fronts = f"%s/fronts_%d%02d_tf" % (args['tf_outdir'], year, month)
 
     if os.path.isdir(tf_dataset_folder_variables) or os.path.isdir(tf_dataset_folder_fronts):
@@ -176,17 +179,18 @@ if __name__ == '__main__':
             print(f"%s: {args[key]}" % key)
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
-    all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['variable_data_source'] == 'era5' else ['surface', '1000', '950', '900', '850', '700', '500']
+    all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1000', '950', '900', '850', '700', '500']
 
     synoptic_only = True if args['domain'] == 'full' else False
 
-    file_loader = fm.DataFileLoader(args['variables_netcdf_indir'], '%s-netcdf' % args['variable_data_source'], synoptic_only)
+    file_loader = fm.DataFileLoader(args['variables_netcdf_indir'], '%s-netcdf' % args['data_source'], synoptic_only)
     file_loader.pair_with_fronts(args['fronts_netcdf_indir'])
 
     variables_netcdf_files = file_loader.data_files
     fronts_netcdf_files = file_loader.front_files
 
-    print(stop)
+    variables_netcdf_files = [file for file in variables_netcdf_files if '_%d%02d' % (year, month) in file]
+    fronts_netcdf_files = [file for file in fronts_netcdf_files if '_%d%02d' % (year, month) in file]
 
     ### Grab front files from previous timesteps so previous fronts can be used as predictors ###
     if args['add_previous_fronts'] is not None:
@@ -239,6 +243,9 @@ if __name__ == '__main__':
     timesteps_kept = 0
     timesteps_discarded = 0
 
+    if args['data_source'] != 'era5':
+        isel_kwargs['forecast_hour'] = 0
+
     for timestep_no in range(num_timesteps):
 
         front_dataset = xr.open_dataset(fronts_netcdf_files[timestep_no], engine='netcdf4').isel(**isel_kwargs).astype('float16')
@@ -254,15 +261,12 @@ if __name__ == '__main__':
             front_dataset = data_utils.expand_fronts(front_dataset, iterations=args['front_dilation'])  # expand the front labels
 
         keep_timestep = np.random.random() <= args['keep_fraction']  # boolean flag for keeping timesteps without all front types
-
-        front_dataset = front_dataset.isel(time=0).to_array().transpose('longitude', 'latitude', 'variable')
+        front_dataset = front_dataset.isel(time=0)
+        front_dataset = front_dataset.to_array().transpose('longitude', 'latitude', 'variable')
         front_bins = np.bincount(front_dataset.values.astype('int64').flatten(), minlength=num_front_types)  # counts for each front type
         all_fronts_present = all([front_count > 0 for front_count in front_bins]) > 0  # boolean flag that says if all front types are present in the current timestep
 
         if all_fronts_present or keep_timestep or args['evaluation_dataset']:
-
-            if args['variable_data_source'] != 'era5':
-                isel_kwargs['forecast_hour'] = 0
 
             variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].isel(**isel_kwargs).sel(pressure_level=args['pressure_levels']).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
             variables_dataset = data_utils.normalize_variables(variables_dataset).isel(time=0).transpose('longitude', 'latitude', 'pressure_level').astype('float16')
