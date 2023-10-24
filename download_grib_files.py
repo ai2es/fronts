@@ -2,7 +2,7 @@
 Download grib files for GDAS and/or GFS data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.28
+Script version: 2023.10.23
 """
 
 import argparse
@@ -78,10 +78,10 @@ if __name__ == "__main__":
             [files.append(f"https://noaa-rap-pds.s3.amazonaws.com/rap.%d%02d%02d/rap.t%02dz.wrfprsf%02d.grib2" % (init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
              for forecast_hour in args['forecast_hours']]
         elif 'namnest' in args['model']:
-            nest = args['model'].split('_')[-1]
+            nest = args['model'].split('-')[-1]
             [files.append(f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/nam/prod/nam.%d%02d%02d/nam.t%02dz.%snest.hiresf%02d.tm00.grib2" % (init_time.year, init_time.month, init_time.day, init_time.hour, nest, forecast_hour))
              for forecast_hour in args['forecast_hours']]
-        elif args['model'] == 'nam_12km':
+        elif args['model'] == 'nam-12km':
             for forecast_hour in args['forecast_hours']:
                 if forecast_hour in [0, 1, 2, 3, 6]:
                     folder = 'analysis'  # use the analysis folder as it contains more accurate data
@@ -89,12 +89,9 @@ if __name__ == "__main__":
                     folder = 'forecast'  # forecast hours other than 0, 1, 2, 3, 6 do not have analysis data
                 files.append(f"https://www.ncei.noaa.gov/data/north-american-mesoscale-model/access/%s/%d%02d/%d%02d%02d/nam_218_%d%02d%02d_%02d00_%03d.grb2" %
                              (folder, init_time.year, init_time.month, init_time.year, init_time.month, init_time.day, init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
-        [local_filenames.append("%s_%d%02d%02d%02d_f%03d.grib" % (args['model'].replace('_', ''), init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour)) for forecast_hour in args['forecast_hours']]
+        [local_filenames.append("%s_%d%02d%02d%02d_f%03d.grib" % (args['model'], init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour)) for forecast_hour in args['forecast_hours']]
 
-    for file, local_filename in zip(files, local_filenames):
-
-        init_time = local_filename.split('_')[1] if 'nam' not in args['model'] else local_filename.split('_')[2]
-        init_time = pd.to_datetime(f'{init_time[:4]}-{init_time[4:6]}-{init_time[6:8]}-{init_time[8:10]}')
+    for init_time, file, local_filename in zip(init_times, files, local_filenames):
 
         monthly_directory = '%s/%d%02d' % (args['grib_outdir'], init_time.year, init_time.month)  # Directory for the grib files for the given days
 
