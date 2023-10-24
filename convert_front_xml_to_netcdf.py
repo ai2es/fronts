@@ -2,7 +2,10 @@
 Convert front XML files to netCDF files.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.21
+Script version: 2023.10.23
+
+TODO:
+    * Fix bug with fronts sitting on the edge of model domains
 """
 
 import argparse
@@ -33,13 +36,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--xml_indir', type=str, required=True, help="Input directory for front XML files.")
     parser.add_argument('--netcdf_outdir', type=str, required=True, help="Output directory for front netCDF files.")
-    parser.add_argument('--date', type=int, nargs=3, required=True, help="Date for the data to be read in. (year, month, day)")
+    parser.add_argument('--date', type=str, required=True, help="Date for the data to be read in. YYYY-MM-DD")
     parser.add_argument('--distance', type=float, default=1., help="Interpolation distance in kilometers.")
     parser.add_argument('--domain', type=str, default='full', help="Domain for which to generate fronts.")
 
     args = vars(parser.parse_args())
 
-    year, month, day = args['date']
+    date = np.datetime64(args['date']).astype(object)
+    year, month, day = date.year, date.month, date.day
 
     if args['domain'] == 'global':
         files = sorted(glob.glob("%s/IBM*_%04d%02d%02d*f*.xml" % (args['xml_indir'], year, month, day)))
@@ -48,37 +52,29 @@ if __name__ == "__main__":
 
     domain_from_model = args['domain'] not in ['conus', 'full', 'global']
 
-    if domain_from_model:
+    for filename in files:
 
-        transform_args = {'hrrr': dict(std_parallels=(38.5, 38.5), lon_ref=262.5, lat_ref=38.5),
-                          'nam_12km': dict(std_parallels=(25, 25), lon_ref=265, lat_ref=40),
-                          'namnest_conus': dict(std_parallels=(38.5, 38.5), lon_ref=262.5, lat_ref=38.5)}
+        print(filename)
 
-        if args['domain'] == 'hrrr':
-            model_dataset = xr.open_dataset('hrrr_2023040100_f000.grib', backend_kwargs=dict(filter_by_keys={'typeOfLevel': 'isobaricInhPa'}))
-        elif args['domain'] == 'nam_12km':
-            model_dataset = xr.open_dataset('nam_12km_2021032300_f006.grib', backend_kwargs=dict(filter_by_keys={'typeOfLevel': 'isobaricInhPa'}))
-        elif args['domain'] == 'rap':
-            model_dataset = xr.open_dataset('rap_2021032300_f006.grib', backend_kwargs=dict(filter_by_keys={'typeOfLevel': 'isobaricInhPa'}))
-        elif args['domain'] == 'namnest_conus':
-            model_dataset = xr.open_dataset('namnest_conus_2023090800_f000.grib', backend_kwargs=dict(filter_by_keys={'typeOfLevel': 'isobaricInhPa'}))
+        if domain_from_model:
 
-        gridded_lons = model_dataset['longitude'].values.astype('float32')
-        gridded_lats = model_dataset['latitude'].values.astype('float32')
+            model_coords_ds = xr.open_dataset('./coordinates/%s.nc' % args['domain'])
 
-        model_x_transform, model_y_transform = data_utils.lambert_conformal_to_cartesian(gridded_lons, gridded_lats, **transform_args[args['domain']])
-        gridded_x = model_x_transform[0, :]
-        gridded_y = model_y_transform[:, 0]
+            # transform model's coordinates to a cartesian grid
+            transform_args = dict(std_parallels=model_coords_ds.attrs['std_parallels'], lon_ref=model_coords_ds.attrs['lon_ref'], lat_ref=model_coords_ds.attrs['lat_ref'])
+            gridded_lons = model_coords_ds['longitude'].values.astype('float32')
+            gridded_lats = model_coords_ds['latitude'].values.astype('float32')
+            model_x_transform, model_y_transform = data_utils.lambert_conformal_to_cartesian(gridded_lons, gridded_lats, **transform_args)
+            gridded_x = model_x_transform[0, :]
+            gridded_y = model_y_transform[:, 0]
 
-        identifier = np.zeros(np.shape(gridded_lons)).astype('float32')
+            identifier = np.zeros(np.shape(gridded_lons)).astype('float32')
 
-    else:
+        else:
 
-        gridded_lons = domain_coords[args['domain']]['lons'].astype('float32')
-        gridded_lats = domain_coords[args['domain']]['lats'].astype('float32')
-        identifier = np.zeros([len(gridded_lons), len(gridded_lats)]).astype('float32')
-
-    for filename in files[-1:]:
+            gridded_lons = domain_coords[args['domain']]['lons'].astype('float32')
+            gridded_lats = domain_coords[args['domain']]['lats'].astype('float32')
+            identifier = np.zeros([len(gridded_lons), len(gridded_lats)]).astype('float32')
 
         tree = ET.parse(filename, parser=ET.XMLParser(encoding='utf-8'))
         root = tree.getroot()
@@ -91,8 +87,6 @@ if __name__ == "__main__":
         for line in root.iter('Line'):
 
             type_of_front = line.get("pgenType")  # front type
-
-            print(type_of_front)
 
             lons, lats = zip(*[[float(point.get("Lon")), float(point.get("Lat"))] for point in line.iter('Point')])
             lons, lats = np.array(lons), np.array(lats)
@@ -121,7 +115,7 @@ if __name__ == "__main__":
 
             if domain_from_model:
                 x_new *= 1000; y_new *= 1000  # convert front's points to meters
-                x_transform, y_transform = data_utils.lambert_conformal_to_cartesian(lon_new, lat_new, **transform_args[args['domain']])
+                x_transform, y_transform = data_utils.lambert_conformal_to_cartesian(lon_new, lat_new, **transform_args)
 
                 gridded_indices = np.dstack((np.digitize(y_transform, gridded_y), np.digitize(x_transform, gridded_x)))[0]  # translate coordinate indices to grid
                 gridded_indices_unique = np.unique(gridded_indices, axis=0)  # remove duplicate coordinate indices
