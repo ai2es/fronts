@@ -2,9 +2,11 @@
 Create ERA5 netCDF datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.6.7
-"""
+Script version: 2023.10.23
 
+TODO:
+    * remove hard-coded folder structure for surface and pressure level data
+"""
 import argparse
 import numpy as np
 import os
@@ -74,7 +76,7 @@ if __name__ == "__main__":
         theta_w_sfc = variables.wet_bulb_potential_temperature(T_sfc, Td_sfc, sp)  # Wet-bulb potential temperature
         r_sfc = variables.mixing_ratio_from_dewpoint(Td_sfc, sp)  # Mixing ratio
         q_sfc = variables.specific_humidity_from_dewpoint(Td_sfc, sp)  # Specific humidity
-        RH_sfc = variables.relative_humidity(T_sfc, Td_sfc)  # Relative humidity
+        RH_sfc = variables.relative_humidity_from_dewpoint(T_sfc, Td_sfc)  # Relative humidity
         Tv_sfc = variables.virtual_temperature_from_dewpoint(T_sfc, Td_sfc, sp)  # Virtual temperature
         Tw_sfc = variables.wet_bulb_temperature(T_sfc, Td_sfc)  # Wet-bulb temperature
 
@@ -107,10 +109,10 @@ if __name__ == "__main__":
         r_900 = variables.mixing_ratio_from_dewpoint(Td_900, 90000)
         r_950 = variables.mixing_ratio_from_dewpoint(Td_950, 95000)
         r_1000 = variables.mixing_ratio_from_dewpoint(Td_1000, 100000)
-        RH_850 = variables.relative_humidity(T_850, Td_850)
-        RH_900 = variables.relative_humidity(T_900, Td_900)
-        RH_950 = variables.relative_humidity(T_950, Td_950)
-        RH_1000 = variables.relative_humidity(T_1000, Td_1000)
+        RH_850 = variables.relative_humidity_from_dewpoint(T_850, Td_850)
+        RH_900 = variables.relative_humidity_from_dewpoint(T_900, Td_900)
+        RH_950 = variables.relative_humidity_from_dewpoint(T_950, Td_950)
+        RH_1000 = variables.relative_humidity_from_dewpoint(T_1000, Td_1000)
         theta_850 = variables.potential_temperature(T_850, 85000)
         theta_900 = variables.potential_temperature(T_900, 90000)
         theta_950 = variables.potential_temperature(T_950, 95000)
