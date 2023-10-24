@@ -2,12 +2,19 @@
 Default settings
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.7.24
+Script version: 2023.10.23
 """
-DEFAULT_DOMAIN_EXTENTS = {'global': [0, 359.75, -89.75, 90],
+DEFAULT_DOMAIN_EXTENTS = {'ecmwf': [-180, 179.8, -89.81, 90],
+                          'hrrr': [225.90452026573686, 299.0828072281622, 21.138123000000018, 52.61565330680793],
+                          'nam-12km': [207.12137749594984, 310.58401341435564, 12.190000000000005, 61.30935757335816],
+                          'namnest-conus': [225.90387325951775, 299.08216099364034, 21.138, 52.61565399063001],
                           'full': [130, 369.75, 0.25, 80],
                           'conus': [228, 299.75, 25, 56.75]}  # default values for extents of domains [start lon, end lon, start lat, end lat]
-DEFAULT_DOMAIN_INDICES = {'global': [0, 1440, 0, 720],
+DEFAULT_DOMAIN_INDICES = {'ecmwf': [0, 1440, 0, 720],
+                          'hrrr': [0, 1779, 0, 1059],
+                          'nam-12km': [0, 614, 0, 428],
+                          'namnest-conus': [0, 1779, 0, 1059],
+                          'global': [0, 1440, 0, 720],
                           'full': [0, 960, 0, 320],
                           'conus': [392, 680, 93, 221]}  # indices corresponding to default extents of domains [start lon, end lon, start lat, end lat]
 DEFAULT_DOMAIN_IMAGES = {'global': [17, 9],
