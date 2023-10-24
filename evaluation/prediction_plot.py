@@ -25,7 +25,7 @@ if __name__ == '__main__':
     All arguments listed in the examples are listed via argparse in alphabetical order below this comment block.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--datetime', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
+    parser.add_argument('--init_time', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data.')
     parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
     parser.add_argument('--forecast_hour', type=int, help='Forecast hour for the GDAS data')
@@ -39,7 +39,8 @@ if __name__ == '__main__':
         help="Neighborhood calibration distance in kilometers. Possible neighborhoods are 50, 100, 150, 200, and 250 km.")
     parser.add_argument('--deterministic', action='store_true', help="Plot deterministic splines.")
     parser.add_argument('--targets', action='store_true', help="Plot ground truth targets/labels.")
-    parser.add_argument('--contours', action='store_true', help="Plot probability contours.")
+    parser.add_argument('--open_contours', action='store_true', help="Plot probability contours.")
+    parser.add_argument('--filled_contours', action='store_true', help="Plot probability contours.")
 
     args = vars(parser.parse_args())
 
@@ -58,11 +59,11 @@ if __name__ == '__main__':
 
     extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
 
-    year, month, day, hour = args['datetime'][0], args['datetime'][1], args['datetime'][2], args['datetime'][3]
+    year, month, day, hour = args['init_time'][0], args['init_time'][1], args['init_time'][2], args['init_time'][3]
 
     ### Attempt to pull predictions from a yearly netcdf file generated with tensorflow datasets, otherwise try to pull a single netcdf file ###
     try:
-        probs_file = f"{args['model_dir']}/model_{args['model_number']}/probabilities/model_{args['model_number']}_pred_{args['domain']}_{year}%02d.nc" % month
+        probs_file = f"{args['model_dir']}/model_{args['model_number']}/probabilities/model_{args['model_number']}_pred_{args['domain']}_{year}.nc"
         fronts_file = '%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (args['fronts_netcdf_indir'], year, month, year, month, day, hour)
         plot_filename = '%s/model_%d/maps/model_%d_%d%02d%02d%02d_%s.png' % (args['model_dir'], args['model_number'], args['model_number'], year, month, day, hour, args['domain'])
         probs_ds = xr.open_mfdataset(probs_file).sel(time=['%d-%02d-%02dT%02d' % (year, month, day, hour), ])
@@ -139,10 +140,11 @@ if __name__ == '__main__':
         else:
             cbar_label = 'Probability (uncalibrated)'
 
-    if len(front_types) > 1:
-        all_possible_front_combinations = itertools.permutations(front_types, r=2)
-        for combination in all_possible_front_combinations:
-            probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
+    if not args['open_contours']:
+        if len(front_types) > 1:
+            all_possible_front_combinations = itertools.permutations(front_types, r=2)
+            for combination in all_possible_front_combinations:
+                probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
 
     probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN"))
     if args['data_source'] != 'era5':
@@ -152,7 +154,7 @@ if __name__ == '__main__':
         data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz\n' \
                      'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
 
-    fig, ax = plt.subplots(1, 1, figsize=(22, 8), subplot_kw={'projection': ccrs.PlateCarree(central_longitude=np.mean(extent[:2]))})
+    fig, ax = plt.subplots(1, 1, figsize=(22, 8), subplot_kw={'projection': ccrs.PlateCarree(central_longitude=0)})
     plot_background(extent, ax=ax, linewidth=0.5)
     # ax.gridlines(draw_labels=True, zorder=0)
 
@@ -161,13 +163,17 @@ if __name__ == '__main__':
 
     for front_no, front_key, front_name, front_label, cmap in zip(range(1, len(front_names_by_type) + 1), list(probs_ds.keys()), front_names_by_type, front_types, contour_maps_by_type):
 
-        if args['contours']:
+        if args['filled_contours']:
             cmap_probs, norm_probs = cm.get_cmap(cmap, n_colors), colors.Normalize(vmin=0, vmax=vmax)
-            probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs, transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
-
+            probs_ds[front_key].plot.contourf(ax=ax, x='longitude', y='latitude', norm=norm_probs, levels=levels, cmap=cmap_probs,
+                                              transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
             cbar_ax = fig.add_axes([cbar_position + (front_no * 0.015), 0.24, 0.015, 0.64])
             cbar = plt.colorbar(cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs), cax=cbar_ax, boundaries=levels[1:], alpha=0.75)
             cbar.set_ticklabels([])
+
+        if args['open_contours']:
+            probs_ds[front_key].plot.contour(ax=ax, x='longitude', y='latitude', levels=levels,
+                colors=front_colors_by_type[front_no - 1], transform=ccrs.PlateCarree(), alpha=0.75, add_colorbar=False)
 
         if args['deterministic']:
             right_title = 'Splines: Deterministic first-guess fronts'
@@ -182,7 +188,7 @@ if __name__ == '__main__':
         cbar_front_labels.append(front_name)
         cbar_front_ticks.append(front_no + 0.5)
 
-    if args['contours']:
+    if args['filled_contours']:
         cbar.set_label(cbar_label, rotation=90)
         cbar.set_ticks(cbar_ticks)
         cbar.set_ticklabels(cbar_ticks)
