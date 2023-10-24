@@ -2,7 +2,7 @@
 Generate predictions with a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.18
+Script version: 2023.10.23
 """
 import argparse
 import pandas as pd
@@ -379,34 +379,16 @@ if __name__ == '__main__':
     All arguments listed in the examples are listed via argparse in alphabetical order below this comment block.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--bootstrap', action='store_true', help='Bootstrap data?')
-    parser.add_argument('--dataset', type=str, help="Dataset for which to make predictions if prediction_method is 'random' or 'all'. Options are:"
-                                                    "'training', 'validation', 'test'")
-    parser.add_argument('--datetime', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
+    parser.add_argument('--dataset', type=str, help="Dataset to use for making predictions. Options are: 'training', 'validation', 'test'")
+    parser.add_argument('--init_time', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
     parser.add_argument('--domain', type=str, help='Domain of the data.')
-    parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
-    parser.add_argument('--domain_size', type=int, nargs=2, help='Lengths of the dimensions of the final stitched map for predictions: lon, lat')
-    parser.add_argument('--forecast_hour', type=int, help='Forecast hour for the GDAS data')
-    parser.add_argument('--find_matches', action='store_true', help='Find matches for stitching predictions?')
-    parser.add_argument('--generate_predictions', action='store_true', help='Generate prediction plots?')
-    parser.add_argument('--calculate_stats', action='store_true', help='generate stats')
-    parser.add_argument('--calibrate_model', action='store_true', help='Calibrate model')
+    parser.add_argument('--domain_images', type=int, nargs=2, default=[1, 1], help='Number of images for each dimension the final stitched map for predictions: lon, lat')
     parser.add_argument('--gpu_device', type=int, help='GPU device number.')
     parser.add_argument('--image_size', type=int, nargs=2, help="Number of pixels along each dimension of the model's output: lon, lat")
-    parser.add_argument('--learning_curve', action='store_true', help='Plot learning curve')
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU')
     parser.add_argument('--model_dir', type=str, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, help='Model number.')
-    parser.add_argument('--num_iterations', type=int, default=10000, help='Number of iterations to perform when bootstrapping the data.')
-    parser.add_argument('--num_rand_predictions', type=int, default=10, help='Number of random predictions to make.')
-    parser.add_argument('--fronts_netcdf_indir', type=str, help='Main directory for the netcdf files containing frontal objects.')
     parser.add_argument('--variables_netcdf_indir', type=str, help='Main directory for the netcdf files containing variable data.')
-    parser.add_argument('--plot_performance_diagrams', action='store_true', help='Plot performance diagrams for a model?')
-    parser.add_argument('--prediction_method', type=str, help="Prediction method. Options are: 'datetime', 'random', 'all'")
-    parser.add_argument('--prediction_plot', action='store_true', help='Create plot')
-    parser.add_argument('--save_map', action='store_true', help='Save maps of the model predictions?')
-    parser.add_argument('--save_probabilities', action='store_true', help='Save model prediction data out to netcdf files?')
-    parser.add_argument('--save_statistics', action='store_true', help='Save performance statistics data out to netcdf files?')
     parser.add_argument('--data_source', type=str, default='era5', help='Data source for variables')
 
     args = vars(parser.parse_args())
@@ -445,10 +427,12 @@ if __name__ == '__main__':
     classes = model_properties['classes']
     test_years, valid_years = model_properties['test_years'], model_properties['validation_years']
 
-    if args['domain_images'] is None:
-        args['domain_images'] = settings.DEFAULT_DOMAIN_IMAGES[args['domain']]
-    domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[args['domain']]
-    domain_extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
+    try:
+        domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[args['data_source']]
+        domain_extent = settings.DEFAULT_DOMAIN_EXTENTS[args['data_source']]
+    except KeyError:
+        domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[args['domain']]
+        domain_extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
 
     ### Properties of the final map made from stitched images ###
     domain_images_lon, domain_images_lat = args['domain_images'][0], args['domain_images'][1]
@@ -483,11 +467,11 @@ if __name__ == '__main__':
     coords_sel_kwargs = {'longitude': slice(domain_extent[0], domain_extent[1]),
                          'latitude': slice(domain_extent[3], domain_extent[2])}
 
-    if args['prediction_method'] == 'datetime':
-        timestep_str = '%d%02d%02d%02d' % (args['datetime'][0], args['datetime'][1], args['datetime'][2], args['datetime'][3])
+    if args['init_time'] is not None:
+        timestep_str = '%d%02d%02d%02d' % (args['init_time'][0], args['init_time'][1], args['init_time'][2], args['init_time'][3])
         if args['data_source'] == 'era5':
-            datetime_index = [index for index, file in enumerate(variable_files) if timestep_str in file][0]
-            variable_files = [variable_files[datetime_index], ]
+            init_time_index = [index for index, file in enumerate(variable_files) if timestep_str in file][0]
+            variable_files = [variable_files[init_time_index], ]
         else:
             variable_files = [file for file in variable_files if timestep_str in file]
 
