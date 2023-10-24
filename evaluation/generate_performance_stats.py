@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.2.D1
+Script version: 2023.10.23
 """
 import argparse
 import glob
@@ -221,8 +221,9 @@ if __name__ == '__main__':
 
             performance_ds = xr.Dataset(coords={'time': time_array, 'longitude': lons, 'latitude': lats, 'boundary': boundaries, 'threshold': thresholds})
 
+            fronts_ds_month = data_utils.reformat_fronts(fronts_ds.sel(time='%d-%02d' % (year, month)), front_types)
+
             for front_no, front_type in enumerate(front_types):
-                fronts_ds_month = data_utils.reformat_fronts(fronts_ds.sel(time='%d-%02d' % (year, month)), front_types)
                 print("%d-%02d: %s (TN/FN)" % (year, month, front_type))
                 ### Calculate true/false negatives ###
                 for i in range(100):
@@ -244,7 +245,7 @@ if __name__ == '__main__':
 
                 ### Calculate true/false positives ###
                 for boundary in range(5):
-                    fronts_ds_month = data_utils.expand_fronts(fronts_ds_month, iterations=2)  # Expand fronts
+                    fronts_ds_month = data_utils.expand_fronts(fronts_ds_month, iterations=2)  # Expand fronts by 50km
                     bool_tp_fp_dss[front_type] = tf.convert_to_tensor(xr.where(fronts_ds_month == front_no + 1, 1, 0)['identifier'].values)  # 1 = cold front, 0 = not a cold front
                     print("%d-%02d: %s (%d km)" % (year, month, front_type, (boundary + 1) * 50))
                     for i in range(100):
