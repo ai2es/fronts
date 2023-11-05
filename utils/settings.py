@@ -2,9 +2,10 @@
 Default settings
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.23
+Script version: 2023.11.4
 """
-DEFAULT_DOMAIN_EXTENTS = {'ecmwf': [-180, 179.8, -89.81, 90],
+DEFAULT_DOMAIN_EXTENTS = {'ecmwf': [0, 359.75, -89.75, 90],
+                          'global': [0, 359.75, -89.75, 90],
                           'hrrr': [225.90452026573686, 299.0828072281622, 21.138123000000018, 52.61565330680793],
                           'nam-12km': [207.12137749594984, 310.58401341435564, 12.190000000000005, 61.30935757335816],
                           'namnest-conus': [225.90387325951775, 299.08216099364034, 21.138, 52.61565399063001],
