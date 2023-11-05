@@ -2,10 +2,9 @@
 Calculate permutation importance.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.22
+Script version: 2023.11.4
 
 TODO:
-    * Complete multi-pass importance code by front type
     * Generalize and simplify multi-pass importance code
     * Add more documentation
 """
@@ -24,7 +23,9 @@ import pickle
 
 
 def shuffle_inputs(image, labels):
-
+    """
+    image:
+    """
     if level_nums is None:
         lvl_nums = [None, ]
     elif type(level_nums) == int:
@@ -41,9 +42,6 @@ def shuffle_inputs(image, labels):
 
     for var_num in var_nums:
         for lvl_num in lvl_nums:
-
-            # lvl_num = None if lvl_num == [None] else lvl_num
-            # var_num = None if var_num == [None] else var_num
 
             values_to_shuffle = image[..., lvl_num, var_num]
             num_elements = tf.size(values_to_shuffle)
@@ -87,6 +85,7 @@ if __name__ == "__main__":
     front_types = model_properties['dataset_properties']['front_types']
     variables = model_properties['dataset_properties']['variables']
     pressure_levels = model_properties['dataset_properties']['pressure_levels']
+    domain = model_properties['dataset_properties']['domain']
     num_outputs = 4
 
     try:
@@ -114,13 +113,14 @@ if __name__ == "__main__":
     X = combine_datasets(X_datasets)
     y = combine_datasets(y_datasets)
 
-    permutations_file = "%s/model_%d/permutations_%d.pkl" % (args['model_dir'], args['model_number'], args['model_number'])
+    permutations_file = "%s/model_%d/permutations_%d_%s.pkl" % (args['model_dir'], args['model_number'], args['model_number'], domain)
     permutations_dict = dict() if not os.path.isfile(permutations_file) else pd.read_pickle(permutations_file)
 
     if 'seed' not in permutations_dict:
         permutations_dict['seed'] = args['seed']
     tf.random.set_seed(permutations_dict['seed'])
 
+    print("Seed: %d" % permutations_dict['seed'])
     if 'baseline' not in permutations_dict or args['baseline']:
         print("=== Baselines ===")
 
@@ -195,6 +195,10 @@ if __name__ == "__main__":
 
     if 'multi_pass' not in permutations_dict or args['multi_pass']:
 
+        # Find most important variable (overall and by type) based on the single-pass permutations
+        single_pass_results = np.array([permutations_dict['single_pass'][var] for var in variables])
+        most_important_variable = np.argmax(single_pass_results, axis=0)
+
         assert 'baseline' in permutations_dict, "Must calculate baseline values prior to permutations!"
         baseline = permutations_dict['baseline']
         permutations_dict['multi_pass'] = dict() if 'multi_pass' not in permutations_dict else permutations_dict['multi_pass']
@@ -203,9 +207,6 @@ if __name__ == "__main__":
 
         print("-- VARIABLES, ALL LEVELS --")
         level_nums = None
-        # Find most important variable (overall and by type) based on the single-pass permutations
-        single_pass_results = np.array([permutations_dict['single_pass'][var] for var in variables])
-        most_important_variable = np.argmax(single_pass_results, axis=0)
 
         ######################################### Overall variable importance ##########################################
 
@@ -248,42 +249,144 @@ if __name__ == "__main__":
             with open(permutations_file, 'wb') as f:
                 pickle.dump(permutations_dict, f)
 
-        # ######################################### Variable importance by type ##########################################
-        #
-        # permutations_dict['multi_pass']['overall'][variables[most_important_variable[0]]] = np.max(single_pass_results, axis=0)[0]
-        #
-        # # most important variable will be the first variable to be shuffled in the shuffle_inputs function
-        # shuffled_parameters = np.array([most_important_variable[0]])
-        # variable_nums = np.array([most_important_variable[0], 0], dtype=np.int32)  # the 0 is a placeholder that will be overwritten iteratively
-        #
-        # variable_shuffle_order = np.arange(0, len(variables))  # variables to shuffle
-        # variable_shuffle_order = np.delete(variable_shuffle_order, shuffled_parameters)  # remove pre-shuffled indices
-        #
-        # while len(variable_shuffle_order) > 0:
-        #
-        #     print("---> shuffling %s" % ', '.join(variables[param] for param in shuffled_parameters))
-        #     temp_importance_list = np.array([])  # list that will be used to temporarily store importance values for the current round
-        #
-        #     for var_to_shuffle in variable_shuffle_order:
-        #         variable_nums[-1] = var_to_shuffle
-        #
-        #         Xy = combine_datasets(X_datasets, y_datasets)
-        #         Xy = Xy.map(shuffle_inputs)
-        #         Xy = Xy.batch(32)
-        #
-        #         loss = np.array(model.evaluate(Xy, verbose=0))[0]
-        #         importance = np.round(100 * (loss - baseline[0]) / baseline[0], 3)
-        #         print("-> %s:" % variables[var_to_shuffle], importance)
-        #
-        #         temp_importance_list = np.append(temp_importance_list, importance)
-        #
-        #     most_important_variable_for_round = variable_shuffle_order[np.argmax(temp_importance_list)]
-        #     permutations_dict['multi_pass']['overall'][variables[most_important_variable_for_round]] = np.max(temp_importance_list)
-        #
-        #     shuffled_parameters = np.append(shuffled_parameters, most_important_variable_for_round)
-        #     variable_nums[-1] = most_important_variable_for_round  # add the round's most important variable to the list of variables to shuffle
-        #     variable_shuffle_order = np.delete(variable_shuffle_order, np.argmax(temp_importance_list))  # remove the round's most important variable for the next round
-        #     variable_nums = np.append(variable_nums, 0)  # add another index for variables in the next round
-        #
-        #     with open(permutations_file, 'wb') as f:
-        #         pickle.dump(permutations_dict, f)
+        ########################################## Variable importance by type #########################################
+
+        permutations_dict['multi_pass']['front_type'] = dict() if 'front_type' not in permutations_dict['multi_pass'] else permutations_dict['multi_pass']['front_type']
+
+        for front_no, front_type in enumerate(front_types):
+
+            permutations_dict['multi_pass']['front_type'][front_type] = dict() \
+                if front_type not in permutations_dict['multi_pass']['front_type'] else permutations_dict['multi_pass']['front_type'][front_type]
+
+            permutations_dict['multi_pass']['front_type'][front_type][variables[most_important_variable[front_no + 1]]] = np.max(single_pass_results, axis=0)[front_no + 1]
+
+            # most important variable will be the first variable to be shuffled in the shuffle_inputs function
+            shuffled_parameters = np.array([most_important_variable[front_no + 1]])
+            variable_nums = np.array([most_important_variable[front_no + 1], 0], dtype=np.int32)  # the 0 is a placeholder that will be overwritten iteratively
+
+            variable_shuffle_order = np.arange(0, len(variables))  # variables to shuffle
+            variable_shuffle_order = np.delete(variable_shuffle_order, shuffled_parameters)  # remove pre-shuffled indices
+
+            while len(variable_shuffle_order) > 0:
+
+                print(f"---> {front_type}: shuffling %s" % ', '.join(variables[param] for param in shuffled_parameters))
+                temp_importance_list = np.array([])  # list that will be used to temporarily store importance values for the current round
+
+                for var_to_shuffle in variable_shuffle_order:
+                    variable_nums[-1] = var_to_shuffle
+
+                    Xy = combine_datasets(X_datasets, y_datasets)
+                    Xy = Xy.map(shuffle_inputs)
+                    Xy = Xy.batch(32)
+
+                    losses = np.array(model.evaluate(Xy, verbose=0))
+                    loss_by_type = np.array([np.sum(losses[np.arange(1 + num_outputs + front_no, num_outputs * num_classes + front_no, num_classes - 1)]) for front_no in range(num_classes - 1)])
+                    importance = np.round(100 * (loss_by_type[front_no] - baseline[front_no + 1]) / baseline[front_no + 1], 3)
+                    print("-> %s:" % variables[var_to_shuffle], importance)
+
+                    temp_importance_list = np.append(temp_importance_list, importance)
+
+                most_important_variable_for_round = variable_shuffle_order[np.argmax(temp_importance_list)]
+                permutations_dict['multi_pass']['front_type'][front_type][variables[most_important_variable_for_round]] = np.max(temp_importance_list)
+
+                shuffled_parameters = np.append(shuffled_parameters, most_important_variable_for_round)
+                variable_nums[-1] = most_important_variable_for_round  # add the round's most important variable to the list of variables to shuffle
+                variable_shuffle_order = np.delete(variable_shuffle_order, np.argmax(temp_importance_list))  # remove the round's most important variable for the next round
+                variable_nums = np.append(variable_nums, 0)  # add another index for variables in the next round
+
+                with open(permutations_file, 'wb') as f:
+                    pickle.dump(permutations_dict, f)
+
+        print("-- LEVELS, ALL VARIABLES --")
+        variable_nums = None
+
+        ######################################### Overall level importance ##########################################
+        single_pass_results = np.array([permutations_dict['single_pass'][lvl] for lvl in pressure_levels])
+        most_important_level = np.argmax(single_pass_results, axis=0)
+
+        permutations_dict['multi_pass']['overall'] = dict() if 'overall' not in permutations_dict['multi_pass'] else permutations_dict['multi_pass']['overall']
+        permutations_dict['multi_pass']['overall'][pressure_levels[most_important_level[0]]] = np.max(single_pass_results, axis=0)[0]
+
+        # most important level will be the first level to be shuffled in the shuffle_inputs function
+        shuffled_levels = np.array([most_important_level[0]])
+        level_nums = np.array([most_important_level[0], 0], dtype=np.int32)  # the 0 is a placeholder that will be overwritten iteratively
+
+        level_shuffle_order = np.arange(0, len(pressure_levels))  # levels to shuffle
+        level_shuffle_order = np.delete(level_shuffle_order, shuffled_levels)  # remove pre-shuffled indices
+
+        while len(level_shuffle_order) > 0:
+
+            print("---> shuffling %s" % ', '.join(pressure_levels[param] for param in shuffled_levels))
+            temp_importance_list = np.array([])  # list that will be used to temporarily store importance values for the current round
+
+            for level_to_shuffle in level_shuffle_order:
+                level_nums[-1] = level_to_shuffle
+
+                Xy = combine_datasets(X_datasets, y_datasets)
+                Xy = Xy.map(shuffle_inputs)
+                Xy = Xy.batch(32)
+
+                loss = np.array(model.evaluate(Xy, verbose=0))[0]
+                importance = np.round(100 * (loss - baseline[0]) / baseline[0], 3)
+                print("-> %s:" % pressure_levels[level_to_shuffle], importance)
+
+                temp_importance_list = np.append(temp_importance_list, importance)
+
+            most_important_level_for_round = level_shuffle_order[np.argmax(temp_importance_list)]
+            permutations_dict['multi_pass']['overall'][pressure_levels[most_important_level_for_round]] = np.max(temp_importance_list)
+
+            shuffled_levels = np.append(shuffled_levels, most_important_level_for_round)
+            level_nums[-1] = most_important_level_for_round  # add the round's most important level to the list of levels to shuffle
+            level_shuffle_order = np.delete(level_shuffle_order, np.argmax(temp_importance_list))  # remove the round's most important level for the next round
+            level_nums = np.append(level_nums, 0)  # add another index for levels in the next round
+
+            with open(permutations_file, 'wb') as f:
+                pickle.dump(permutations_dict, f)
+
+        ######################################### level importance by type #########################################
+
+        permutations_dict['multi_pass']['front_type'] = dict() if 'front_type' not in permutations_dict['multi_pass'] else permutations_dict['multi_pass']['front_type']
+
+        for front_no, front_type in enumerate(front_types):
+
+            permutations_dict['multi_pass']['front_type'][front_type] = dict() \
+                if front_type not in permutations_dict['multi_pass']['front_type'] else permutations_dict['multi_pass']['front_type'][front_type]
+
+            permutations_dict['multi_pass']['front_type'][front_type][pressure_levels[most_important_level[front_no + 1]]] = np.max(single_pass_results, axis=0)[front_no + 1]
+
+            # most important level will be the first level to be shuffled in the shuffle_inputs function
+            shuffled_levels = np.array([most_important_level[front_no + 1]])
+            level_nums = np.array([most_important_level[front_no + 1], 0], dtype=np.int32)  # the 0 is a placeholder that will be overwritten iteratively
+
+            level_shuffle_order = np.arange(0, len(pressure_levels))  # levels to shuffle
+            level_shuffle_order = np.delete(level_shuffle_order, shuffled_levels)  # remove pre-shuffled indices
+
+            while len(level_shuffle_order) > 0:
+
+                print(f"---> {front_type}: shuffling %s" % ', '.join(pressure_levels[param] for param in shuffled_levels))
+                temp_importance_list = np.array([])  # list that will be used to temporarily store importance values for the current round
+
+                for level_to_shuffle in level_shuffle_order:
+                    level_nums[-1] = level_to_shuffle
+
+                    Xy = combine_datasets(X_datasets, y_datasets)
+                    Xy = Xy.map(shuffle_inputs)
+                    Xy = Xy.batch(32)
+
+                    losses = np.array(model.evaluate(Xy, verbose=0))
+                    loss_by_type = np.array([np.sum(losses[np.arange(1 + num_outputs + front_no, num_outputs * num_classes + front_no, num_classes - 1)]) for front_no in range(num_classes - 1)])
+                    importance = np.round(100 * (loss_by_type[front_no] - baseline[front_no + 1]) / baseline[front_no + 1], 3)
+                    print("-> %s:" % pressure_levels[level_to_shuffle], importance)
+
+                    temp_importance_list = np.append(temp_importance_list, importance)
+
+                most_important_level_for_round = level_shuffle_order[np.argmax(temp_importance_list)]
+                permutations_dict['multi_pass']['front_type'][front_type][pressure_levels[most_important_level_for_round]] = np.max(temp_importance_list)
+
+                shuffled_levels = np.append(shuffled_levels, most_important_level_for_round)
+                level_nums[-1] = most_important_level_for_round  # add the round's most important level to the list of levels to shuffle
+                level_shuffle_order = np.delete(level_shuffle_order, np.argmax(temp_importance_list))  # remove the round's most important level for the next round
+                level_nums = np.append(level_nums, 0)  # add another index for levels in the next round
+
+                with open(permutations_file, 'wb') as f:
+                    pickle.dump(permutations_dict, f)
