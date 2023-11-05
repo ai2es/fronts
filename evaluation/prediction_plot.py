@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.23
+Script version: 2023.10.23.D1
 """
 import itertools
 import argparse
@@ -21,9 +21,6 @@ from skimage.morphology import skeletonize
 
 
 if __name__ == '__main__':
-    """
-    All arguments listed in the examples are listed via argparse in alphabetical order below this comment block.
-    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--init_time', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data.')
