@@ -2,7 +2,7 @@
 Functions in this code manage data files and models.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.20
+Script version: 2023.11.8
 """
 
 import argparse
@@ -543,7 +543,7 @@ class DataFileLoader:
             self.front_files_validation = [self.front_files[index] for index in validation_indices]
             self.front_files_test = [self.front_files[index] for index in test_indices]
 
-    def pair_with_fronts(self, front_indir, match='same'):
+    def pair_with_fronts(self, front_indir, match='same', underscore_skips=0):
         """
         Parameters
         ----------
@@ -558,6 +558,9 @@ class DataFileLoader:
                 For example, FrontObjects_2023033100_f006_global.nc will be paired with gfs_2023033106_f000_global.nc.
             * 'forecast' will perform actions in 'data-forecast' and 'fronts-forecast'
             * 'any' will perform the actions in both 'same' and 'forecast'.
+        underscore_skips: int
+            This argument is meant to make older tensorflow datasets for front objects compatible with the file loader object.
+            If using older tensorflow datasets with the front types in the filenames, this argument should be equal to the number of front types.
         """
 
         if self._file_prefix == 'FrontObjects':
@@ -581,7 +584,7 @@ class DataFileLoader:
             raise ValueError(f"The available options for 'file_type' are: 'netcdf', 'tensorflow'. Received: {self._file_type}")
 
         self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self._subdir_glob, file_prefix, self._file_extension)))  # All front files without filtering
-        front_file_information = [os.path.basename(file).split('_')[1:] for file in self._all_front_files]
+        front_file_information = [os.path.basename(file).split('_')[1 + underscore_skips:] for file in self._all_front_files]
 
         # Add forecast hour 0 to file information if a forecast hour is not in the filename(s)
         [front_file_info.insert(1, 'f000') for front_file_info in front_file_information if len(front_file_info) == 2]
