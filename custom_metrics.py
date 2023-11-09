@@ -3,9 +3,10 @@ Custom metrics for U-Net models.
     - Brier Skill Score (BSS)
     - Critical Success Index (CSI)
     - Fractions Skill Score (FSS)
+    - Probability of Detection (POD)
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.21
+Script version: 2023.11.8
 """
 import tensorflow as tf
 
@@ -177,3 +178,44 @@ def fractions_skill_score(
             return 1 - (MSE_n / (MSE_n_ref + my_epsilon))
 
     return fss
+
+
+def probability_of_detection(threshold=None, class_weights: list[int | float] = None):
+    """
+    Probability of Detection (POD).
+
+    threshold: float or None
+        Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
+            set to 1, and 0 otherwise.
+        If the threshold is set, it must be greater than 0 and less than 1.
+    class_weights: list of values or None
+        List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+    """
+
+    @tf.function
+    def pod(y_true, y_pred):
+        """
+        y_true: tf.Tensor
+            One-hot encoded tensor containing labels.
+        y_pred: tf.Tensor
+            Tensor containing model predictions.
+        """
+
+        y_pred = tf.where(y_pred >= threshold, 1.0, 0.0) if threshold is not None else y_pred
+
+        y_pred_neg = 1 - y_pred
+
+        sum_over_axes = tf.range(tf.rank(y_pred) - 1)  # Indices for axes to sum over. Excludes the final (class) dimension.
+
+        true_positives = tf.math.reduce_sum(y_pred * y_true, axis=sum_over_axes)
+        false_negatives = tf.math.reduce_sum(y_pred_neg * y_true, axis=sum_over_axes)
+
+        if class_weights is not None:
+            relative_class_weights = tf.cast(class_weights / tf.math.reduce_sum(class_weights), tf.float32)
+            pod = tf.math.reduce_sum(tf.math.divide_no_nan(true_positives, true_positives + false_negatives) * relative_class_weights)
+        else:
+            pod = tf.math.reduce_sum(tf.math.divide_no_nan(true_positives, true_positives + false_negatives))
+
+        return pod
+
+    return pod
