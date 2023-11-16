@@ -2,7 +2,7 @@
 Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.23
+Script version: 2023.11.16
 
 TODO:
     * fix bug in file manager script that incorrectly matches files with different initialization times and/or forecast hours
@@ -21,15 +21,15 @@ import xarray as xr
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--year_and_month', type=int, nargs=2, required=True,
-        help="Year and month for the netcdf data to be converted to tensorflow datasets.")
-    parser.add_argument('--data_source', type=str, default='era5', help="Data source or model containing the variable data.")
     parser.add_argument('--variables_netcdf_indir', type=str, required=True,
         help="Input directory for the netCDF files containing variable data.")
     parser.add_argument('--fronts_netcdf_indir', type=str, required=True,
         help="Input directory for the netCDF files containing frontal boundary data.")
     parser.add_argument('--tf_outdir', type=str, required=True,
         help="Output directory for the generated tensorflow datasets.")
+    parser.add_argument('--year_and_month', type=int, nargs=2, required=True,
+        help="Year and month for the netcdf data to be converted to tensorflow datasets.")
+    parser.add_argument('--data_source', type=str, default='era5', help="Data source or model containing the variable data.")
     parser.add_argument('--front_types', type=str, nargs='+', required=True,
         help="Code(s) for the front types that will be generated in the tensorflow datasets. Refer to documentation in 'utils.data_utils.reformat_fronts' "
              "for more information on these codes.")
@@ -131,8 +131,8 @@ if __name__ == '__main__':
             args['images'] = (1, 1)
 
             if args['override_extent'] is None:
-                args['image_size'] = (settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0],
-                                      settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2])
+                args['image_size'] = (int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][1] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) / 0.25 + 1),
+                                      int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][2]) / 0.25 + 1))
             else:
                 args['image_size'] = (int((args['override_extent'][1] - args['override_extent'][0]) / 0.25 + 1),
                                       int((args['override_extent'][3] - args['override_extent'][2]) / 0.25 + 1))
@@ -221,17 +221,15 @@ if __name__ == '__main__':
     files_match_flag = all(os.path.basename(variables_file).split('_')[1] == os.path.basename(fronts_file).split('_')[1] for variables_file, fronts_file in zip(variables_netcdf_files, fronts_netcdf_files))
 
     if args['override_extent'] is None:
-        isel_kwargs = {'longitude': slice(settings.DEFAULT_DOMAIN_INDICES[args['domain']][0], settings.DEFAULT_DOMAIN_INDICES[args['domain']][1]),
-                       'latitude': slice(settings.DEFAULT_DOMAIN_INDICES[args['domain']][2], settings.DEFAULT_DOMAIN_INDICES[args['domain']][3])}
-        domain_size = (int(settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0]),
-                       int(settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2]))
+        sel_kwargs = {'longitude': slice(settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0], settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][1]),
+                      'latitude': slice(settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3], settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][2])}
+        domain_size = (int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][1] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25) + 1,
+                       int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][2]) // 0.25) + 1)
     else:
-        isel_kwargs = {'longitude': slice(int((args['override_extent'][0] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25),
-                                          int((args['override_extent'][1] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25) + 1),
-                       'latitude': slice(int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - args['override_extent'][3]) // 0.25),
-                                         int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - args['override_extent'][2]) // 0.25) + 1)}
-        domain_size = (int((args['override_extent'][1] - args['override_extent'][0]) // 0.25),
-                       int((args['override_extent'][3] - args['override_extent'][2]) // 0.25))
+        sel_kwargs = {'longitude': slice(args['override_extent'][0], args['override_extent'][1]),
+                      'latitude': slice(args['override_extent'][3], args['override_extent'][2])}
+        domain_size = (int((args['override_extent'][1] - args['override_extent'][0]) // 0.25) + 1,
+                       int((args['override_extent'][3] - args['override_extent'][2]) // 0.25) + 1)
 
     if not files_match_flag:
         raise OSError("%s/fronts files do not match")
@@ -243,12 +241,11 @@ if __name__ == '__main__':
     timesteps_kept = 0
     timesteps_discarded = 0
 
-    if args['data_source'] != 'era5':
-        isel_kwargs['forecast_hour'] = 0
+    isel_kwargs = dict(forecast_hour=0) if args['data_source'] != 'era5' else dict()
 
     for timestep_no in range(num_timesteps):
 
-        front_dataset = xr.open_dataset(fronts_netcdf_files[timestep_no], engine='netcdf4').isel(**isel_kwargs).astype('float16')
+        front_dataset = xr.open_dataset(fronts_netcdf_files[timestep_no], engine='netcdf4').sel(**sel_kwargs).isel(**isel_kwargs).astype('float16')
 
         ### Reformat the fronts in the current timestep ###
         if args['front_types'] is not None:
@@ -261,19 +258,20 @@ if __name__ == '__main__':
             front_dataset = data_utils.expand_fronts(front_dataset, iterations=args['front_dilation'])  # expand the front labels
 
         keep_timestep = np.random.random() <= args['keep_fraction']  # boolean flag for keeping timesteps without all front types
-        front_dataset = front_dataset.isel(time=0)
+
+        front_dataset = front_dataset.isel(time=0) if 'time' in front_dataset.dims else front_dataset
         front_dataset = front_dataset.to_array().transpose('longitude', 'latitude', 'variable')
         front_bins = np.bincount(front_dataset.values.astype('int64').flatten(), minlength=num_front_types)  # counts for each front type
         all_fronts_present = all([front_count > 0 for front_count in front_bins]) > 0  # boolean flag that says if all front types are present in the current timestep
 
         if all_fronts_present or keep_timestep or args['evaluation_dataset']:
 
-            variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].isel(**isel_kwargs).sel(pressure_level=args['pressure_levels']).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
+            variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].sel(pressure_level=args['pressure_levels'], **sel_kwargs).isel(**isel_kwargs).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
             variables_dataset = data_utils.normalize_variables(variables_dataset).isel(time=0).transpose('longitude', 'latitude', 'pressure_level').astype('float16')
 
             ### Reformat the fronts from the previous timestep ###
             if args['add_previous_fronts'] is not None:
-                previous_front_dataset = xr.open_dataset(previous_fronts_netcdf_files[timestep_no], engine='netcdf4').isel(**isel_kwargs).astype('float16')
+                previous_front_dataset = xr.open_dataset(previous_fronts_netcdf_files[timestep_no], engine='netcdf4').sel(**sel_kwargs).isel(**isel_kwargs).astype('float16')
                 previous_front_dataset = data_utils.reformat_fronts(previous_front_dataset, args['add_previous_fronts'])
 
                 if args['front_dilation'] > 0:
@@ -291,29 +289,15 @@ if __name__ == '__main__':
 
             variables_dataset = variables_dataset.to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable')
 
-            if args['override_extent'] is None:
-                if args['images'][0] > 1 and domain_size[0] > args['image_size'][0] + args['images'][0]:
-                    start_indices_lon = np.linspace(0, settings.DEFAULT_DOMAIN_INDICES[args['domain']][1] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][0] - args['image_size'][0],
-                                                    args['images'][0]).astype(int)
-                else:
-                    start_indices_lon = np.zeros((args['images'][0], ), dtype=int)
-
-                if args['images'][1] > 1 and domain_size[1] > args['image_size'][1] + args['images'][1]:
-                    start_indices_lat = np.linspace(0, settings.DEFAULT_DOMAIN_INDICES[args['domain']][3] - settings.DEFAULT_DOMAIN_INDICES[args['domain']][2] - args['image_size'][1],
-                                                    args['images'][1]).astype(int)
-                else:
-                    start_indices_lat = np.zeros((args['images'][1], ), dtype=int)
-
+            if args['images'][0] > 1 and domain_size[0] > args['image_size'][0] + args['images'][0]:
+                start_indices_lon = np.linspace(0, domain_size[0] - args['image_size'][0], args['images'][0]).astype(int)
             else:
-                if args['images'][0] > 1 and domain_size[0] > args['image_size'][0] + args['images'][0]:
-                    start_indices_lon = np.linspace(0, domain_size[0] - args['image_size'][0], args['images'][0]).astype(int)
-                else:
-                    start_indices_lon = np.zeros((args['images'][0], ), dtype=int)
+                start_indices_lon = np.zeros((args['images'][0], ), dtype=int)
 
-                if args['images'][1] > 1 and domain_size[1] > args['image_size'][1] + args['images'][1]:
-                    start_indices_lat = np.linspace(0, domain_size[1] - args['image_size'][1], args['images'][1]).astype(int)
-                else:
-                    start_indices_lat = np.zeros((args['images'][1], ), dtype=int)
+            if args['images'][1] > 1 and domain_size[1] > args['image_size'][1] + args['images'][1]:
+                start_indices_lat = np.linspace(0, domain_size[1] - args['image_size'][1], args['images'][1]).astype(int)
+            else:
+                start_indices_lat = np.zeros((args['images'][1], ), dtype=int)
 
             image_order = list(itertools.product(start_indices_lon, start_indices_lat))  # Every possible combination of longitude and latitude starting points
 

@@ -2,7 +2,7 @@
 Convert GDAS and/or GFS grib files to netCDF files.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.4
+Script version: 2023.11.16
 
 TODO:
     * clean-up script. Too much repetitive code
@@ -63,9 +63,6 @@ if __name__ == "__main__":
         unified_longitude_indices = np.arange(0, 360 / resolution)
         unified_latitude_indices = np.arange(0, 180 / resolution + 1).astype(int)
         lon_coords_360 = np.arange(start_lon, end_lon + resolution, resolution)
-
-        domain_indices_isel = {'longitude': unified_longitude_indices,
-                               'latitude': unified_latitude_indices}
 
         chunk_sizes = {'latitude': 721, 'longitude': 1440}
 

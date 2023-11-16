@@ -2,7 +2,7 @@
 Calculate permutation importance.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.8
+Script version: 2023.11.16
 
 TODO:
     * Generalize and simplify multi-pass importance code
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     pressure_levels = model_properties['dataset_properties']['pressure_levels']
     domain = model_properties['dataset_properties']['domain']
     test_years = model_properties['test_years']
-    num_outputs = 4
+    num_outputs = 4  # TODO: get rid of this hard-coded integer
 
     file_loader = fm.DataFileLoader(args['tf_indir'], data_file_type='era5-tensorflow')
     file_loader.test_years = test_years

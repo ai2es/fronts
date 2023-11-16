@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.18
+Script version: 2023.11.16
 """
 import argparse
 import cartopy.crs as ccrs
@@ -46,8 +46,6 @@ if __name__ == '__main__':
         front_types = model_properties['dataset_properties']['front_types']
     except KeyError:
         front_types = model_properties['front_types']
-
-    domain_extent_indices = settings.DEFAULT_DOMAIN_INDICES[args['domain']]
 
     stats_ds = xr.open_dataset('%s/model_%d/statistics/model_%d_statistics_%s_%s.nc' % (args['model_dir'], args['model_number'], args['model_number'], args['domain'], args['dataset']))
 

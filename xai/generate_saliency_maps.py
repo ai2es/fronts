@@ -2,7 +2,7 @@
 Generate saliency maps for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.12
+Script version: 2023.11.16
 """
 
 import argparse
@@ -63,6 +63,8 @@ if __name__ == '__main__':
 
         for month in months:
 
+            gradients = None
+
             try:
                 tf_ds = tf.data.Dataset.load([file for file in files_for_year if '_%d%02d' % (year, month) in file][0])
             except IndexError:
@@ -94,13 +96,15 @@ if __name__ == '__main__':
 
                     # batch_gradient: model gradients for the current batch, values must be converted to float32 for netcdf4 support
                     batch_gradient = np.stack([np.max(tape.gradient(predictions[..., class_idx+1:class_idx+2], batch).numpy(), axis=-1) for class_idx in range(num_classes-1)], axis=-1).astype('float32')
-                    gradients = batch_gradient if 'gradients' not in locals() else np.concatenate([gradients, batch_gradient], axis=0)
+                    gradients = batch_gradient if gradients is None else np.concatenate([gradients, batch_gradient], axis=0)
 
-            domain_ind = settings.DEFAULT_DOMAIN_INDICES[domain]
             domain_ext = settings.DEFAULT_DOMAIN_EXTENTS[domain]
 
-            lons = np.linspace(domain_ext[0], domain_ext[1], domain_ind[1] - domain_ind[0])
-            lats = np.linspace(domain_ext[2], domain_ext[3], domain_ind[3] - domain_ind[2])[::-1]  # lats in descending order (north-south)
+            domain_size = (int((domain_ext[1] - domain_ext[0]) // 0.25) + 1,
+                           int((domain_ext[3] - domain_ext[2]) // 0.25) + 1)
+
+            lons = np.linspace(domain_ext[0], domain_ext[1], domain_size[0])
+            lats = np.linspace(domain_ext[2], domain_ext[3], domain_size[1])[::-1]  # lats in descending order (north-south)
 
             salmaps = xr.Dataset(data_vars=dict({'%s' % front_type: (('time', 'longitude', 'latitude'), np.max(gradients[..., idx], axis=-1)) for idx, front_type in enumerate(front_types)} |
                                                 {'%s_pl' % front_type: (('time', 'longitude', 'latitude', 'pressure_level'), gradients[..., idx]) for idx, front_type in enumerate(front_types)}),

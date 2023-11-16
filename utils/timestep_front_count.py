@@ -7,14 +7,14 @@ A dictionary containing front counts for timesteps across a given domain will be
 tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.6.13
+Script version: 2023.11.16
 """
 import os
 import sys
 import csv
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
-from utils.settings import DEFAULT_DOMAIN_INDICES
+from utils.settings import DEFAULT_DOMAIN_EXTENTS
 import argparse
 import numpy as np
 import xarray as xr
@@ -34,8 +34,8 @@ if __name__ == '__main__':
     front_files_obj = fm.DataFileLoader(args['fronts_netcdf_indir'], data_file_type='fronts-netcdf')
     front_files = front_files_obj.front_files
 
-    isel_kwargs = {'longitude': slice(DEFAULT_DOMAIN_INDICES[args['domain']][0], DEFAULT_DOMAIN_INDICES[args['domain']][1]),
-                   'latitude': slice(DEFAULT_DOMAIN_INDICES[args['domain']][2], DEFAULT_DOMAIN_INDICES[args['domain']][3])}
+    sel_kwargs = {'longitude': slice(DEFAULT_DOMAIN_EXTENTS[args['domain']][0], DEFAULT_DOMAIN_EXTENTS[args['domain']][1]),
+                  'latitude': slice(DEFAULT_DOMAIN_EXTENTS[args['domain']][3], DEFAULT_DOMAIN_EXTENTS[args['domain']][2])}
 
     fieldnames = ['File', 'CF', 'CF-F', 'CF-D', 'WF', 'WF-F', 'WF-D', 'SF', 'SF-F', 'SF-D', 'OF', 'OF-F', 'OF-D', 'INST',
                   'TROF', 'TT', 'DL']
@@ -48,7 +48,7 @@ if __name__ == '__main__':
 
         for file_no, front_file in enumerate(front_files):
             print(front_file, end='\r')
-            front_dataset = xr.open_dataset(front_file, engine='netcdf4').isel(**isel_kwargs).expand_dims('time', axis=0).astype('float16')
+            front_dataset = xr.open_dataset(front_file, engine='netcdf4').sel(**sel_kwargs).expand_dims('time', axis=0).astype('float16')
             front_bins = np.bincount(front_dataset['identifier'].values.astype('int64').flatten(), minlength=17)[1:]  # counts for each front type ('no front' type removed)
 
             row = [os.path.basename(front_file), *front_bins]
