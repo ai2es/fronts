@@ -6,7 +6,7 @@ References
 * Snyder 1987: https://doi.org/10.3133/pp1395
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.18
+Script version: 2023.11.16
 """
 
 import pandas as pd
@@ -149,6 +149,7 @@ def expand_fronts(fronts: np.ndarray | tf.Tensor | xr.Dataset | xr.DataArray, it
     """
     if type(fronts) in [xr.Dataset, xr.DataArray]:
         identifier = fronts['identifier'].values if type(fronts) == xr.Dataset else fronts.values
+
     elif tf.is_tensor(fronts):
         identifier = tf.expand_dims(fronts, axis=0) if len(fronts.shape) == 2 else fronts
     else:
@@ -166,22 +167,22 @@ def expand_fronts(fronts: np.ndarray | tf.Tensor | xr.Dataset | xr.DataArray, it
             identifier_left = tf.Variable(tf.zeros_like(identifier))
             identifier_right = tf.Variable(tf.zeros_like(identifier))
 
-            identifier_down_left[:, 1:, :-1].assign(tf.where((identifier[:, :-1, 1:] > 0) & (identifier[:, 1:, :-1] == 0),
-                                                             identifier[:, :-1, 1:], identifier[:, 1:, :-1]))
-            identifier_down[:, 1:, :].assign(tf.where((identifier[:, :-1, :] > 0) & (identifier[:, 1:, :] == 0),
-                                                      identifier[:, :-1, :], identifier[:, 1:, :]))
-            identifier_down_right[:, 1:, 1:].assign(tf.where((identifier[:, :-1, :-1] > 0) & (identifier[:, 1:, 1:] == 0),
-                                                             identifier[:, :-1, :-1], identifier[:, 1:, 1:]))
-            identifier_up_left[:, :-1, :-1].assign(tf.where((identifier[:, 1:, 1:] > 0) & (identifier[:, :-1, :-1] == 0),
-                                                            identifier[:, 1:, 1:], identifier[:, :-1, :-1]))
-            identifier_up[:, :-1, :].assign(tf.where((identifier[:, 1:, :] > 0) & (identifier[:, :-1, :] == 0),
-                                                     identifier[:, 1:, :], identifier[:, :-1, :]))
-            identifier_up_right[:, :-1, 1:].assign(tf.where((identifier[:, 1:, :-1] > 0) & (identifier[:, :-1, 1:] == 0),
-                                                            identifier[:, 1:, :-1], identifier[:, :-1, 1:]))
-            identifier_left[:, :, :-1].assign(tf.where((identifier[:, :, 1:] > 0) & (identifier[:, :, :-1] == 0),
-                                                       identifier[:, :, 1:], identifier[:, :, :-1]))
-            identifier_right[:, :, 1:].assign(tf.where((identifier[:, :, :-1] > 0) & (identifier[:, :, 1:] == 0),
-                                                       identifier[:, :, :-1], identifier[:, :, 1:]))
+            identifier_down_left[..., 1:, :-1].assign(tf.where((identifier[..., :-1, 1:] > 0) & (identifier[..., 1:, :-1] == 0),
+                                                             identifier[..., :-1, 1:], identifier[..., 1:, :-1]))
+            identifier_down[..., 1:, :].assign(tf.where((identifier[..., :-1, :] > 0) & (identifier[..., 1:, :] == 0),
+                                                      identifier[..., :-1, :], identifier[..., 1:, :]))
+            identifier_down_right[..., 1:, 1:].assign(tf.where((identifier[..., :-1, :-1] > 0) & (identifier[..., 1:, 1:] == 0),
+                                                             identifier[..., :-1, :-1], identifier[..., 1:, 1:]))
+            identifier_up_left[..., :-1, :-1].assign(tf.where((identifier[..., 1:, 1:] > 0) & (identifier[..., :-1, :-1] == 0),
+                                                            identifier[..., 1:, 1:], identifier[..., :-1, :-1]))
+            identifier_up[..., :-1, :].assign(tf.where((identifier[..., 1:, :] > 0) & (identifier[..., :-1, :] == 0),
+                                                     identifier[..., 1:, :], identifier[..., :-1, :]))
+            identifier_up_right[..., :-1, 1:].assign(tf.where((identifier[..., 1:, :-1] > 0) & (identifier[..., :-1, 1:] == 0),
+                                                            identifier[..., 1:, :-1], identifier[..., :-1, 1:]))
+            identifier_left[..., :, :-1].assign(tf.where((identifier[..., :, 1:] > 0) & (identifier[..., :, :-1] == 0),
+                                                       identifier[..., :, 1:], identifier[..., :, :-1]))
+            identifier_right[..., :, 1:].assign(tf.where((identifier[..., :, :-1] > 0) & (identifier[..., :, 1:] == 0),
+                                                       identifier[..., :, :-1], identifier[..., :, 1:]))
 
             identifier = tf.reduce_max([identifier_up_left, identifier_up, identifier_up_right,
                                         identifier_down_left, identifier_down, identifier_down_right,
@@ -199,22 +200,22 @@ def expand_fronts(fronts: np.ndarray | tf.Tensor | xr.Dataset | xr.DataArray, it
             identifier_left = np.zeros_like(identifier)
             identifier_right = np.zeros_like(identifier)
 
-            identifier_down_left[:, 1:, :-1] = np.where((identifier[:, :-1, 1:] > 0) & (identifier[:, 1:, :-1] == 0),
-                                                        identifier[:, :-1, 1:], identifier[:, 1:, :-1])  # down-left
-            identifier_down[:, 1:, :] = np.where((identifier[:, :-1, :] > 0) & (identifier[:, 1:, :] == 0),
-                                                 identifier[:, :-1, :], identifier[:, 1:, :])  # down
-            identifier_down_right[:, 1:, 1:] = np.where((identifier[:, :-1, :-1] > 0) & (identifier[:, 1:, 1:] == 0),
-                                                        identifier[:, :-1, :-1], identifier[:, 1:, 1:])  # down-right
-            identifier_up_left[:, :-1, :-1] = np.where((identifier[:, 1:, 1:] > 0) & (identifier[:, :-1, :-1] == 0),
-                                                       identifier[:, 1:, 1:], identifier[:, :-1, :-1])  # up-left
-            identifier_up[:, :-1, :] = np.where((identifier[:, 1:, :] > 0) & (identifier[:, :-1, :] == 0),
-                                                identifier[:, 1:, :], identifier[:, :-1, :])  # up
-            identifier_up_right[:, :-1, 1:] = np.where((identifier[:, 1:, :-1] > 0) & (identifier[:, :-1, 1:] == 0),
-                                                       identifier[:, 1:, :-1], identifier[:, :-1, 1:])  # up-right
-            identifier_left[:, :, :-1] = np.where((identifier[:, :, 1:] > 0) & (identifier[:, :, :-1] == 0),
-                                                  identifier[:, :, 1:], identifier[:, :, :-1])  # left
-            identifier_right[:, :, 1:] = np.where((identifier[:, :, :-1] > 0) & (identifier[:, :, 1:] == 0),
-                                                  identifier[:, :, :-1], identifier[:, :, 1:])  # right
+            identifier_down_left[..., 1:, :-1] = np.where((identifier[..., :-1, 1:] > 0) & (identifier[..., 1:, :-1] == 0),
+                                                        identifier[..., :-1, 1:], identifier[..., 1:, :-1])
+            identifier_down[..., 1:, :] = np.where((identifier[..., :-1, :] > 0) & (identifier[..., 1:, :] == 0),
+                                                 identifier[..., :-1, :], identifier[..., 1:, :])
+            identifier_down_right[..., 1:, 1:] = np.where((identifier[..., :-1, :-1] > 0) & (identifier[..., 1:, 1:] == 0),
+                                                        identifier[..., :-1, :-1], identifier[..., 1:, 1:])
+            identifier_up_left[..., :-1, :-1] = np.where((identifier[..., 1:, 1:] > 0) & (identifier[..., :-1, :-1] == 0),
+                                                       identifier[..., 1:, 1:], identifier[..., :-1, :-1])
+            identifier_up[..., :-1, :] = np.where((identifier[..., 1:, :] > 0) & (identifier[..., :-1, :] == 0),
+                                                identifier[..., 1:, :], identifier[..., :-1, :])
+            identifier_up_right[..., :-1, 1:] = np.where((identifier[..., 1:, :-1] > 0) & (identifier[..., :-1, 1:] == 0),
+                                                       identifier[..., 1:, :-1], identifier[..., :-1, 1:])
+            identifier_left[..., :, :-1] = np.where((identifier[..., :, 1:] > 0) & (identifier[..., :, :-1] == 0),
+                                                  identifier[..., :, 1:], identifier[..., :, :-1])
+            identifier_right[..., :, 1:] = np.where((identifier[..., :, :-1] > 0) & (identifier[..., :, 1:] == 0),
+                                                  identifier[..., :, :-1], identifier[..., :, 1:])
 
             identifier = np.max([identifier_up_left, identifier_up, identifier_up_right,
                                  identifier_down_left, identifier_down, identifier_down_right,
