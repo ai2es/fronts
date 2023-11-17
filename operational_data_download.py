@@ -2,7 +2,6 @@
 Download GDAS/GFS data and convert it to netCDF format
 
 Code written by: Andrew Justin (andrewjustin@ou.edu)
-Last updated: 7/30/2023 6:23 PM CT
 """
 
 import argparse
@@ -34,7 +33,7 @@ def get_current_time():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--grib_indir', type=str, help="input directory for ECMWF grib files")
-    parser.add_argument('--netcdf_outdir', type=str, required=True, help="output directory for netcdf files")
+    parser.add_argument('--netcdf_outdir', type=str, help="output directory for netcdf files")
     parser.add_argument('--init_time', type=int, required=True, nargs=4, help="Initialization time: year, month, day, hour")
     parser.add_argument('--forecast_hours', type=int, required=True, nargs='+', help='forecast hours to download')
     parser.add_argument('--domain', type=str, required=True, default='full', 
