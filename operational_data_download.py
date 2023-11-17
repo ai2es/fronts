@@ -315,7 +315,7 @@ if __name__ == "__main__":
 
         forecast_hours = args['forecast_hours']
 
-        glob_strings = ["%s/%d%02d%02dT%02d00/*%dHRS.grb2" % (args['grib_indir'], year, month, day, hour, forecast_hour) for forecast_hour in forecast_hours]
+        glob_strings = ["%s/%d%02d%02dT%02d00/*_%dHRS.grb2" % (args['grib_indir'], year, month, day, hour, forecast_hour) for forecast_hour in forecast_hours]
         files = list(sorted(glob.glob(glob_string) for glob_string in glob_strings)[0])
 
         ds = xr.open_mfdataset(files, engine='cfgrib', combine='nested', concat_dim='valid_time')
