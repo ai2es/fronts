@@ -107,7 +107,7 @@ def generate_predictions(model_number, model_dir, netcdf_indir, init_time, domai
     model = load_model(model_number, model_dir)
 
     ### Load variable files ###
-    variable_files = glob(f'%s/{variable_data_source}_%d%02d%02d%02d_f*.nc' % (netcdf_indir, init_time[0], init_time[1], init_time[2], init_time[3]))
+    variable_files = glob(f'%s/%d%02d%02dT%02d00/netcdf/*_f*.nc' % (netcdf_indir, init_time[0], init_time[1], init_time[2], init_time[3]))
 
     dataset_kwargs = {'engine': 'netcdf4'}  # Keyword arguments for loading variable files with xarray
 

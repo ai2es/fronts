@@ -313,10 +313,9 @@ if __name__ == "__main__":
 
     else:
 
-        forecast_hours = args['forecast_hours']
-
-        glob_strings = ["%s/%d%02d%02dT%02d00/*_%dHRS.grb2" % (args['grib_indir'], year, month, day, hour, forecast_hour) for forecast_hour in forecast_hours]
-        files = list(sorted(glob.glob(glob_string) for glob_string in glob_strings)[0])
+        init_dir = "%s/%d%02d%02dT%02d00" % (args['grib_indir'], year, month, day, hour)  # directory for the initialization time
+        glob_strings = ["%s/*_%dHRS.grb2" % (init_dir, forecast_hour) for forecast_hour in forecast_hours]
+        files = list(sorted(glob.glob(glob_string)[0] for glob_string in glob_strings))
 
         ds = xr.open_mfdataset(files, engine='cfgrib', combine='nested', concat_dim='valid_time')
 
@@ -406,10 +405,9 @@ if __name__ == "__main__":
 
         full_grib_dataset = full_grib_dataset.expand_dims({'time': np.atleast_1d(init_time)})
 
-        monthly_dir = '%s/%d%02d' % (args['netcdf_outdir'], year, month)
-
-        if not os.path.isdir(monthly_dir):
-            os.mkdir(monthly_dir)
+        netcdf_outdir = '%s/netcdf' % init_dir if args['netcdf_outdir'] is None else args['netcdf_outdir']
+        if not os.path.isdir(netcdf_outdir):
+            os.makedirs(netcdf_outdir)
 
         for idx, forecast_hour in enumerate(forecast_hours):
-            full_grib_dataset.isel(forecast_hour=[idx, ]).to_netcdf(path=f"%s/ecmwf_%d%02d%02d%02d_f%03d_global.nc" % (monthly_dir, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
+            full_grib_dataset.isel(forecast_hour=[idx, ]).to_netcdf(path=f"%s/ecmwf_%d%02d%02d%02d_f%03d_global.nc" % (netcdf_outdir, year, month, day, hour, forecast_hour), mode='w', engine='netcdf4')
