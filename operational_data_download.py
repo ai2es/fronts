@@ -33,6 +33,7 @@ def get_current_time():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('--grib_indir', type=str, help="input directory for ECMWF grib files")
     parser.add_argument('--netcdf_outdir', type=str, required=True, help="output directory for netcdf files")
     parser.add_argument('--init_time', type=int, required=True, nargs=4, help="Initialization time: year, month, day, hour")
     parser.add_argument('--forecast_hours', type=int, required=True, nargs='+', help='forecast hours to download')
@@ -312,7 +313,11 @@ if __name__ == "__main__":
 
     else:
 
-        files = list(sorted(glob.glob('%s/%d%02d/T3D%02d%02d%02d00*1' % (args['grib_indir'], year, month, month, day, hour))))
+        forecast_hours = args['forecast_hours']
+
+        glob_strings = ["%s/%d%02d%02d%02d00/*%dHRS.grb2" % (args['grib_indir'], year, month, day, hour, forecast_hour) for forecast_hour in forecast_hours]
+        files = list(sorted(glob.glob(glob_string) for glob_string in glob_strings)[0])
+
         ds = xr.open_mfdataset(files, engine='cfgrib', combine='nested', concat_dim='valid_time')
 
         lons = ds['longitude'].values
@@ -320,8 +325,6 @@ if __name__ == "__main__":
         init_time = ds['time'].values
         valid_times = ds['valid_time'].values
         isobaricInhPa = ds['isobaricInhPa'].values
-
-        forecast_hours = ((valid_times - init_time) / (3600 * 1e9)).astype(int)  # 1 hour = 3600 seconds, 1 second = 10^9 nanoseconds
 
         pressure_levels = ['surface', ]
         pressure_levels.extend(isobaricInhPa.astype(int))
