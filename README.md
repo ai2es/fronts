@@ -70,7 +70,7 @@ Predictor variables can be obtained from multiple sources, however the main sour
 * ###### All netCDF files will be stored in subdirectories sorted by month (e.g. */netcdf/201304* only contains data with initialization times in April 2013).
 
 * Predictor variables can also be sourced from multiple NWP models using the *download_grib_files.py* script. Supported models include GFS, HRRR, NAM 12km, and the individual NAM nests.
-  * Similar to sliced ERA5 netCDF files, downloaded GRIB files will be sorted into monthly directories.
+  * Similar to sliced ERA5 netCDF files, downloaded GRIB files will be sorted into monthly directories. 
 
 
     python download_grib_files.py --grib_outdir {} --model {} --init_time {}
