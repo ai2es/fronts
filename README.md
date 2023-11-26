@@ -73,7 +73,7 @@ Predictor variables can be obtained from multiple sources, however the main sour
   * Similar to sliced ERA5 netCDF files, downloaded GRIB files will be sorted into monthly directories. 
 
 
-    python download_grib_files.py --grib_outdir {} --model {} --init_time {}
+        python download_grib_files.py --grib_outdir {} --model {} --init_time {}
 
 | Argument         | Type       | Default | Description                                                                                                                                                                                                                     |
 |------------------|------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
