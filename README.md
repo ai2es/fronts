@@ -1,6 +1,14 @@
 # AI2ES Fronts Project Training Guide
 The following guide will detail the steps toward successfully train a UNET-style model for frontal boundary predictions.
 
+## Table of Contents
+1. Gathering Data
+2. TensorFlow dataset
+3. Model training
+4. Evaluation (not written)
+5. XAI* (not written)
+6. Appendix
+
 ###### Note that many file-naming conventions and expected directory structures are hard-coded and must be followed for this module to function properly.
 
 ## 1. Gathering Data
@@ -120,9 +128,9 @@ There are several steps in the process of building TensorFlow datasets.
 
 1. Choose the years for the dataset. Currently, only years 2008-2020 are supported (will be changed **very soon** to include 2021-2023). The same year cannot be used in multiple datasets (e.g. if 2016 data is used in the training dataset, in cannot be used in validation nor testing sets).
 2. Determine the predictor variables (inputs) and front types (targets/labels) that will make up the dataset. Complete lists of variables and front types can be found in appendices 5b and 5c of this guide.
-3. Choose what vertical levels to include in the inputs. The list of acceptable vertical levels can be found in appendix 5c.
+3. Choose what vertical levels to include in the inputs. The list of acceptable vertical levels can be found in appendix 6c.
 4. Determine the shape (number of dimensions) of the inputs and targets. (e.g. do you want a model that takes 3D inputs and tries to predict 2D targets?)
-5. Choose the domains of the datasets. All available domains can be found in appendix 5a.
+5. Choose the domains of the datasets. All available domains can be found in appendix 6a.
 6. Select the size of the images for the training/validation datasets and the number of images to extract from each timestep. **Note that by default a timestep will only be used in the final dataset if all requested front types are present in that timestep over the provided domain.**
    1. Determine whether or not you would like to retain timesteps that do not contain all requested front types. For example, if you build a dataset with cold and warm fronts, timesteps with cold fronts that do not also have warm fronts will not be included in the final dataset by default. You can, however, retain a fraction (or even all) of the images that do not have all requested front types.
 7. Explore data augmentation and front expansion
@@ -140,12 +148,12 @@ There are several steps in the process of building TensorFlow datasets.
 | *fronts_netcdf_indir*    | str        | (none)  | Input directory for the netCDF files containing front labels.                                 |
 | *tf_outdir*              | str        | (none)  | Output directory for the tensorflow datasets.                                                 |
 | *year_and_month*         | int (2)    | (none)  | Year and month for which to generate tensorflow datasets.                                     |
-| *front_types*            | str (N)    | (none)  | Front types to use as targets (Appendix 5c for options).                                      |
-| *variables*              | str (N)    | (none)  | Variables to include in the inputs (Appendix 5b for options).                                 |
-| *pressure_levels*        | str (N)    | (none)  | Pressure levels to include in the inputs (Appendix 5d for options).                           |
+| *front_types*            | str (N)    | (none)  | Front types to use as targets (Appendix 6c for options).                                      |
+| *variables*              | str (N)    | (none)  | Variables to include in the inputs (Appendix 6b for options).                                 |
+| *pressure_levels*        | str (N)    | (none)  | Pressure levels to include in the inputs (Appendix 6d for options).                           |
 | *evaluation_dataset*     | store_true | N/A     | Set up the dataset so it can be used for evaluation. See the notes below this table for info. |
 | *num_dims*               | int (2)    | 3 3     | Number of dimensions in the input data and front labels, respectively.                        |
-| *domain*                 | str        | "conus" | Domain that the dataset will cover (Appendix 5a for options).                                 |
+| *domain*                 | str        | "conus" | Domain that the dataset will cover (Appendix 6a for options).                                 |
 | *images*                 | int (2)    | 9 1     | Number of images to extract from the timestep along the longitude and latitude dimensions.    |
 | *image_size*             | int (2)    | 128 128 | Size of the longitude and latitude dimensions of the images (# pixels).                       |
 | *front_dilation*         | int        | 0       | Number of pixels to expand the front labels by in all directions.                             |
@@ -170,13 +178,25 @@ There are several steps in the process of building TensorFlow datasets.
 
 ###### NOTES:
 * There are many arguments for *train_model.py* and their descriptions and usages are too long to list in this guide. Consult *train_model.py* and read through each argument *carefully* as you will need to use most of the available arguments.
-* All model architecture options can be found in Appendix 5e.
+* All model architecture options can be found in Appendix 6e.
 
-# 4. Evaluation
 
-# 5. Appendix
+# 4. Evaluation (performance)
 
-### 5a. Domains
+#### 4a. Learning curve plots
+
+#### 4b. Calculating model performance over testing set
+
+#### 4c. Model calibration
+
+#### 4d. Performance diagrams
+
+
+# 5. XAI
+
+# 6. Appendix
+
+### 6a. Domains
 | Argument string | Domain                                             | Extent                         |
 |-----------------|----------------------------------------------------|--------------------------------|
 | *atlantic*      | Atlantic Ocean                                     | 16-55.75°N, 290-349.75°E       |
@@ -188,7 +208,7 @@ There are several steps in the process of building TensorFlow datasets.
 | *namnest-conus* | CONUS nest of the 3-km NAM                         | non-uniform grid               |
 | *pacific*       | Pacific Ocean                                      | 16-55.75°N, 145-234.75°E       |
 
-### 5b. Variables
+### 6b. Variables
 | Argument string | Variable                                 |
 |-----------------|------------------------------------------|
 | *q*             | Specific humidity                        |
@@ -206,7 +226,7 @@ There are several steps in the process of building TensorFlow datasets.
 | *u*             | U-component of wind                      |
 | *v*             | V-component of wind                      |
 
-### 5c. Front types
+### 6c. Front types
 | Identifier | Argument string | Front type                     |
 |------------|-----------------|--------------------------------|
 | 1          | *CF*            | Cold front                     |
@@ -226,7 +246,7 @@ There are several steps in the process of building TensorFlow datasets.
 | 15         | *TT*            | Tropical trough                |
 | 16         | *DL*            | Dryline                        |
 
-### 5d. Vertical levels
+### 6d. Vertical levels
 | Argument string | Level    |
 |-----------------|----------|
 | *surface*       | Surface  |
@@ -235,7 +255,7 @@ There are several steps in the process of building TensorFlow datasets.
 | *900*           | 900 hPa  |
 | *850*           | 850 hPa  |
 
-### 5e. Models
+### 6e. Models
 
 | Argument string | Model          | Reference                                              |
 |-----------------|----------------|--------------------------------------------------------|
