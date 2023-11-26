@@ -19,28 +19,28 @@ Front labels are sourced from the National Oceanic and Atmospheric Administratio
     * Ex: */20230827/00/rec.sfcanalysis.20230828T000000Z.20230827T000000Z.P01D00H00M.WORLD@10km.FRONTS.SFC.gml* [Forecasted fronts for 00z August 28, 2023 (valid time) drawn at 00z August 27, 2023 (init time).]
   * ###### Note that the valid and initialization time strings (e.g. "20230828T000000Z.20230827T000000Z", "20230827T090000Z.NIL") are the only required parts of the base filename outside the .gml suffix. The directory structure must be maintained.
 
-If using TWC front labels, the GML files must be converted to XML files by running the convert_front_gml_to_xml.py script with the following command (all arguments are **required**):
+If using TWC front labels, the GML files must be converted to XML files by running the convert_front_gml_to_xml.py script with the command below. Only **required** arguments are shown in the command line. If an argument shows up in the table below the command but is not in the command itself, that argument is **optional**.
 
     python convert_front_gml_to_xml.py --gml_indir {} --xml_outdir {} --date {} {} {}
 
-    """
-    --gml_indir: Input directory containing the nested directory structure for the GML files.
-    --xml_outdir: Output directory for the XML files.
-    --date: Three integers representing the date: year, month, day
-    """
+| Argument      | Type     | Default | Description                            |
+|---------------|----------|---------|----------------------------------------|
+| *gml_indir*   | str      | (none)  | Input directory for the TWC GML files. |
+| *xml_outdir*  | str      | (none)  | Output directory for the XML files.    |
+| *date*        | int (3)  | (none)  | Year, month, and day.                  |
 
 After obtaining the XML files, convert them to netCDF with the command below. *convert_front_xml_to_netcdf.py* will generate a netCDF for each XML file containing an initialization time with the provided date. (i.e. separate netCDF files will be created for 03z 2019-05-20 and 06z 2019-05-20 if the provided date is 2019-05-20)
 
     python convert_front_xml_to_netcdf.py --xml_indir {} --netcdf_outdir {} --date {}
-    """
-    *--xml_indir: Input directory for the XML files.
-    *--netcdf_outdir: Output parent directory for the netCDF files. The files will be sorted in monthly directories (Ex: /netcdf/201905/...., where /netcdf is the parent directory)
-    *--date: String formatted as YYYY-MM-DD. (Ex: "2019-05-20")
-    --distance: Interpolation distance for the fronts in kilometers. (default = 1)
-    --domain: Domain for which to interpolate fronts over. To process IBM fronts, this must be set to 'global'. (default = 'full')
 
-    * required arguments
-    """
+| Argument        | Type         | Default   | Description                                                                                        |
+|-----------------|--------------|-----------|----------------------------------------------------------------------------------------------------|
+| *xml_indir*     | str          | (none)    | Input directory for the XML files.                                                                 |
+| *netcdf_outdir* | str          | (none)    | Output parent directory for the netCDF files.                                                      |
+| *date*          | str          | (none)    | String formatted as YYYY-MM-DD                                                                     |
+| *distance*      | int or float | 1         | Interpolation distance for the fronts in kilometers.                                               |
+| *domain*        | str          | "full"    | Domain for which to interpolate fronts over. To process IBM fronts, this must be set to 'global'.  |
+
 
   * The resulting netCDF files will be placed in subdirectories sorted by month (e.g. */netcdf/201304* contains all netCDF files for April 2013).
 
@@ -52,50 +52,50 @@ Predictor variables can be obtained from multiple sources, however the main sour
 * When downloading ERA5 data, make sure each file contains one year of 3-hourly data. Keep all data in a directory with two folders named *Surface* and *Pressure_Level*. (e.g. /data/era5/Surface, /data/era5/Pressure_Level)
   * At the **surface** level, download air temperature, dewpoint temperature, u-wind and v-wind, and surface pressure, with one file per variable. The base filename for 2-meter (surface) temperature data from 2008 will be *ERA5Global_2008_3hrly_2mT.nc*. Keep all surface files in the *Surface* folder as described above. There should be **five** ERA5 files for each year of surface data.
   * **Pressure level** data is downloaded in the same manner as above, however all pressure levels are contained within a single file. The pressure level variables needed are temperature, u-wind and v-wind, specific humidity, and geopotential height. The base filename for pressure level temperature data from 2008 will be *ERA5Global_PL_2008_3hrly_Q.nc*. Keep all pressure level files in the *Pressure_Level* folder as described above. There should be **five** ERA5 files for each year of pressure level data.
-  * After downloading ERA5 data, the data must be sliced and additional variables must be calculated. This is accomplished in the *create_era5_netcdf.py* script (all arguments are **required**):
+  * After downloading ERA5 data, the data must be sliced and additional variables must be calculated. This is accomplished in the *create_era5_netcdf.py* script:
 
     
     python create_era5_netcdf.py --netcdf_era5_indir {} --netcdf_outdir {} --date {} {} {}
 
-    """
-    --netcdf_era5_indir: Input directory for the ERA5 netCDF files (Ex: /data/era5)
-    --netcdf_outdir: Output directory for the sliced ERA5 netCDF files with additional variables (Ex: /netcdf)
-    --date: Three integers representing the date: year, month, day
-    """
+| Argument               | Type     | Default | Description                                                                  |
+|------------------------|----------|---------|------------------------------------------------------------------------------|
+| *netcdf_era5_indir*    | str      | (none)  | Input directory for the ERA5 netCDF files.                                   |
+| *netcdf_outdir*        | str      | (none)  | Output directory for the sliced ERA5 netCDF files with additional variables. |
+| *date*                 | int (3)  | (none)  | Year, month, and day.                                                        |
 
 * ###### All netCDF files will be stored in subdirectories sorted by month (e.g. */netcdf/201304* only contains data with initialization times in April 2013).
 
 * Predictor variables can also be sourced from multiple NWP models using the *download_grib_files.py* script. Supported models include GFS, HRRR, NAM 12km, and the individual NAM nests.
   * Similar to sliced ERA5 netCDF files, downloaded GRIB files will be sorted into monthly directories.
 
-        python download_grib_files.py --grib_outdir {} --model {} --init_time {}
-        """
-        *--grib_outdir: Output directory for the downloaded GRIB files. (Ex: /data/grib)
-        *--model: NWP model from which the data will be sourced. This argument is case-insenstitive. (Ex: 'gfs')
-        --init_time: Initialization time of the model run, string formatted as YYYY-MM-DD-HH. (Ex: "2019-05-20-21" 21z May 20, 2019)
-        --range: Date range and frequency of the data to download. 3 arguments must be passed: the start and end dates of the range, and the timestep frequency. Reference *download_grib_files.py* for additional information on this argument. (Ex: "2019-01-01-06" "2019-04-12-18z" "6H" [06z January 1, 2019 to 18z April 12, 2019 every 6 hours])
-        --forecast_hours: List of forecast hours to download for the initialization time(s). (Ex: 0 12 24)
-        --verbose: Boolean flag that prints out the status for the GRIB file downloads.
-        
-        * required argument
-        MUST PASS ONE OF THE FOLLOWING ARGUMENTS: --init_time, --range
-        """
 
-  * After downloading the GRIB files, they must be converted to netCDF format with the *convert_grib_to_netcdf.py*. All forecast hours for a given initialization time are processed at once. The resulting netCDF files are sorted into monthly directories in the same manner as ERA5 files. For GFS and GDAS data, the base filename format is *model_YYYYMMDDHH_fFFF_global.nc* (FFF = forecast_hour). The *_global* string in the base filename is removed for all other models since they have their own specified domains.
+    python download_grib_files.py --grib_outdir {} --model {} --init_time {}
 
-        python convert_grib_to_netcdf.py --grib_indir {} --model {} --netcdf_outdir {} --init_time {} {} {} {}
-        """
-        *--grib_indir: Input directory for the GRIB files.
-        *--model: NWP model from which the GRIB files originated.
-        *--netcdf_outdir: Output directory for the netCDF files.
-        *--init_time: 4 integers representing the initialization time of the model: year, month, day, hour
-        --overwrite_grib: Boolean flag that overwrites split GRIB files if they already exist.
-        --delete_original_grib: Boolean flag that deletes the downloaded GRIB files after they are split.
-        --delete_split_grib: Boolean flag that deletes split GRIB files after they are converted to netCDF.
-        --gpu: Boolean flag that uses the first GPU device located on the local machine. Can provide massive speedups when processing large numbers of forecast hours.
-  
-        * required argument
-        """
+| Argument         | Type       | Default | Description                                                                                                                                                                                                                     |
+|------------------|------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| *grib_outdir*    | str        | (none)  | Output directory for the downloaded GRIB files.                                                                                                                                                                                 |
+| *model*          | str        | (none)  | Output directory for the sliced ERA5 netCDF files with additional variables.                                                                                                                                                    |
+| *init_time*      | str        | (none)  | Initialization time of the model run, string formatted as YYYY-MM-DD-HH.                                                                                                                                                        |
+| *range*          | str (3)    | (none)  | Date range and frequency of the data to download. 3 arguments must be passed: the start and end dates of the range, and the timestep frequency. Reference *download_grib_files.py* for additional information on this argument. |
+| *forecast_hours* | int (xN)   | (none)  | List of forecast hours to download for the initialization time(s).                                                                                                                                                              |
+| *verbose*        | store_true | N/A     | Print out the status for the GRIB file downloads.                                                                                                                                                                               |
+###### Note that one of "init_time", "range" must be passed into the command line.
+
+* After downloading the GRIB files, they must be converted to netCDF format with the *convert_grib_to_netcdf.py*. All forecast hours for a given initialization time are processed at once. The resulting netCDF files are sorted into monthly directories in the same manner as ERA5 files. For GFS and GDAS data, the base filename format is *model_YYYYMMDDHH_fFFF_global.nc* (FFF = forecast_hour). The *_global* string in the base filename is removed for all other models since they have their own specified domains.
+
+
+      python convert_grib_to_netcdf.py --grib_indir {} --model {} --netcdf_outdir {} --init_time {} {} {} {}
+
+| Argument               | Type       | Default | Description                                                 |
+|------------------------|------------|---------|-------------------------------------------------------------|
+| *grib_indir*           | str        | (none)  | Input directory for the GRIB files.                         |
+| *model*                | str        | (none)  | NWP model from which the GRIB files originated.             |
+| *netcdf_outdir*        | str        | (none)  | Output directory for the netCDF files.                      |
+| *init_time*            | int (4)    | (none)  | Year, month, day, hour.                                     |
+| *overwrite_grib*       | store_true | N/A     | Overwrite split GRIB files if they already exist.           |
+| *delete_original_grib* | store_true | N/A     | Delete the downloaded GRIB files after they are split.      |
+| *delete_split_grib*    | store_true | N/A     | Delete split GRIB files after they are converted to netCDF. |
+| *gpu*                  | store_true | N/A     | Force additional variables to be calculated on a GPU.       |
 
 # 2. TensorFlow datasets
 
@@ -127,8 +127,44 @@ There are several steps in the process of building TensorFlow datasets.
 8. Finally, run the convert_netcdf_to_tf.py script to build the dataset.
 
 
+    python convert_netcdf_to_tf.py --variables_netcdf_indir {} --fronts_netcdf_indir {} --tf_outdir {} --year_and_month {} --front_types {}
+
+| Argument                 | Type       | Default | Description                                                                                   |
+|--------------------------|------------|---------|-----------------------------------------------------------------------------------------------|
+| *variables_netcdf_indir* | str        | (none)  | Input directory for the netCDF files containing variable data.                                |
+| *fronts_netcdf_indir*    | str        | (none)  | Input directory for the netCDF files containing front labels.                                 |
+| *tf_outdir*              | str        | (none)  | Output directory for the tensorflow datasets.                                                 |
+| *year_and_month*         | int (2)    | (none)  | Year and month for which to generate tensorflow datasets.                                     |
+| *front_types*            | str (N)    | (none)  | Front types to use as targets (Appendix 5c for options).                                      |
+| *variables*              | str (N)    | (none)  | Variables to include in the inputs (Appendix 5b for options).                                 |
+| *pressure_levels*        | str (N)    | (none)  | Pressure levels to include in the inputs (Appendix 5d for options).                           |
+| *evaluation_dataset*     | store_true | N/A     | Set up the dataset so it can be used for evaluation. See the notes below this table for info. |
+| *num_dims*               | int (2)    | 3 3     | Number of dimensions in the input data and front labels, respectively.                        |
+| *domain*                 | str        | "conus" | Domain that the dataset will cover (Appendix 5a for options).                                 |
+| *images*                 | int (2)    | 9 1     | Number of images to extract from the timestep along the longitude and latitude dimensions.    |
+| *image_size*             | int (2)    | 128 128 | Size of the longitude and latitude dimensions of the images (# pixels).                       |
+| *front_dilation*         | int        | 0       | Number of pixels to expand the front labels by in all directions.                             |
+| *keep_fraction*          | float      | 0.0     | Fraction of timesteps not containing all front types to keep in the dataset. (0 <= x <= 1)    |
+| *noise_fraction*         | float      | 0.0     | Fraction of pixels in each image that will contain salt and pepper noise. (0 <= x <= 1)       |
+| *rotate_chance*          | float      | 0.0     | Chance that an image will be randomly rotated in 90° intervals. (0 <= x <= 1)                 |
+| *flip_chance_lon*        | float      | 0.0     | Chance that an image will have its longitude dimension reversed. (0 <= x <= 1)                |
+| *flip_chance_lat*        | float      | 0.0     | Chance that an image will have its latitude dimension reversed. (0 <= x <= 1)                 |
+| *overwrite*              | store_true | N/A     | Overwrite the contents of any existing variables and fronts data.                             |
+| *verbose*                | store_true | N/A     | Print out the progress of the dataset generation.                                             |
+| *gpu_device*             | store_true | N/A     | GPU device numbers.                                                                           |
+| *memory_growth*          | store_true | N/A     | Use memory growth on the GPU(s).                                                              |
+
+* ###### NOTES: 
+  * "evaluation_dataset" will override several of the table's arguments. See *convert_netcdf_to_tf.py* for more information.
+  * Once the command is executed, a .pkl file and .txt file will be saved to *tf_outdir*. The .pkl file will contain properties of the dataset (values of the table's arguments), and the .txt file is a readable version of the .pkl file. 
+  * After the .pkl file is created, the arguments in the .pkl file will be referenced in the future in order to create consistent datasets. For example, if a tensorflow dataset in */my_tf_ds* was initially created with the *num_dims* argument set to *3 2*, passing "--num_dims 3 3" into the command line with the same output directory (i.e. */my_tf_ds*) will have no effect. The .pkl file will be utilized to set critical arguments if the .pkl file exists. See *convert_netcdf_to_tf.py* for more information.
 
 # 3. Model training
+
+    python train_model.py  (too many arguments to list - consult the table and the train_model.py script)
+
+* There are many arguments for *train_model.py* and their descriptions and usages are too long to list in this guide. Consult *train_model.py* and read through each argument *carefully* as you will need to use most of the available arguments.
+* All model architecture options can be found in Appendix 5e.
 
 # 4. Evaluation
 
@@ -192,3 +228,14 @@ There are several steps in the process of building TensorFlow datasets.
 | *950*           | 950 hPa  |
 | *900*           | 900 hPa  |
 | *850*           | 850 hPa  |
+
+### 5e. Models
+
+| Argument string | Model          | Reference                                              |
+|-----------------|----------------|--------------------------------------------------------|
+| unet            | UNET           | https://arxiv.org/pdf/1505.04597.pdf                   |
+| unet_plus       | UNET+          | https://arxiv.org/pdf/1912.05074.pdf                   |
+| unet_2plus      | UNET++         | https://arxiv.org/pdf/1912.05074.pdf                   |
+| unet_3plus      | UNET3+         | https://arxiv.org/ftp/arxiv/papers/2004/2004.08790.pdf |
+| unet_ensemble   | UNet ensemble  | https://arxiv.org/pdf/1912.05074.pdf                   |
+| attention_unet  | Attention UNET | https://arxiv.org/pdf/1505.04597.pdf                   |
