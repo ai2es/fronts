@@ -53,8 +53,8 @@ Predictor variables can be obtained from multiple sources, however the main sour
   * At the **surface** level, download air temperature, dewpoint temperature, u-wind and v-wind, and surface pressure, with one file per variable. The base filename for 2-meter (surface) temperature data from 2008 will be *ERA5Global_2008_3hrly_2mT.nc*. Keep all surface files in the *Surface* folder as described above. There should be **five** ERA5 files for each year of surface data.
   * **Pressure level** data is downloaded in the same manner as above, however all pressure levels are contained within a single file. The pressure level variables needed are temperature, u-wind and v-wind, specific humidity, and geopotential height. The base filename for pressure level temperature data from 2008 will be *ERA5Global_PL_2008_3hrly_Q.nc*. Keep all pressure level files in the *Pressure_Level* folder as described above. There should be **five** ERA5 files for each year of pressure level data.
   * After downloading ERA5 data, the data must be sliced and additional variables must be calculated. This is accomplished in the *create_era5_netcdf.py* script:
+  
 
-    
     python create_era5_netcdf.py --netcdf_era5_indir {} --netcdf_outdir {} --date {} {} {}
 
 | Argument               | Type     | Default | Description                                                                  |
@@ -129,6 +129,7 @@ There are several steps in the process of building TensorFlow datasets.
 
     
     python convert_netcdf_to_tf.py --variables_netcdf_indir {} --fronts_netcdf_indir {} --tf_outdir {} --year_and_month {} --front_types {}
+
 
 | Argument                 | Type       | Default | Description                                                                                   |
 |--------------------------|------------|---------|-----------------------------------------------------------------------------------------------|
