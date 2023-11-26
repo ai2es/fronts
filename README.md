@@ -131,8 +131,7 @@ There are several steps in the process of building TensorFlow datasets.
 8. Finally, run the convert_netcdf_to_tf.py script to build the dataset.
 
 
-    
-    python convert_netcdf_to_tf.py --variables_netcdf_indir {} --fronts_netcdf_indir {} --tf_outdir {} --year_and_month {} --front_types {}
+        python convert_netcdf_to_tf.py --variables_netcdf_indir {} --fronts_netcdf_indir {} --tf_outdir {} --year_and_month {} --front_types {}
 
 
 | Argument                 | Type       | Default | Description                                                                                   |
