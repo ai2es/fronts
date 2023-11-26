@@ -154,15 +154,16 @@ There are several steps in the process of building TensorFlow datasets.
 | *gpu_device*             | store_true | N/A     | GPU device numbers.                                                                           |
 | *memory_growth*          | store_true | N/A     | Use memory growth on the GPU(s).                                                              |
 
-* ###### NOTES: 
+###### NOTES: 
   * "evaluation_dataset" will override several of the table's arguments. See *convert_netcdf_to_tf.py* for more information.
   * Once the command is executed, a .pkl file and .txt file will be saved to *tf_outdir*. The .pkl file will contain properties of the dataset (values of the table's arguments), and the .txt file is a readable version of the .pkl file. 
   * After the .pkl file is created, the arguments in the .pkl file will be referenced in the future in order to create consistent datasets. For example, if a tensorflow dataset in */my_tf_ds* was initially created with the *num_dims* argument set to *3 2*, passing "--num_dims 3 3" into the command line with the same output directory (i.e. */my_tf_ds*) will have no effect. The .pkl file will be utilized to set critical arguments if the .pkl file exists. See *convert_netcdf_to_tf.py* for more information.
 
 # 3. Model training
 
-    python train_model.py  (too many arguments to list - consult the table and the train_model.py script)
+    python train_model.py  (too many arguments to list - consult the train_model.py script)
 
+###### NOTES:
 * There are many arguments for *train_model.py* and their descriptions and usages are too long to list in this guide. Consult *train_model.py* and read through each argument *carefully* as you will need to use most of the available arguments.
 * All model architecture options can be found in Appendix 5e.
 
