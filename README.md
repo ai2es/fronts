@@ -61,11 +61,7 @@ Predictor variables can be obtained from multiple sources, however the main sour
   * At the **surface** level, download air temperature, dewpoint temperature, u-wind and v-wind, and surface pressure, with one file per variable. The base filename for 2-meter (surface) temperature data from 2008 will be *ERA5Global_2008_3hrly_2mT.nc*. Keep all surface files in the *Surface* folder as described above. There should be **five** ERA5 files for each year of surface data.
   * **Pressure level** data is downloaded in the same manner as above, however all pressure levels are contained within a single file. The pressure level variables needed are temperature, u-wind and v-wind, specific humidity, and geopotential height. The base filename for pressure level temperature data from 2008 will be *ERA5Global_PL_2008_3hrly_Q.nc*. Keep all pressure level files in the *Pressure_Level* folder as described above. There should be **five** ERA5 files for each year of pressure level data.
   * After downloading ERA5 data, the data must be sliced and additional variables must be calculated. This is accomplished in the *create_era5_netcdf.py* script:
-
-
-
-
-
+  
 
         python create_era5_netcdf.py --netcdf_era5_indir {} --netcdf_outdir {} --date {} {} {}
 
@@ -164,11 +160,11 @@ There are several steps in the process of building TensorFlow datasets.
 | *flip_chance_lat*        | float      | 0.0     | Chance that an image will have its latitude dimension reversed. (0 <= x <= 1)                 |
 | *overwrite*              | store_true | N/A     | Overwrite the contents of any existing variables and fronts data.                             |
 | *verbose*                | store_true | N/A     | Print out the progress of the dataset generation.                                             |
-| *gpu_device*             | store_true | N/A     | GPU device numbers.                                                                           |
+| *gpu_device*             | int (N)    | (none)  | GPU device numbers.                                                                           |
 | *memory_growth*          | store_true | N/A     | Use memory growth on the GPU(s).                                                              |
 
 ###### NOTES: 
-  * "evaluation_dataset" will override several of the table's arguments. See *convert_netcdf_to_tf.py* for more information.
+  * "evaluation_dataset" will override several of the table's arguments. See *convert_netcdf_to_tf.py* for more information. The testing dataset **must** have this flag attached in the command line in order to generate a proper testing set, and the testing set must be saved into its own directory (e.g. */my_tf_test_ds*).
   * Once the command is executed, a .pkl file and .txt file will be saved to *tf_outdir*. The .pkl file will contain properties of the dataset (values of the table's arguments), and the .txt file is a readable version of the .pkl file. 
   * After the .pkl file is created, the arguments in the .pkl file will be referenced in the future in order to create consistent datasets. For example, if a tensorflow dataset in */my_tf_ds* was initially created with the *num_dims* argument set to *3 2*, passing "--num_dims 3 3" into the command line with the same output directory (i.e. */my_tf_ds*) will have no effect. The .pkl file will be utilized to set critical arguments if the .pkl file exists. See *convert_netcdf_to_tf.py* for more information.
 
@@ -180,19 +176,87 @@ There are several steps in the process of building TensorFlow datasets.
 * There are many arguments for *train_model.py* and their descriptions and usages are too long to list in this guide. Consult *train_model.py* and read through each argument *carefully* as you will need to use most of the available arguments.
 * All model architecture options can be found in Appendix 6e.
 
-
 # 4. Evaluation (performance)
 
-#### 4a. Learning curve plots
+Before performing an evaluation, make sure a testing dataset exists for the chosen test year(s). The evaluation process is broken down into four steps.
 
-#### 4b. Calculating model performance over testing set
+#### 4a. Generating test predictions
 
-#### 4c. Model calibration
+This is the first step in the evaluation process. Using the *./evaluation/predict_tf.py* script, you can generate predictions with the created tensorflow datasets. For evaluation purposes, the predictions should be generated with the testing dataset. NetCDF files containing model predictions will be saved and sorted by month.
+
+* Use ONE of the following commands to generate predictions. There are two commands that can be used depending on whether you want to generate predictions for the entire dataset in one run or generate predictions one month at a time. The ability to run one month at a time was added so that predictions can be generated in parallel with multiple commands.
+    
+
+    python ./evaluation/predict_tf.py --model_number {} --model_dir {} --tf_indir {} --dataset {}
+    python ./evaluation/predict_tf.py --model_number {} --model_dir {} --tf_indir {} --year_and_month {} {}
+
+| Argument         | Type       | Default | Description                                                                                        |
+|------------------|------------|---------|----------------------------------------------------------------------------------------------------|
+| *model_number*   | int        | (none)  | Number assigned to the model during training.                                                      |
+| *model_dir*      | str        | (none)  | Parent directory for all models. (e.g. */models*)                                                  |
+| *tf_indir*       | str        | (none)  | Input directory for the tensorflow dataset for which predictions will be generated.                |
+| *dataset*        | str        | (none)  | Dataset for which the predictions will be generated. Options are "training", "validation", "test". |
+| *year_and_month* | int (2)    | (none)  | Year and month for which the predictions will be generated.                                        |
+| *data_source*    | str        | "era5"  | Source of the input variables in the datasets.                                                     |
+| *gpu_device*     | int (N)    | (none)  | GPU device numbers.                                                                                |
+| *memory_growth*  | store_true | N/A     | Use memory growth on the GPU(s).                                                                   |
+| *overwrite*      | store_true | N/A     | Overwrite any existing prediction netCDF files.                                                    |
+
+#### 4b. Calculating general performance statistics
+
+After generating predictions, general performance statistics must be calculated over the predictions. Similar to generating predictions in 4a, only use ONE of the commands listed below. Note that this part may require a very large amount of storage (up to and even exceeding 100s of GBs) depending on the size of the dataset. Performance statistics will be calculated using the netCDF files containing front labels rather than the labels contained in the tensorflow dataset. If using 0.25° data (resolution of ERA5 data), performance statistics for five neighborhoods will be calculated: 0.5° (~50 km), 1° (~100 km), 1.5° (~150 km), 2° (~200 km), 2.5° (~250 km). *Statistics for higher resolution data are currently not supported.*
+
+    
+    python ./evaluation/generate_performance_stats.py --model_number {} --model_dir {} --fronts_netcdf_indir {} --domain {} --dataset {}
+    python ./evaluation/generate_performance_stats.py --model_number {} --model_dir {} --fronts_netcdf_indir {} --domain {} --year_and_month {} {} 
+
+| Argument              | Type       | Default | Description                                                                                        |
+|-----------------------|------------|---------|----------------------------------------------------------------------------------------------------|
+| *model_number*        | int        | (none)  | Number assigned to the model during training.                                                      |
+| *model_dir*           | str        | (none)  | Parent directory for all models. (e.g. */models*)                                                  |
+| *fronts_netcdf_indir* | str        | (none)  | Input directory for the netCDF files containing front labels.                                      |
+| *domain*              | str        | (none)  | Domain of the predictions from which statistics are being calculated.                              |
+| *dataset*             | str        | (none)  | Dataset for which the predictions will be generated. Options are "training", "validation", "test". |
+| *year_and_month*      | int (2)    | (none)  | Year and month for which the predictions will be generated.                                        |
+| *data_source*         | str        | "era5"  | Source of the input variables in the datasets.                                                     |
+| *gpu_device*          | int (N)    | (none)  | GPU device numbers.                                                                                |
+| *memory_growth*       | store_true | N/A     | Use memory growth on the GPU(s).                                                                   |
+| *overwrite*           | store_true | N/A     | Overwrite any existing netCDF files containing performance statistics.                             |
+
+#### 4c. Combining performance statistics
+
+From the generated performance statistics (sorted into monthly files) confidence intervals over the temporal data will be calculated using a bootstrapping technique. Spatial statistics will also be generated and can be used to show spatial performance in terms of CSI. The resulting statistics for the entire dataset will be combined into one netCDF file. 
+
+    python ./evaluation/generate_performance_stats.py --model_number {} --model_dir {} --domain {} --combine --dataset {}
+
+| Argument         | Type | Default | Description                                                                                        |
+|------------------|------|---------|----------------------------------------------------------------------------------------------------|
+| *model_number*   | int  | (none)  | Number assigned to the model during training.                                                      |
+| *model_dir*      | str  | (none)  | Parent directory for all models. (e.g. */models*)                                                  |
+| *domain*         | str  | (none)  | Domain of the predictions from which statistics are being calculated.                              |
+| *dataset*        | str  | (none)  | Dataset for which the predictions will be generated. Options are "training", "validation", "test". |
+| *data_source*    | str  | "era5"  | Source of the input variables in the datasets.                                                     |
+| *num_iterations* | int  | 10000   | Number of iterations to perform in the bootstrapping (i.e. how many times data will be resampled). |
+
 
 #### 4d. Performance diagrams
 
+At long last, we can now generate large diagrams for each front type to highlight model performance. Each diagram contains four subplots. The first subplot within the diagram will be a CSI diagram, highlighting the probability of detection (POD) and false alarm ratio (FAR) for the five neighborhoods described in section 4b. The second subplot will be reliability diagram, which shows how the model's output probabilities align with the true probabilities of the front types being present within the distances of the neighborhoods. The third subplot will be a data table that highlights the CSI, POD, FAR, and frequency bias (FB) at the probability threshold where CSI is maximized. The final subplot will be a spatial CSI diagram that shows the model's performance over the provided domain with a specified neighborhood (default is 250 km).
 
-# 5. XAI
+
+    python ./evaluation/performance_diagrams.py --model_number {} --model_dir {} --domain {} --combine --dataset {}
+
+| Argument           | Type  | Default   | Description                                                                                        |
+|--------------------|-------|-----------|----------------------------------------------------------------------------------------------------|
+| *model_number*     | int   | (none)    | Number assigned to the model during training.                                                      |
+| *model_dir*        | str   | (none)    | Parent directory for all models.                                                                   |
+| *domain*           | str   | (none)    | Domain of the predictions from which statistics are being calculated.                              |
+| *dataset*          | str   | (none)    | Dataset for which the predictions will be generated. Options are "training", "validation", "test". |
+| *data_source*      | str   | "era5"    | Source of the input variables in the datasets.                                                     |
+| *confidence_level* | int   | 95        | Confidence level expressed as a percentage. Options are: 90, 95, 99                                |
+
+
+# 5. XAI (coming soon)
 
 # 6. Appendix
 
