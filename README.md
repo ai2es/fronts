@@ -328,4 +328,4 @@ At long last, we can now generate large diagrams for each front type to highligh
 | unet_2plus      | UNET++         | https://arxiv.org/pdf/1912.05074.pdf                   |
 | unet_3plus      | UNET3+         | https://arxiv.org/ftp/arxiv/papers/2004/2004.08790.pdf |
 | unet_ensemble   | UNet ensemble  | https://arxiv.org/pdf/1912.05074.pdf                   |
-| attention_unet  | Attention UNET | https://arxiv.org/pdf/1505.04597.pdf                   |
+| attention_unet  | Attention UNET | https://arxiv.org/pdf/1804.03999.pdf                   |
