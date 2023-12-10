@@ -2,10 +2,9 @@
 Plot saliency maps for model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.12
+Script version: 2023.12.9
 """
 
-import itertools
 import argparse
 import pandas as pd
 import cartopy.crs as ccrs
@@ -16,9 +15,8 @@ from matplotlib import cm, colors  # Here we explicitly import the cm and color 
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
-from utils import data_utils, settings
+from utils import settings
 from utils.plotting_utils import plot_background
-from skimage.morphology import skeletonize
 
 
 if __name__ == '__main__':
@@ -32,11 +30,13 @@ if __name__ == '__main__':
         help="Neighborhood calibration distance in kilometers. Possible neighborhoods are 50, 100, 150, 200, and 250 km.")
     parser.add_argument('--data_source', type=str, default='era5', help="Source of the variable data (ERA5, GDAS, etc.)")
     parser.add_argument('--cmap', type=str, default='viridis', help="Colormap to use for the saliency maps.")
+    parser.add_argument('--extent', type=int, nargs=4,
+        help="Extent of the saliency maps to plot. If this argument is not provided, use the default domain extent.")
 
     args = vars(parser.parse_args())
 
     init_time = pd.date_range(args['init_time'], args['init_time'])[0]
-    extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
+    extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']] if args['extent'] is None else args['extent']
 
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
     front_types = model_properties['dataset_properties']['front_types']
@@ -64,19 +64,23 @@ if __name__ == '__main__':
         # mask out low probabilities
         probs_ds[front_type].values = np.where(probs_ds[front_type].values < 0.1, np.nan, probs_ds[front_type].values)
 
-        cmap_probs, norm_probs = cm.get_cmap(settings.DEFAULT_CONTOUR_CMAPS[front_type], 11), colors.Normalize(vmin=0, vmax=1)
-
-        fig, axs = plt.subplots(3, 2, subplot_kw={'projection': ccrs.PlateCarree(central_longitude=0)})
-        axarr = axs.flatten()
-        for ax in axarr:
-            plot_background(extent, ax=ax, linewidth=0.5)
+        cmap_probs, norm = cm.get_cmap(settings.DEFAULT_CONTOUR_CMAPS[front_type], 11), colors.Normalize(vmin=0, vmax=1)
 
         salmap_for_type = salmap_ds[front_type].sel(time=init_time)
+        salmap_for_type_pl = salmap_ds[front_type + '_pl'].sel(time=init_time)
         max_gradient, min_gradient = salmap_for_type.max(), salmap_for_type.min()
         salmap_for_type = (salmap_for_type - min_gradient) / (max_gradient - min_gradient)
+        salmap_for_type_pl = (salmap_for_type_pl - min_gradient) / (max_gradient - min_gradient)
 
-        probs_ds[front_type].plot.contourf(ax=axarr[0], x='longitude', y='latitude', cmap=cmap_probs, norm=norm_probs, levels=levels, transform=ccrs.PlateCarree(), alpha=0.8, cbar_kwargs={'label': cbar_label})
-        salmap_for_type.plot(ax=axarr[1], x='longitude', y='latitude', cmap=args['cmap'], transform=ccrs.PlateCarree(), alpha=0.6, cbar_kwargs={'label': 'Normalized importance'})
+        fig, axs = plt.subplots(3, 2, subplot_kw={'projection': ccrs.PlateCarree(central_longitude=(extent[0] + extent[1]) / 2)})
+        axarr = axs.flatten()
+        for ax_ind, ax in enumerate(axarr):
+            plot_background(extent, ax=ax, linewidth=0.5)
+            if ax_ind == 0:
+                probs_ds[front_type].plot.contourf(ax=ax, x='longitude', y='latitude', cmap=cmap_probs, norm=norm, levels=levels, transform=ccrs.PlateCarree(), alpha=0.8, add_colorbar=False)
+            else:
+                probs_ds[front_type].plot.contour(ax=ax, x='longitude', y='latitude', colors='black', linewidths=0.25, norm=norm, levels=levels, transform=ccrs.PlateCarree(), alpha=0.8)
+                salmap_for_type_pl.isel(pressure_level=ax_ind-1).plot(ax=ax, x='longitude', y='latitude', cmap=args['cmap'], norm=norm, transform=ccrs.PlateCarree(), alpha=0.6, add_colorbar=False)
 
         axarr[0].set_title("a) Model predictions")
         axarr[1].set_title("b) Saliency map - surface")

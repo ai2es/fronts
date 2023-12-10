@@ -1,5 +1,5 @@
 """
-Functions for building U-Net models:
+Functions for building components of U-Net models:
     - U-Net
     - U-Net ensemble
     - U-Net+
@@ -8,7 +8,7 @@ Functions for building U-Net models:
     - Attention U-Net
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.9.18
+Script version: 2023.12.9
 """
 
 import numpy as np
@@ -96,6 +96,7 @@ def convolution_module(
     activity_regularizer = None,
     kernel_constraint = None,
     bias_constraint = None,
+    shared_axes = None,
     name: str = None):
     """
     Insert modules into an encoder or decoder node.
@@ -134,6 +135,8 @@ def convolution_module(
         Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+    shared_axes: tuple or list of ints
+        Axes along which to share the learnable parameters for the activation function.
     name: str or None
         Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -155,30 +158,19 @@ def convolution_module(
     else:
         raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
 
-    # Arguments for the Conv2D/Conv3D layers.
+    # Arguments for the Conv2D/Conv3D layer.
     conv_kwargs = dict({})
-    conv_kwargs['filters'] = filters
-    conv_kwargs['kernel_size'] = kernel_size
-    conv_kwargs['padding'] = padding
-    conv_kwargs['use_bias'] = use_bias
-    conv_kwargs['kernel_initializer'] = kernel_initializer
-    conv_kwargs['bias_initializer'] = bias_initializer
-    conv_kwargs['kernel_regularizer'] = kernel_regularizer
-    conv_kwargs['bias_regularizer'] = bias_regularizer
-    conv_kwargs['activity_regularizer'] = activity_regularizer
-    conv_kwargs['kernel_constraint'] = kernel_constraint
-    conv_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['filters', 'use_bias', 'kernel_size', 'padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer',
+                'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+        conv_kwargs[arg] = locals()[arg]
 
     activation_layer = choose_activation_layer(activation)  # Choose activation layer for the convolution modules.
 
-    """ 
-    Arguments for the Activation layer(s), if applicable. 
-    - If activation is 'prelu' or 'leaky_relu', a PReLU layer or a LeakyReLU layer will be used instead and this dictionary
-      will have no effect.
-    """
     activation_kwargs = dict({})
     if activation_layer == Activation:
         activation_kwargs['activation'] = activation
+    elif activation in ['prelu', 'smelu', 'snake']:  # these activation functions have learnable parameters
+        activation_kwargs['shared_axes'] = shared_axes
 
     # Insert convolution modules
     for module in range(num_modules):
@@ -218,6 +210,7 @@ def aggregated_feature_map(
     activity_regularizer = None,
     kernel_constraint = None,
     bias_constraint = None,
+    shared_axes = None,
     name: str = None):
     """
     Connect two nodes in the U-Net 3+ with an aggregated feature map (AFM).
@@ -264,6 +257,8 @@ def aggregated_feature_map(
         Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+    shared_axes: tuple or list of ints
+        Axes along which to share the learnable parameters for the activation function.
     name: str or None
         Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -280,21 +275,11 @@ def aggregated_feature_map(
 
     # Arguments for the convolution module.
     module_kwargs = dict({})
-    module_kwargs['filters'] = filters
-    module_kwargs['kernel_size'] = kernel_size
     module_kwargs['num_modules'] = 1
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['batch_normalization'] = batch_normalization
-    module_kwargs['activation'] = activation
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
-    module_kwargs['name'] = name
+    for arg in ['filters', 'kernel_size', 'padding', 'use_bias', 'batch_normalization', 'activation', 'kernel_initializer',
+                'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint',
+                'bias_constraint', 'shared_axes', 'name']:
+        module_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the UpSampling2D/UpSampling3D layers
     upsample_kwargs = dict({})
@@ -337,6 +322,7 @@ def full_scale_skip_connection(
     activity_regularizer = None,
     kernel_constraint = None,
     bias_constraint = None,
+    shared_axes = None,
     name: str = None):
     """
     Connect two nodes in the U-Net 3+ with a full-scale skip connection (FSC).
@@ -383,6 +369,8 @@ def full_scale_skip_connection(
         Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+    shared_axes: tuple or list of ints
+        Axes along which to share the learnable parameters for the activation function.
     name: str or None
         Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -399,21 +387,11 @@ def full_scale_skip_connection(
 
     # Arguments for the convolution module.
     module_kwargs = dict({})
-    module_kwargs['filters'] = filters
-    module_kwargs['kernel_size'] = kernel_size
     module_kwargs['num_modules'] = 1
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['batch_normalization'] = batch_normalization
-    module_kwargs['activation'] = activation
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
-    module_kwargs['name'] = name
+    for arg in ['filters', 'kernel_size', 'padding', 'use_bias', 'batch_normalization', 'activation', 'kernel_initializer',
+                'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint',
+                'bias_constraint', 'shared_axes', 'name']:
+        module_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the MaxPooling2D/MaxPooling3D layer
     pool_kwargs = dict({})
@@ -449,6 +427,7 @@ def conventional_skip_connection(
     activity_regularizer = None,
     kernel_constraint = None,
     bias_constraint = None,
+    shared_axes = None,
     name: str = None):
     """
     Connect two nodes in the U-Net 3+ with a conventional skip connection.
@@ -485,6 +464,8 @@ def conventional_skip_connection(
         Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+    shared_axes: tuple or list of ints
+        Axes along which to share the learnable parameters for the activation function.
     name: str or None
         Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -496,21 +477,11 @@ def conventional_skip_connection(
 
     # Arguments for the convolution module.
     module_kwargs = dict({})
-    module_kwargs['filters'] = filters
-    module_kwargs['kernel_size'] = kernel_size
     module_kwargs['num_modules'] = 1
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['batch_normalization'] = batch_normalization
-    module_kwargs['activation'] = activation
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
-    module_kwargs['name'] = name
+    for arg in ['filters', 'kernel_size', 'padding', 'use_bias', 'batch_normalization', 'activation', 'kernel_initializer',
+                'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint',
+                'bias_constraint', 'shared_axes', 'name']:
+        module_kwargs[arg] = locals()[arg]
 
     tensor = convolution_module(tensor, **module_kwargs)  # Pass the tensor through the convolution module
 
@@ -580,6 +551,7 @@ def upsample(
     activity_regularizer = None,
     kernel_constraint = None,
     bias_constraint = None,
+    shared_axes = None,
     name: str = None):
     """
     Connect decoder nodes with an up-sampling operation.
@@ -618,6 +590,8 @@ def upsample(
         Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
+    shared_axes: tuple or list of ints
+        Axes along which to share the learnable parameters for the activation function.
     name: str or None
         Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -634,21 +608,11 @@ def upsample(
 
     # Arguments for the convolution module.
     module_kwargs = dict({})
-    module_kwargs['filters'] = filters
-    module_kwargs['kernel_size'] = kernel_size
     module_kwargs['num_modules'] = 1
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['batch_normalization'] = batch_normalization
-    module_kwargs['activation'] = activation
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
-    module_kwargs['name'] = name
+    for arg in ['filters', 'kernel_size', 'padding', 'use_bias', 'batch_normalization', 'activation', 'kernel_initializer',
+                'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint',
+                'bias_constraint', 'shared_axes', 'name']:
+        module_kwargs[arg] = locals()[arg]
 
     # Keyword arguments in the UpSampling layer
     upsample_kwargs = dict({})
@@ -680,7 +644,7 @@ def choose_activation_layer(activation: str):
     Parameters
     ----------
     activation: str
-        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
+        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'psigmoid', 'resech', 'smelu', 'snake' (case-insensitive).
 
     Returns
     -------
@@ -690,22 +654,43 @@ def choose_activation_layer(activation: str):
 
     activation = activation.lower()
 
-    available_activations = ['elu', 'exponential', 'gaussian', 'gcu', 'gelu', 'hard_sigmoid', 'leaky_relu', 'linear', 'prelu',
-        'relu', 'selu', 'sigmoid', 'smelu', 'snake', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
+    available_activations = ['elliott', 'elu', 'exponential', 'gaussian', 'gcu', 'gelu', 'hard_sigmoid', 'hexpo', 'isigmoid', 'leaky_relu', 'linear',
+        'lisht', 'prelu', 'psigmoid', 'ptanh', 'ptelu', 'relu', 'resech', 'selu', 'sigmoid', 'smelu', 'snake', 'softmax', 'softplus', 'softsign',
+        'srs', 'stanh', 'swish', 'tanh']
 
     # Choose the activation layer
-    if activation == 'leaky_relu':
-        activation_layer = getattr(layers, 'LeakyReLU')
-    elif activation == 'prelu':
-        activation_layer = getattr(layers, 'PReLU')
-    elif activation == 'smelu':
-        activation_layer = custom_activations.SmeLU
-    elif activation == 'gcu':
-        activation_layer = custom_activations.GCU
+    if activation == 'elliott':
+        activation_layer = custom_activations.Elliott
     elif activation == 'gaussian':
         activation_layer = custom_activations.Gaussian
+    elif activation == 'gcu':
+        activation_layer = custom_activations.GCU
+    elif activation == 'hexpo':
+        activation_layer = custom_activations.Hexpo
+    elif activation == 'isigmoid':
+        activation_layer = custom_activations.ISigmoid
+    elif activation == 'leaky_relu':
+        activation_layer = getattr(layers, 'LeakyReLU')
+    elif activation == 'lisht':
+        activation_layer = custom_activations.LiSHT
+    elif activation == 'prelu':
+        activation_layer = getattr(layers, 'PReLU')
+    elif activation == 'psigmoid':
+        activation_layer = custom_activations.PSigmoid
+    elif activation == 'ptanh':
+        activation_layer = custom_activations.PTanh
+    elif activation == 'ptelu':
+        activation_layer = custom_activations.PTELU
+    elif activation == 'resech':
+        activation_layer = custom_activations.ReSech
+    elif activation == 'smelu':
+        activation_layer = custom_activations.SmeLU
     elif activation == 'snake':
         activation_layer = custom_activations.Snake
+    elif activation == 'srs':
+        activation_layer = custom_activations.SRS
+    elif activation == 'stanh':
+        activation_layer = custom_activations.STanh
     elif activation in available_activations:
         activation_layer = getattr(layers, 'Activation')
     else:
@@ -729,7 +714,7 @@ def deep_supervision_side_output(
     activity_regularizer = None,
     kernel_constraint = None,
     bias_constraint = None,
-    squeeze_dims: int | tuple[int] = None,
+    squeeze_axes: int | tuple[int] = None,
     name: str = None):
     """
     Deep supervision output. This is usually used on a decoder node in the U-Net 3+ or the final decoder node of a standard
@@ -767,8 +752,8 @@ def deep_supervision_side_output(
         Constraint function applied to the kernel matrix of the Conv2D/Conv3D layers.
     bias_constraint: str or tf.keras.constrains object
         Constraint function applied to the bias vector in the Conv2D/Conv3D layers.
-    squeeze_dims: int, tuple, or None
-        Dimension(s) of the input tensor to squeeze.
+    squeeze_axes: int, tuple, or None
+        Axis or axes of the input tensor to squeeze.
     name: str or None
         Prefix of the layer names. If left as None, the layer names are set automatically.
 
@@ -811,17 +796,10 @@ def deep_supervision_side_output(
 
     # Arguments for the Conv2D/Conv3D layer.
     conv_kwargs = dict({})
-    conv_kwargs['use_bias'] = use_bias
-    conv_kwargs['kernel_size'] = kernel_size
-    conv_kwargs['padding'] = padding
-    conv_kwargs['kernel_initializer'] = kernel_initializer
-    conv_kwargs['bias_initializer'] = bias_initializer
-    conv_kwargs['kernel_regularizer'] = kernel_regularizer
-    conv_kwargs['bias_regularizer'] = bias_regularizer
-    conv_kwargs['activity_regularizer'] = activity_regularizer
-    conv_kwargs['kernel_constraint'] = kernel_constraint
-    conv_kwargs['bias_constraint'] = bias_constraint
     conv_kwargs['name'] = f'{name}_Conv{tensor_dims - 2}D'
+    for arg in ['use_bias', 'kernel_size', 'padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer',
+                'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+        conv_kwargs[arg] = locals()[arg]
 
     if upsample_size_1 is not None:
         tensor = upsample_layer(size=upsample_size_1, name=f'{name}_UpSampling{tensor_dims - 2}D_1')(tensor)  # Pass the tensor through the UpSampling2D/UpSampling3D layer
@@ -832,23 +810,23 @@ def deep_supervision_side_output(
         tensor = upsample_layer(size=upsample_size_2, name=f'{name}_UpSampling{tensor_dims - 2}D_2')(tensor)  # Pass the tensor through the UpSampling2D/UpSampling3D layer
 
     ### Squeeze the given dimensions/axes ###
-    if squeeze_dims is not None:
+    if squeeze_axes is not None:
 
         conv_kwargs['kernel_size'] = [1 for _ in range(tensor_dims - 2)]
 
-        if type(squeeze_dims) == int:
-            squeeze_dims = [squeeze_dims, ]  # Turn integer into a list of length 1 to make indexing easier
+        if type(squeeze_axes) == int:
+            squeeze_axes = [squeeze_axes, ]  # Turn integer into a list of length 1 to make indexing easier
 
-        squeeze_dims_sizes = [tensor.shape[dim_to_squeeze + 1] for dim_to_squeeze in squeeze_dims]  # Since the tensor contains the 'None' dimension, we have to add 1 to get the correct dimension
+        squeeze_axes_sizes = [tensor.shape[ax_to_squeeze] for ax_to_squeeze in squeeze_axes]
 
-        for dim, size in enumerate(squeeze_dims_sizes):
-            conv_kwargs['kernel_size'][squeeze_dims[dim]] = size  # Kernel size of dimension to squeeze is equal to the size of the dimension because we want the final size to be 1 so it can be squeezed
+        for ax, size in enumerate(squeeze_axes_sizes):
+            conv_kwargs['kernel_size'][squeeze_axes[ax] - 1] = size  # Kernel size of dimension to squeeze is equal to the size of the dimension because we want the final size to be 1 so it can be squeezed
 
-        conv_kwargs['padding'] = 'valid'  # Padding is no longer 'same' since we want to modify the size of the dimension to be squeezed
+        conv_kwargs['padding'] = 'valid'  # Padding cannot be 'same' since we want to modify the size of the dimension to be squeezed
         conv_kwargs['name'] = f'{name}_Conv{tensor_dims - 2}D_collapse'
 
         tensor = conv_layer(filters=num_classes, **conv_kwargs)(tensor)  # This convolution layer contains num_classes filters, one for each class
-        tensor = tf.squeeze(tensor, axis=[axis + 1 for axis in squeeze_dims])  # Squeeze the tensor and remove the dimension
+        tensor = tf.squeeze(tensor, axis=squeeze_axes)  # Squeeze the tensor and remove the dimension
 
     sup_output = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
 

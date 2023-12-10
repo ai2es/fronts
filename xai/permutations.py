@@ -2,7 +2,7 @@
 Calculate permutation importance.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.16
+Script version: 2023.12.9
 
 TODO:
     * Generalize and simplify multi-pass importance code
@@ -75,24 +75,31 @@ if __name__ == "__main__":
     parser.add_argument('--baseline', action='store_true', help='Calculate baseline loss values for the permutations.')
     parser.add_argument('--single_pass', action='store_true', help='Perform single-pass permutations.')
     parser.add_argument('--multi_pass', action='store_true', help='Perform multi-pass permutations.')
+    parser.add_argument('--batch_size', type=int, default=32, help="Batch size for the model predictions.")
     parser.add_argument('--seed', type=int, default=np.random.randint(0, 2**31 - 1), help='Seed for the random number generators.')
 
     args = vars(parser.parse_args())
 
-    model = fm.load_model(args['model_number'], args['model_dir'])
+    dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args['tf_indir'])
     model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']))
 
     num_classes = model_properties['classes']
     front_types = model_properties['dataset_properties']['front_types']
     variables = model_properties['dataset_properties']['variables']
     pressure_levels = model_properties['dataset_properties']['pressure_levels']
-    domain = model_properties['dataset_properties']['domain']
+    domain = dataset_properties['domain']
     test_years = model_properties['test_years']
     num_outputs = 4  # TODO: get rid of this hard-coded integer
 
-    file_loader = fm.DataFileLoader(args['tf_indir'], data_file_type='era5-tensorflow')
-    file_loader.test_years = test_years
-    file_loader.pair_with_fronts(args['tf_indir'], underscore_skips=len(front_types))
+    # new file naming method does not use underscores and will return an IndexError
+    try:
+        file_loader = fm.DataFileLoader(args['tf_indir'], data_file_type='era5-tensorflow')
+        file_loader.test_years = test_years
+        file_loader.pair_with_fronts(args['tf_indir'], underscore_skips=len(front_types))
+    except IndexError:
+        file_loader = fm.DataFileLoader(args['tf_indir'], data_file_type='era5-tensorflow')
+        file_loader.test_years = test_years
+        file_loader.pair_with_fronts(args['tf_indir'])
 
     try:
         optimizer_args = {arg: model_properties[arg] for arg in ['learning_rate', 'beta_1', 'beta_2']}
@@ -107,6 +114,7 @@ if __name__ == "__main__":
         metric_functions[front_type] = custom_losses.probability_of_detection(class_weights=class_weights)
         metric_functions[front_type]._name = front_type
 
+    model = fm.load_model(args['model_number'], args['model_dir'])
     model.compile(optimizer=optimizer, loss=custom_losses.probability_of_detection(), metrics=[metric_functions[func] for func in metric_functions])
 
     X_datasets = file_loader.data_files_test
@@ -127,7 +135,7 @@ if __name__ == "__main__":
 
         print("--> opening datasets")
         Xy = combine_datasets(X_datasets, y_datasets)
-        Xy = Xy.batch(32)
+        Xy = Xy.batch(args['batch_size'])
 
         print("--> generating predictions")
         prediction = np.array(model.evaluate(Xy, verbose=0))
@@ -181,7 +189,7 @@ if __name__ == "__main__":
             print(printout_str)
             Xy = combine_datasets(X_datasets, y_datasets)
             Xy = Xy.map(shuffle_inputs)
-            Xy = Xy.batch(32)
+            Xy = Xy.batch(args['batch_size'])
 
             prediction = np.array(model.evaluate(Xy, verbose=0))
             loss = np.array([prediction[1 + num_outputs + front_no] for front_no in range(num_classes - 1)])
@@ -229,7 +237,7 @@ if __name__ == "__main__":
 
                     Xy = combine_datasets(X_datasets, y_datasets)
                     Xy = Xy.map(shuffle_inputs)
-                    Xy = Xy.batch(32)
+                    Xy = Xy.batch(args['batch_size'])
 
                     losses = np.array(model.evaluate(Xy, verbose=0))
                     loss_by_type = np.array([losses[1 + num_outputs + front_no] for front_no in range(num_classes - 1)])
@@ -279,7 +287,7 @@ if __name__ == "__main__":
 
                     Xy = combine_datasets(X_datasets, y_datasets)
                     Xy = Xy.map(shuffle_inputs)
-                    Xy = Xy.batch(32)
+                    Xy = Xy.batch(args['batch_size'])
 
                     losses = np.array(model.evaluate(Xy, verbose=0))
                     loss_by_type = np.array([losses[1 + num_outputs + front_no] for front_no in range(num_classes - 1)])

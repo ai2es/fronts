@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.9
+Script version: 2023.12.9
 """
 
 import argparse
@@ -304,7 +304,7 @@ if __name__ == "__main__":
             model_properties[arg] = locals()[arg]
 
         # If using 3D inputs and 2D targets, squeeze out the vertical dimension of the model (index 2)
-        squeeze_dims = 2 if num_dims == [3, 2] else None
+        squeeze_axes = 2 if num_dims == [3, 2] else None
 
         train_batch_size = args['batch_size'][0]
         valid_batch_size = args['batch_size'][0] if len(args['batch_size']) == 1 else args['batch_size'][1]
@@ -322,7 +322,7 @@ if __name__ == "__main__":
         unet_kwargs = {arg: args[arg] for arg in ['pool_size', 'upsample_size', 'levels', 'filter_num', 'kernel_size', 'modules_per_node',
             'activation', 'batch_normalization', 'padding', 'use_bias', 'bias_initializer', 'kernel_initializer', 'first_encoder_connections',
             'deep_supervision'] if arg in unet_model_args}
-        unet_kwargs['squeeze_dims'] = squeeze_dims
+        unet_kwargs['squeeze_axes'] = squeeze_axes
         unet_kwargs['activity_regularizer'] = getattr(tf.keras.regularizers, args['activity_regularizer'][0])(**activity_regularizer_args) if args['activity_regularizer'][0] is not None else None
         unet_kwargs['bias_constraint'] = getattr(tf.keras.constraints, args['bias_constraint'][0])(**bias_constraint_args) if args['bias_constraint'][0] is not None else None
         unet_kwargs['kernel_constraint'] = getattr(tf.keras.constraints, args['kernel_constraint'][0])(**kernel_constraint_args) if args['kernel_constraint'][0] is not None else None

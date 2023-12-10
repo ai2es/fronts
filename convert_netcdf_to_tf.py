@@ -2,7 +2,7 @@
 Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.16
+Script version: 2023.12.9
 
 TODO:
     * fix bug in file manager script that incorrectly matches files with different initialization times and/or forecast hours
@@ -181,13 +181,14 @@ if __name__ == '__main__':
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
     all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1000', '950', '900', '850', '700', '500']
 
-    synoptic_only = True if args['domain'] == 'full' else False
+    synoptic_only = True if args['domain'] != 'conus' else False
 
     file_loader = fm.DataFileLoader(args['variables_netcdf_indir'], '%s-netcdf' % args['data_source'], synoptic_only)
+    file_loader.test_years = [year, ]
     file_loader.pair_with_fronts(args['fronts_netcdf_indir'])
 
-    variables_netcdf_files = file_loader.data_files
-    fronts_netcdf_files = file_loader.front_files
+    variables_netcdf_files = file_loader.data_files_test
+    fronts_netcdf_files = file_loader.front_files_test
 
     variables_netcdf_files = [file for file in variables_netcdf_files if '_%d%02d' % (year, month) in file]
     fronts_netcdf_files = [file for file in fronts_netcdf_files if '_%d%02d' % (year, month) in file]

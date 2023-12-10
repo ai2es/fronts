@@ -1,18 +1,18 @@
 """
 Deep learning models:
-    - U-Net
-    - U-Net ensemble
-    - U-Net+
-    - U-Net++
-    - U-Net 3+
-    - Attention U-Net
+    * U-Net
+    * U-Net ensemble
+    * U-Net+
+    * U-Net++
+    * U-Net 3+
+    * Attention U-Net
 
 TODO:
     * Allow models to have a unique number of encoder and decoder levels (e.g. 3 encoder levels and 5 decoder levels)
     * Add temporal U-Nets
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.18.D1
+Script version: 2023.12.9
 """
 
 from tensorflow.keras.models import Model
@@ -29,7 +29,8 @@ def unet(
     levels: int,
     filter_num: tuple[int] | list[int],
     kernel_size: int = 3,
-    squeeze_dims: int | tuple[int] | list[int] = None,
+    squeeze_axes: int | tuple[int] | list[int] = None,
+    shared_axes: int | tuple[int] | list[int] = None,
     modules_per_node: int = 5,
     batch_normalization: bool = True,
     activation: str = 'relu',
@@ -61,16 +62,18 @@ def unet(
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
-    squeeze_dims: int, tuple, or None
-        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
-        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
+    squeeze_axes: int, tuple, list, or None
+        Axis or axes of the input tensor to squeeze.
+    shared_axes: int, tuple, list, or None
+        Axes along which to share the learnable parameters for the activation function. When left as None, parameters will
+            be shared along all arbitrary dimensions (i.e. all dimensions without a defined size).
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
         Setting this to True will add a batch normalization layer after every convolution in the modules.
     activation: str
         Activation function to use in the modules.
-        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
+        See utils.unet_utils.choose_activation_layer for all supported activation functions.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -111,10 +114,8 @@ def unet(
 
     if levels < 2:
         raise ValueError(f"levels must be greater than 1. Received value: {levels}")
-
     if len(input_shape) > 4 or len(input_shape) < 3:
         raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
-
     if len(filter_num) != levels:
         raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
 
@@ -122,7 +123,7 @@ def unet(
     module_kwargs = dict({})
     module_kwargs['num_modules'] = modules_per_node
     for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
-                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint', 'shared_axes']:
         module_kwargs[arg] = locals()[arg]
 
     # MaxPooling keyword arguments
@@ -132,15 +133,14 @@ def unet(
     upsample_kwargs = dict({})
     for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
                 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
-                'upsample_size']:
+                'upsample_size', 'shared_axes']:
         upsample_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
-                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_dims']:
+                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes']:
         supervision_kwargs[arg] = locals()[arg]
-        supervision_kwargs['use_bias'] = True
 
     tensors = dict({})  # Tensors associated with each node and skip connections
 
@@ -175,7 +175,7 @@ def unet(
     """ Final decoder node begins with a concatenation and convolution module, followed by deep supervision """
     tensor_De1 = Concatenate(name='De1_Concatenate')([tensors['En1'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
     tensor_De1 = unet_utils.convolution_module(tensor_De1, filters=filter_num[0], name='De1', **module_kwargs)  # Convolution module
-    tensors['output'] = unet_utils.deep_supervision_side_output(tensor_De1, num_classes=num_classes, kernel_size=1, output_level=1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
+    tensors['output'] = unet_utils.deep_supervision_side_output(tensor_De1, num_classes=num_classes, kernel_size=1, output_level=1, use_bias=True, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
 
     model = Model(inputs=tensors['input'], outputs=tensors['output'], name=f'unet_{ndims}D')
 
@@ -190,7 +190,8 @@ def unet_ensemble(
     levels: int,
     filter_num: tuple[int] | list[int],
     kernel_size: int = 3,
-    squeeze_dims: int | tuple[int] | list[int] = None,
+    squeeze_axes: int | tuple[int] | list[int] = None,
+    shared_axes: int | tuple[int] | list[int] = None,
     modules_per_node: int = 5,
     batch_normalization: bool = True,
     activation: str = 'relu',
@@ -223,16 +224,18 @@ def unet_ensemble(
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
-    squeeze_dims: int, tuple, or None
-        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
-        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
+    squeeze_axes: int, tuple, list, or None
+        Axis or axes of the input tensor to squeeze.
+    shared_axes: int, tuple, list, or None
+        Axes along which to share the learnable parameters for the activation function. When left as None, parameters will
+            be shared along all arbitrary dimensions (i.e. all dimensions without a defined size).
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
         Setting this to True will add a batch normalization layer after every convolution in the modules.
     activation: str
         Activation function to use in the modules.
-        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
+        See utils.unet_utils.choose_activation_layer for all supported activation functions.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -269,10 +272,8 @@ def unet_ensemble(
 
     if levels < 2:
         raise ValueError(f"levels must be greater than 1. Received value: {levels}")
-
     if len(input_shape) > 4 or len(input_shape) < 3:
         raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
-
     if len(filter_num) != levels:
         raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
 
@@ -280,7 +281,7 @@ def unet_ensemble(
     module_kwargs = dict({})
     module_kwargs['num_modules'] = modules_per_node
     for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
-                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint', 'shared_axes']:
         module_kwargs[arg] = locals()[arg]
 
     # MaxPooling keyword arguments
@@ -290,17 +291,17 @@ def unet_ensemble(
     upsample_kwargs = dict({})
     for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
                 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
-                'upsample_size']:
+                'upsample_size', 'shared_axes']:
         upsample_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
+    supervision_kwargs['use_bias'] = True
+    supervision_kwargs['output_level'] = 1
+    supervision_kwargs['kernel_size'] = 1
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
-                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_dims', 'num_classes']:
+                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes', 'num_classes']:
         supervision_kwargs[arg] = locals()[arg]
-        supervision_kwargs['use_bias'] = True
-        supervision_kwargs['output_level'] = 1
-        supervision_kwargs['kernel_size'] = 1
 
     tensors = dict({})  # Tensors associated with each node and skip connections
     tensors_with_supervision = []  # list of output tensors. If deep supervision is used, more than one output will be produced
@@ -359,7 +360,8 @@ def unet_plus(
     levels: int,
     filter_num: tuple[int] | list[int],
     kernel_size: int = 3,
-    squeeze_dims: int | tuple[int] | list[int] = None,
+    squeeze_axes: int | tuple[int] | list[int] = None,
+    shared_axes: int | tuple[int] | list[int] = None,
     modules_per_node: int = 5,
     batch_normalization: bool = True,
     deep_supervision: bool = True,
@@ -393,9 +395,11 @@ def unet_plus(
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
-    squeeze_dims: int, tuple, or None
-        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
-        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
+    squeeze_axes: int, tuple, list, or None
+        Axis or axes of the input tensor to squeeze.
+    shared_axes: int, tuple, list, or None
+        Axes along which to share the learnable parameters for the activation function. When left as None, parameters will
+            be shared along all arbitrary dimensions (i.e. all dimensions without a defined size).
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
@@ -405,7 +409,7 @@ def unet_plus(
         NOTE: The final decoder node requires deep supervision and is not affected if this parameter is False.
     activation: str
         Activation function to use in the modules.
-        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
+        See utils.unet_utils.choose_activation_layer for all supported activation functions.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -442,10 +446,8 @@ def unet_plus(
 
     if levels < 2:
         raise ValueError(f"levels must be greater than 1. Received value: {levels}")
-
     if len(input_shape) > 4 or len(input_shape) < 3:
         raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
-
     if len(filter_num) != levels:
         raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
 
@@ -453,7 +455,8 @@ def unet_plus(
     module_kwargs = dict({})
     module_kwargs['num_modules'] = modules_per_node
     for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
-                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'shared_axes']:
         module_kwargs[arg] = locals()[arg]
 
     # MaxPooling keyword arguments
@@ -463,17 +466,17 @@ def unet_plus(
     upsample_kwargs = dict({})
     for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
                 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
-                'upsample_size']:
+                'upsample_size', 'shared_axes']:
         upsample_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
-                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_dims', 'num_classes']:
+                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes', 'num_classes']:
         supervision_kwargs[arg] = locals()[arg]
-        supervision_kwargs['use_bias'] = True
-        supervision_kwargs['output_level'] = 1
-        supervision_kwargs['kernel_size'] = 1
+    supervision_kwargs['use_bias'] = True
+    supervision_kwargs['output_level'] = 1
+    supervision_kwargs['kernel_size'] = 1
 
     tensors = dict({})  # Tensors associated with each node and skip connections
     tensors_with_supervision = []  # list of output tensors. If deep supervision is used, more than one output will be produced
@@ -531,7 +534,8 @@ def unet_2plus(
     levels: int,
     filter_num: tuple[int] | list[int],
     kernel_size: int = 3,
-    squeeze_dims: int | tuple[int] | list[int] = None,
+    squeeze_axes: int | tuple[int] | list[int] = None,
+    shared_axes: int | tuple[int] | list[int] = None,
     modules_per_node: int = 5,
     batch_normalization: bool = True,
     deep_supervision: bool = True,
@@ -565,9 +569,11 @@ def unet_2plus(
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
-    squeeze_dims: int, tuple, or None
-        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
-        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
+    squeeze_axes: int, tuple, list, or None
+        Axis or axes of the input tensor to squeeze.
+    shared_axes: int, tuple, list, or None
+        Axes along which to share the learnable parameters for the activation function. When left as None, parameters will
+            be shared along all arbitrary dimensions (i.e. all dimensions without a defined size).
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
@@ -577,7 +583,7 @@ def unet_2plus(
         NOTE: The final decoder node requires deep supervision and is not affected if this parameter is False.
     activation: str
         Activation function to use in the modules.
-        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
+        See utils.unet_utils.choose_activation_layer for all supported activation functions.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -614,90 +620,67 @@ def unet_2plus(
 
     if levels < 2:
         raise ValueError(f"levels must be greater than 1. Received value: {levels}")
-
     if len(input_shape) > 4 or len(input_shape) < 3:
         raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
-
     if len(filter_num) != levels:
         raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
 
     # Keyword arguments for the convolution modules
     module_kwargs = dict({})
-    module_kwargs['activation'] = activation
-    module_kwargs['batch_normalization'] = batch_normalization
     module_kwargs['num_modules'] = modules_per_node
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'shared_axes']:
+        module_kwargs[arg] = locals()[arg]
 
     # MaxPooling keyword arguments
-    pool_kwargs = dict({})
-    pool_kwargs['pool_size'] = pool_size
+    pool_kwargs = {'pool_size': pool_size}
 
     # Keyword arguments for upsampling
     upsample_kwargs = dict({})
-    upsample_kwargs['activation'] = activation
-    upsample_kwargs['batch_normalization'] = batch_normalization
-    upsample_kwargs['padding'] = padding
-    upsample_kwargs['kernel_initializer'] = kernel_initializer
-    upsample_kwargs['bias_initializer'] = bias_initializer
-    upsample_kwargs['kernel_regularizer'] = kernel_regularizer
-    upsample_kwargs['bias_regularizer'] = bias_regularizer
-    upsample_kwargs['activity_regularizer'] = activity_regularizer
-    upsample_kwargs['kernel_constraint'] = kernel_constraint
-    upsample_kwargs['bias_constraint'] = bias_constraint
-    upsample_kwargs['upsample_size'] = upsample_size
-    upsample_kwargs['use_bias'] = use_bias
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'upsample_size', 'shared_axes']:
+        upsample_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
-    supervision_kwargs['upsample_size'] = upsample_size
+    for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
+                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes', 'num_classes']:
+        supervision_kwargs[arg] = locals()[arg]
     supervision_kwargs['use_bias'] = True
-    supervision_kwargs['squeeze_dims'] = squeeze_dims
-    supervision_kwargs['padding'] = padding
-    supervision_kwargs['kernel_initializer'] = kernel_initializer
-    supervision_kwargs['bias_initializer'] = bias_initializer
-    supervision_kwargs['kernel_regularizer'] = kernel_regularizer
-    supervision_kwargs['bias_regularizer'] = bias_regularizer
-    supervision_kwargs['activity_regularizer'] = activity_regularizer
-    supervision_kwargs['kernel_constraint'] = kernel_constraint
-    supervision_kwargs['bias_constraint'] = bias_constraint
+    supervision_kwargs['output_level'] = 1
+    supervision_kwargs['kernel_size'] = 1
 
     tensors = dict({})  # Tensors associated with each node and skip connections
     tensors_with_supervision = []  # list of output tensors. If deep supervision is used, more than one output will be produced
 
     """ Setup the first encoder node with an input layer and a convolution module """
     tensors['input'] = Input(shape=input_shape, name='Input')
-    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], kernel_size=kernel_size, name='En1', **module_kwargs)
+    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], name='En1', **module_kwargs)
 
     """ The rest of the encoder nodes are handled here. Each encoder node is connected with a MaxPooling layer and contains convolution modules """
     for encoder in np.arange(2, levels+1):  # Iterate through the rest of the encoder nodes
         pool_tensor = unet_utils.max_pool(tensors[f'En{encoder - 1}'], name=f'En{encoder - 1}-En{encoder}', **pool_kwargs)  # Connect the next encoder node with a MaxPooling layer
-        tensors[f'En{encoder}'] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], kernel_size=kernel_size, name=f'En{encoder}', **module_kwargs)  # Convolution modules
+        tensors[f'En{encoder}'] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], name=f'En{encoder}', **module_kwargs)  # Convolution modules
 
     # Connect the bottom encoder node to a decoder node
-    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'En{levels}-De{levels}', **upsample_kwargs)
+    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], name=f'En{levels}-De{levels}', **upsample_kwargs)
 
     """ Bottom decoder node """
     tensors[f'De{levels - 1}'] = Concatenate(name=f'De{levels - 1}_Concatenate')([upsample_tensor, tensors[f'En{levels - 1}']])  # Concatenate the upsampled tensor and skip connection
-    tensors[f'De{levels - 1}'] = unet_utils.convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'De{levels - 1}', **module_kwargs)  # Convolution module
-    upsample_tensor = unet_utils.upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], kernel_size=kernel_size, name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+    tensors[f'De{levels - 1}'] = unet_utils.convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], name=f'De{levels - 1}', **module_kwargs)  # Convolution module
+    upsample_tensor = unet_utils.upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
     """ The rest of the decoder nodes (except the final node) are handled in this loop. Each node contains one concatenation of an upsampled tensor and a skip connection """
     for decoder in np.arange(1, levels-1)[::-1]:
         num_middle_nodes = levels - decoder - 1
         for node in range(1, num_middle_nodes + 1):
             if node == 1:  # if on the first middle node at the given level
-                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'En{decoder + 1}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'En{decoder + 1}-Me{decoder}-1', **upsample_kwargs)
+                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'En{decoder + 1}'], filters=filter_num[decoder - 2], name=f'En{decoder + 1}-Me{decoder}-1', **upsample_kwargs)
                 tensors[f'Me{decoder}-1'] = Concatenate(name=f'Me{decoder}-1_Concatenate')([tensors[f'En{decoder}'], upsample_tensor_for_middle_node])
             else:
-                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'Me{decoder + 1}-{node - 1}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'Me{decoder + 1}-{node - 1}-Me{decoder}-{node}', **upsample_kwargs)
+                upsample_tensor_for_middle_node = unet_utils.upsample(tensors[f'Me{decoder + 1}-{node - 1}'], filters=filter_num[decoder - 2], name=f'Me{decoder + 1}-{node - 1}-Me{decoder}-{node}', **upsample_kwargs)
                 tensors_to_concatenate = []  # Tensors to concatenate in the middle node
                 connections_to_add = sorted([tensor for tensor in tensors if f'Me{decoder}' in tensor])[::-1]  # skip connections to add to the list of tensors to concatenate
                 for connection in connections_to_add:
@@ -705,10 +688,10 @@ def unet_2plus(
                 tensors_to_concatenate.append(tensors[f'En{decoder}'])
                 tensors_to_concatenate.append(upsample_tensor_for_middle_node)
                 tensors[f'Me{decoder}-{node}'] = Concatenate(name=f'Me{decoder}-{node}_Concatenate')(tensors_to_concatenate)
-            tensors[f'Me{decoder}-{node}'] = unet_utils.convolution_module(tensors[f'Me{decoder}-{node}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'Me{decoder}-{node}', **module_kwargs)  # Convolution module
+            tensors[f'Me{decoder}-{node}'] = unet_utils.convolution_module(tensors[f'Me{decoder}-{node}'], filters=filter_num[decoder - 1], name=f'Me{decoder}-{node}', **module_kwargs)  # Convolution module
 
             if decoder == 1 and deep_supervision:
-                tensors[f'sup{decoder}-{node}'] = unet_utils.deep_supervision_side_output(tensors[f'Me{decoder}-{node}'], num_classes=num_classes, output_level=1, kernel_size=1, name=f'sup{decoder}-{node}', **supervision_kwargs)  # deep supervision on middle node located on top level
+                tensors[f'sup{decoder}-{node}'] = unet_utils.deep_supervision_side_output(tensors[f'Me{decoder}-{node}'], name=f'sup{decoder}-{node}', **supervision_kwargs)  # deep supervision on middle node located on top level
                 tensors_with_supervision.append(tensors[f'sup{decoder}-{node}'])
 
         tensors_to_concatenate = []  # tensors to concatenate in the decoder node
@@ -718,12 +701,12 @@ def unet_2plus(
         tensors_to_concatenate.append(tensors[f'En{decoder}'])
         tensors_to_concatenate.append(upsample_tensor)
         tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')(tensors_to_concatenate)  # Concatenate the upsampled tensor and skip connection
-        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'De{decoder}', **module_kwargs)  # Convolution module
+        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], name=f'De{decoder}', **module_kwargs)  # Convolution module
 
         if decoder != 1:  # if not currently on the final decoder node (De1)
-            upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+            upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
         else:
-            tensors['output'] = unet_utils.deep_supervision_side_output(tensors['De1'], num_classes=num_classes, kernel_size=1, output_level=1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
+            tensors['output'] = unet_utils.deep_supervision_side_output(tensors['De1'], name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
             tensors_with_supervision.append(tensors['output'])
 
     model = Model(inputs=tensors['input'], outputs=tensors_with_supervision, name=f'unet_2plus_{ndims}D')
@@ -742,7 +725,8 @@ def unet_3plus(
     filter_num_aggregate: tuple[int] | list[int] = None,
     kernel_size: int = 3,
     first_encoder_connections: bool = True,
-    squeeze_dims: int | tuple[int] | list[int] = None,
+    squeeze_axes: int | tuple[int] | list[int] = None,
+    shared_axes: int | tuple[int] | list[int] = None,
     modules_per_node: int = 5,
     batch_normalization: bool = True,
     deep_supervision: bool = True,
@@ -784,9 +768,11 @@ def unet_3plus(
         Size of the kernel in the convolution layers.
     first_encoder_connections: bool
         Setting this to True will create full-scale skip connections attached to the first encoder node.
-    squeeze_dims: int, tuple, or None
-        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
-        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
+    squeeze_axes: int, tuple, list, or None
+        Axis or axes of the input tensor to squeeze.
+    shared_axes: int, tuple, list, or None
+        Axes along which to share the learnable parameters for the activation function. When left as None, parameters will
+            be shared along all arbitrary dimensions (i.e. all dimensions without a defined size).
     modules_per_node: int
         Number of modules in each node of the U-Net 3+.
     batch_normalization: bool
@@ -796,7 +782,7 @@ def unet_3plus(
         NOTE: The final decoder node requires deep supervision and is not affected if this parameter is False.
     activation: str
         Activation function to use in the modules.
-        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
+        See utils.unet_utils.choose_activation_layer for all supported activation functions.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -826,10 +812,8 @@ def unet_3plus(
 
     if levels < 3:
         raise ValueError(f"levels must be greater than 2. Received value: {levels}")
-
     if len(input_shape) > 4 or len(input_shape) < 3:
         raise ValueError(f"input_shape can only have 3 or 4 dimensions (2D image + 1 dimension for channels OR a 3D image + 1 dimension for channels). Received shape: {np.shape(input_shape)}")
-
     if len(filter_num) != levels:
         raise ValueError(f"length of filter_num ({len(filter_num)}) does not match the number of levels ({levels})")
 
@@ -839,102 +823,39 @@ def unet_3plus(
     if filter_num_aggregate is None:
         filter_num_aggregate = levels * filter_num_skip
 
-    # print(f"\nCreating model: {ndims}D U-Net 3+")
-
+    # Keyword arguments for the convolution modules
     module_kwargs = dict({})
-    module_kwargs['kernel_size'] = kernel_size
-    module_kwargs['activation'] = activation
-    module_kwargs['batch_normalization'] = batch_normalization
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'shared_axes']:
+        module_kwargs[arg] = locals()[arg]
     module_kwargs['num_modules'] = modules_per_node
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
 
-    pool_kwargs = dict({})
-    pool_kwargs['pool_size'] = pool_size
+    pool_kwargs = {'pool_size': pool_size}
 
     upsample_kwargs = dict({})
-    upsample_kwargs['activation'] = activation
-    upsample_kwargs['batch_normalization'] = batch_normalization
-    upsample_kwargs['kernel_size'] = kernel_size
-    upsample_kwargs['filters'] = filter_num_skip
-    upsample_kwargs['padding'] = padding
-    upsample_kwargs['kernel_initializer'] = kernel_initializer
-    upsample_kwargs['bias_initializer'] = bias_initializer
-    upsample_kwargs['kernel_regularizer'] = kernel_regularizer
-    upsample_kwargs['bias_regularizer'] = bias_regularizer
-    upsample_kwargs['activity_regularizer'] = activity_regularizer
-    upsample_kwargs['kernel_constraint'] = kernel_constraint
-    upsample_kwargs['bias_constraint'] = bias_constraint
-    upsample_kwargs['upsample_size'] = upsample_size
-    upsample_kwargs['use_bias'] = use_bias
-
     conventional_kwargs = dict({})
-    conventional_kwargs['filters'] = filter_num_skip
-    conventional_kwargs['kernel_size'] = kernel_size
-    conventional_kwargs['activation'] = activation
-    conventional_kwargs['batch_normalization'] = batch_normalization
-    conventional_kwargs['padding'] = padding
-    conventional_kwargs['use_bias'] = use_bias
-    conventional_kwargs['kernel_initializer'] = kernel_initializer
-    conventional_kwargs['bias_initializer'] = bias_initializer
-    conventional_kwargs['kernel_regularizer'] = kernel_regularizer
-    conventional_kwargs['bias_regularizer'] = bias_regularizer
-    conventional_kwargs['activity_regularizer'] = activity_regularizer
-    conventional_kwargs['kernel_constraint'] = kernel_constraint
-    conventional_kwargs['bias_constraint'] = bias_constraint
-
     full_scale_kwargs = dict({})
-    full_scale_kwargs['filters'] = filter_num_skip
-    full_scale_kwargs['kernel_size'] = kernel_size
-    full_scale_kwargs['activation'] = activation
-    full_scale_kwargs['batch_normalization'] = batch_normalization
-    full_scale_kwargs['use_bias'] = use_bias
-    full_scale_kwargs['padding'] = padding
-    full_scale_kwargs['pool_size'] = pool_size
-    full_scale_kwargs['kernel_initializer'] = kernel_initializer
-    full_scale_kwargs['bias_initializer'] = bias_initializer
-    full_scale_kwargs['kernel_regularizer'] = kernel_regularizer
-    full_scale_kwargs['bias_regularizer'] = bias_regularizer
-    full_scale_kwargs['activity_regularizer'] = activity_regularizer
-    full_scale_kwargs['kernel_constraint'] = kernel_constraint
-    full_scale_kwargs['bias_constraint'] = bias_constraint
-
     aggregated_kwargs = dict({})
+    for arg in ['activation', 'batch_normalization', 'kernel_size', 'filters', 'padding', 'use_bias', 'kernel_initializer',
+                'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint',
+                'bias_constraint', 'shared_axes']:
+        upsample_kwargs[arg] = locals()[arg]
+        conventional_kwargs[arg] = locals()[arg]
+        full_scale_kwargs[arg] = locals()[arg]
+        aggregated_kwargs[arg] = locals()[arg]
+
+    upsample_kwargs['upsample_size'] = upsample_size
+    full_scale_kwargs['filters'] = filter_num_skip
+    full_scale_kwargs['pool_size'] = pool_size
     aggregated_kwargs['filters'] = filter_num_skip
-    aggregated_kwargs['kernel_size'] = kernel_size
-    aggregated_kwargs['activation'] = activation
-    aggregated_kwargs['batch_normalization'] = batch_normalization
-    aggregated_kwargs['padding'] = padding
     aggregated_kwargs['upsample_size'] = upsample_size
-    aggregated_kwargs['use_bias'] = use_bias
-    aggregated_kwargs['kernel_initializer'] = kernel_initializer
-    aggregated_kwargs['bias_initializer'] = bias_initializer
-    aggregated_kwargs['kernel_regularizer'] = kernel_regularizer
-    aggregated_kwargs['bias_regularizer'] = bias_regularizer
-    aggregated_kwargs['activity_regularizer'] = activity_regularizer
-    aggregated_kwargs['kernel_constraint'] = kernel_constraint
-    aggregated_kwargs['bias_constraint'] = bias_constraint
 
     supervision_kwargs = dict({})
-    supervision_kwargs['upsample_size'] = upsample_size
-    supervision_kwargs['kernel_size'] = kernel_size
+    for arg in ['kernel_size', 'padding', 'squeeze_axes', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer',
+                'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
+        supervision_kwargs[arg] = arg
     supervision_kwargs['use_bias'] = True
-    supervision_kwargs['padding'] = padding
-    supervision_kwargs['squeeze_dims'] = squeeze_dims
-    supervision_kwargs['kernel_initializer'] = kernel_initializer
-    supervision_kwargs['bias_initializer'] = bias_initializer
-    supervision_kwargs['kernel_regularizer'] = kernel_regularizer
-    supervision_kwargs['bias_regularizer'] = bias_regularizer
-    supervision_kwargs['activity_regularizer'] = activity_regularizer
-    supervision_kwargs['kernel_constraint'] = kernel_constraint
-    supervision_kwargs['bias_constraint'] = bias_constraint
 
     tensors = dict({})  # Tensors associated with each node and skip connections
     tensors_with_supervision = []  # Outputs of deep supervision
@@ -1012,7 +933,8 @@ def attention_unet(
     levels: int,
     filter_num: tuple[int] | list[int],
     kernel_size: int = 3,
-    squeeze_dims: int | tuple[int] | list[int] = None,
+    squeeze_axes: int | tuple[int] | list[int] = None,
+    shared_axes: int | tuple[int] | list[int] = None,
     modules_per_node: int = 5,
     batch_normalization: bool = True,
     activation: str = 'relu',
@@ -1042,16 +964,18 @@ def attention_unet(
         Number of convolution filters on each level of the U-Net.
     kernel_size: int or tuple
         Size of the kernel in the convolution layers.
-    squeeze_dims: int, tuple, or None
-        Dimensions/axes of the input to squeeze such that the target (y_true) will be smaller than the input.
-        - (e.g. to remove the third dimension, set this parameter to 2 [axis=2 for the third dimension])
+    squeeze_axes: int, tuple, list, or None
+        Axis or axes of the input tensor to squeeze.
+    shared_axes: int, tuple, list, or None
+        Axes along which to share the learnable parameters for the activation function. When left as None, parameters will
+            be shared along all arbitrary dimensions (i.e. all dimensions without a defined size).
     modules_per_node: int
         Number of modules in each node of the U-Net.
     batch_normalization: bool
         Setting this to True will add a batch normalization layer after every convolution in the modules.
     activation: str
         Activation function to use in the modules.
-        Can be any of tf.keras.activations, 'gaussian', 'gcu', 'leaky_relu', 'prelu', 'smelu', 'snake' (case-insensitive).
+        See utils.unet_utils.choose_activation_layer for all supported activation functions.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -1085,7 +1009,7 @@ def attention_unet(
 
     References
     ----------
-    https://arxiv.org/pdf/1505.04597.pdf
+    https://arxiv.org/pdf/1804.03999.pdf
     """
 
     ndims = len(input_shape) - 1  # Number of dimensions in the input image (excluding the last dimension reserved for channels)
@@ -1101,51 +1025,30 @@ def attention_unet(
 
     # Keyword arguments for the convolution modules
     module_kwargs = dict({})
-    module_kwargs['activation'] = activation
-    module_kwargs['batch_normalization'] = batch_normalization
     module_kwargs['num_modules'] = modules_per_node
-    module_kwargs['padding'] = padding
-    module_kwargs['use_bias'] = use_bias
-    module_kwargs['kernel_initializer'] = kernel_initializer
-    module_kwargs['bias_initializer'] = bias_initializer
-    module_kwargs['kernel_regularizer'] = kernel_regularizer
-    module_kwargs['bias_regularizer'] = bias_regularizer
-    module_kwargs['activity_regularizer'] = activity_regularizer
-    module_kwargs['kernel_constraint'] = kernel_constraint
-    module_kwargs['bias_constraint'] = bias_constraint
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'shared_axes']:
+        module_kwargs[arg] = locals()[arg]
 
     # MaxPooling keyword arguments
-    pool_kwargs = dict({})
-    pool_kwargs['pool_size'] = pool_size
+    pool_kwargs = {'pool_size': pool_size}
 
     # Keyword arguments for upsampling
     upsample_kwargs = dict({})
-    upsample_kwargs['activation'] = activation
-    upsample_kwargs['batch_normalization'] = batch_normalization
-    upsample_kwargs['padding'] = padding
-    upsample_kwargs['kernel_initializer'] = kernel_initializer
-    upsample_kwargs['bias_initializer'] = bias_initializer
-    upsample_kwargs['kernel_regularizer'] = kernel_regularizer
-    upsample_kwargs['bias_regularizer'] = bias_regularizer
-    upsample_kwargs['activity_regularizer'] = activity_regularizer
-    upsample_kwargs['kernel_constraint'] = kernel_constraint
-    upsample_kwargs['bias_constraint'] = bias_constraint
-    upsample_kwargs['upsample_size'] = pool_size
-    upsample_kwargs['use_bias'] = use_bias
+    for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
+                'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
+                'upsample_size', 'shared_axes']:
+        upsample_kwargs[arg] = locals()[arg]
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
-    supervision_kwargs['upsample_size'] = pool_size
+    for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
+                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes', 'num_classes']:
+        supervision_kwargs[arg] = locals()[arg]
     supervision_kwargs['use_bias'] = True
-    supervision_kwargs['squeeze_dims'] = squeeze_dims
-    supervision_kwargs['padding'] = padding
-    supervision_kwargs['kernel_initializer'] = kernel_initializer
-    supervision_kwargs['bias_initializer'] = bias_initializer
-    supervision_kwargs['kernel_regularizer'] = kernel_regularizer
-    supervision_kwargs['bias_regularizer'] = bias_regularizer
-    supervision_kwargs['activity_regularizer'] = activity_regularizer
-    supervision_kwargs['kernel_constraint'] = kernel_constraint
-    supervision_kwargs['bias_constraint'] = bias_constraint
+    supervision_kwargs['output_level'] = 1
+    supervision_kwargs['kernel_size'] = 1
 
     tensors = dict({})  # Tensors associated with each node and skip connections
 
@@ -1178,7 +1081,7 @@ def attention_unet(
     """ Final decoder node begins with a concatenation and convolution module, followed by deep supervision """
     tensor_De1 = Concatenate(name='De1_Concatenate')([tensors['AG1'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
     tensor_De1 = unet_utils.convolution_module(tensor_De1, filters=filter_num[0], kernel_size=kernel_size, name='De1', **module_kwargs)  # Convolution module
-    tensors['output'] = unet_utils.deep_supervision_side_output(tensor_De1, num_classes=num_classes, kernel_size=1, output_level=1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
+    tensors['output'] = unet_utils.deep_supervision_side_output(tensor_De1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
 
     model = Model(inputs=tensors['input'], outputs=tensors['output'], name=f'attention_unet_{ndims}D')
 

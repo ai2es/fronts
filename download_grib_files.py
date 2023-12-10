@@ -2,7 +2,7 @@
 Download grib files for GDAS and/or GFS data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.23
+Script version: 2023.12.9
 """
 
 import argparse
@@ -91,9 +91,11 @@ if __name__ == "__main__":
                              (folder, init_time.year, init_time.month, init_time.year, init_time.month, init_time.day, init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
         [local_filenames.append("%s_%d%02d%02d%02d_f%03d.grib" % (args['model'], init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour)) for forecast_hour in args['forecast_hours']]
 
-    for init_time, file, local_filename in zip(init_times, files, local_filenames):
+    for file, local_filename in zip(files, local_filenames):
 
-        monthly_directory = '%s/%d%02d' % (args['grib_outdir'], init_time.year, init_time.month)  # Directory for the grib files for the given days
+        timestring = local_filename.split('_')[1]
+        year, month = timestring[:4], timestring[4:6]
+        monthly_directory = '%s/%s%s' % (args['grib_outdir'], year, month)  # Directory for the grib files for the given days
 
         ### If the directory does not exist, check to see if the file link is valid. If the file link is NOT valid, then the directory will not be created since it will be empty. ###
         if not os.path.isdir(monthly_directory):

@@ -2,7 +2,9 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.23.D1
+Script version: 2023.12.9
+
+TODO: Fix colorbar position issues
 """
 import itertools
 import argparse
@@ -47,7 +49,7 @@ if __name__ == '__main__':
     if args['domain_images'] is None:
         args['domain_images'] = [1, 1]
 
-    DEFAULT_COLORBAR_POSITION = {'conus': 0.74, 'full': 0.84, 'global': 0.74}
+    DEFAULT_COLORBAR_POSITION = {'conus': 0.78, 'full': 0.84, 'global': 0.74}
     cbar_position = DEFAULT_COLORBAR_POSITION['conus']
 
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
@@ -58,9 +60,9 @@ if __name__ == '__main__':
 
     year, month, day, hour = args['init_time'][0], args['init_time'][1], args['init_time'][2], args['init_time'][3]
 
-    ### Attempt to pull predictions from a yearly netcdf file generated with tensorflow datasets, otherwise try to pull a single netcdf file ###
+    ### Attempt to pull predictions from a monthly netcdf file generated with tensorflow datasets, otherwise try to pull a single netcdf file ###
     try:
-        probs_file = f"{args['model_dir']}/model_{args['model_number']}/probabilities/model_{args['model_number']}_pred_{args['domain']}_{year}.nc"
+        probs_file = f"{args['model_dir']}/model_{args['model_number']}/probabilities/model_{args['model_number']}_pred_{args['domain']}_{year}%02d.nc" % month
         fronts_file = '%s/%d%02d/FrontObjects_%d%02d%02d%02d_full.nc' % (args['fronts_netcdf_indir'], year, month, year, month, day, hour)
         plot_filename = '%s/model_%d/maps/model_%d_%d%02d%02d%02d_%s.png' % (args['model_dir'], args['model_number'], args['model_number'], year, month, day, hour, args['domain'])
         probs_ds = xr.open_mfdataset(probs_file).sel(time=['%d-%02d-%02dT%02d' % (year, month, day, hour), ])
