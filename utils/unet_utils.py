@@ -74,7 +74,7 @@ def attention_gate(
 
     coeffs = tf.multiply(upsample_xg, x, name=f'{name}_multiply')  # Element-wise multiplication onto the original x signal
 
-    attention_tensor = Conv3D(filters=filters_x, kernel_size=1, strides=1, padding='same', name=f'{name}_Conv{len(x.shape) - 2}D_coeffs')(coeffs)
+    attention_tensor = conv_layer(filters=filters_x, kernel_size=1, strides=1, padding='same', name=f'{name}_Conv{len(x.shape) - 2}D_coeffs')(coeffs)
     attention_tensor = BatchNormalization(name=f'{name}_BatchNorm')(attention_tensor)
 
     return attention_tensor

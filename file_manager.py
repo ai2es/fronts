@@ -686,6 +686,7 @@ def load_model(model_number: int,
     ####################################################################################################################
 
     from tensorflow.keras.models import load_model as lm
+    import custom_activations
     import custom_losses
     import custom_metrics
 
@@ -718,6 +719,39 @@ def load_model(model_number: int,
 
     if 'csi' in metric_string.lower():
         custom_objects[metric_string] = custom_metrics.critical_success_index(**metric_args)
+
+    activation_string = model_properties['activation']
+    if activation_string in ["elliott", "gaussian", "gcu", "hexpo", "isigmoid", "lisht", "psigmoid", "ptanh", "ptelu", "resech",
+                             "smelu", "snake", "srs", "stanh"]:
+        if activation_string == "elliott":
+            activation = custom_activations.Elliott()
+        elif activation_string == "gaussian":
+            activation = custom_activations.Gaussian()
+        elif activation_string == "gcu":
+            activation = custom_activations.GCU()
+        elif activation_string == "hexpo":
+            activation = custom_activations.Hexpo()
+        elif activation_string == "isigmoid":
+            activation = custom_activations.ISigmoid()
+        elif activation_string == "lisht":
+            activation = custom_activations.LiSHT()
+        elif activation_string == "psigmoid":
+            activation = custom_activations.PSigmoid()
+        elif activation_string == "ptanh":
+            activation = custom_activations.PTanh()
+        elif activation_string == "ptelu":
+            activation = custom_activations.PTELU()
+        elif activation_string == "resech":
+            activation = custom_activations.ReSech()
+        elif activation_string == "smelu":
+            activation = custom_activations.SmeLU()
+        elif activation_string == "snake":
+            activation = custom_activations.Snake()
+        elif activation_string == "srs":
+            activation = custom_activations.SRS()
+        else:  # activation_string == "stanh"
+            activation = custom_activations.STanh()
+        custom_objects[activation.__class__.__name__] = activation
 
     return lm(model_path, custom_objects=custom_objects)
 

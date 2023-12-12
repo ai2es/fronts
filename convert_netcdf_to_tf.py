@@ -330,16 +330,16 @@ if __name__ == '__main__':
                     for rotation in range(num_rotations):
                         variables_tensor = tf.reverse(tf.transpose(variables_tensor, perm=[1, 0, 2, 3]), axis=[rotation_direction])  # Rotate image 90 degrees
 
-                    if args['noise_fraction'] > 0:
-                        ### Add noise to image ###
-                        random_values = tf.random.uniform(shape=variables_tensor.shape)
-                        variables_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, variables_tensor)  # add 0s to image
-                        variables_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, variables_tensor)  # add 1s to image
+                if args['noise_fraction'] > 0:
+                    ### Add noise to image ###
+                    random_values = tf.random.uniform(shape=variables_tensor.shape)
+                    variables_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, variables_tensor)  # add 0s to image
+                    variables_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, variables_tensor)  # add 1s to image
 
-                    if args['num_dims'][0] == 2:
-                        variables_tensor_shape_3d = variables_tensor.shape
-                        # Combine pressure level and variables dimensions, making the images 2D (excluding the final dimension)
-                        variables_tensor = tf.reshape(variables_tensor, [variables_tensor_shape_3d[0], variables_tensor_shape_3d[1], variables_tensor_shape_3d[2] * variables_tensor_shape_3d[3]])
+                if args['num_dims'][0] == 2:
+                    variables_tensor_shape_3d = variables_tensor.shape
+                    # Combine pressure level and variables dimensions, making the images 2D (excluding the final dimension)
+                    variables_tensor = tf.reshape(variables_tensor, [variables_tensor_shape_3d[0], variables_tensor_shape_3d[1], variables_tensor_shape_3d[2] * variables_tensor_shape_3d[3]])
 
                 variables_tensor_for_timestep = tf.data.Dataset.from_tensors(variables_tensor)
                 if 'variables_tensors_for_month' not in locals():

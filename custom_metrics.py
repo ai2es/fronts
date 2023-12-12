@@ -202,7 +202,6 @@ def probability_of_detection(threshold=None, class_weights: list[int | float] = 
         """
 
         y_pred = tf.where(y_pred >= threshold, 1.0, 0.0) if threshold is not None else y_pred
-
         y_pred_neg = 1 - y_pred
 
         sum_over_axes = tf.range(tf.rank(y_pred) - 1)  # Indices for axes to sum over. Excludes the final (class) dimension.

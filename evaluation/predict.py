@@ -558,7 +558,7 @@ if __name__ == '__main__':
                     prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE, verbose=0)
                     num_dims_in_pred = len(np.shape(prediction))
 
-                    if model_type == 'unet':
+                    if model_type in ['unet', 'attention_unet']:
                         if num_dims_in_pred == 4:  # 2D labels, prediction shape: (time, lat, lon, front type)
                             image_probs = np.transpose(prediction[:, :, :, 1:], transpose_indices)  # transpose the predictions
                         else:  # if num_dims_in_pred == 5; 3D labels, prediction shape: (time, lat, lon, pressure level, front type)

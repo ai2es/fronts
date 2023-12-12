@@ -837,7 +837,7 @@ def unet_3plus(
     conventional_kwargs = dict({})
     full_scale_kwargs = dict({})
     aggregated_kwargs = dict({})
-    for arg in ['activation', 'batch_normalization', 'kernel_size', 'filters', 'padding', 'use_bias', 'kernel_initializer',
+    for arg in ['activation', 'batch_normalization', 'kernel_size', 'padding', 'use_bias', 'kernel_initializer',
                 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint',
                 'bias_constraint', 'shared_axes']:
         upsample_kwargs[arg] = locals()[arg]
@@ -845,6 +845,8 @@ def unet_3plus(
         full_scale_kwargs[arg] = locals()[arg]
         aggregated_kwargs[arg] = locals()[arg]
 
+    conventional_kwargs['filters'] = filter_num_skip
+    upsample_kwargs['filters'] = filter_num_skip
     upsample_kwargs['upsample_size'] = upsample_size
     full_scale_kwargs['filters'] = filter_num_skip
     full_scale_kwargs['pool_size'] = pool_size
@@ -853,8 +855,8 @@ def unet_3plus(
 
     supervision_kwargs = dict({})
     for arg in ['kernel_size', 'padding', 'squeeze_axes', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer',
-                'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']:
-        supervision_kwargs[arg] = arg
+                'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint', 'upsample_size']:
+        supervision_kwargs[arg] = locals()[arg]
     supervision_kwargs['use_bias'] = True
 
     tensors = dict({})  # Tensors associated with each node and skip connections
@@ -1038,14 +1040,16 @@ def attention_unet(
     upsample_kwargs = dict({})
     for arg in ['activation', 'batch_normalization', 'padding', 'kernel_size', 'use_bias', 'kernel_initializer', 'bias_initializer',
                 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint',
-                'upsample_size', 'shared_axes']:
+                'shared_axes']:
         upsample_kwargs[arg] = locals()[arg]
+    upsample_kwargs['upsample_size'] = pool_size
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
-                'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes', 'num_classes']:
+                'kernel_constraint', 'bias_constraint', 'squeeze_axes', 'num_classes']:
         supervision_kwargs[arg] = locals()[arg]
+    supervision_kwargs['upsample_size'] = pool_size
     supervision_kwargs['use_bias'] = True
     supervision_kwargs['output_level'] = 1
     supervision_kwargs['kernel_size'] = 1
@@ -1054,33 +1058,33 @@ def attention_unet(
 
     """ Setup the first encoder node with an input layer and a convolution module """
     tensors['input'] = Input(shape=input_shape, name='Input')
-    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], kernel_size=kernel_size, name='En1', **module_kwargs)
+    tensors['En1'] = unet_utils.convolution_module(tensors['input'], filters=filter_num[0], name='En1', **module_kwargs)
 
     """ The rest of the encoder nodes are handled here. Each encoder node is connected with a MaxPooling layer and contains convolution modules """
     for encoder in np.arange(2, levels + 1):  # Iterate through the rest of the encoder nodes
         pool_tensor = unet_utils.max_pool(tensors[f'En{encoder - 1}'], name=f'En{encoder - 1}-En{encoder}', **pool_kwargs)  # Connect the next encoder node with a MaxPooling layer
-        tensors[f'En{encoder}'] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], kernel_size=kernel_size, name=f'En{encoder}', **module_kwargs)  # Convolution modules
+        tensors[f'En{encoder}'] = unet_utils.convolution_module(pool_tensor, filters=filter_num[encoder - 1], name=f'En{encoder}', **module_kwargs)  # Convolution modules
 
     tensors[f'AG{levels - 1}'] = unet_utils.attention_gate(tensors[f'En{levels - 1}'], tensors[f'En{levels}'], kernel_size, pool_size, name=f'AG{levels - 1}')
-    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'En{levels}-De{levels - 1}', **upsample_kwargs)  # Connect the bottom encoder node to a decoder node
+    upsample_tensor = unet_utils.upsample(tensors[f'En{levels}'], filters=filter_num[levels - 2], name=f'En{levels}-De{levels - 1}', **upsample_kwargs)  # Connect the bottom encoder node to a decoder node
 
     """ Bottom decoder node """
     tensors[f'De{levels - 1}'] = Concatenate(name=f'De{levels - 1}_Concatenate')([tensors[f'AG{levels - 1}'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
-    tensors[f'De{levels - 1}'] = unet_utils.convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], kernel_size=kernel_size, name=f'De{levels - 1}', **module_kwargs)  # Convolution module
+    tensors[f'De{levels - 1}'] = unet_utils.convolution_module(tensors[f'De{levels - 1}'], filters=filter_num[levels - 2], name=f'De{levels - 1}', **module_kwargs)  # Convolution module
     tensors[f'AG{levels - 2}'] = unet_utils.attention_gate(tensors[f'En{levels - 2}'], tensors[f'De{levels - 1}'], kernel_size, pool_size, name=f'AG{levels - 2}')
-    upsample_tensor = unet_utils.upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], kernel_size=kernel_size, name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+    upsample_tensor = unet_utils.upsample(tensors[f'De{levels - 1}'], filters=filter_num[levels - 3], name=f'De{levels - 1}-De{levels - 2}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
     """ The rest of the decoder nodes (except the final node) are handled in this loop. Each node contains one concatenation of an upsampled tensor and a skip connection """
     for decoder in np.arange(2, levels-1)[::-1]:
         tensors[f'De{decoder}'] = Concatenate(name=f'De{decoder}_Concatenate')([tensors[f'AG{decoder}'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
-        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], kernel_size=kernel_size, name=f'De{decoder}', **module_kwargs)  # Convolution module
+        tensors[f'De{decoder}'] = unet_utils.convolution_module(tensors[f'De{decoder}'], filters=filter_num[decoder - 1], name=f'De{decoder}', **module_kwargs)  # Convolution module
         tensors[f'AG{decoder - 1}'] = unet_utils.attention_gate(tensors[f'En{decoder - 1}'], tensors[f'De{decoder}'], kernel_size, pool_size, name=f'AG{decoder - 1}')
-        upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], kernel_size=kernel_size, name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
+        upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
     print(tensors.keys())
     """ Final decoder node begins with a concatenation and convolution module, followed by deep supervision """
     tensor_De1 = Concatenate(name='De1_Concatenate')([tensors['AG1'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
-    tensor_De1 = unet_utils.convolution_module(tensor_De1, filters=filter_num[0], kernel_size=kernel_size, name='De1', **module_kwargs)  # Convolution module
+    tensor_De1 = unet_utils.convolution_module(tensor_De1, filters=filter_num[0], name='De1', **module_kwargs)  # Convolution module
     tensors['output'] = unet_utils.deep_supervision_side_output(tensor_De1, name='final', **supervision_kwargs)  # Deep supervision - this layer will output the model's prediction
 
     model = Model(inputs=tensors['input'], outputs=tensors['output'], name=f'attention_unet_{ndims}D')

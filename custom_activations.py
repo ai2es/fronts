@@ -415,11 +415,13 @@ class SmeLU(Layer):
     """
     def __init__(self,
                  name=None,
-                 beta_initializer="zeros",
+                 beta_initializer="ones",
                  beta_regularizer=None,
-                 beta_constraint=None,
-                 shared_axes=None):
-        super(SmeLU, self).__init__(name=name)
+                 beta_constraint="NonNeg",
+                 shared_axes=None,
+                 **kwargs):
+        super(SmeLU, self).__init__(name=name, **kwargs)
+        self._name = name
         self.beta_initializer = beta_initializer
         self.beta_regularizer = beta_regularizer
         self.beta_constraint = beta_constraint
@@ -450,6 +452,16 @@ class SmeLU(Layer):
             inputs))  # Condition 3 (if x >= beta)
 
         return y
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"name": self._name,
+                       "beta_initializer": self.beta_initializer,
+                       "beta_regularizer": self.beta_regularizer,
+                       "beta_constraint": self.beta_constraint,
+                       "shared_axes": self.shared_axes})
+
+        return config
 
 
 class Snake(Layer):

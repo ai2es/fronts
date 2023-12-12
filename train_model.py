@@ -297,6 +297,7 @@ if __name__ == "__main__":
                     'bias_initializer', 'bias_regularizer', 'kernel_constraint', 'kernel_initializer', 'kernel_regularizer',
                     'first_encoder_connections', 'valid_freq', 'optimizer']:
             model_properties[arg] = args[arg]
+        model_properties['activation'] = model_properties['activation'].lower()
 
         # Place local variables into the model properties dictionary
         for arg in ['loss_string', 'loss_args', 'metric_string', 'metric_args', 'image_size', 'training_years',
@@ -304,7 +305,7 @@ if __name__ == "__main__":
             model_properties[arg] = locals()[arg]
 
         # If using 3D inputs and 2D targets, squeeze out the vertical dimension of the model (index 2)
-        squeeze_axes = 2 if num_dims == [3, 2] else None
+        squeeze_axes = 3 if num_dims == [3, 2] else None
 
         train_batch_size = args['batch_size'][0]
         valid_batch_size = args['batch_size'][0] if len(args['batch_size']) == 1 else args['batch_size'][1]
@@ -355,7 +356,7 @@ if __name__ == "__main__":
     ### Training dataset ###
     train_files_obj = fm.DataFileLoader(args['era5_tf_indirs'][0], data_file_type='era5-tensorflow')
     train_files_obj.training_years = training_years
-    train_files_obj.pair_with_fronts(args['era5_tf_indirs'][0], front_types=front_types)
+    train_files_obj.pair_with_fronts(args['era5_tf_indirs'][0])
     training_inputs = train_files_obj.data_files_training
     training_labels = train_files_obj.front_files_training
 
@@ -389,7 +390,7 @@ if __name__ == "__main__":
     ### Validation dataset ###
     valid_files_obj = fm.DataFileLoader(args['era5_tf_indirs'][1], data_file_type='era5-tensorflow')
     valid_files_obj.validation_years = validation_years
-    valid_files_obj.pair_with_fronts(args['era5_tf_indirs'][1], front_types=front_types)
+    valid_files_obj.pair_with_fronts(args['era5_tf_indirs'][1])
     validation_inputs = valid_files_obj.data_files_validation
     validation_labels = valid_files_obj.front_files_validation
     validation_dataset = data_utils.combine_datasets(validation_inputs, validation_labels)
