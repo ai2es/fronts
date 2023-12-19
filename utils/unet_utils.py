@@ -816,7 +816,7 @@ def deep_supervision_side_output(
 
         conv_kwargs['kernel_size'] = [1 for _ in range(tensor_dims - 2)]
 
-        if squeeze_axes is int:
+        if type(squeeze_axes) == int:
             squeeze_axes = [squeeze_axes, ]  # Turn integer into a list of length 1 to make indexing easier
 
         squeeze_axes_sizes = [tensor.shape[ax_to_squeeze] for ax_to_squeeze in squeeze_axes]
