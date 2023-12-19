@@ -8,7 +8,7 @@ Functions for building components of U-Net models:
     - Attention U-Net
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.19
+Script version: 2023.12.19.1
 """
 
 import numpy as np
@@ -510,7 +510,7 @@ def max_pool(
         Output tensor.
     """
 
-    if pool_size is not tuple and pool_size is not list:
+    if type(pool_size) != tuple and type(pool_size) != list:
         raise TypeError(f"pool_size can only be a tuple or list. Received type: {type(pool_size)}")
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
@@ -603,7 +603,7 @@ def upsample(
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
 
-    if upsample_size is not tuple and upsample_size is not list:
+    if type(upsample_size) != tuple and type(upsample_size) != list:
         raise TypeError(f"upsample_size can only be a tuple or list. Received type: {type(upsample_size)}")
 
     # Arguments for the convolution module.
