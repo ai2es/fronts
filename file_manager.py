@@ -2,7 +2,7 @@
 Functions in this code manage data files and models.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.8
+Script version: 2023.12.19
 """
 
 import argparse
@@ -719,6 +719,9 @@ def load_model(model_number: int,
 
     if 'csi' in metric_string.lower():
         custom_objects[metric_string] = custom_metrics.critical_success_index(**metric_args)
+
+    if 'csi' in loss_string.lower():
+        custom_objects[loss_string] = custom_losses.critical_success_index(**loss_args)
 
     activation_string = model_properties['activation']
     if activation_string in ["elliott", "gaussian", "gcu", "hexpo", "isigmoid", "lisht", "psigmoid", "ptanh", "ptelu", "resech",

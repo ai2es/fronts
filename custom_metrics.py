@@ -6,7 +6,7 @@ Custom metrics for U-Net models.
     - Probability of Detection (POD)
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.8
+Script version: 2023.12.19
 """
 import tensorflow as tf
 
@@ -34,25 +34,29 @@ def brier_skill_score(class_weights: list[int | float] = None):
             relative_class_weights = tf.cast(class_weights / tf.math.reduce_sum(class_weights), tf.float32)
             squared_errors *= relative_class_weights
 
-        return 1 - tf.math.reduce_sum(squared_errors) / tf.size(squared_errors)
+        bss = 1 - tf.math.reduce_sum(squared_errors) / tf.size(squared_errors)
+
+        return bss
 
     return bss
 
 
-def critical_success_index(threshold: float = None, class_weights: list[int | float] = None):
+def critical_success_index(threshold: float = None,
+                           class_weights: list[int | float] = None,
+                           window_size: int = None):
     """
     Critical success index (CSI).
 
-    y_true: tf.Tensor
-        One-hot encoded tensor containing labels.
-    y_pred: tf.Tensor
-        Tensor containing model predictions.
     threshold: float or None
         Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
             set to 1, and 0 otherwise.
         If the threshold is set, it must be greater than 0 and less than 1.
     class_weights: list of values or None
         List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+    window_size: int or None
+        Pool/kernel size of the max-pooling window for neighborhood statistics. (e.g. if calculating the CSI with a 4-pixel
+            window, this should be set to 4).
+        Note that this parameter is experimental and may return unexpected results.
     """
 
     @tf.function
@@ -64,8 +68,12 @@ def critical_success_index(threshold: float = None, class_weights: list[int | fl
             Tensor containing model predictions.
         """
 
+        if window_size is not None:
+            y_pred = tf.nn.max_pool(y_pred, ksize=window_size, strides=1, padding="VALID")
+            y_true = tf.nn.max_pool(y_true, ksize=window_size, strides=1, padding="VALID")
+
         if threshold is not None:
-            y_pred = tf.where(y_pred >= threshold, 1.0, 0.0)
+            y_pred = tf.where(y_pred >= threshold, 1., 0.)
 
         y_pred_neg = 1 - y_pred
         y_true_neg = 1 - y_true
@@ -90,9 +98,9 @@ def critical_success_index(threshold: float = None, class_weights: list[int | fl
 def fractions_skill_score(
     num_dims: int,
     mask_size: int = 3,
-    c: float = 1.0,
-    cutoff: float = 0.5,
-    want_hard_discretization: bool = False,
+    c: float = 1.,
+    binary: bool = False,
+    threshold: float = 0.5,
     class_weights: list[int | float] = None):
     """
     Fractions skill score loss function. Visit https://github.com/CIRA-ML/custom_loss_functions for documentation.
@@ -104,12 +112,12 @@ def fractions_skill_score(
     mask_size: int or tuple
         Size of the mask/pool in the AveragePooling layers.
     c: int or float
-        C parameter in the sigmoid function. This will only be used if 'want_hard_discretization' is False.
-    cutoff: float
-        If 'want_hard_discretization' is True, y_true and y_pred will be discretized to only have binary values (0/1)
-    want_hard_discretization: bool
-        If True, y_true and y_pred will be discretized to only have binary values (0/1).
-        If False, y_true and y_pred will be discretized using a sigmoid function.
+        C parameter in the sigmoid function. This will only be used if 'binary' is False.
+    binary: bool
+        Convert y_pred to binary values (0/1).
+    threshold: float
+        If binary is False, this threshold is used in the sigmoid function.
+        If binary is True, this is the threshold used to convert y_pred to binary values (0/1).
     class_weights: list of values or None
         List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
 
@@ -139,17 +147,17 @@ def fractions_skill_score(
             Tensor containing model predictions.
         """
 
-        if want_hard_discretization:
-            y_true_binary = tf.where(y_true > cutoff, 1.0, 0.0)
-            y_pred_binary = tf.where(y_pred > cutoff, 1.0, 0.0)
+        if binary:
+            y_true = tf.where(y_true > threshold, 1., 0.)
+            y_pred = tf.where(y_pred > threshold, 1., 0.)
         else:
-            y_true_binary = tf.math.sigmoid(c * (y_true - cutoff))
-            y_pred_binary = tf.math.sigmoid(c * (y_pred - cutoff))
+            y_true = tf.math.sigmoid(c * (y_true - threshold))
+            y_pred = tf.math.sigmoid(c * (y_pred - threshold))
 
-        y_true_density = pool1(y_true_binary)
+        y_true_density = pool1(y_true)
         n_density_pixels = tf.cast((tf.shape(y_true_density)[1] * tf.shape(y_true_density)[2]), tf.float32)
 
-        y_pred_density = pool2(y_pred_binary)
+        y_pred_density = pool2(y_pred)
 
         if class_weights is None:
             MSE_n = tf.keras.metrics.mean_squared_error(y_true_density, y_pred_density)
@@ -167,20 +175,22 @@ def fractions_skill_score(
 
         MSE_n_ref = (O_n_squared_sum + M_n_squared_sum) / n_density_pixels
 
-        my_epsilon = tf.keras.backend.epsilon()  # this is 10^(-7)
+        epsilon = tf.keras.backend.epsilon()  # 1e-7, constant for numeric stability
 
-        if want_hard_discretization:
+        if binary:
             if MSE_n_ref == 0:
                 return 1 - MSE_n
             else:
                 return 1 - (MSE_n / MSE_n_ref)
         else:
-            return 1 - (MSE_n / (MSE_n_ref + my_epsilon))
+            return 1 - (MSE_n / (MSE_n_ref + epsilon))
 
     return fss
 
 
-def probability_of_detection(threshold=None, class_weights: list[int | float] = None):
+def probability_of_detection(threshold: float = None,
+                             class_weights: list[int | float] = None,
+                             window_size: int = None):
     """
     Probability of Detection (POD).
 
@@ -190,6 +200,10 @@ def probability_of_detection(threshold=None, class_weights: list[int | float] = 
         If the threshold is set, it must be greater than 0 and less than 1.
     class_weights: list of values or None
         List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+    window_size: int or None
+        Pool/kernel size of the max-pooling window for neighborhood statistics. (e.g. if calculating the POD with a 4-pixel
+            window, this should be set to 4).
+        Note that this parameter is experimental and may return unexpected results.
     """
 
     @tf.function
@@ -201,7 +215,11 @@ def probability_of_detection(threshold=None, class_weights: list[int | float] = 
             Tensor containing model predictions.
         """
 
-        y_pred = tf.where(y_pred >= threshold, 1.0, 0.0) if threshold is not None else y_pred
+        if window_size is not None:
+            y_pred = tf.nn.max_pool(y_pred, ksize=window_size, strides=1, padding="VALID")
+            y_true = tf.nn.max_pool(y_true, ksize=window_size, strides=1, padding="VALID")
+
+        y_pred = tf.where(y_pred >= threshold, 1., 0.) if threshold is not None else y_pred
         y_pred_neg = 1 - y_pred
 
         sum_over_axes = tf.range(tf.rank(y_pred) - 1)  # Indices for axes to sum over. Excludes the final (class) dimension.

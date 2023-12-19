@@ -18,7 +18,7 @@ Custom activation function layers:
 
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2023.12.19
 
 TODO: Add more activation functions
 """
@@ -34,15 +34,15 @@ class Elliott(Layer):
     ----------
     https://link.springer.com/article/10.1007/s00521-017-3210-6
     """
-    def __init__(self, name=None):
-        super(Elliott, self).__init__(name=name)
+    def __init__(self, name=None, **kwargs):
+        super(Elliott, self).__init__(name=name, **kwargs)
 
     def build(self, input_shape):
         """ Build the Elliott activation layer """
 
     def call(self, inputs):
         inputs = tf.cast(inputs, 'float32')
-        y = 0.5 * inputs / (1 + tf.abs(inputs)) + 0.5
+        y = 0.5 * inputs / (1. + tf.abs(inputs)) + 0.5
 
         return y
 
@@ -51,8 +51,8 @@ class Gaussian(Layer):
     """
     Gaussian function activation layer.
     """
-    def __init__(self, name=None):
-        super(Gaussian, self).__init__(name=name)
+    def __init__(self, name=None, **kwargs):
+        super(Gaussian, self).__init__(name=name, **kwargs)
 
     def build(self, input_shape):
         """ Build the Gaussian layer """
@@ -69,8 +69,8 @@ class GCU(Layer):
     """
     Growing Cosine Unit (GCU) activation layer.
     """
-    def __init__(self, name=None):
-        super(GCU, self).__init__(name=name)
+    def __init__(self, name=None, **kwargs):
+        super(GCU, self).__init__(name=name, **kwargs)
 
     def build(self, input_shape):
         """ Build the GCU layer """
@@ -98,23 +98,27 @@ class Hexpo(Layer):
         b -> beta
         c -> gamma
         d -> delta
+
+
     """
     def __init__(self,
                  name=None,
                  alpha_initializer=None,
                  alpha_regularizer=None,
                  alpha_constraint=None,
-                 beta_initializer=None,
+                 beta_initializer="Ones",
                  beta_regularizer=None,
-                 beta_constraint=None,
+                 beta_constraint="NonNeg",
                  gamma_initializer=None,
                  gamma_regularizer=None,
                  gamma_constraint=None,
-                 delta_initializer=None,
+                 delta_initializer="Ones",
                  delta_regularizer=None,
-                 delta_constraint=None,
-                 shared_axes=None):
-        super(Hexpo, self).__init__(name=name)
+                 delta_constraint="NonNeg",
+                 shared_axes=None,
+                 **kwargs):
+        super(Hexpo, self).__init__(name=name, **kwargs)
+        self._name = name
         self.alpha_initializer = alpha_initializer
         self.alpha_regularizer = alpha_regularizer
         self.alpha_constraint = alpha_constraint
@@ -164,10 +168,29 @@ class Hexpo(Layer):
 
     def call(self, inputs):
         inputs = tf.cast(inputs, 'float32')
-        y = tf.where(inputs >= 0., -self.alpha * (tf.exp(-inputs / self.beta) - 1.),
-                     self.gamma * (tf.exp(inputs / self.delta) - 1.))
+        y = tf.where(inputs >= 0., -self.alpha * (tf.exp(-inputs / (self.beta + 1e-7)) - 1.),
+                     self.gamma * (tf.exp(inputs / (self.delta + 1e-7)) - 1.))
 
         return y
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"name": self._name,
+                       "alpha_initializer": self.alpha_initializer,
+                       "alpha_regularizer": self.alpha_regularizer,
+                       "alpha_constraint": self.alpha_constraint,
+                       "beta_initializer": self.beta_initializer,
+                       "beta_regularizer": self.beta_regularizer,
+                       "beta_constraint": self.beta_constraint,
+                       "gamma_initializer": self.gamma_initializer,
+                       "gamma_regularizer": self.gamma_regularizer,
+                       "gamma_constraint": self.gamma_constraint,
+                       "delta_initializer": self.delta_initializer,
+                       "delta_regularizer": self.delta_regularizer,
+                       "delta_constraint": self.delta_constraint,
+                       "shared_axes": self.shared_axes})
+
+        return config
 
 
 class ISigmoid(Layer):
@@ -190,8 +213,9 @@ class ISigmoid(Layer):
                  beta_initializer="zeros",
                  beta_regularizer=None,
                  beta_constraint=None,
-                 shared_axes=None):
-        super(ISigmoid, self).__init__(name=name)
+                 shared_axes=None,
+                 **kwargs):
+        super(ISigmoid, self).__init__(name=name, **kwargs)
         self.alpha_initializer = alpha_initializer
         self.alpha_regularizer = alpha_regularizer
         self.alpha_constraint = alpha_constraint
@@ -230,6 +254,19 @@ class ISigmoid(Layer):
 
         return y
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"name": self._name,
+                       "alpha_initializer": self.alpha_initializer,
+                       "alpha_regularizer": self.alpha_regularizer,
+                       "alpha_constraint": self.alpha_constraint,
+                       "beta_initializer": self.beta_initializer,
+                       "beta_regularizer": self.beta_regularizer,
+                       "beta_constraint": self.beta_constraint,
+                       "shared_axes": self.shared_axes})
+
+        return config
+
 
 class LiSHT(Layer):
     """
@@ -239,15 +276,15 @@ class LiSHT(Layer):
     ----------
     https://arxiv.org/abs/1901.05894
     """
-    def __init__(self, name=None):
-        super(LiSHT, self).__init__(name=name)
+    def __init__(self, name=None, **kwargs):
+        super(LiSHT, self).__init__(name=name, **kwargs)
 
     def build(self, input_shape):
         """ Build the LiSHT layer """
 
     def call(self, inputs):
         inputs = tf.cast(inputs, 'float32')
-        y = inputs * tf.cosh(inputs)
+        y = inputs * tf.tanh(inputs)
 
         return y
 
@@ -261,8 +298,9 @@ class PSigmoid(Layer):
                  alpha_initializer="zeros",
                  alpha_regularizer=None,
                  alpha_constraint=None,
-                 shared_axes=None):
-        super(PSigmoid, self).__init__(name=name)
+                 shared_axes=None,
+                 **kwargs):
+        super(PSigmoid, self).__init__(name=name, **kwargs)
         self.alpha_initializer = alpha_initializer
         self.alpha_regularizer = alpha_regularizer
         self.alpha_constraint = alpha_constraint
@@ -291,6 +329,16 @@ class PSigmoid(Layer):
 
         return y
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"name": self._name,
+                       "alpha_initializer": self.alpha_initializer,
+                       "alpha_regularizer": self.alpha_regularizer,
+                       "alpha_constraint": self.alpha_constraint,
+                       "shared_axes": self.shared_axes})
+
+        return config
+
 
 class PTanh(Layer):
     """
@@ -301,8 +349,9 @@ class PTanh(Layer):
                  alpha_initializer="zeros",
                  alpha_regularizer=None,
                  alpha_constraint="MinMaxNorm",  # by default, alpha is restricted to the (0, 1) range
-                 shared_axes=None):
-        super(PTanh, self).__init__(name=name)
+                 shared_axes=None,
+                 **kwargs):
+        super(PTanh, self).__init__(name=name, **kwargs)
         self.alpha_initializer = alpha_initializer
         self.alpha_regularizer = alpha_regularizer
         self.alpha_constraint = alpha_constraint
@@ -331,6 +380,16 @@ class PTanh(Layer):
 
         return y
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"name": self._name,
+                       "alpha_initializer": self.alpha_initializer,
+                       "alpha_regularizer": self.alpha_regularizer,
+                       "alpha_constraint": self.alpha_constraint,
+                       "shared_axes": self.shared_axes})
+
+        return config
+
 
 class PTELU(Layer):
     """
@@ -348,8 +407,9 @@ class PTELU(Layer):
                  beta_initializer="zeros",
                  beta_regularizer=None,
                  beta_constraint="NonNeg",
-                 shared_axes=None):
-        super(PTELU, self).__init__(name=name)
+                 shared_axes=None,
+                 **kwargs):
+        super(PTELU, self).__init__(name=name, **kwargs)
         self.alpha_initializer = alpha_initializer
         self.alpha_regularizer = alpha_regularizer
         self.alpha_constraint = alpha_constraint
@@ -387,13 +447,26 @@ class PTELU(Layer):
 
         return y
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"name": self._name,
+                       "alpha_initializer": self.alpha_initializer,
+                       "alpha_regularizer": self.alpha_regularizer,
+                       "alpha_constraint": self.alpha_constraint,
+                       "beta_initializer": self.beta_initializer,
+                       "beta_regularizer": self.beta_regularizer,
+                       "beta_constraint": self.beta_constraint,
+                       "shared_axes": self.shared_axes})
+
+        return config
+
 
 class ReSech(Layer):
     """
     Rectified hyperbolic secant (ReSech) activation layer.
     """
-    def __init__(self, name=None):
-        super(ReSech, self).__init__(name=name)
+    def __init__(self, name=None, **kwargs):
+        super(ReSech, self).__init__(name=name, **kwargs)
 
     def build(self, input_shape):
         """ Build the ReSech layer """
@@ -474,11 +547,12 @@ class Snake(Layer):
     """
     def __init__(self,
                  name=None,
-                 alpha_initializer="zeros",
+                 alpha_initializer="Ones",
                  alpha_regularizer=None,
-                 alpha_constraint=None,
-                 shared_axes=None):
-        super(Snake, self).__init__(name=name)
+                 alpha_constraint="NonNeg",
+                 shared_axes=None,
+                 **kwargs):
+        super(Snake, self).__init__(name=name, **kwargs)
         self.alpha_initializer = alpha_initializer
         self.alpha_regularizer = alpha_regularizer
         self.alpha_constraint = alpha_constraint
@@ -505,9 +579,19 @@ class Snake(Layer):
     def call(self, inputs):
         """ Call the Snake activation function """
         inputs = tf.cast(inputs, 'float32')
-        y = inputs + ((1. / self.alpha) * tf.square(tf.sin(self.alpha * inputs)))
+        y = inputs + ((1. / (self.alpha + 1e-7)) * tf.square(tf.sin(self.alpha * inputs)))
 
         return y
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"name": self._name,
+                       "alpha_initializer": self.alpha_initializer,
+                       "alpha_regularizer": self.alpha_regularizer,
+                       "alpha_constraint": self.alpha_constraint,
+                       "shared_axes": self.shared_axes})
+
+        return config
 
 
 class SRS(Layer):
@@ -520,14 +604,15 @@ class SRS(Layer):
     """
     def __init__(self,
                  name=None,
-                 alpha_initializer="zeros",
+                 alpha_initializer="ones",
                  alpha_regularizer=None,
-                 alpha_constraint=None,
-                 beta_initializer="zeros",
+                 alpha_constraint="NonNeg",
+                 beta_initializer="ones",
                  beta_regularizer=None,
-                 beta_constraint=None,
-                 shared_axes=None):
-        super(SRS, self).__init__(name=name)
+                 beta_constraint="NonNeg",
+                 shared_axes=None,
+                 **kwargs):
+        super(SRS, self).__init__(name=name, **kwargs)
         self.alpha_initializer = alpha_initializer
         self.alpha_regularizer = alpha_regularizer
         self.alpha_constraint = alpha_constraint
@@ -565,6 +650,19 @@ class SRS(Layer):
 
         return y
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"name": self._name,
+                       "alpha_initializer": self.alpha_initializer,
+                       "alpha_regularizer": self.alpha_regularizer,
+                       "alpha_constraint": self.alpha_constraint,
+                       "beta_initializer": self.beta_initializer,
+                       "beta_regularizer": self.beta_regularizer,
+                       "beta_constraint": self.beta_constraint,
+                       "shared_axes": self.shared_axes})
+
+        return config
+
 
 class STanh(Layer):
     """
@@ -574,8 +672,8 @@ class STanh(Layer):
     ----------
     https://ieeexplore.ieee.org/document/726791
     """
-    def __init__(self, name=None):
-        super(STanh, self).__init__(name=name)
+    def __init__(self, name=None, **kwargs):
+        super(STanh, self).__init__(name=name, **kwargs)
 
     def build(self, input_shape):
         """ Build the STanh layer """

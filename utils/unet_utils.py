@@ -8,7 +8,7 @@ Functions for building components of U-Net models:
     - Attention U-Net
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2023.12.19
 """
 
 import numpy as np
@@ -120,7 +120,7 @@ def convolution_module(
         If True, a BatchNormalization layer will follow every Conv2D/Conv3D layer.
     activation: str
         Activation function to use after every Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        See unet_utils.choose_activation_layer for all available activation functions.
     kernel_initializer: str or tf.keras.initializers object
         Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
@@ -242,7 +242,7 @@ def aggregated_feature_map(
         If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
     activation: str
         Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        See unet_utils.choose_activation_layer for all available activation functions.
     kernel_initializer: str or tf.keras.initializers object
         Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
@@ -354,7 +354,7 @@ def full_scale_skip_connection(
         If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
     activation: str
         Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        See unet_utils.choose_activation_layer for all available activation functions.
     kernel_initializer: str or tf.keras.initializers object
         Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
@@ -449,7 +449,7 @@ def conventional_skip_connection(
         If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
     activation: str
         Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        See unet_utils.choose_activation_layer for all available activation functions.
     kernel_initializer: str or tf.keras.initializers object
         Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
@@ -510,7 +510,7 @@ def max_pool(
         Output tensor.
     """
 
-    if type(pool_size) != tuple and type(pool_size) != list:
+    if pool_size is not tuple and pool_size is not list:
         raise TypeError(f"pool_size can only be a tuple or list. Received type: {type(pool_size)}")
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
@@ -575,7 +575,7 @@ def upsample(
         If True, a BatchNormalization layer will follow the Conv2D/Conv3D layer.
     activation: str
         Activation function to use after the Conv2D/Conv3D layer (BatchNormalization layer, if batch_normalization is True).
-        Can be any of tf.keras.activations, 'prelu', 'leaky_relu', or 'smelu' (case-insensitive).
+        See unet_utils.choose_activation_layer for all available activation functions.
     kernel_initializer: str or tf.keras.initializers object
         Initializer for the kernel weights matrix in the Conv2D/Conv3D layers.
     bias_initializer: str or tf.keras.initializers object
@@ -603,7 +603,7 @@ def upsample(
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
 
-    if type(upsample_size) != tuple and type(upsample_size) != list:
+    if upsample_size is not tuple and upsample_size is not list:
         raise TypeError(f"upsample_size can only be a tuple or list. Received type: {type(upsample_size)}")
 
     # Arguments for the convolution module.
@@ -656,7 +656,7 @@ def choose_activation_layer(activation: str):
 
     available_activations = ['elliott', 'elu', 'exponential', 'gaussian', 'gcu', 'gelu', 'hard_sigmoid', 'hexpo', 'isigmoid', 'leaky_relu', 'linear',
         'lisht', 'prelu', 'psigmoid', 'ptanh', 'ptelu', 'relu', 'resech', 'selu', 'sigmoid', 'smelu', 'snake', 'softmax', 'softplus', 'softsign',
-        'srs', 'stanh', 'swish', 'tanh']
+        'srs', 'stanh', 'swish', 'tanh', 'thresholded_relu']
 
     # Choose the activation layer
     if activation == 'elliott':
@@ -691,6 +691,8 @@ def choose_activation_layer(activation: str):
         activation_layer = custom_activations.SRS
     elif activation == 'stanh':
         activation_layer = custom_activations.STanh
+    elif activation == 'thresholded_relu':
+        activation_layer = getattr(layers, 'ThresholdedReLU')
     elif activation in available_activations:
         activation_layer = getattr(layers, 'Activation')
     else:
@@ -814,7 +816,7 @@ def deep_supervision_side_output(
 
         conv_kwargs['kernel_size'] = [1 for _ in range(tensor_dims - 2)]
 
-        if type(squeeze_axes) == int:
+        if squeeze_axes is int:
             squeeze_axes = [squeeze_axes, ]  # Turn integer into a list of length 1 to make indexing easier
 
         squeeze_axes_sizes = [tensor.shape[ax_to_squeeze] for ax_to_squeeze in squeeze_axes]

@@ -2,7 +2,7 @@
 Plot the learning curve for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.6.12
+Script version: 2023.12.19
 """
 import argparse
 import matplotlib.pyplot as plt
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     elif 'bss' in loss.lower():
         loss_title = 'Brier Skill Score (loss)'
     elif 'csi' in loss.lower():
-        loss_title = 'Categorical Cross-Entropy'
+        loss_title = 'Critical Success Index (loss)'
     else:
         loss_title = None
 

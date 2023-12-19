@@ -4,7 +4,7 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.7.24.D1
+Script version: 2023.12.19
 """
 import argparse
 import sys
@@ -122,6 +122,10 @@ if __name__ == '__main__':
             time_array = np.arange(np.datetime64(f"{input_file[-9:-5]}-{input_file[-5:-3]}"),
                                    np.datetime64(f"{input_file[-9:-5]}-{input_file[-5:-3]}") + np.timedelta64(1, "M"),
                                    np.timedelta64(hour_interval, "h"))
+
+            ## A network outage prevented fronts from being generated for 2018-03-26-09z, so we need to remove the timestep from the array as it's not included in the tensorflow dataset
+            if year == 2018 and month == 3 and hour_interval == 3:
+                time_array = np.delete(time_array, 203)
 
             assert len(tf_ds) == len(time_array)  # make sure tensorflow dataset has all timesteps
 
