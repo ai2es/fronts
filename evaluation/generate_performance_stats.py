@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.23
+Script version: 2024.1.5
 """
 import argparse
 import glob
@@ -16,11 +16,13 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
 from utils import data_utils
-from utils.settings import DEFAULT_DOMAIN_EXTENTS
+from utils.settings import DOMAIN_EXTENTS
 
 
 def combine_statistics_for_dataset():
-
+    """
+    Combine monthly statistics into one aggregate statistics file for a large dataset.
+    """
     statistics_files = []
 
     for year in years:
@@ -194,8 +196,8 @@ if __name__ == '__main__':
             lats = probs_ds['latitude'].values
 
             fronts_ds = xr.open_mfdataset(front_files_month, combine='nested', concat_dim='time')\
-                .sel(longitude=slice(DEFAULT_DOMAIN_EXTENTS[args['domain']][0], DEFAULT_DOMAIN_EXTENTS[args['domain']][1]),
-                     latitude=slice(DEFAULT_DOMAIN_EXTENTS[args['domain']][3], DEFAULT_DOMAIN_EXTENTS[args['domain']][2]))
+                .sel(longitude=slice(DOMAIN_EXTENTS[args['domain']][0], DOMAIN_EXTENTS[args['domain']][1]),
+                     latitude=slice(DOMAIN_EXTENTS[args['domain']][3], DOMAIN_EXTENTS[args['domain']][2]))
 
             fronts_ds_month = data_utils.reformat_fronts(fronts_ds.sel(time='%d-%02d' % (year, month)), front_types)
 

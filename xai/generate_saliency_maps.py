@@ -2,7 +2,7 @@
 Generate saliency maps for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.16
+Script version: 2024.1.5
 """
 
 import argparse
@@ -98,7 +98,7 @@ if __name__ == '__main__':
                     batch_gradient = np.stack([np.max(tape.gradient(predictions[..., class_idx+1:class_idx+2], batch).numpy(), axis=-1) for class_idx in range(num_classes-1)], axis=-1).astype('float32')
                     gradients = batch_gradient if gradients is None else np.concatenate([gradients, batch_gradient], axis=0)
 
-            domain_ext = settings.DEFAULT_DOMAIN_EXTENTS[domain]
+            domain_ext = settings.DOMAIN_EXTENTS[domain]
 
             domain_size = (int((domain_ext[1] - domain_ext[0]) // 0.25) + 1,
                            int((domain_ext[3] - domain_ext[2]) // 0.25) + 1)

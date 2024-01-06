@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.16
+Script version: 2024.1.5
 """
 import argparse
 import cartopy.crs as ccrs
@@ -35,6 +35,7 @@ if __name__ == '__main__':
         help="Neighborhood for the CSI map in kilometers. Options are: 50, 100, 150, 200, 250")
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
+    parser.add_argument('--output_type', type=str, default='png', help="Output type for the image file.")
 
     args = vars(parser.parse_args())
 
@@ -137,10 +138,8 @@ if __name__ == '__main__':
             max_CSI_sr = sr[boundary][max_CSI_index][0]  # SR where CSI is maximized
             max_CSI_fb = max_CSI_pod / max_CSI_sr  # Frequency bias
 
-            cell_text.append([r'$\bf{%.2f}$' % max_CSI_threshold,
-                              r'$\bf{%.3f}$' % max_CSI_scores_by_boundary[boundary] + r'$^{%.3f}_{%.3f}$' % (CI_CSI[1, boundary, max_CSI_index][0], CI_CSI[0, boundary, max_CSI_index][0]),
+            cell_text.append([r'$\bf{%.3f}$' % max_CSI_scores_by_boundary[boundary] + r'$^{%.3f}_{%.3f}$' % (CI_CSI[1, boundary, max_CSI_index][0], CI_CSI[0, boundary, max_CSI_index][0]),
                               r'$\bf{%.1f}$' % (max_CSI_pod * 100) + r'$^{%.1f}_{%.1f}$' % (CI_POD[1, boundary, max_CSI_index][0] * 100, CI_POD[0, boundary, max_CSI_index][0] * 100),
-                              r'$\bf{%.1f}$' % (max_CSI_sr * 100) + r'$^{%.1f}_{%.1f}$' % (CI_SR[1, boundary, max_CSI_index][0] * 100, CI_SR[0, boundary, max_CSI_index][0] * 100),
                               r'$\bf{%.1f}$' % ((1 - max_CSI_sr) * 100) + r'$^{%.1f}_{%.1f}$' % ((1 - CI_SR[1, boundary, max_CSI_index][0]) * 100, (1 - CI_SR[0, boundary, max_CSI_index][0]) * 100),
                               r'$\bf{%.3f}$' % max_CSI_fb + r'$^{%.3f}_{%.3f}$' % (CI_FB[1, boundary, max_CSI_index][0], CI_FB[0, boundary, max_CSI_index][0])])
 
@@ -175,39 +174,45 @@ if __name__ == '__main__':
             ax.set_ylim(0, 1)
         ################################################################################################################
 
+        cbar_kwargs = {'label': 'CSI', 'pad': 0}  # Spatial CSI colorbar keyword arguments
+
+        ### Adjust the data table and spatial CSI plot based on the domain ###
+        if args['domain'] == 'conus':
+            table_axis_extent = [0.063, -0.038, 0.4, 0.239]
+            table_scale = (1, 3.3)
+            table_title_kwargs = dict(x=0.5, y=0.098, pad=-4)
+            spatial_axis_extent = [0.51, -0.582, 0.512, 0.544]
+            cbar_kwargs['shrink'] = 1
+            spatial_plot_xlabels = [-140, -105, -70]
+            spatial_plot_ylabels = [30, 40, 50]
+        elif args["domain"] == "full":
+            table_axis_extent = [0.063, -0.038, 0.4, 0.239]
+            table_scale = (1, 2.8)
+            table_title_kwargs = dict(x=0.5, y=0.096, pad=-4)
+            spatial_axis_extent = [0.538, -0.5915, 0.48, 0.66]
+            cbar_kwargs['shrink'] = 0.675
+            spatial_plot_xlabels = [-150, -120, -90, -60, -30, 0, 120, 150, 180]
+            spatial_plot_ylabels = [0, 20, 40, 60, 80]
+        else:
+            raise ValueError("%s domain is currently not supported for performance diagrams." % args["domain"])
+
         ############################################# Data table (panel c) #############################################
-        columns = ['Threshold*', 'CSI', 'POD %', 'SR %', 'FAR %', 'FB']  # Column names
+        columns = ['CSI', 'POD %', 'FAR %', 'FB']  # Column names
         rows = ['50 km', '100 km', '150 km', '200 km', '250 km']  # Row names
 
-        table_axis = plt.axes([0.063, -0.06, 0.4, 0.2])
-        table_axis.set_title(r'$\bf{c)}$ $\bf{Data}$ $\bf{table}$ [confidence level = %d%%]' % args['confidence_level'], x=0.5, y=0.135, pad=-4)
+        table_axis = plt.axes(table_axis_extent)
+        table_axis.set_title(r'$\bf{c)}$ $\bf{Data}$ $\bf{table}$ [confidence level = %d%%]' % args['confidence_level'], **table_title_kwargs)
         table_axis.axis('off')
-        table_axis.text(0.16, -2.7, '* probability threshold where CSI is maximized')  # Add disclaimer for probability threshold column
         stats_table = table_axis.table(cellText=cell_text, rowLabels=rows, rowColours=boundary_colors, colLabels=columns, cellLoc='center')
-        stats_table.scale(1, 3)  # Make the table larger
+        stats_table.scale(*table_scale)  # Make the table larger
 
         ### Shade the cells and make the cell text larger ###
         for cell in stats_table._cells:
             stats_table._cells[cell].set_alpha(.7)
-            stats_table._cells[cell].set_text_props(fontproperties=FontProperties(size='xx-large', stretch='expanded'))
+            stats_table._cells[cell].set_text_props(fontproperties=FontProperties(size='x-large', stretch='expanded'))
         ################################################################################################################
 
         ########################################## Spatial CSI map (panel d) ###########################################
-        # Colorbar keyword arguments
-        cbar_kwargs = {'label': 'CSI', 'pad': 0}
-
-        # Adjust the spatial CSI plot based on the domain
-        if args['domain'] == 'conus':
-            spatial_axis_extent = [0.52, -0.582, 0.512, 0.544]
-            cbar_kwargs['shrink'] = 0.919
-            spatial_plot_xlabels = [-140, -105, -70]
-            spatial_plot_ylabels = [30, 40, 50]
-        else:
-            spatial_axis_extent = [0.538, -0.6, 0.48, 0.577]
-            cbar_kwargs['shrink'] = 0.862
-            spatial_plot_xlabels = [-150, -120, -90, -60, -30, 0, 120, 150, 180]
-            spatial_plot_ylabels = [0, 20, 40, 60, 80]
-
         right_labels = False  # Disable latitude labels on the right side of the subplot
         top_labels = False  # Disable longitude labels on top of the subplot
         left_labels = True  # Latitude labels on the left side of the subplot
@@ -215,7 +220,7 @@ if __name__ == '__main__':
 
         ## Set up the spatial CSI plot ###
         csi_cmap = plotting_utils.truncated_colormap('gnuplot2', maxval=0.9, n=10)
-        extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
+        extent = settings.DOMAIN_EXTENTS[args['domain']]
         spatial_axis = plt.axes(spatial_axis_extent, projection=ccrs.Miller(central_longitude=250))
         spatial_axis_title_text = r'$\bf{d)}$ $\bf{%d}$ $\bf{km}$ $\bf{CSI}$ $\bf{map}$' % args['map_neighborhood']
         plotting_utils.plot_background(extent=extent, ax=spatial_axis)
@@ -239,11 +244,12 @@ if __name__ == '__main__':
             domain_text = args['domain'].upper()
         else:
             domain_text = args['domain']
-        plt.suptitle(f'Model %d: %ss over %s domain' % (args['model_number'], settings.DEFAULT_FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
+        plt.suptitle(f'Model %d: %ss over %s domain' % (args['model_number'], settings.FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
+        # plt.suptitle(f'Five-class model: %ss over %s domain' % (settings.FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
 
-        filename = f"%s/model_%d/performance_%s_%s_%s_{args['data_source']}.png" % (args['model_dir'], args['model_number'], front_label, args['dataset'], args['domain'])
+        filename = f"%s/model_%d/performance_%s_%s_%s_{args['data_source']}.{args['output_type']}" % (args['model_dir'], args['model_number'], front_label, args['dataset'], args['domain'])
         if args['data_source'] != 'era5':
-            filename = filename.replace('.png', '_f%03d.png' % args['forecast_hour'])  # Add forecast hour to the end of the filename
+            filename = filename.replace(f'.{args["output_type"]}', f'_f%03d.{args["output_type"]}' % args['forecast_hour'])  # Add forecast hour to the end of the filename
 
         plt.tight_layout()
         plt.savefig(filename, bbox_inches='tight', dpi=500)

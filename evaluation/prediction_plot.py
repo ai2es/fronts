@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2024.1.5
 
 TODO: Fix colorbar position issues
 """
@@ -56,7 +56,7 @@ if __name__ == '__main__':
 
     args['data_source'] = args['data_source'].lower()
 
-    extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
+    extent = settings.DOMAIN_EXTENTS[args['domain']]
 
     year, month, day, hour = args['init_time'][0], args['init_time'][1], args['init_time'][2], args['init_time'][3]
 
@@ -112,9 +112,9 @@ if __name__ == '__main__':
     levels = np.around(np.arange(0, 1 + prob_int, prob_int), 2)
     cbar_ticks = np.around(np.arange(mask, 1 + prob_int, prob_int), 2)
 
-    contour_maps_by_type = [settings.DEFAULT_CONTOUR_CMAPS[label] for label in labels]
-    front_colors_by_type = [settings.DEFAULT_FRONT_COLORS[label] for label in labels]
-    front_names_by_type = [settings.DEFAULT_FRONT_NAMES[label] for label in labels]
+    contour_maps_by_type = [settings.CONTOUR_CMAPS[label] for label in labels]
+    front_colors_by_type = [settings.FRONT_COLORS[label] for label in labels]
+    front_names_by_type = [settings.FRONT_NAMES[label] for label in labels]
 
     cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)

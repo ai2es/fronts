@@ -2,7 +2,7 @@
 Plot the learning curve for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.19
+Script version: 2024.1.5
 """
 import argparse
 import matplotlib.pyplot as plt
@@ -80,7 +80,9 @@ if __name__ == '__main__':
     axarr[0].set_xlabel('Epochs')
     axarr[0].legend(loc='best')
     axarr[0].grid()
-    axarr[0].set_yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
+
+    if 'fss' in loss.lower():
+        axarr[0].set_yscale('log')  # Turns y-axis into a logarithmic scale. Useful if loss functions appear as very sharp curves.
 
     axarr[1].set_title(metric_title)
     axarr[1].plot(np.arange(1, num_epochs + 1), train_metric, color='blue', label='Training')

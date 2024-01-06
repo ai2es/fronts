@@ -2,7 +2,7 @@
 Generate plots for permutation data from a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2023.12.26
 
 TODO:
     * add option for including multi-pass permutation results
@@ -16,13 +16,15 @@ import matplotlib as mpl
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from utils import settings
+from utils.settings import FRONT_COLORS, FRONT_NAMES, VARIABLE_NAMES, VERTICAL_LEVELS
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
     parser.add_argument('--domain', type=str, required=True, help='Domain for the permutations')
+    parser.add_argument('--show_names', action='store_true', help='Show variable and level names instead of prefixes.')
+    parser.add_argument('--output_type', type=str, default='png', help="Output type for the image file.")
 
     args = vars(parser.parse_args())
 
@@ -54,25 +56,32 @@ if __name__ == '__main__':
         ax3 = plt.subplot(2, 1, 2)  # table axis
 
         # Horizontal bars for the single-pass data
-        sp_barh_vars = ax1.barh(y_pos_vars, sp_sorted_data[0], color=settings.DEFAULT_FRONT_COLORS[front_type])
-        sp_barh_lvls = ax2.barh(y_pos_lvls, sp_sorted_data[1], color=settings.DEFAULT_FRONT_COLORS[front_type])
+        sp_barh_vars = ax1.barh(y_pos_vars, sp_sorted_data[0], color=FRONT_COLORS[front_type])
+        sp_barh_lvls = ax2.barh(y_pos_lvls, sp_sorted_data[1], color=FRONT_COLORS[front_type])
 
         # setting subplot titles, ticks, and ticklabels
-        ax1.set_title('a) Grouped variables')
+        ax1.set_title(f'a) Grouped variables')
         ax1.set_yticks(y_pos_vars)
-        ax1.set_yticklabels(sp_sorted_vars_and_lvls[0])
-        ax2.set_title('b) Grouped levels')
+        ax2.set_title(f'b) Grouped levels')
         ax2.set_yticks(y_pos_lvls)
-        ax2.set_yticklabels(sp_sorted_vars_and_lvls[1])
+
+        if args["show_names"]:
+            ax1.set_yticklabels([VARIABLE_NAMES[var] for var in sp_sorted_vars_and_lvls[0]])
+            ax2.set_yticklabels([VERTICAL_LEVELS[lvl] for lvl in sp_sorted_vars_and_lvls[1]])
+        else:
+            ax1.set_yticklabels(sp_sorted_vars_and_lvls[0])
+            ax2.set_yticklabels(sp_sorted_vars_and_lvls[1])
+
+        x_margin_adjust = 0.14  # factor for increasing the scale of the x-axis so text will not extend past the right side of the subplots
 
         # Add labels to the horizontal bars on the subplots
         for pos, data in enumerate(sp_sorted_data[0]):
-            ax1.annotate(data, xy=(np.max([data, 0]), pos), va='center')
+            ax1.annotate(data, xy=(np.max([data, 0]) + (np.max(sp_sorted_data[0]) * x_margin_adjust / 10), pos), va='center')
         for pos, data in enumerate(sp_sorted_data[1]):
-            ax2.annotate(data, xy=(np.max([data, 0]), pos), va='center')
+            ax2.annotate(data, xy=(np.max([data, 0]) + (np.max(sp_sorted_data[1]) * x_margin_adjust / 10), pos), va='center')
 
         for ax in [ax1, ax2]:
-            ax.margins(x=0.12)  # increase the scale of the x-axis so text will not extend past the right side of the subplots
+            ax.margins(x=x_margin_adjust)  # increase the scale of the x-axis so text will not extend past the right side of the subplots
             ax.set_xlabel("Relative importance")
             ax.grid(alpha=0.3, axis='x')
 
@@ -94,10 +103,15 @@ if __name__ == '__main__':
 
         rowColours = ['gray' for _ in range(len(variables))]  # shade first column containing variable names
         colColours = ['gray' for _ in range(len(pressure_levels))]  # shade header cells containing pressure level names
-        ax3.set_title('c) Variables on single levels')
+        ax3.set_title(f'c) Variables on single levels')
         ax3.axis('off')
-        stats_table = ax3.table(cellText=cellText, rowLabels=variables, colLabels=pressure_levels, rowColours=rowColours,
-                                colColours=colColours, cellColours=cellColours, cellLoc='center', bbox=[0, 0, 1, 1])
+
+        rowLabels = [VARIABLE_NAMES[var] for var in variables] if args["show_names"] else variables
+        colLabels = [VERTICAL_LEVELS[lvl] for lvl in pressure_levels] if args["show_names"] else pressure_levels
+
+        stats_table = ax3.table(cellText=cellText, rowLabels=rowLabels, colLabels=colLabels, rowColours=rowColours,
+                                colColours=colColours, cellColours=cellColours, cellLoc='center', bbox=[0, 0, 1, 1],
+                                rowLoc="right")
 
         # bold cells for header and first column, containing variable and level names
         bold_cells = [(var, -1) for var in np.arange(num_vars) + 1]
@@ -107,7 +121,9 @@ if __name__ == '__main__':
         for cell in stats_table._cells:
             stats_table._cells[cell].set_alpha(.7)
 
-        plt.suptitle("Permutations: %s" % settings.DEFAULT_FRONT_NAMES[front_type])
+        domain_text = {'conus': 'CONUS', 'full': 'Unified Surface Analysis Domain'}
+
+        plt.suptitle("%s permutations: %s" % (FRONT_NAMES[front_type], domain_text[args['domain']]), fontsize=18, y=1.02)
         plt.tight_layout()
-        plt.savefig('%s/permutations_%d_%s_%s.png' % (model_folder, args['model_number'], front_type, args['domain']), bbox_inches='tight', dpi=400)
+        plt.savefig('%s/permutations_%d_%s_%s.%s' % (model_folder, args['model_number'], front_type, args['domain'], args["output_type"]), bbox_inches='tight', dpi=400, edgecolor="black")
         plt.close()

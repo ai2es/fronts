@@ -2,14 +2,14 @@
 Calibrate a trained model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.6.24.D1
+Script version: 2024.1.5
 """
 import argparse
 import pandas as pd
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
-from utils.settings import DEFAULT_FRONT_NAMES
+from utils.settings import FRONT_NAMES
 import matplotlib.pyplot as plt
 import pickle
 import xarray as xr
@@ -23,12 +23,11 @@ if __name__ == '__main__':
     All arguments listed in the examples are listed via argparse in alphabetical order below this comment block.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, help="Dataset for which to make predictions if prediction_method is 'random' or 'all'. Options are:"
-                                                    "'training', 'validation', 'test'")
-    parser.add_argument('--domain', type=str, help='Domain of the data.')
-    parser.add_argument('--model_dir', type=str, help='Directory for the models.')
-    parser.add_argument('--model_number', type=int, help='Model number.')
-    parser.add_argument('--data_source', type=str, default='era5', help='Data source for variables')
+    parser.add_argument('--dataset', type=str, help="Dataset for which calibration will be performed. Options are 'training', 'validation', 'test'.")
+    parser.add_argument('--domain', type=str, help="Domain for which calibration will be performed.")
+    parser.add_argument('--model_dir', type=str, help="Parent directory for the model(s).")
+    parser.add_argument('--model_number', type=int, help="Model number.")
+    parser.add_argument('--data_source', type=str, default='era5', help="Data source for the variables.")
 
     args = vars(parser.parse_args())
 
@@ -114,7 +113,7 @@ if __name__ == '__main__':
         with open('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']), 'wb') as f:
             pickle.dump(model_properties, f)
 
-        plt.suptitle(f"Model {args['model_number']} reliability/calibration: {DEFAULT_FRONT_NAMES[front_label]}")
+        plt.suptitle(f"Model {args['model_number']} reliability/calibration: {FRONT_NAMES[front_label]}")
         plt.savefig(f'%s/model_%d/model_%d_calibration_%s_%s.png' % (args['model_dir'], args['model_number'], args['model_number'], args['domain'], front_label),
                     bbox_inches='tight', dpi=300)
         plt.close()

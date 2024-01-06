@@ -2,7 +2,7 @@
 Generate predictions with a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.16
+Script version: 2024.1.5
 """
 import argparse
 import pandas as pd
@@ -428,9 +428,9 @@ if __name__ == '__main__':
     test_years, valid_years = model_properties['test_years'], model_properties['validation_years']
 
     try:
-        domain_extent = settings.DEFAULT_DOMAIN_EXTENTS[args['data_source']]
+        domain_extent = settings.DOMAIN_EXTENTS[args['data_source']]
     except KeyError:
-        domain_extent = settings.DEFAULT_DOMAIN_EXTENTS[args['domain']]
+        domain_extent = settings.DOMAIN_EXTENTS[args['domain']]
 
     ### Properties of the final map made from stitched images ###
     domain_images_lon, domain_images_lat = args['domain_images'][0], args['domain_images'][1]

@@ -2,7 +2,7 @@
 Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2024.1.5
 
 TODO:
     * fix bug in file manager script that incorrectly matches files with different initialization times and/or forecast hours
@@ -85,6 +85,8 @@ if __name__ == '__main__':
     parser.add_argument('--verbose', action='store_true', help='Print out the progress of the dataset generation.')
     parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU(s).')
+    parser.add_argument('--seed', type=int, default=np.random.randint(0, 2**31 - 1),
+        help="Seed for the random number generators. The same seed will be used for all months within a particular dataset.")
 
     args = vars(parser.parse_args())
 
@@ -120,7 +122,7 @@ if __name__ == '__main__':
         """
         Save critical dataset information to a pickle file so it can be referenced later when generating data for other months.
         """
-
+        print("Setting seed: %d" % args["seed"])
         if args['evaluation_dataset']:
             """
             Override all keyword arguments so the dataset will be prepared for model evaluation.
@@ -131,8 +133,8 @@ if __name__ == '__main__':
             args['images'] = (1, 1)
 
             if args['override_extent'] is None:
-                args['image_size'] = (int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][1] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) / 0.25 + 1),
-                                      int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][2]) / 0.25 + 1))
+                args['image_size'] = (int((settings.DOMAIN_EXTENTS[args['domain']][1] - settings.DOMAIN_EXTENTS[args['domain']][0]) / 0.25 + 1),
+                                      int((settings.DOMAIN_EXTENTS[args['domain']][3] - settings.DOMAIN_EXTENTS[args['domain']][2]) / 0.25 + 1))
             else:
                 args['image_size'] = (int((args['override_extent'][1] - args['override_extent'][0]) / 0.25 + 1),
                                       int((args['override_extent'][3] - args['override_extent'][2]) / 0.25 + 1))
@@ -157,7 +159,7 @@ if __name__ == '__main__':
         dataset_props['normalization_parameters'] = data_utils.normalization_parameters
         for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
                     'noise_fraction', 'rotate_chance', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
-                    'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction', 'override_extent']):
+                    'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction', 'override_extent', 'seed']):
             dataset_props[key] = args[key]
 
         with open(dataset_props_file, 'wb') as f:
@@ -177,6 +179,14 @@ if __name__ == '__main__':
                            'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction']):
             args[key] = dataset_props[key]
             print(f"%s: {args[key]}" % key)
+
+        if "seed" in list(dataset_props.keys()):
+            args["seed"] = dataset_props["seed"]
+            print(f"%s: {args['seed']}" % "seed")
+
+    # set the seeds
+    tf.random.set_seed(args["seed"])
+    np.random.seed(args["seed"])
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
     all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1000', '950', '900', '850', '700', '500']
@@ -222,10 +232,10 @@ if __name__ == '__main__':
     files_match_flag = all(os.path.basename(variables_file).split('_')[1] == os.path.basename(fronts_file).split('_')[1] for variables_file, fronts_file in zip(variables_netcdf_files, fronts_netcdf_files))
 
     if args['override_extent'] is None:
-        sel_kwargs = {'longitude': slice(settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0], settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][1]),
-                      'latitude': slice(settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3], settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][2])}
-        domain_size = (int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][1] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][0]) // 0.25) + 1,
-                       int((settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][3] - settings.DEFAULT_DOMAIN_EXTENTS[args['domain']][2]) // 0.25) + 1)
+        sel_kwargs = {'longitude': slice(settings.DOMAIN_EXTENTS[args['domain']][0], settings.DOMAIN_EXTENTS[args['domain']][1]),
+                      'latitude': slice(settings.DOMAIN_EXTENTS[args['domain']][3], settings.DOMAIN_EXTENTS[args['domain']][2])}
+        domain_size = (int((settings.DOMAIN_EXTENTS[args['domain']][1] - settings.DOMAIN_EXTENTS[args['domain']][0]) // 0.25) + 1,
+                       int((settings.DOMAIN_EXTENTS[args['domain']][3] - settings.DOMAIN_EXTENTS[args['domain']][2]) // 0.25) + 1)
     else:
         sel_kwargs = {'longitude': slice(args['override_extent'][0], args['override_extent'][1]),
                       'latitude': slice(args['override_extent'][3], args['override_extent'][2])}

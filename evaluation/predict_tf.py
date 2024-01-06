@@ -4,7 +4,7 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.19
+Script version: 2024.1.5
 """
 import argparse
 import sys
@@ -100,8 +100,8 @@ if __name__ == '__main__':
 
     tf_ds_obj = fm.DataFileLoader(args['tf_indir'], data_file_type='%s-tensorflow' % args['data_source'])
 
-    lons = np.arange(DEFAULT_DOMAIN_EXTENTS[domain][0], DEFAULT_DOMAIN_EXTENTS[domain][1] + 0.25, 0.25)
-    lats = np.arange(DEFAULT_DOMAIN_EXTENTS[domain][2], DEFAULT_DOMAIN_EXTENTS[domain][3] + 0.25, 0.25)[::-1]
+    lons = np.arange(DOMAIN_EXTENTS[domain][0], DOMAIN_EXTENTS[domain][1] + 0.25, 0.25)
+    lats = np.arange(DOMAIN_EXTENTS[domain][2], DOMAIN_EXTENTS[domain][3] + 0.25, 0.25)[::-1]
 
     model = fm.load_model(args['model_number'], args['model_dir'])
 
