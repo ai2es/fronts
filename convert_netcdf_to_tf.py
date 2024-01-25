@@ -51,7 +51,6 @@ if __name__ == '__main__':
                 * shuffle_timesteps = False
                 * shuffle_images = False
                 * noise_fraction = 0.0
-                * rotate_chance = 0.0
                 * flip_chance_lon = 0.0
                 * flip_chance_lat = 0.0
             ''')
@@ -75,8 +74,6 @@ if __name__ == '__main__':
         help='The fraction of timesteps WITHOUT all necessary front types that will be retained in the dataset. Can be any float 0 <= x <= 1.')
     parser.add_argument('--noise_fraction', type=float, default=0.0,
         help='The fraction of pixels in each image that will contain noise. Can be any float 0 <= x < 1.')
-    parser.add_argument('--rotate_chance', type=float, default=0.0,
-        help='The probability that the current image will be rotated (in any direction, up to 270 degrees). Can be any float 0 <= x <= 1.')
     parser.add_argument('--flip_chance_lon', type=float, default=0.0,
         help='The probability that the current image will have its longitude dimension reversed. Can be any float 0 <= x <= 1.')
     parser.add_argument('--flip_chance_lat', type=float, default=0.0,
@@ -142,7 +139,6 @@ if __name__ == '__main__':
             args['shuffle_timesteps'] = False
             args['shuffle_images'] = False
             args['noise_fraction'] = 0.0
-            args['rotate_chance'] = 0.0
             args['flip_chance_lon'] = 0.0
             args['flip_chance_lat'] = 0.0
 
@@ -151,14 +147,13 @@ if __name__ == '__main__':
                   f"shuffle_timesteps = False\n"
                   f"shuffle_images = False\n"
                   f"noise_fraction = 0.0\n"
-                  f"rotate_chance = 0.0\n"
                   f"flip_chance_lon = 0.0\n"
                   f"flip_chance_lat = 0.0\n")
 
         dataset_props = dict({})
         dataset_props['normalization_parameters'] = data_utils.normalization_parameters
         for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
-                    'noise_fraction', 'rotate_chance', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
+                    'noise_fraction', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
                     'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction', 'override_extent', 'seed']):
             dataset_props[key] = args[key]
 
@@ -175,7 +170,7 @@ if __name__ == '__main__':
         dataset_props = pd.read_pickle(dataset_props_file)
 
         for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
-                           'noise_fraction', 'rotate_chance', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
+                           'noise_fraction', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
                            'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction']):
             args[key] = dataset_props[key]
             print(f"%s: {args[key]}" % key)
@@ -278,7 +273,7 @@ if __name__ == '__main__':
         if all_fronts_present or keep_timestep or args['evaluation_dataset']:
 
             variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].sel(pressure_level=args['pressure_levels'], **sel_kwargs).isel(**isel_kwargs).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
-            variables_dataset = data_utils.normalize_variables(variables_dataset).isel(time=0).transpose('longitude', 'latitude', 'pressure_level').astype('float16')
+            variables_dataset = variables_dataset.isel(time=0).transpose('longitude', 'latitude', 'pressure_level').astype('float16')
 
             ### Reformat the fronts from the previous timestep ###
             if args['add_previous_fronts'] is not None:
@@ -298,8 +293,6 @@ if __name__ == '__main__':
                     previous_fronts[..., 0] = np.where(previous_front_dataset['identifier'].values == front_type_no + 1, 1, 0)  # Place previous front labels at the surface level
                     variables_dataset[previous_front_type] = (('longitude', 'latitude', 'pressure_level'), previous_fronts)  # Add previous fronts to the predictor dataset
 
-            variables_dataset = variables_dataset.to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable')
-
             if args['images'][0] > 1 and domain_size[0] > args['image_size'][0] + args['images'][0]:
                 start_indices_lon = np.linspace(0, domain_size[0] - args['image_size'][0], args['images'][0]).astype(int)
             else:
@@ -317,28 +310,30 @@ if __name__ == '__main__':
 
             for image_start_indices in image_order:
 
+                new_variables_dataset = variables_dataset.copy()
+
                 start_index_lon = image_start_indices[0]
                 end_index_lon = start_index_lon + args['image_size'][0]
                 start_index_lat = image_start_indices[1]
                 end_index_lat = start_index_lat + args['image_size'][1]
 
                 # boolean flags for rotating and flipping images
-                rotate_image = np.random.random() <= args['rotate_chance']
                 flip_lon = np.random.random() <= args['flip_chance_lon']
                 flip_lat = np.random.random() <= args['flip_chance_lat']
 
-                if rotate_image:
-                    rotation_direction = np.random.randint(0, 2)  # 0 = clockwise, 1 = counter-clockwise
-                    num_rotations = np.random.randint(1, 4)  # n * 90 degrees
+                ### before flipping images, we will apply the necessary changes to the wind components to account for reflections ###
+                if flip_lon and "u" in args["variables"]:
+                    new_variables_dataset["u"] = -new_variables_dataset["u"]  # need to reverse u-wind component if flipping the longitude axis
+                if flip_lat and "v" in args["variables"]:
+                    new_variables_dataset["v"] = -new_variables_dataset["v"]  # need to reverse v-wind component if flipping the latitude axis
 
-                variables_tensor = tf.convert_to_tensor(variables_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :, :], dtype=tf.float16)
+                new_variables_dataset = data_utils.normalize_variables(new_variables_dataset).to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable')
+                variables_tensor = tf.convert_to_tensor(new_variables_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :, :], dtype=tf.float16)
+
                 if flip_lon:
                     variables_tensor = tf.reverse(variables_tensor, axis=[0])  # Reverse values along the longitude dimension
                 if flip_lat:
                     variables_tensor = tf.reverse(variables_tensor, axis=[1])  # Reverse values along the latitude dimension
-                if rotate_image:
-                    for rotation in range(num_rotations):
-                        variables_tensor = tf.reverse(tf.transpose(variables_tensor, perm=[1, 0, 2, 3]), axis=[rotation_direction])  # Rotate image 90 degrees
 
                 if args['noise_fraction'] > 0:
                     ### Add noise to image ###
@@ -347,8 +342,8 @@ if __name__ == '__main__':
                     variables_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, variables_tensor)  # add 1s to image
 
                 if args['num_dims'][0] == 2:
+                    ### Combine pressure level and variables dimensions, making the images 2D (excluding the final dimension) ###
                     variables_tensor_shape_3d = variables_tensor.shape
-                    # Combine pressure level and variables dimensions, making the images 2D (excluding the final dimension)
                     variables_tensor = tf.reshape(variables_tensor, [variables_tensor_shape_3d[0], variables_tensor_shape_3d[1], variables_tensor_shape_3d[2] * variables_tensor_shape_3d[3]])
 
                 variables_tensor_for_timestep = tf.data.Dataset.from_tensors(variables_tensor)
@@ -363,9 +358,6 @@ if __name__ == '__main__':
                     front_tensor = tf.reverse(front_tensor, axis=[0])  # Reverse values along the longitude dimension
                 if flip_lat:
                     front_tensor = tf.reverse(front_tensor, axis=[1])  # Reverse values along the latitude dimension
-                if rotate_image:
-                    for rotation in range(num_rotations):
-                        front_tensor = tf.reverse(tf.transpose(front_tensor, perm=[1, 0, 2]), axis=[rotation_direction])  # Rotate image 90 degrees
 
                 if args['num_dims'][1] == 3:
                     # Make the front object images 3D, with the size of the 3rd dimension equal to the number of pressure levels

@@ -2,9 +2,8 @@
 Function that trains a new U-Net model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2023.12.26
 """
-
 import argparse
 import pandas as pd
 from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
@@ -18,24 +17,38 @@ import custom_metrics
 import models
 import datetime
 from utils import settings, misc, data_utils
+import wandb
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
+    ### WandB ###
+    parser.add_argument('--project', type=str, help="WandB project that will be used to store model training data.")
+    parser.add_argument('--log_freq', type=int, default=1, help="WandB loss/metric logging frequency in epochs.")
+    parser.add_argument('--upload_model', action='store_true', help="Upload model checkpoints to WandB.")
+    parser.add_argument('--name', type=str,
+        help="WandB name for the current model run. If no name is specified, it will default to the model number (e.g. model_129482).")
+
+    ### General arguments ###
     parser.add_argument('--model_dir', type=str, required=True, help='Directory where the models are or will be saved to.')
-    parser.add_argument('--model_number', type=int, help='Number that the model will be assigned.')
-    parser.add_argument('--era5_tf_indirs', type=str, required=True, nargs='+',
+    parser.add_argument('--model_number', type=int, 
+        help='Number that the model will be assigned. If no argument is passed, a number will be automatically assigned based '
+             'on the current date and time.')
+    parser.add_argument('--tf_indirs', type=str, required=True, nargs='+',
         help='Directories for the TensorFlow datasets. One or two paths can be passed. If only one path is passed, then the '
              'training and validation datasets will be pulled from this path. If two paths are passed, the training dataset '
              'will be pulled from the first path and the validation dataset from the second.')
-    parser.add_argument('--epochs', type=int, required=True, help='Number of epochs for the U-Net training.')
+    parser.add_argument('--epochs', type=int, required=True, help='Maximum number of epochs for model training.')
     parser.add_argument('--patience', type=int,
         help='Patience for EarlyStopping callback. If this argument is not provided, it will be set according to the size '
              'of the training dataset (images in training set divided by the product of the batch size and steps).')
     parser.add_argument('--verbose', type=int, default=2,
         help='Model.fit verbose. Unless you want a text file that is several hundred megabytes in size and takes 10 years '
              'to scroll through, I suggest you leave this at 2.')
+    parser.add_argument('--seed', type=int, default=np.random.randint(0, 2**31 - 1),
+        help="Seed for the random number generators. If a model is being retrained with the --retrain flag, this argument "
+             "will be overriden by the previous seed used to train that model.")
 
     ### GPU and hardware arguments ###
     parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
@@ -57,24 +70,29 @@ if __name__ == "__main__":
              'such that the entire validation dataset is passed into the model during validation. If 2 arguments are passed, '
              'then the arguments are the number of steps in training and validation. If no arguments are passed, then the '
              'number of steps in both training and validation will be calculated by tensorflow.')
-    parser.add_argument('--valid_freq', type=int, default=1, help='How many epochs to complete before each validation.')
+    parser.add_argument('--valid_freq', type=int, default=1, help='How many epochs to complete before validation.')
 
     ### U-Net arguments ###
     parser.add_argument('--model_type', type=str,
-        help='Model type. Options are: unet, unet_ensemble, unet_plus, unet_2plus, unet_3plus.')
+        help='Model type. Options are: unet, unet_ensemble, unet_plus, unet_2plus, unet_3plus, attention_unet.')
     parser.add_argument('--activation', type=str,
-        help='Activation function to use in the U-Net. Refer to utils.unet_utils.choose_activation_layer to see all available '
+        help='Activation function to use in the model. Refer to utils.unet_utils.choose_activation_layer to see all available '
              'activation functions.')
     parser.add_argument('--batch_normalization', action='store_true',
         help='Use batch normalization in the model. This will place batch normalization layers after each convolution layer.')
-    parser.add_argument('--deep_supervision', action='store_true', help='Use deep supervision in the U-Net.')
-    parser.add_argument('--filter_num', type=int, nargs='+', help='Number of filters in each level of the U-Net.')
+    parser.add_argument('--deep_supervision', action='store_true',
+        help="Use deep supervision in the model. Deep supervision creates side outputs from the bottom encoder node and each decoder node.")
+    parser.add_argument('--filter_num', type=int, nargs='+',
+        help='Number of filters in each level of the U-Net. The number of arguments passed to --filter_num must be equal to the '
+             'value passed to --levels.')
     parser.add_argument('--filter_num_aggregate', type=int,
-        help='Number of filters in aggregated feature maps. This argument is only used in the U-Net 3+ model.')
+        help='Number of filters in aggregated feature maps. This argument is only used in the U-Net 3+.')
     parser.add_argument('--filter_num_skip', type=int, help='Number of filters in full-scale skip connections in the U-Net 3+.')
     parser.add_argument('--first_encoder_connections', action='store_true', help='Enable first encoder connections in the U-Net 3+.')
-    parser.add_argument('--kernel_size', type=int, nargs='+', help='Size of the convolution kernels.')
-    parser.add_argument('--levels', type=int, help='Number of levels in the U-Net.')
+    parser.add_argument('--kernel_size', type=int, nargs='+',
+        help="Size of the convolution kernels. One integer can be passed to make the kernel dimensions have equal length (e.g. "
+             "passing 3 has the same effect as passing 3 3 3 for 3-dimensional kernels.)")
+    parser.add_argument('--levels', type=int, help="Number of levels in the model, also known as the 'depth' of the model.")
     parser.add_argument('--loss', type=str, nargs='+',
         help="Loss function for the U-Net (arg 1), with keyword arguments (arg 2). Keyword arguments must be passed as a "
              "string in the second argument. See 'utils.misc.string_arg_to_dict' for more details. Raises a ValueError if "
@@ -83,15 +101,24 @@ if __name__ == "__main__":
         help="Metric for evaluating the U-Net during training (arg 1), with keyword arguments (arg 2). Keyword arguments "
              "must be passed as a string in the second argument. See 'utils.misc.string_arg_to_dict' for more details. Raises "
              "a ValueError if more than 2 arguments are passed.")
-    parser.add_argument('--modules_per_node', type=int, default=5, help='Number of convolution modules in each node')
+    parser.add_argument('--modules_per_node', type=int, default=5,
+        help="Number of convolution modules in each node. A convolution module consists of a convolution layer followed by "
+             "an optional batch normalization layer and an activation layer. (e.g. Conv3D -> BatchNormalization -> PReLU; Conv3D -> PReLU)")
     parser.add_argument('--optimizer', type=str, nargs='+', default=['Adam', ],
         help="Optimizer to use during the training process (arg 1), with keyword arguments (arg 2). Keyword arguments "
              "must be passed as a string in the second argument. See 'utils.misc.string_arg_to_dict' for more details. Raises "
              "a ValueError if more than 2 arguments are passed.")
-    parser.add_argument('--padding', type=str, default='same', help='Padding to use in the model')
-    parser.add_argument('--pool_size', type=int, nargs='+', help='Pool size for the MaxPooling layers in the U-Net.')
-    parser.add_argument('--upsample_size', type=int, nargs='+', help='Upsample size for the UpSampling layers in the U-Net.')
-    parser.add_argument('--use_bias', action='store_true', help='Use bias parameters in the U-Net')
+    parser.add_argument('--padding', type=str, default='same',
+        help="Padding to use in the convolution layers. If 'same', then zero-padding will be added to the inputs such that the outputs "
+             "of the layers will be the same shape as the inputs. If 'valid', no padding will be applied to the layers' inputs.")
+    parser.add_argument('--pool_size', type=int, nargs='+',
+        help="Pool size for the max pooling layers. One integer can be passed to make the pooling dimensions have equal length "
+             "(e.g. passing 2 has the same effect as passing 2 2 2 for 3-dimensional max pooling.)")
+    parser.add_argument('--upsample_size', type=int, nargs='+',
+        help="Upsampling factors for the up-sampling layers. One integer can be passed to make the factors have equal size "
+             "(e.g. passing 2 has the same effect as passing 2 2 2 for 3-dimensional up-sampling.)")
+    parser.add_argument('--use_bias', action='store_true',
+        help="Use bias parameters in the convolution layers.")
 
     ### Constraints, initializers, and regularizers ###
     parser.add_argument('--activity_regularizer', type=str, nargs='+', default=[None, ],
@@ -135,10 +162,17 @@ if __name__ == "__main__":
 
     args = vars(parser.parse_args())
 
-    if len(args['era5_tf_indirs']) > 2:
-        raise ValueError("Only 1 or 2 paths can be passed into --era5_tf_indirs, received %d paths" % len(args['era5_tf_indirs']))
-    elif len(args['era5_tf_indirs']) == 1:
-        args['era5_tf_indirs'].append(args['era5_tf_indirs'][0])
+    # Set the random seed. After a model is trained, the same seed will be used in subsequent retraining sessions for the same model.
+    seed = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args["model_number"], args["model_number"]))["seed"] if args["retrain"] else args["seed"]
+    tf.keras.utils.set_random_seed(seed)
+
+    if len(args['tf_indirs']) > 2:
+        raise ValueError("Only 1 or 2 paths can be passed into --tf_indirs, received %d paths" % len(args['tf_indirs']))
+    elif len(args['tf_indirs']) == 1:
+        args['tf_indirs'].append(args['tf_indirs'][0])
+
+    train_dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args['tf_indirs'][0])
+    valid_dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args['tf_indirs'][1])
 
     if args['shuffle'] != 'lazy' and args['shuffle'] != 'full':
         raise ValueError("Unrecognized shuffling method: %s. Valid methods are 'lazy' or 'full'" % args['shuffle'])
@@ -200,22 +234,25 @@ if __name__ == "__main__":
         print('WARNING: No GPUs found, all computations will be performed on CPUs.')
         tf.config.set_visible_devices([], 'GPU')
 
-    train_dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args['era5_tf_indirs'][0])
-    valid_dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args['era5_tf_indirs'][1])
-
     """ 
     Verify that the training and validation datasets have the same front types, variables, pressure levels, number of 
         dimensions, and normalization parameters.
     """
-    try:
-        assert train_dataset_properties['front_types'] == valid_dataset_properties['front_types']
-        assert train_dataset_properties['variables'] == valid_dataset_properties['variables']
-        assert train_dataset_properties['pressure_levels'] == valid_dataset_properties['pressure_levels']
-        assert all(train_dataset_properties['num_dims'][num] == valid_dataset_properties['num_dims'][num] for num in range(2))
-        assert train_dataset_properties['normalization_parameters'] == valid_dataset_properties['normalization_parameters']
-    except AssertionError:
-        raise TypeError("Training and validation dataset properties do not match. Select a different dataset(s) or choose "
-                        "one dataset to use for both training and validation.")
+    if args["tf_indirs"][0] != args["tf_indirs"][1]:
+        assert train_dataset_properties['front_types'] == valid_dataset_properties['front_types'], \
+            (f"The front types in the training and validation datasets must be the same! Received {train_dataset_properties['front_types']} "
+             f"for training, {valid_dataset_properties['front_types']} for validation.")
+        assert train_dataset_properties['variables'] == valid_dataset_properties['variables'], \
+            (f"The variables in the training and validation datasets must be the same! Received {train_dataset_properties['variables']} "
+             f"for training, {valid_dataset_properties['variables']} for validation.")
+        assert train_dataset_properties['pressure_levels'] == valid_dataset_properties['pressure_levels'], \
+            (f"The pressure levels in the training and validation datasets must be the same! Received {train_dataset_properties['pressure_levels']} "
+             f"for training, {valid_dataset_properties['pressure_levels']} for validation.")
+        assert all(train_dataset_properties['num_dims'][num] == valid_dataset_properties['num_dims'][num] for num in range(2)), \
+            (f"The number of dimensions for the inputs and targets in the training and validation datasets must be the same! Received {train_dataset_properties['num_dims']} "
+             f"for training, {valid_dataset_properties['num_dims']} for validation")
+        assert train_dataset_properties['normalization_parameters'] == valid_dataset_properties['normalization_parameters'], \
+            "Normalization parameters for the training and validation datasets must be the same!"
 
     front_types = train_dataset_properties['front_types']
     variables = train_dataset_properties['variables']
@@ -242,7 +279,7 @@ if __name__ == "__main__":
             metric_string = 'bss'
         else:
             metric_string = None
-    
+
         all_years = np.arange(2008, 2021)
 
         if args['num_training_years'] is not None:
@@ -295,7 +332,7 @@ if __name__ == "__main__":
         for arg in ['model_type', 'learning_rate', 'deep_supervision', 'model_number', 'kernel_size', 'modules_per_node',
                     'activation', 'batch_normalization', 'padding', 'use_bias', 'activity_regularizer', 'bias_constraint',
                     'bias_initializer', 'bias_regularizer', 'kernel_constraint', 'kernel_initializer', 'kernel_regularizer',
-                    'first_encoder_connections', 'valid_freq', 'optimizer']:
+                    'first_encoder_connections', 'valid_freq', 'optimizer', 'seed']:
             model_properties[arg] = args[arg]
         model_properties['activation'] = model_properties['activation'].lower()
 
@@ -304,8 +341,8 @@ if __name__ == "__main__":
                     'validation_years', 'test_years']:
             model_properties[arg] = locals()[arg]
 
-        # If using 3D inputs and 2D targets, squeeze out the vertical dimension of the model (index 2)
-        squeeze_axes = 3 if num_dims == [3, 2] else None
+        # If using 3D inputs and 2D targets, squeeze out the vertical dimension of the model (index 3)
+        squeeze_axes = 3 if num_dims[0] == 3 and num_dims[1] == 2 else None
 
         train_batch_size = args['batch_size'][0]
         valid_batch_size = args['batch_size'][0] if len(args['batch_size']) == 1 else args['batch_size'][1]
@@ -337,9 +374,7 @@ if __name__ == "__main__":
     else:
 
         model_number = args['model_number']
-
         model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], model_number, model_number))
-
         front_types = model_properties['front_types']
 
         training_years = model_properties['training_years']
@@ -350,13 +385,18 @@ if __name__ == "__main__":
         train_steps, valid_steps = model_properties['steps_per_epoch']
         valid_freq = model_properties['valid_freq']
 
-    model_filepath = '%s/model_%d/model_%d.h5' % (args['model_dir'], model_number, model_number)
-    history_filepath = '%s/model_%d/model_%d_history.csv' % (args['model_dir'], model_number, model_number)
+    model_filepath = '%s/model_%d/model_%d.h5' % (args['model_dir'], model_number, model_number)  # filepath for the actual model (.h5 file)
+    history_filepath = '%s/model_%d/model_%d_history.csv' % (args['model_dir'], model_number, model_number)  # path of the CSV file containing loss and metric statistics
 
     ### Training dataset ###
-    train_files_obj = fm.DataFileLoader(args['era5_tf_indirs'][0], data_file_type='era5-tensorflow')
-    train_files_obj.training_years = training_years
-    train_files_obj.pair_with_fronts(args['era5_tf_indirs'][0])
+    try:
+        train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], data_file_type='era5-tensorflow')
+        train_files_obj.training_years = training_years
+        train_files_obj.pair_with_fronts(args['tf_indirs'][0])
+    except IndexError:
+        train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], data_file_type='era5-tensorflow')
+        train_files_obj.training_years = training_years
+        train_files_obj.pair_with_fronts(args['tf_indirs'][0], underscore_skips=len(front_types))
     training_inputs = train_files_obj.data_files_training
     training_labels = train_files_obj.front_files_training
 
@@ -383,14 +423,18 @@ if __name__ == "__main__":
     if args['shuffle'] == 'full':
         training_buffer_size = np.min([len(training_dataset), settings.MAX_TRAIN_BUFFER_SIZE])
         training_dataset = training_dataset.shuffle(buffer_size=training_buffer_size)
-
     training_dataset = training_dataset.batch(train_batch_size, drop_remainder=True, num_parallel_calls=args['num_parallel_calls'])
     training_dataset = training_dataset.prefetch(tf.data.AUTOTUNE)
 
     ### Validation dataset ###
-    valid_files_obj = fm.DataFileLoader(args['era5_tf_indirs'][1], data_file_type='era5-tensorflow')
-    valid_files_obj.validation_years = validation_years
-    valid_files_obj.pair_with_fronts(args['era5_tf_indirs'][1])
+    try:
+        valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], data_file_type='era5-tensorflow')
+        valid_files_obj.validation_years = validation_years
+        valid_files_obj.pair_with_fronts(args['tf_indirs'][1])
+    except IndexError:
+        valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], data_file_type='era5-tensorflow')
+        valid_files_obj.validation_years = validation_years
+        valid_files_obj.pair_with_fronts(args['tf_indirs'][1], underscore_skips=len(front_types))
     validation_inputs = valid_files_obj.data_files_validation
     validation_labels = valid_files_obj.front_files_validation
     validation_dataset = data_utils.combine_datasets(validation_inputs, validation_labels)
@@ -444,6 +488,16 @@ if __name__ == "__main__":
     early_stopping = EarlyStopping('val_loss', patience=patience, verbose=1)  # EarlyStopping: stops training early if the validation loss does not improve after a specified number of epochs (patience)
     history_logger = CSVLogger(history_filepath, separator=",", append=True)  # Saves loss and metric data every epoch
 
+    callbacks = [early_stopping, checkpoint, history_logger]
+
+    wandb_init_name = "model_%d" % model_number if args["name"] is None else args["name"]
+    ### Initialize WandB ###
+    if args["project"] is not None:
+        wandb.init(project=args["project"], config=model_properties, name=wandb_init_name)
+        callbacks.append(wandb.keras.WandbMetricsLogger(log_freq=args["log_freq"]))
+
+        if args["upload_model"]:
+            callbacks.append(wandb.keras.WandbModelCheckpoint("models"))  # upload model checkpoints to wandb
+
     model.fit(training_dataset.repeat(), validation_data=validation_dataset, validation_freq=valid_freq, epochs=args['epochs'],
-        steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=[early_stopping, checkpoint, history_logger],
-        verbose=args['verbose'])
+        steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=callbacks, verbose=args['verbose'])

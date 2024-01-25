@@ -539,7 +539,7 @@ def normalize_variables(variable_ds, normalization_parameters=normalization_para
 
     Parameters
     ----------
-    variable_ds: xr.Dataset
+    variable_ds: xarray Dataset or DataArray
         Dataset containing thermodynamic variable data.
     normalization_parameters: dict
         Dictionary containing parameters for normalization.
