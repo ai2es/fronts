@@ -2,7 +2,7 @@
 Convert front XML files to netCDF files.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.23
+Script version: 2024.2.19
 
 TODO:
     * Fix bug with fronts sitting on the edge of model domains
@@ -54,8 +54,6 @@ if __name__ == "__main__":
 
     for filename in files:
 
-        print(filename)
-
         if domain_from_model:
 
             model_coords_ds = xr.open_dataset('./coordinates/%s.nc' % args['domain'])
@@ -67,8 +65,11 @@ if __name__ == "__main__":
             model_x_transform, model_y_transform = data_utils.lambert_conformal_to_cartesian(gridded_lons, gridded_lats, **transform_args)
             gridded_x = model_x_transform[0, :]
             gridded_y = model_y_transform[:, 0]
-
             identifier = np.zeros(np.shape(gridded_lons)).astype('float32')
+
+            # bounds of the model's cartesian domain
+            model_x_min, model_x_max = np.min(model_x_transform), np.max(model_x_transform)
+            model_y_min, model_y_max = np.min(model_y_transform), np.max(model_y_transform)
 
         else:
 
@@ -82,6 +83,9 @@ if __name__ == "__main__":
         forecast_hour = int(filename.split('f')[-1].split('.')[0])
 
         hour = date[-2:]
+
+        if hour in ["03", "09", "15", "21"] and args['domain'] == "nam-12km":
+            continue
 
         ### Iterate through the individual fronts ###
         for line in root.iter('Line'):
@@ -97,6 +101,18 @@ if __name__ == "__main__":
             if front_needs_modification or domain_from_model:
                 lons = np.where(lons < 0, lons + 360, lons)  # convert coordinates to a 360 degree system
 
+            x_transform_init, y_transform_init = data_utils.lambert_conformal_to_cartesian(lons, lats, **transform_args)
+
+            # find points outside the model domain
+            points_outside_domain = np.where((x_transform_init < model_x_min) | (x_transform_init > model_x_max) | (y_transform_init < model_y_min) | (y_transform_init > model_y_max))
+
+            if len(points_outside_domain) > 0:  # remove points outside the model domain
+                lons = np.delete(lons, points_outside_domain)
+                lats = np.delete(lats, points_outside_domain)
+
+                if len(lons) < 2:  # do not generate front if there are not at least two points
+                    continue
+
             xs, ys = data_utils.haversine(lons, lats)  # x/y coordinates in kilometers
             xy_linestring = data_utils.geometric(xs, ys)  # convert coordinates to a LineString object
             x_new, y_new = data_utils.redistribute_vertices(xy_linestring, args['distance']).xy  # interpolate x/y coordinates
@@ -107,14 +123,16 @@ if __name__ == "__main__":
 
             expand_dims_args = {'time': np.atleast_1d(date_and_time)}
 
-            if args['domain'] == 'global':
-                filename_netcdf = "FrontObjects_%s_f%03d_%s.nc" % (date, forecast_hour, args['domain'])
+            if args['domain'] == 'global' or domain_from_model:
                 expand_dims_args['forecast_hour'] = np.atleast_1d(forecast_hour)
+                filename_netcdf = "FrontObjects_%s_f%03d_%s.nc" % (date, forecast_hour, args['domain'])
             else:
                 filename_netcdf = "FrontObjects_%s_%s.nc" % (date, args['domain'])
 
             if domain_from_model:
-                x_new *= 1000; y_new *= 1000  # convert front's points to meters
+
+                x_new *= 1000  # convert to meters
+                y_new *= 1000  # convert to meters
                 x_transform, y_transform = data_utils.lambert_conformal_to_cartesian(lon_new, lat_new, **transform_args)
 
                 gridded_indices = np.dstack((np.digitize(y_transform, gridded_y), np.digitize(x_transform, gridded_x)))[0]  # translate coordinate indices to grid
@@ -126,8 +144,7 @@ if __name__ == "__main__":
 
                 identifier[gridded_indices_unique[:, 0], gridded_indices_unique[:, 1]] = pgenType_identifiers[type_of_front]  # assign labels to the gridded points based on the front type
 
-                fronts_ds = xr.Dataset({"identifier": (('y', 'x'), identifier)},
-                                       coords={"longitude": (('y', 'x'), gridded_lons), "latitude": (('y', 'x'), gridded_lats)}).expand_dims(**expand_dims_args)
+                fronts_ds = xr.Dataset({"identifier": (('y', 'x'), identifier)}).expand_dims(**expand_dims_args)
 
             else:
 
@@ -148,4 +165,11 @@ if __name__ == "__main__":
 
         if not os.path.isdir("%s/%d%02d" % (args['netcdf_outdir'], year, month)):
             os.mkdir("%s/%d%02d" % (args['netcdf_outdir'], year, month))
+
+        fronts_ds.attrs["domain"] = args["domain"]
+        fronts_ds.attrs["interpolation_distance_km"] = args["distance"]
+        fronts_ds.attrs["num_front_types"] = 16
+        fronts_ds.attrs["front_types"] = "ALL"
+        fronts_ds.attrs["xml_to_nc_script_version"] = "2024.2.19"
+
         fronts_ds.to_netcdf(path="%s/%d%02d/%s" % (args['netcdf_outdir'], year, month, filename_netcdf), engine='netcdf4', mode='w')

@@ -2,11 +2,11 @@
 Function that trains a new U-Net model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.26
+Script version: 2024.3.9
 """
 import argparse
 import pandas as pd
-from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
+from tensorflow.keras.callbacks import EarlyStopping, CSVLogger, LearningRateScheduler
 import tensorflow as tf
 import pickle
 import numpy as np
@@ -20,8 +20,15 @@ from utils import settings, misc, data_utils
 import wandb
 
 
+class ArgumentParser(argparse.ArgumentParser):
+    """ Custom argument parser class """
+    def convert_arg_line_to_args(self, arg_line):
+        """ Allow multiple arguments to be passed on one line if calling a text file with arguments (e.g., --arg 2 5 6) """
+        return arg_line.split()
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = ArgumentParser(fromfile_prefix_chars='@')
 
     ### WandB ###
     parser.add_argument('--project', type=str, help="WandB project that will be used to store model training data.")
@@ -30,9 +37,9 @@ if __name__ == "__main__":
     parser.add_argument('--name', type=str,
         help="WandB name for the current model run. If no name is specified, it will default to the model number (e.g. model_129482).")
 
-    ### General arguments ###
+    # ### General arguments ###
     parser.add_argument('--model_dir', type=str, required=True, help='Directory where the models are or will be saved to.')
-    parser.add_argument('--model_number', type=int, 
+    parser.add_argument('--model_number', type=int,
         help='Number that the model will be assigned. If no argument is passed, a number will be automatically assigned based '
              'on the current date and time.')
     parser.add_argument('--tf_indirs', type=str, required=True, nargs='+',
@@ -55,6 +62,9 @@ if __name__ == "__main__":
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth for GPUs')
     parser.add_argument('--num_parallel_calls', type=int, default=4,
         help='Number of parallel calls for retrieving batches for the training and validation datasets.')
+    parser.add_argument('--buffer_size', type=int, 
+        help="Maximum buffer size used when shuffling the training dataset. By default, the entire training dataset will "
+             "be shuffled, and the buffer size is equal to the number of images in the training dataset.")
     parser.add_argument('--disable_tensorfloat32', action='store_true', help='Disable TensorFloat32 execution.')
 
     ### Hyperparameters ###
@@ -64,7 +74,7 @@ if __name__ == "__main__":
         help='Batch sizes for the U-Net. Up to 2 arguments can be passed. If 1 argument is passed, the value will be both '
              'the training and validation batch sizes. If 2 arguments are passed, the first and second arguments will be '
              'the training and validation batch sizes, respectively.')
-    parser.add_argument('--steps', type=int, required=True, nargs='+',
+    parser.add_argument('--steps', type=int, nargs='+',
         help='Number of steps for each epoch. Up to 2 arguments can be passed. If 1 argument is passed, the value will only '
              'be applied to the number of steps per epoch, and the number of validation steps will be calculated by tensorflow '
              'such that the entire validation dataset is passed into the model during validation. If 2 arguments are passed, '
@@ -152,6 +162,13 @@ if __name__ == "__main__":
     ### Retraining model ###
     parser.add_argument('--retrain', action='store_true', help='Retrain a model')
 
+    ### Debug ###
+    parser.add_argument('--no_train', action='store_true',
+        help="Do not train the model. This argument will allow everything in the script to run as normal but will not start "
+             "the training process. In addition, no directory for the model will be created and WandB will not be initialized. "
+             "This argument is mainly meant for debugging purposes as well as being able to see the number of images in "
+             "the training and validation datasets without starting the training process.")
+
     parser.add_argument('--override_directory_check', action='store_true',
         help="Override the OSError caused by creating a new model directory that already exists. Normally, if the script "
              "crashes before or during the training of a new model, an OSError will be returned if the script is immediately "
@@ -166,9 +183,9 @@ if __name__ == "__main__":
     seed = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args["model_number"], args["model_number"]))["seed"] if args["retrain"] else args["seed"]
     tf.keras.utils.set_random_seed(seed)
 
-    if len(args['tf_indirs']) > 2:
-        raise ValueError("Only 1 or 2 paths can be passed into --tf_indirs, received %d paths" % len(args['tf_indirs']))
-    elif len(args['tf_indirs']) == 1:
+    assert len(args['tf_indirs']) < 3, "Only 1 or 2 paths can be passed into --tf_indirs, received %d paths" % len(args['tf_indirs'])
+
+    if len(args['tf_indirs']) == 1:
         args['tf_indirs'].append(args['tf_indirs'][0])
 
     train_dataset_properties = pd.read_pickle('%s/dataset_properties.pkl' % args['tf_indirs'][0])
@@ -180,7 +197,9 @@ if __name__ == "__main__":
     # Check arguments that can only have a maximum length of 2
     for arg in ['loss', 'metric', 'optimizer', 'activity_regularizer', 'bias_constraint', 'bias_regularizer', 'kernel_constraint',
                 'kernel_regularizer', 'batch_size', 'steps']:
-        if len(args[arg]) > 2:
+        if args[arg] is None:  # need this line in here because 'steps' can be None
+            continue
+        elif len(args[arg]) > 2:
             raise ValueError("--%s can only take up to 2 arguments" % arg)
 
     ### Dictionary containing arguments that cannot be used for specific model types ###
@@ -226,7 +245,7 @@ if __name__ == "__main__":
         if args['disable_tensorfloat32']:
             tf.config.experimental.enable_tensor_float_32_execution(False)
 
-        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all of the GPU's memory.
+        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all the GPU's memory.
         if args['memory_growth']:
             tf.config.experimental.set_memory_growth(device=[gpu for gpu in gpus][0], enable=True)
 
@@ -280,7 +299,7 @@ if __name__ == "__main__":
         else:
             metric_string = None
 
-        all_years = np.arange(2008, 2021)
+        all_years = np.arange(2008, 2022.1, 1)
 
         if args['num_training_years'] is not None:
             if args['training_years'] is not None:
@@ -305,8 +324,8 @@ if __name__ == "__main__":
 
         test_years = [year for year in all_years if year not in training_years + validation_years]
 
-        # If no model number was provided, select a number based on the current date and time.
-        model_number = int(datetime.datetime.utcnow().timestamp() % 1e8) if args['model_number'] is None else args['model_number']
+        # If no model number was provided, select a number based on the current date and time. This number changes once per minute.
+        args["model_number"] = int(datetime.datetime.utcnow().timestamp() % 1e8 / 60) if args['model_number'] is None else args['model_number']
 
         # Convert pool size and upsample size to tuples
         pool_size = tuple(args['pool_size']) if args['pool_size'] is not None else None
@@ -344,15 +363,6 @@ if __name__ == "__main__":
         # If using 3D inputs and 2D targets, squeeze out the vertical dimension of the model (index 3)
         squeeze_axes = 3 if num_dims[0] == 3 and num_dims[1] == 2 else None
 
-        train_batch_size = args['batch_size'][0]
-        valid_batch_size = args['batch_size'][0] if len(args['batch_size']) == 1 else args['batch_size'][1]
-        train_steps = args['steps'][0]
-        valid_steps = None if len(args['steps']) < 2 else args['steps'][1]
-        valid_freq = args['valid_freq']
-
-        model_properties['batch_sizes'] = [train_batch_size, valid_batch_size]
-        model_properties['steps_per_epoch'] = [train_steps, valid_steps]
-
         unet_model = getattr(models, args['model_type'])
         unet_model_args = unet_model.__code__.co_varnames[:unet_model.__code__.co_argcount]  # pull argument names from unet function
 
@@ -373,8 +383,7 @@ if __name__ == "__main__":
 
     else:
 
-        model_number = args['model_number']
-        model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], model_number, model_number))
+        model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']))
         front_types = model_properties['front_types']
 
         training_years = model_properties['training_years']
@@ -385,16 +394,27 @@ if __name__ == "__main__":
         train_steps, valid_steps = model_properties['steps_per_epoch']
         valid_freq = model_properties['valid_freq']
 
-    model_filepath = '%s/model_%d/model_%d.h5' % (args['model_dir'], model_number, model_number)  # filepath for the actual model (.h5 file)
-    history_filepath = '%s/model_%d/model_%d_history.csv' % (args['model_dir'], model_number, model_number)  # path of the CSV file containing loss and metric statistics
+    model_filepath = '%s/model_%d/model_%d.h5' % (args['model_dir'], args['model_number'], args['model_number'])  # filepath for the actual model (.h5 file)
+    history_filepath = '%s/model_%d/model_%d_history.csv' % (args['model_dir'], args['model_number'], args['model_number'])  # path of the CSV file containing loss and metric statistics
+
+    if train_dataset_properties["domain"] in ["conus", "full"]:
+        train_data_source = "era5"
+    elif train_dataset_properties["domain"] == "global":
+        train_data_source = "gfs"
+    else:
+        train_data_source = train_dataset_properties["domain"]
+
+    train_batch_size = args['batch_size'][0]
+    valid_batch_size = args['batch_size'][0] if len(args['batch_size']) == 1 else args['batch_size'][1]
+    model_properties['batch_sizes'] = [train_batch_size, valid_batch_size]
 
     ### Training dataset ###
     try:
-        train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], data_file_type='era5-tensorflow')
+        train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], data_file_type='%s-tensorflow' % train_data_source)
         train_files_obj.training_years = training_years
         train_files_obj.pair_with_fronts(args['tf_indirs'][0])
     except IndexError:
-        train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], data_file_type='era5-tensorflow')
+        train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], data_file_type='%s-tensorflow' % train_data_source)
         train_files_obj.training_years = training_years
         train_files_obj.pair_with_fronts(args['tf_indirs'][0], underscore_skips=len(front_types))
     training_inputs = train_files_obj.data_files_training
@@ -407,7 +427,52 @@ if __name__ == "__main__":
         training_inputs, training_labels = zip(*training_files)
 
     training_dataset = data_utils.combine_datasets(training_inputs, training_labels)
-    print(f"Images in training dataset: {len(training_dataset):,}")
+    images_in_training_dataset = len(training_dataset)
+    print(f"Images in validation dataset: {images_in_training_dataset:,}")
+
+    # training_dataset = training_dataset.cache("I:/tf_datasets/cache.tmp")
+    # Shuffle the entire training dataset
+    if args['shuffle'] == 'full':
+        training_buffer_size = args["buffer_size"] if args["buffer_size"] is not None else images_in_training_dataset
+        training_dataset = training_dataset.shuffle(buffer_size=training_buffer_size)
+    training_dataset = training_dataset.batch(train_batch_size, drop_remainder=True, num_parallel_calls=args['num_parallel_calls'])
+    training_dataset = training_dataset.prefetch(tf.data.AUTOTUNE)
+
+    if valid_dataset_properties["domain"] in ["conus", "full"]:
+        valid_data_source = "era5"
+    elif valid_dataset_properties["domain"] == "global":
+        valid_data_source = "gfs"
+    else:
+        valid_data_source = valid_dataset_properties["domain"]
+
+    ### Validation dataset ###
+    try:
+        valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], data_file_type='%s-tensorflow' % valid_data_source)
+        valid_files_obj.validation_years = validation_years
+        valid_files_obj.pair_with_fronts(args['tf_indirs'][1])
+    except IndexError:
+        valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], data_file_type='%s-tensorflow' % valid_data_source)
+        valid_files_obj.validation_years = validation_years
+        valid_files_obj.pair_with_fronts(args['tf_indirs'][1], underscore_skips=len(front_types))
+    validation_inputs = valid_files_obj.data_files_validation
+    validation_labels = valid_files_obj.front_files_validation
+    validation_dataset = data_utils.combine_datasets(validation_inputs, validation_labels)
+    images_in_validation_dataset = len(validation_dataset)
+    print(f"Images in validation dataset: {images_in_validation_dataset:,}")
+    validation_dataset = validation_dataset.batch(valid_batch_size, drop_remainder=True, num_parallel_calls=args['num_parallel_calls'])
+    validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
+
+    # set steps per epoch and validation frequency
+    if args['steps'] is None:
+        train_steps = int(images_in_training_dataset/train_batch_size)
+        print("Using %d training steps per epoch" % train_steps)
+        valid_steps = None
+    else:
+        train_steps = args['steps'][0]
+        valid_steps = None if len(args['steps']) < 2 else args['steps'][1]
+
+    valid_freq = args['valid_freq']
+    model_properties['steps_per_epoch'] = [train_steps, valid_steps]
 
     """
     If the patience argument is not explicitly provided, derive it from the size of the training dataset along with the
@@ -418,29 +483,6 @@ if __name__ == "__main__":
         print("Using patience value of %d epochs for early stopping" % patience)
     else:
         patience = args['patience']
-
-    # Shuffle the entire training dataset
-    if args['shuffle'] == 'full':
-        training_buffer_size = np.min([len(training_dataset), settings.MAX_TRAIN_BUFFER_SIZE])
-        training_dataset = training_dataset.shuffle(buffer_size=training_buffer_size)
-    training_dataset = training_dataset.batch(train_batch_size, drop_remainder=True, num_parallel_calls=args['num_parallel_calls'])
-    training_dataset = training_dataset.prefetch(tf.data.AUTOTUNE)
-
-    ### Validation dataset ###
-    try:
-        valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], data_file_type='era5-tensorflow')
-        valid_files_obj.validation_years = validation_years
-        valid_files_obj.pair_with_fronts(args['tf_indirs'][1])
-    except IndexError:
-        valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], data_file_type='era5-tensorflow')
-        valid_files_obj.validation_years = validation_years
-        valid_files_obj.pair_with_fronts(args['tf_indirs'][1], underscore_skips=len(front_types))
-    validation_inputs = valid_files_obj.data_files_validation
-    validation_labels = valid_files_obj.front_files_validation
-    validation_dataset = data_utils.combine_datasets(validation_inputs, validation_labels)
-    print(f"Images in validation dataset: {len(validation_dataset):,}")
-    validation_dataset = validation_dataset.batch(valid_batch_size, drop_remainder=True, num_parallel_calls=args['num_parallel_calls'])
-    validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
 
     # Set the lat/lon dimensions to have a None shape so images of any sized can be passed into the U-Net
     input_shape = list(training_dataset.take(0).element_spec[0].shape[1:])
@@ -461,25 +503,24 @@ if __name__ == "__main__":
 
     model.summary()
 
-    if not args['retrain']:
+    if not args['retrain'] and not args["no_train"]:
 
         model_properties = {key: model_properties[key] for key in sorted(model_properties.keys())}  # Sort model properties dictionary alphabetically
 
-        if not os.path.isdir('%s/model_%d' % (args['model_dir'], model_number)):
-            os.mkdir('%s/model_%d' % (args['model_dir'], model_number))  # Make folder for model
-            os.mkdir('%s/model_%d/maps' % (args['model_dir'], model_number))  # Make folder for model predicton maps
-            os.mkdir('%s/model_%d/probabilities' % (args['model_dir'], model_number))  # Make folder for prediction data files
-            os.mkdir('%s/model_%d/statistics' % (args['model_dir'], model_number))  # Make folder for statistics data files
+        if not os.path.isdir('%s/model_%d' % (args['model_dir'], args['model_number'])):
+            os.makedirs('%s/model_%d/maps' % (args['model_dir'], args['model_number']))  # Make folder for model predicton maps
+            os.mkdir('%s/model_%d/probabilities' % (args['model_dir'], args['model_number']))  # Make folder for prediction data files
+            os.mkdir('%s/model_%d/statistics' % (args['model_dir'], args['model_number']))  # Make folder for statistics data files
         elif not args['override_directory_check']:
             raise OSError('%s/model_%d already exists. If model %d still needs to be created and trained, run this script '
-                          'again with the --override_directory_check flag.' % (args['model_dir'], model_number, model_number))
+                          'again with the --override_directory_check flag.' % (args['model_dir'], args['model_number'], args['model_number']))
         elif os.path.isfile(model_filepath):
-            raise OSError('model %d already exists at %s. Choose a different model number and try again.' % (model_number, model_filepath))
+            raise OSError('model %d already exists at %s. Choose a different model number and try again.' % (args['model_number'], model_filepath))
 
-        with open('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], model_number, model_number), 'wb') as f:
+        with open('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']), 'wb') as f:
             pickle.dump(model_properties, f)
 
-        with open('%s/model_%d/model_%d_properties.txt' % (args['model_dir'], model_number, model_number), 'w') as f:
+        with open('%s/model_%d/model_%d_properties.txt' % (args['model_dir'], args['model_number'], args['model_number']), 'w') as f:
             for key in model_properties.keys():
                 f.write(f"{key}: {model_properties[key]}\n")
 
@@ -490,14 +531,31 @@ if __name__ == "__main__":
 
     callbacks = [early_stopping, checkpoint, history_logger]
 
-    wandb_init_name = "model_%d" % model_number if args["name"] is None else args["name"]
-    ### Initialize WandB ###
-    if args["project"] is not None:
-        wandb.init(project=args["project"], config=model_properties, name=wandb_init_name)
-        callbacks.append(wandb.keras.WandbMetricsLogger(log_freq=args["log_freq"]))
+    if not args["no_train"]:
 
-        if args["upload_model"]:
-            callbacks.append(wandb.keras.WandbModelCheckpoint("models"))  # upload model checkpoints to wandb
+        wandb_init_config = dict({key: model_properties[key] for key in ["activation", "activity_regularizer", "batch_normalization",
+            "batch_sizes", "bias_constraint", "bias_initializer", "bias_regularizer", "domains", "image_size", "kernel_constraint",
+            "kernel_initializer", "kernel_regularizer", "kernel_size", "learning_rate", "loss_string", "metric_string", "model_number",
+            "model_type", "modules_per_node", "optimizer", "padding", "steps_per_epoch", "test_years", "training_years", "use_bias",
+            "validation_years"]})
 
-    model.fit(training_dataset.repeat(), validation_data=validation_dataset, validation_freq=valid_freq, epochs=args['epochs'],
-        steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=callbacks, verbose=args['verbose'])
+        # add keys from dataset_properties dictionary
+        for key in ["variables", "pressure_levels", "domain", "timestep_fraction", "image_fraction", "flip_chance_lon", "flip_chance_lat", "front_dilation"]:
+            wandb_init_config[key] = model_properties["dataset_properties"][key]
+
+        wandb_init_name = "model_%d" % args['model_number'] if args["name"] is None else args["name"]
+
+        ### Initialize WandB ###
+        if args["project"] is not None:
+            wandb.init(project=args["project"], config=wandb_init_config, name=wandb_init_name)
+            callbacks.append(wandb.keras.WandbMetricsLogger(log_freq=args["log_freq"]))
+
+            if args["upload_model"]:
+                callbacks.append(wandb.keras.WandbModelCheckpoint("models"))  # upload model checkpoints to wandb
+
+        model.fit(training_dataset.repeat(), validation_data=validation_dataset, validation_freq=valid_freq, epochs=args['epochs'],
+            steps_per_epoch=train_steps, validation_steps=valid_steps, callbacks=callbacks, verbose=args['verbose'])
+
+    else:
+
+        print("NOTE: Remove the --no_train argument from the command line to start the training process.")

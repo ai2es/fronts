@@ -8,7 +8,7 @@ Functions for building components of U-Net models:
     - Attention U-Net
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.19.1
+Script version: 2024.3.21
 """
 
 import numpy as np
@@ -707,6 +707,7 @@ def deep_supervision_side_output(
     kernel_size: int | tuple[int],
     output_level: int,
     upsample_size: tuple[int],
+    activation: str = 'softmax',
     padding: str = 'same',
     use_bias: bool = False,
     kernel_initializer='glorot_uniform',
@@ -735,6 +736,8 @@ def deep_supervision_side_output(
     upsample_size: tuple or list
         Upsampling size for rows and columns in the UpSampling2D/UpSampling3D layer. Tuples are currently not supported
         but will be supported in a future update.
+    activation: str
+        Output activation function.
     padding: str
         Padding in the Conv2D/Conv3D layer. 'valid' will apply no padding, while 'same' will apply padding such that the
         output shape matches the input shape. 'valid' and 'same' are case-insensitive.
@@ -766,6 +769,8 @@ def deep_supervision_side_output(
     """
 
     tensor_dims = len(tensor.shape)  # Number of dims in the tensor (including the first 'None' dimension for batch size)
+
+    activation_layer = choose_activation_layer(activation)
 
     if tensor_dims == 4:  # If the image is 2D
         conv_layer = Conv2D
@@ -830,6 +835,6 @@ def deep_supervision_side_output(
         tensor = conv_layer(filters=num_classes, **conv_kwargs)(tensor)  # This convolution layer contains num_classes filters, one for each class
         tensor = tf.squeeze(tensor, axis=squeeze_axes)  # Squeeze the tensor and remove the dimension
 
-    sup_output = Softmax(name=f'{name}_Softmax')(tensor)  # Final softmax output
+    sup_output = activation_layer(name=f'{name}_{activation}', activation=activation)(tensor)  # Final softmax output
 
     return sup_output

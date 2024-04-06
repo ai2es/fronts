@@ -2,7 +2,7 @@
 Miscellaneous tools.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.7.7.D1
+Script version: 2024.3.8
 """
 
 
@@ -17,88 +17,50 @@ def string_arg_to_dict(arg_str: str):
     """
 
     arg_str = arg_str.replace(' ', '')  # Remove all spaces from the string.
-    arg_dict = {}  # Dictionary that will contain the arguments and their respective values
+    args = arg_str.split(',')
+    arg_dict = {}  # dictionary that will contain the final arguments and values
 
-    # Iterate through all the arguments within the string
-    while True:
+    for arg in args:
+        arg_name, arg_val_str = arg.split('=')
 
-        equals_index = arg_str.find('=')  # Index representing where an equals sign is located, marking the end of the argument name
+        arg_is_tuple = '(' in arg_val_str and ')' in arg_val_str
+        arg_is_list = '[' in arg_val_str and ']' in arg_val_str
 
-        ################################# Attempt to see if a tuple or list was passed #################################
-        open_parenthesis_index = arg_str.find('(')
-        close_parenthesis_index = arg_str.find(')')
-        open_bracket_index = arg_str.find('[')
-        close_bracket_index = arg_str.find(']')
-
-        if open_parenthesis_index == close_parenthesis_index and open_bracket_index == close_bracket_index:  # These will only be equal when there are no parentheses/brackets in the argument string (i.e. there is no tuple/list)
-            comma_index = arg_str.find(',')  # Index representing where the first comma is located within the 'arg' string, essentially representing the end of a argument
-        elif open_parenthesis_index == -1 and close_parenthesis_index != -1:
-            raise TypeError("An open parenthesis appears to be missing. Check the argument string.")
-        elif open_parenthesis_index != -1 and close_parenthesis_index == -1:
-            raise TypeError("A closed parenthesis appears to be missing. Check the argument string.")
-        elif open_bracket_index == -1 and close_bracket_index != -1:
-            raise TypeError("An open bracket appears to be missing. Check the argument string.")
-        elif open_bracket_index != -1 and close_bracket_index == -1:
-            raise TypeError("A closed bracket appears to be missing. Check the argument string.")
-        elif open_parenthesis_index != close_parenthesis_index:
-            comma_index = close_parenthesis_index + 1
-        else:
-            comma_index = close_bracket_index + 1
-
-        current_arg_name = arg_str[:equals_index]
-
-        if comma_index == -1:  # When the final argument is being added to the dictionary, this index will become -1
-            current_arg_value = arg_str[equals_index + 1:]
-        else:
-            current_arg_value = arg_str[equals_index + 1:comma_index]
-
-        ######################################## Convert the argument to a tuple #######################################
-        if open_parenthesis_index != close_parenthesis_index:
-
-            arg_dict[current_arg_name] = current_arg_value.replace('(', '').replace(')', '').split(',')
-
-            if '.' in arg_dict[current_arg_name]:  # If the tuple appears to contain a float
-                arg_dict[current_arg_name] = tuple([float(val) for val in arg_dict[current_arg_name]])
-            else:
-                arg_dict[current_arg_name] = tuple([int(val) for val in arg_dict[current_arg_name]])
-        ################################################################################################################
-
-        ######################################## Convert the argument to a list ########################################
-        elif open_bracket_index != close_bracket_index:
-
-            arg_dict[current_arg_name] = current_arg_value.replace('[', '').replace(']', '').split(',')
-
-            list_values = []
-            for val in arg_dict[current_arg_name]:
+        # if argument value is a list or tuple
+        if arg_is_tuple or arg_is_list:
+            list_vals = arg_val_str.replace('[', '').replace(']', '').replace('(', '').replace(')', '').split('*')
+            new_list_vals = []
+            for val in list_vals:
                 if '.' in val:
-                    list_values.append(float(val))
+                    new_list_vals.append(float(val))
+                elif val == 'True':
+                    new_list_vals.append(True)
+                elif val == 'False':
+                    new_list_vals.append(False)
                 else:
                     try:
-                        list_values.append(int(val))
+                        new_list_vals.append(int(val))
                     except ValueError:
-                        list_values.append(val)
+                        new_list_vals.append(val)
 
-            arg_dict[current_arg_name] = list_values
-        ################################################################################################################
+            if arg_is_tuple:
+                new_list_vals = tuple(new_list_vals)
+
+            arg_dict[arg_name] = new_list_vals
 
         else:
-
-            if '.' in current_arg_value:
-                arg_dict[current_arg_name] = float(current_arg_value)
+            if '.' in arg_val_str:
+                arg_val = float(arg_val_str)
+            elif arg_val_str == 'True':
+                arg_val = True
+            elif arg_val_str == 'False':
+                arg_val = False
             else:
                 try:
-                    arg_dict[current_arg_name] = int(current_arg_value)
+                    arg_val = int(arg_val_str)
                 except ValueError:
-                    if current_arg_value == 'True':
-                        arg_dict[current_arg_name] = True
-                    elif current_arg_value == 'False':
-                        arg_dict[current_arg_name] = False
-                    else:
-                        arg_dict[current_arg_name] = current_arg_value.replace("'", '')
+                    arg_val = arg_val_str
 
-        arg_str = arg_str[comma_index + 1:]  # After the current argument has been added to the dictionary, remove it from the argument string
-
-        if comma_index == -1 or len(arg_str) == 0:
-            break
+            arg_dict[arg_name] = arg_val
 
     return arg_dict

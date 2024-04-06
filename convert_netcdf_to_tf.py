@@ -2,7 +2,7 @@
 Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.1.5
+Script version: 2024.3.5
 
 TODO:
     * fix bug in file manager script that incorrectly matches files with different initialization times and/or forecast hours
@@ -16,6 +16,7 @@ import pickle
 import tensorflow as tf
 import file_manager as fm
 from utils import data_utils, settings
+from datetime import datetime
 import xarray as xr
 
 
@@ -39,21 +40,6 @@ if __name__ == '__main__':
     parser.add_argument('--domain', type=str, default='conus', help='Domain from which to pull the images.')
     parser.add_argument('--override_extent', type=float, nargs=4,
         help='Override the default domain extent by selecting a custom extent. [min lon, max lon, min lat, max lat]')
-    parser.add_argument('--evaluation_dataset', action='store_true',
-        help=''' 
-            Boolean flag that determines if the dataset being generated will be used for evaluating a model.
-            If this flag is True, all of the following keyword arguments will be set and any values provided to 'netcdf_to_tf'
-                by the user will be overriden:
-                * num_dims = (_, 2)  <=== NOTE: The first value of this tuple will NOT be overriden.
-                * images = (1, 1)
-                * image_size will be set to the size of the domain.
-                * keep_fraction will have no effect
-                * shuffle_timesteps = False
-                * shuffle_images = False
-                * noise_fraction = 0.0
-                * flip_chance_lon = 0.0
-                * flip_chance_lat = 0.0
-            ''')
     parser.add_argument('--images', type=int, nargs=2, default=[9, 1],
         help='Number of variables/front images along the longitude and latitude dimensions to generate for each timestep. The product of the 2 integers '
              'will be the total number of images generated per timestep.')
@@ -70,8 +56,11 @@ if __name__ == '__main__':
              'will be pulled from the last 3-hour timestep. If the dataset is over the full domain, the fronts will be pulled '
              'from the last 6-hour timestep.')
     parser.add_argument('--front_dilation', type=int, default=0, help='Number of pixels to expand the fronts by in all directions.')
-    parser.add_argument('--keep_fraction', type=float, default=0.0,
+    parser.add_argument('--timestep_fraction', type=float, default=0.0,
         help='The fraction of timesteps WITHOUT all necessary front types that will be retained in the dataset. Can be any float 0 <= x <= 1.')
+    parser.add_argument('--image_fraction', type=float, default=1.0,
+        help='The fraction of images WITHOUT all necessary front types in the selected timesteps that will be retained in the dataset. Can be any float 0 <= x <= 1. '
+             'By default, all images are retained.')
     parser.add_argument('--noise_fraction', type=float, default=0.0,
         help='The fraction of pixels in each image that will contain noise. Can be any float 0 <= x < 1.')
     parser.add_argument('--flip_chance_lon', type=float, default=0.0,
@@ -120,41 +109,12 @@ if __name__ == '__main__':
         Save critical dataset information to a pickle file so it can be referenced later when generating data for other months.
         """
         print("Setting seed: %d" % args["seed"])
-        if args['evaluation_dataset']:
-            """
-            Override all keyword arguments so the dataset will be prepared for model evaluation.
-            """
-            print("WARNING: This dataset will be used for model evaluation, so the following arguments will be set and "
-                  "any provided values for these arguments will be overriden:")
-            args['num_dims'] = tuple(args['num_dims'])
-            args['images'] = (1, 1)
-
-            if args['override_extent'] is None:
-                args['image_size'] = (int((settings.DOMAIN_EXTENTS[args['domain']][1] - settings.DOMAIN_EXTENTS[args['domain']][0]) / 0.25 + 1),
-                                      int((settings.DOMAIN_EXTENTS[args['domain']][3] - settings.DOMAIN_EXTENTS[args['domain']][2]) / 0.25 + 1))
-            else:
-                args['image_size'] = (int((args['override_extent'][1] - args['override_extent'][0]) / 0.25 + 1),
-                                      int((args['override_extent'][3] - args['override_extent'][2]) / 0.25 + 1))
-
-            args['shuffle_timesteps'] = False
-            args['shuffle_images'] = False
-            args['noise_fraction'] = 0.0
-            args['flip_chance_lon'] = 0.0
-            args['flip_chance_lat'] = 0.0
-
-            print(f"images = {args['images']}\n"
-                  f"image_size = {args['image_size']}\n"
-                  f"shuffle_timesteps = False\n"
-                  f"shuffle_images = False\n"
-                  f"noise_fraction = 0.0\n"
-                  f"flip_chance_lon = 0.0\n"
-                  f"flip_chance_lat = 0.0\n")
 
         dataset_props = dict({})
         dataset_props['normalization_parameters'] = data_utils.normalization_parameters
         for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
                     'noise_fraction', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
-                    'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction', 'override_extent', 'seed']):
+                    'domain', 'add_previous_fronts', 'timestep_fraction', 'image_fraction', 'override_extent', 'seed']):
             dataset_props[key] = args[key]
 
         with open(dataset_props_file, 'wb') as f:
@@ -163,6 +123,8 @@ if __name__ == '__main__':
         with open('%s/dataset_properties.txt' % args['tf_outdir'], 'w') as f:
             for key in sorted(dataset_props.keys()):
                 f.write(f"{key}: {dataset_props[key]}\n")
+            f.write(f"\n\n\nFile generated at {datetime.utcnow()} UTC\n")
+            f.write(f"convert_netcdf_to_tf.py script version: 2024.3.5")
 
     else:
 
@@ -171,7 +133,7 @@ if __name__ == '__main__':
 
         for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
                            'noise_fraction', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
-                           'domain', 'evaluation_dataset', 'add_previous_fronts', 'keep_fraction']):
+                           'domain', 'add_previous_fronts', 'timestep_fraction', 'image_fraction']):
             args[key] = dataset_props[key]
             print(f"%s: {args[key]}" % key)
 
@@ -184,9 +146,9 @@ if __name__ == '__main__':
     np.random.seed(args["seed"])
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
-    all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1000', '950', '900', '850', '700', '500']
+    all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1013', '1000', '950', '900', '850', '700', '500']
 
-    synoptic_only = True if args['domain'] != 'conus' else False
+    synoptic_only = True if args['domain'] not in ['conus', 'hrrr'] else False
 
     file_loader = fm.DataFileLoader(args['variables_netcdf_indir'], '%s-netcdf' % args['data_source'], synoptic_only)
     file_loader.test_years = [year, ]
@@ -226,24 +188,26 @@ if __name__ == '__main__':
     # assert that the dates of the files match
     files_match_flag = all(os.path.basename(variables_file).split('_')[1] == os.path.basename(fronts_file).split('_')[1] for variables_file, fronts_file in zip(variables_netcdf_files, fronts_netcdf_files))
 
-    if args['override_extent'] is None:
-        sel_kwargs = {'longitude': slice(settings.DOMAIN_EXTENTS[args['domain']][0], settings.DOMAIN_EXTENTS[args['domain']][1]),
-                      'latitude': slice(settings.DOMAIN_EXTENTS[args['domain']][3], settings.DOMAIN_EXTENTS[args['domain']][2])}
-        domain_size = (int((settings.DOMAIN_EXTENTS[args['domain']][1] - settings.DOMAIN_EXTENTS[args['domain']][0]) // 0.25) + 1,
-                       int((settings.DOMAIN_EXTENTS[args['domain']][3] - settings.DOMAIN_EXTENTS[args['domain']][2]) // 0.25) + 1)
+    if args["data_source"] in ["conus", "full", "domain"]:
+        if args['override_extent'] is None:
+            sel_kwargs = {'longitude': slice(settings.DOMAIN_EXTENTS[args['domain']][0], settings.DOMAIN_EXTENTS[args['domain']][1]),
+                          'latitude': slice(settings.DOMAIN_EXTENTS[args['domain']][3], settings.DOMAIN_EXTENTS[args['domain']][2])}
+        else:
+            sel_kwargs = {'longitude': slice(args['override_extent'][0], args['override_extent'][1]),
+                          'latitude': slice(args['override_extent'][3], args['override_extent'][2])}
     else:
-        sel_kwargs = {'longitude': slice(args['override_extent'][0], args['override_extent'][1]),
-                      'latitude': slice(args['override_extent'][3], args['override_extent'][2])}
-        domain_size = (int((args['override_extent'][1] - args['override_extent'][0]) // 0.25) + 1,
-                       int((args['override_extent'][3] - args['override_extent'][2]) // 0.25) + 1)
+        sel_kwargs = {}
 
     if not files_match_flag:
-        raise OSError("%s/fronts files do not match")
+        raise OSError("%s/fronts files do not match" % args["data_source"])
 
     variables_to_use = all_variables if args['variables'] is None else args['variables']
+
     args['pressure_levels'] = all_pressure_levels if args['pressure_levels'] is None else [lvl for lvl in all_pressure_levels if lvl in args['pressure_levels']]
 
     num_timesteps = len(variables_netcdf_files)
+    images_kept = 0
+    images_discarded = 0
     timesteps_kept = 0
     timesteps_discarded = 0
 
@@ -251,47 +215,56 @@ if __name__ == '__main__':
 
     for timestep_no in range(num_timesteps):
 
-        front_dataset = xr.open_dataset(fronts_netcdf_files[timestep_no], engine='netcdf4').sel(**sel_kwargs).isel(**isel_kwargs).astype('float16')
+        keep_timestep = np.random.random() <= args['timestep_fraction']  # boolean flag for keeping timesteps without all front types
+
+        ### open front dataset ###
+        front_dataset = xr.open_dataset(fronts_netcdf_files[timestep_no], engine='netcdf4').isel(**isel_kwargs)
+        if args["data_source"] not in ["hrrr", "namnest-conus", "nam-12km"]:
+            front_dataset = front_dataset.sel(**sel_kwargs).astype('float16')
+            transpose_dims = ("longitude", "latitude")  # spatial dimensions that need to be transposed
+        else:
+            transpose_dims = ("x", "y")  # spatial dimensions that need to be transposed
+        domain_size = (len(front_dataset[transpose_dims[0]]), len(front_dataset[transpose_dims[1]]))
 
         ### Reformat the fronts in the current timestep ###
         if args['front_types'] is not None:
             front_dataset = data_utils.reformat_fronts(front_dataset, args['front_types'])
-            num_front_types = front_dataset.attrs['num_types'] + 1
+            num_front_types = front_dataset.attrs['num_front_types'] + 1
         else:
-            num_front_types = 17
+            num_front_types = 16
 
+        ### Expand the front labels ###
         if args['front_dilation'] > 0:
-            front_dataset = data_utils.expand_fronts(front_dataset, iterations=args['front_dilation'])  # expand the front labels
+            front_dataset = data_utils.expand_fronts(front_dataset, iterations=args['front_dilation'])
 
-        keep_timestep = np.random.random() <= args['keep_fraction']  # boolean flag for keeping timesteps without all front types
-
+        ### Check for all front types in the dataset ###
         front_dataset = front_dataset.isel(time=0) if 'time' in front_dataset.dims else front_dataset
-        front_dataset = front_dataset.to_array().transpose('longitude', 'latitude', 'variable')
-        front_bins = np.bincount(front_dataset.values.astype('int64').flatten(), minlength=num_front_types)  # counts for each front type
-        all_fronts_present = all([front_count > 0 for front_count in front_bins]) > 0  # boolean flag that says if all front types are present in the current timestep
+        front_dataset = front_dataset.to_array().transpose(*transpose_dims, 'variable')
+        timestep_front_bins = np.bincount(front_dataset.values.astype('int64').flatten(), minlength=num_front_types)  # counts for each front type
+        all_fronts_in_timestep = all([front_count > 0 for front_count in timestep_front_bins]) > 0  # boolean flag that says if all front types are present in the current timestep
 
-        if all_fronts_present or keep_timestep or args['evaluation_dataset']:
+        if all_fronts_in_timestep or keep_timestep:
 
-            variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].sel(pressure_level=args['pressure_levels'], **sel_kwargs).isel(**isel_kwargs).transpose('time', 'longitude', 'latitude', 'pressure_level').astype('float16')
-            variables_dataset = variables_dataset.isel(time=0).transpose('longitude', 'latitude', 'pressure_level').astype('float16')
+            ### Open variables dataset ###
+            variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].sel(pressure_level=args['pressure_levels'], **sel_kwargs).isel(**isel_kwargs).transpose('time', *transpose_dims, 'pressure_level').astype('float16')
+            variables_dataset = variables_dataset.isel(time=0).transpose(*transpose_dims, 'pressure_level').astype('float16')
 
             ### Reformat the fronts from the previous timestep ###
             if args['add_previous_fronts'] is not None:
                 previous_front_dataset = xr.open_dataset(previous_fronts_netcdf_files[timestep_no], engine='netcdf4').sel(**sel_kwargs).isel(**isel_kwargs).astype('float16')
                 previous_front_dataset = data_utils.reformat_fronts(previous_front_dataset, args['add_previous_fronts'])
 
+                # expand fronts in the previous timestep
                 if args['front_dilation'] > 0:
                     previous_front_dataset = data_utils.expand_fronts(previous_front_dataset, iterations=args['front_dilation'])
-
-                previous_front_dataset = previous_front_dataset.transpose('longitude', 'latitude')
-
-                previous_fronts = np.zeros([len(previous_front_dataset['longitude'].values),
-                                            len(previous_front_dataset['latitude'].values),
+                previous_front_dataset = previous_front_dataset.transpose(*transpose_dims)  # transpose dimensions
+                previous_fronts = np.zeros([len(previous_front_dataset[transpose_dims[0]].values),
+                                            len(previous_front_dataset[transpose_dims[1]].values),
                                             len(args['pressure_levels'])], dtype=np.float16)
 
                 for front_type_no, previous_front_type in enumerate(args['add_previous_fronts']):
                     previous_fronts[..., 0] = np.where(previous_front_dataset['identifier'].values == front_type_no + 1, 1, 0)  # Place previous front labels at the surface level
-                    variables_dataset[previous_front_type] = (('longitude', 'latitude', 'pressure_level'), previous_fronts)  # Add previous fronts to the predictor dataset
+                    variables_dataset[previous_front_type] = ((*transpose_dims, 'pressure_level'), previous_fronts)  # Add previous fronts to the predictor dataset
 
             if args['images'][0] > 1 and domain_size[0] > args['image_size'][0] + args['images'][0]:
                 start_indices_lon = np.linspace(0, domain_size[0] - args['image_size'][0], args['images'][0]).astype(int)
@@ -308,14 +281,29 @@ if __name__ == '__main__':
             if args['shuffle_images']:
                 np.random.shuffle(image_order)
 
-            for image_start_indices in image_order:
+            images_to_keep = np.random.random(size=len(image_order)) <= args["image_fraction"]
 
-                new_variables_dataset = variables_dataset.copy()
+            for i, image_start_indices in enumerate(image_order):
+
+                if args['verbose']:
+                    print("%d-%02d Dataset progress (kept/discarded):  (%d/%d timesteps, %d/%d images)" % (year, month, timesteps_kept, timesteps_discarded, images_kept, images_discarded), end='\r')
 
                 start_index_lon = image_start_indices[0]
                 end_index_lon = start_index_lon + args['image_size'][0]
                 start_index_lat = image_start_indices[1]
                 end_index_lat = start_index_lat + args['image_size'][1]
+
+                front_image = front_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :]
+                image_front_bins = np.bincount(front_image.values.astype('int64').flatten(), minlength=num_front_types)  # counts for each front type
+                all_fronts_in_image = all([front_count > 0 for front_count in image_front_bins]) > 0  # boolean flag that says if all front types are present in the current timestep
+
+                if not all_fronts_in_image and not images_to_keep[i]:
+                    images_discarded += 1
+                    continue
+
+                images_kept += 1
+
+                new_variables_dataset = variables_dataset.copy()
 
                 # boolean flags for rotating and flipping images
                 flip_lon = np.random.random() <= args['flip_chance_lon']
@@ -327,7 +315,7 @@ if __name__ == '__main__':
                 if flip_lat and "v" in args["variables"]:
                     new_variables_dataset["v"] = -new_variables_dataset["v"]  # need to reverse v-wind component if flipping the latitude axis
 
-                new_variables_dataset = data_utils.normalize_variables(new_variables_dataset).to_array().transpose('longitude', 'latitude', 'pressure_level', 'variable')
+                new_variables_dataset = data_utils.normalize_variables(new_variables_dataset).to_array().transpose(*transpose_dims, 'pressure_level', 'variable')
                 variables_tensor = tf.convert_to_tensor(new_variables_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :, :], dtype=tf.float16)
 
                 if flip_lon:
@@ -336,7 +324,7 @@ if __name__ == '__main__':
                     variables_tensor = tf.reverse(variables_tensor, axis=[1])  # Reverse values along the latitude dimension
 
                 if args['noise_fraction'] > 0:
-                    ### Add noise to image ###
+                    ### Add salt and pepper noise to image ###
                     random_values = tf.random.uniform(shape=variables_tensor.shape)
                     variables_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, variables_tensor)  # add 0s to image
                     variables_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, variables_tensor)  # add 1s to image
@@ -346,13 +334,14 @@ if __name__ == '__main__':
                     variables_tensor_shape_3d = variables_tensor.shape
                     variables_tensor = tf.reshape(variables_tensor, [variables_tensor_shape_3d[0], variables_tensor_shape_3d[1], variables_tensor_shape_3d[2] * variables_tensor_shape_3d[3]])
 
+                ### add input images to tensorflow dataset ###
                 variables_tensor_for_timestep = tf.data.Dataset.from_tensors(variables_tensor)
                 if 'variables_tensors_for_month' not in locals():
                     variables_tensors_for_month = variables_tensor_for_timestep
                 else:
                     variables_tensors_for_month = variables_tensors_for_month.concatenate(variables_tensor_for_timestep)
 
-                front_tensor = tf.convert_to_tensor(front_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :], dtype=tf.int32)
+                front_tensor = tf.convert_to_tensor(front_image, dtype=tf.int32)
 
                 if flip_lon:
                     front_tensor = tf.reverse(front_tensor, axis=[0])  # Reverse values along the longitude dimension
@@ -376,10 +365,7 @@ if __name__ == '__main__':
         else:
             timesteps_discarded += 1
 
-        if args['verbose']:
-            print("Timesteps complete: %d/%d  (Retained/discarded: %d/%d)" % (timesteps_kept + timesteps_discarded, num_timesteps, timesteps_kept, timesteps_discarded), end='\r')
-
-    print("Timesteps complete: %d/%d  (Retained/discarded: %d/%d)" % (timesteps_kept + timesteps_discarded, num_timesteps, timesteps_kept, timesteps_discarded))
+    print("%d-%02d Dataset progress (kept/discarded):  (%d/%d timesteps, %d/%d images)" % (year, month, timesteps_kept, timesteps_discarded, images_kept, images_discarded))
 
     if args['overwrite']:
         if os.path.isdir(tf_dataset_folder_variables):

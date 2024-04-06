@@ -1,8 +1,8 @@
 """
-Download grib files for GDAS and/or GFS data.
+Download grib files containing NWP model data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2024.2.29
 """
 
 import argparse
@@ -72,9 +72,13 @@ if __name__ == "__main__":
                 [files.append(f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.%d%02d%02d/%02d/atmos/gfs.t%02dz.pgrb2.0p25.f%03d" % (init_time.year, init_time.month, init_time.day, init_time.hour, init_time.hour, forecast_hour))
                  for forecast_hour in args['forecast_hours']]
         elif args['model'] == 'hrrr':
+            if datetime.datetime(init_time.year, init_time.month, init_time.day, init_time.hour) < datetime.datetime(2014, 7, 30, 18):
+                raise ConnectionAbortedError("Cannot download HRRR data prior to 18z July 30, 2014.")
             [files.append(f"https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.%d%02d%02d/conus/hrrr.t%02dz.wrfprsf%02d.grib2" % (init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
              for forecast_hour in args['forecast_hours']]
         elif args['model'] == 'rap':
+            if datetime.datetime(init_time.year, init_time.month, init_time.day, init_time.hour) < datetime.datetime(2021, 2, 22, 0):
+                raise ConnectionAbortedError("Cannot download RAP data prior to 0z February 22, 2021.")
             [files.append(f"https://noaa-rap-pds.s3.amazonaws.com/rap.%d%02d%02d/rap.t%02dz.wrfprsf%02d.grib2" % (init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
              for forecast_hour in args['forecast_hours']]
         elif 'namnest' in args['model']:
@@ -87,8 +91,13 @@ if __name__ == "__main__":
                     folder = 'analysis'  # use the analysis folder as it contains more accurate data
                 else:
                     folder = 'forecast'  # forecast hours other than 0, 1, 2, 3, 6 do not have analysis data
-                files.append(f"https://www.ncei.noaa.gov/data/north-american-mesoscale-model/access/%s/%d%02d/%d%02d%02d/nam_218_%d%02d%02d_%02d00_%03d.grb2" %
-                             (folder, init_time.year, init_time.month, init_time.year, init_time.month, init_time.day, init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
+
+                if datetime.datetime(init_time.year, init_time.month, init_time.day, init_time.hour) > datetime.datetime.utcnow() - datetime.timedelta(days=7):
+                    files.append(f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/nam/prod/nam.%d%02d%02d/nam.t%02dz.awphys%02d.tm00.grib2" %
+                                 (init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
+                else:
+                    files.append(f"https://www.ncei.noaa.gov/data/north-american-mesoscale-model/access/%s/%d%02d/%d%02d%02d/nam_218_%d%02d%02d_%02d00_%03d.grb2" %
+                                 (folder, init_time.year, init_time.month, init_time.year, init_time.month, init_time.day, init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour))
         [local_filenames.append("%s_%d%02d%02d%02d_f%03d.grib" % (args['model'], init_time.year, init_time.month, init_time.day, init_time.hour, forecast_hour)) for forecast_hour in args['forecast_hours']]
 
     for file, local_filename in zip(files, local_filenames):

@@ -6,7 +6,7 @@ References
 * Snyder 1987: https://doi.org/10.3133/pp1395
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.11.16
+Script version: 2024.2.19
 """
 
 import pandas as pd
@@ -23,16 +23,19 @@ normalization_parameters = {'mslp_z_surface': [1050., 960.],
                             'mslp_z_900': [127., 17.],
                             'mslp_z_850': [174., 63.],
                             'q_surface': [24., 0.],
+                            'q_1013': [24., 0.],
                             'q_1000': [26., 0.],
                             'q_950': [26., 0.],
                             'q_900': [23., 0.],
                             'q_850': [21., 0.],
                             'RH_surface': [1., 0.],
+                            'RH_1013': [1., 0.],
                             'RH_1000': [1., 0.],
                             'RH_950': [1., 0.],
                             'RH_900': [1., 0.],
                             'RH_850': [1., 0.],
                             'r_surface': [25., 0.],
+                            'r_1013': [25., 0.],
                             'r_1000': [22., 0.],
                             'r_950': [22., 0.],
                             'r_900': [20., 0.],
@@ -43,16 +46,19 @@ normalization_parameters = {'mslp_z_surface': [1050., 960.],
                             'sp_z_900': [127., 17.],
                             'sp_z_850': [174., 63.],
                             'theta_surface': [331., 213.],
+                            'theta_1013': [331., 213.],
                             'theta_1000': [322., 218.],
                             'theta_950': [323., 219.],
                             'theta_900': [325., 227.],
                             'theta_850': [330., 237.],
                             'theta_e_surface': [375., 213.],
+                            'theta_e_1013': [375., 213.],
                             'theta_e_1000': [366., 208.],
                             'theta_e_950': [367., 210.],
                             'theta_e_900': [364., 227.],
                             'theta_e_850': [359., 238.],
                             'theta_v_surface': [324., 212.],
+                            'theta_v_1013': [324., 212.],
                             'theta_v_1000': [323., 218.],
                             'theta_v_950': [319., 215.],
                             'theta_v_900': [315., 220.],
@@ -63,16 +69,19 @@ normalization_parameters = {'mslp_z_surface': [1050., 960.],
                             'theta_w_900': [301., 214.],
                             'theta_w_850': [300., 237.],
                             'T_surface': [323., 212.],
+                            'T_1013': [323., 212.],
                             'T_1000': [322., 218.],
                             'T_950': [319., 216.],
                             'T_900': [314., 220.],
                             'T_850': [315., 227.],
                             'Td_surface': [304., 207.],
+                            'Td_1013': [304., 207.],
                             'Td_1000': [302., 208.],
                             'Td_950': [301., 210.],
                             'Td_900': [298., 200.],
                             'Td_850': [296., 200.],
                             'Tv_surface': [324., 211.],
+                            'Tv_1013': [324., 211.],
                             'Tv_1000': [323., 206.],
                             'Tv_950': [319., 206.],
                             'Tv_900': [316., 220.],
@@ -83,15 +92,22 @@ normalization_parameters = {'mslp_z_surface': [1050., 960.],
                             'Tw_900': [301., 219.],
                             'Tw_850': [299., 227.],
                             'u_surface': [36., -35.],
+                            'u_1013': [36., -35.],
                             'u_1000': [38., -35.],
                             'u_950': [48., -55.],
                             'u_900': [59., -58.],
                             'u_850': [59., -58.],
                             'v_surface': [30., -35.],
+                            'v_1013': [30., -35.],
                             'v_1000': [35., -38.],
                             'v_950': [55., -56.],
                             'v_900': [58., -59.],
-                            'v_850': [58., -59.]}
+                            'v_850': [58., -59.],
+                            'z_1013': [40., -82.],
+                            'z_1000': [48., -69.],
+                            'z_950': [86., -27.],
+                            'z_900': [127., 17.],
+                            'z_850': [174., 63.]}
 
 
 def expand_fronts(fronts: np.ndarray | tf.Tensor | xr.Dataset | xr.DataArray, iterations: int = 1):
@@ -389,7 +405,7 @@ def reformat_fronts(fronts, front_types):
         WF-D (10): Warm front (dissipating)
         SF-D (11): Stationary front (dissipating)
         OF-D (12): Occluded front (dissipating)
-        INST (13): Instability axis
+        INST (13): Squall line ????
         TROF (14): Trough
         TT (15): Tropical Trough
         DL (16): Dryline
@@ -527,7 +543,7 @@ def reformat_fronts(fronts, front_types):
 
     if fronts_argument_type == xr.Dataset or fronts_argument_type == xr.DataArray:
         fronts.attrs['front_types'] = front_types
-        fronts.attrs['num_types'] = num_types
+        fronts.attrs['num_front_types'] = num_types
         fronts.attrs['labels'] = labels
 
     return fronts
