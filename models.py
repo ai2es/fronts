@@ -7,12 +7,8 @@ Deep learning models:
     * U-Net 3+
     * Attention U-Net
 
-TODO:
-    * Allow models to have a unique number of encoder and decoder levels (e.g. 3 encoder levels and 5 decoder levels)
-    * Add temporal U-Nets
-
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2024.4.5
 """
 
 from tensorflow.keras.models import Model
@@ -31,9 +27,10 @@ def unet(
     kernel_size: int = 3,
     squeeze_axes: int | tuple[int] | list[int] = None,
     shared_axes: int | tuple[int] | list[int] = None,
-    modules_per_node: int = 5,
+    modules_per_node: int = 2,
     batch_normalization: bool = True,
     activation: str = 'relu',
+    output_activation: str = 'softmax',
     padding: str = 'same',
     use_bias: bool = True,
     kernel_initializer: str = 'glorot_uniform',
@@ -74,6 +71,8 @@ def unet(
     activation: str
         Activation function to use in the modules.
         See utils.unet_utils.choose_activation_layer for all supported activation functions.
+    output_activation: str
+        Output activation function.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -141,6 +140,7 @@ def unet(
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
                 'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes']:
         supervision_kwargs[arg] = locals()[arg]
+    supervision_kwargs['activation'] = output_activation
 
     tensors = dict({})  # Tensors associated with each node and skip connections
 
@@ -192,9 +192,10 @@ def unet_ensemble(
     kernel_size: int = 3,
     squeeze_axes: int | tuple[int] | list[int] = None,
     shared_axes: int | tuple[int] | list[int] = None,
-    modules_per_node: int = 5,
+    modules_per_node: int = 2,
     batch_normalization: bool = True,
     activation: str = 'relu',
+    output_activation: str = 'softmax',
     padding: str = 'same',
     use_bias: bool = True,
     kernel_initializer: str = 'glorot_uniform',
@@ -236,6 +237,8 @@ def unet_ensemble(
     activation: str
         Activation function to use in the modules.
         See utils.unet_utils.choose_activation_layer for all supported activation functions.
+    output_activation: str
+        Output activation function.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -296,12 +299,13 @@ def unet_ensemble(
 
     # Keyword arguments for the deep supervision output in the final decoder node
     supervision_kwargs = dict({})
-    supervision_kwargs['use_bias'] = True
-    supervision_kwargs['output_level'] = 1
-    supervision_kwargs['kernel_size'] = 1
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
                 'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes', 'num_classes']:
         supervision_kwargs[arg] = locals()[arg]
+    supervision_kwargs['activation'] = output_activation
+    supervision_kwargs['use_bias'] = True
+    supervision_kwargs['output_level'] = 1
+    supervision_kwargs['kernel_size'] = 1
 
     tensors = dict({})  # Tensors associated with each node and skip connections
     tensors_with_supervision = []  # list of output tensors. If deep supervision is used, more than one output will be produced
@@ -362,10 +366,11 @@ def unet_plus(
     kernel_size: int = 3,
     squeeze_axes: int | tuple[int] | list[int] = None,
     shared_axes: int | tuple[int] | list[int] = None,
-    modules_per_node: int = 5,
+    modules_per_node: int = 2,
     batch_normalization: bool = True,
     deep_supervision: bool = True,
     activation: str = 'relu',
+    output_activation: str = 'softmax',
     padding: str = 'same',
     use_bias: bool = True,
     kernel_initializer: str = 'glorot_uniform',
@@ -410,6 +415,8 @@ def unet_plus(
     activation: str
         Activation function to use in the modules.
         See utils.unet_utils.choose_activation_layer for all supported activation functions.
+    output_activation: str
+        Output activation function.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -474,6 +481,7 @@ def unet_plus(
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
                 'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes', 'num_classes']:
         supervision_kwargs[arg] = locals()[arg]
+    supervision_kwargs['activation'] = output_activation
     supervision_kwargs['use_bias'] = True
     supervision_kwargs['output_level'] = 1
     supervision_kwargs['kernel_size'] = 1
@@ -536,10 +544,11 @@ def unet_2plus(
     kernel_size: int = 3,
     squeeze_axes: int | tuple[int] | list[int] = None,
     shared_axes: int | tuple[int] | list[int] = None,
-    modules_per_node: int = 5,
+    modules_per_node: int = 2,
     batch_normalization: bool = True,
     deep_supervision: bool = True,
     activation: str = 'relu',
+    output_activation: str = 'softmax',
     padding: str = 'same',
     use_bias: bool = True,
     kernel_initializer: str = 'glorot_uniform',
@@ -584,6 +593,8 @@ def unet_2plus(
     activation: str
         Activation function to use in the modules.
         See utils.unet_utils.choose_activation_layer for all supported activation functions.
+    output_activation: str
+        Output activation function.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -648,6 +659,7 @@ def unet_2plus(
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
                 'kernel_constraint', 'bias_constraint', 'upsample_size', 'squeeze_axes', 'num_classes']:
         supervision_kwargs[arg] = locals()[arg]
+    supervision_kwargs['activation'] = output_activation
     supervision_kwargs['use_bias'] = True
     supervision_kwargs['output_level'] = 1
     supervision_kwargs['kernel_size'] = 1
@@ -727,10 +739,11 @@ def unet_3plus(
     first_encoder_connections: bool = True,
     squeeze_axes: int | tuple[int] | list[int] = None,
     shared_axes: int | tuple[int] | list[int] = None,
-    modules_per_node: int = 5,
+    modules_per_node: int = 2,
     batch_normalization: bool = True,
     deep_supervision: bool = True,
     activation: str = 'relu',
+    output_activation: str = 'softmax',
     padding: str = 'same',
     use_bias: bool = True,
     kernel_initializer: str = 'glorot_uniform',
@@ -783,6 +796,8 @@ def unet_3plus(
     activation: str
         Activation function to use in the modules.
         See utils.unet_utils.choose_activation_layer for all supported activation functions.
+    output_activation: str
+        Output activation function.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -857,6 +872,7 @@ def unet_3plus(
     for arg in ['kernel_size', 'padding', 'squeeze_axes', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer',
                 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint', 'upsample_size']:
         supervision_kwargs[arg] = locals()[arg]
+    supervision_kwargs['activation'] = output_activation
     supervision_kwargs['use_bias'] = True
 
     tensors = dict({})  # Tensors associated with each node and skip connections
@@ -929,17 +945,18 @@ def unet_3plus(
 
 
 def attention_unet(
-    input_shape: tuple[int],
+    input_shape: tuple[None | int, ...],
     num_classes: int,
-    pool_size: int | tuple[int] | list[int],
+    pool_size: int | tuple[int, ...] | list[int],
     levels: int,
     filter_num: tuple[int] | list[int],
     kernel_size: int = 3,
     squeeze_axes: int | tuple[int] | list[int] = None,
     shared_axes: int | tuple[int] | list[int] = None,
-    modules_per_node: int = 5,
+    modules_per_node: int = 2,
     batch_normalization: bool = True,
     activation: str = 'relu',
+    output_activation: str = 'softmax',
     padding: str = 'same',
     use_bias: bool = True,
     kernel_initializer: str = 'glorot_uniform',
@@ -978,6 +995,8 @@ def attention_unet(
     activation: str
         Activation function to use in the modules.
         See utils.unet_utils.choose_activation_layer for all supported activation functions.
+    output_activation: str
+        Output activation function.
     padding: str
         Padding to use in the convolution layers.
     use_bias: bool
@@ -1049,6 +1068,7 @@ def attention_unet(
     for arg in ['padding', 'kernel_initializer', 'bias_initializer', 'kernel_regularizer', 'bias_regularizer', 'activity_regularizer',
                 'kernel_constraint', 'bias_constraint', 'squeeze_axes', 'num_classes']:
         supervision_kwargs[arg] = locals()[arg]
+    supervision_kwargs['activation'] = output_activation
     supervision_kwargs['upsample_size'] = pool_size
     supervision_kwargs['use_bias'] = True
     supervision_kwargs['output_level'] = 1
@@ -1081,7 +1101,6 @@ def attention_unet(
         tensors[f'AG{decoder - 1}'] = unet_utils.attention_gate(tensors[f'En{decoder - 1}'], tensors[f'De{decoder}'], kernel_size, pool_size, name=f'AG{decoder - 1}')
         upsample_tensor = unet_utils.upsample(tensors[f'De{decoder}'], filters=filter_num[decoder - 2], name=f'De{decoder}-De{decoder - 1}', **upsample_kwargs)  # Connect the bottom decoder node to the next decoder node
 
-    print(tensors.keys())
     """ Final decoder node begins with a concatenation and convolution module, followed by deep supervision """
     tensor_De1 = Concatenate(name='De1_Concatenate')([tensors['AG1'], upsample_tensor])  # Concatenate the upsampled tensor and skip connection
     tensor_De1 = unet_utils.convolution_module(tensor_De1, filters=filter_num[0], name='De1', **module_kwargs)  # Convolution module
