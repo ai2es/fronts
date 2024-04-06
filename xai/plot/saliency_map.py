@@ -2,7 +2,7 @@
 Plot saliency maps for model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.1.5
+Script version: 2024.2.13
 """
 import argparse
 import pandas as pd
@@ -13,6 +13,7 @@ import xarray as xr
 from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
 import os
 import sys
+sys.path.insert(0, os.getcwd())
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 from utils import settings
 from utils.plotting_utils import plot_background
@@ -74,11 +75,11 @@ if __name__ == '__main__':
         fig, axs = plt.subplots(3, 2, subplot_kw={'projection': ccrs.PlateCarree(central_longitude=(extent[0] + extent[1]) / 2)})
         axarr = axs.flatten()
         for ax_ind, ax in enumerate(axarr):
-            plot_background(extent, ax=ax, linewidth=0.5)
+            plot_background(extent, ax=ax, linewidth=0.3)
             if ax_ind == 0:
                 probs_ds[front_type].plot.contourf(ax=ax, x='longitude', y='latitude', cmap=cmap_probs, norm=norm, levels=levels, transform=ccrs.PlateCarree(), alpha=0.8, add_colorbar=False)
             else:
-                probs_ds[front_type].plot.contour(ax=ax, x='longitude', y='latitude', colors='black', linewidths=0.25, norm=norm, levels=levels, transform=ccrs.PlateCarree(), alpha=0.8)
+                # probs_ds[front_type].plot.contour(ax=ax, x='longitude', y='latitude', colors='black', linewidths=0.1, norm=norm, levels=levels, transform=ccrs.PlateCarree(), alpha=0.8)
                 salmap_for_type_pl.isel(pressure_level=ax_ind-1).plot(ax=ax, x='longitude', y='latitude', cmap=args['cmap'], norm=norm, transform=ccrs.PlateCarree(), alpha=0.6, add_colorbar=False)
 
         axarr[0].set_title("a) Model predictions")
