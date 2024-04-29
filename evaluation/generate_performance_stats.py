@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.1.5
+Script version: 2024.4.29
 """
 import argparse
 import glob
@@ -112,9 +112,6 @@ def combine_statistics_for_dataset():
 
 
 if __name__ == '__main__':
-    """
-    All arguments listed in the examples are listed via argparse in alphabetical order below this comment block.
-    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, help="Dataset for which to make predictions. Options are: 'training', 'validation', 'test'")
     parser.add_argument('--year_and_month', type=int, nargs=2, help="Year and month for which to make predictions.")
@@ -144,7 +141,7 @@ if __name__ == '__main__':
         if args['model_number'] in [6846496, 7236500, 7507525]:
             num_dims = (3, 3)
 
-    num_front_types = model_properties['classes'] - 1
+    num_front_types = model_properties['classes'] - 1  # remove the "no front" class type
 
     if args['dataset'] is not None and args['year_and_month'] is not None:
         raise ValueError("--dataset and --year_and_month cannot be passed together.")
@@ -223,9 +220,8 @@ if __name__ == '__main__':
 
             performance_ds = xr.Dataset(coords={'time': time_array, 'longitude': lons, 'latitude': lats, 'boundary': boundaries, 'threshold': thresholds})
 
-            fronts_ds_month = data_utils.reformat_fronts(fronts_ds.sel(time='%d-%02d' % (year, month)), front_types)
-
             for front_no, front_type in enumerate(front_types):
+                fronts_ds_month = data_utils.reformat_fronts(fronts_ds.sel(time='%d-%02d' % (year, month)), front_types)
                 print("%d-%02d: %s (TN/FN)" % (year, month, front_type))
                 ### Calculate true/false negatives ###
                 for i in range(100):
