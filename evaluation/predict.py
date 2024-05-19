@@ -2,7 +2,7 @@
 Generate predictions with a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.1.5
+Script version: 2024.5.15
 """
 import argparse
 import pandas as pd
@@ -342,32 +342,39 @@ def create_model_prediction_dataset(stitched_map_probs: np.array, lats: np.array
         raise TypeError(f"Expected a tuple or list for front_types, received {type(front_types)}")
     ####################################################################################################################
 
+    if args["data_source"] not in ["hrrr", "nam-12km"]:
+        spatial_dims = ('longitude', 'latitude')
+        coords = {'latitude': lats, 'longitude': lons}
+    else:
+        spatial_dims = ('x', 'y')
+        coords = {'latitude': (('x', 'y'), lats), 'longitude': (('x', 'y'), lons)}
+
     if front_types == 'F_BIN' or front_types == 'MERGED-F_BIN' or front_types == 'MERGED-T':
         probs_ds = xr.Dataset(
-            {front_types: (('longitude', 'latitude'), stitched_map_probs[0])},
-            coords={'latitude': lats, 'longitude': lons})
+            {front_types: (spatial_dims, stitched_map_probs[0])},
+            coords=coords)
     elif front_types == 'MERGED-F':
         probs_ds = xr.Dataset(
-            {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
-             'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
-             'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
-             'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3])},
-            coords={'latitude': lats, 'longitude': lons})
+            {'CF_merged': (spatial_dims, stitched_map_probs[0]),
+             'WF_merged': (spatial_dims, stitched_map_probs[1]),
+             'SF_merged': (spatial_dims, stitched_map_probs[2]),
+             'OF_merged': (spatial_dims, stitched_map_probs[3])},
+            coords=coords)
     elif front_types == 'MERGED-ALL':
         probs_ds = xr.Dataset(
-            {'CF_merged': (('longitude', 'latitude'), stitched_map_probs[0]),
-             'WF_merged': (('longitude', 'latitude'), stitched_map_probs[1]),
-             'SF_merged': (('longitude', 'latitude'), stitched_map_probs[2]),
-             'OF_merged': (('longitude', 'latitude'), stitched_map_probs[3]),
-             'TROF_merged': (('longitude', 'latitude'), stitched_map_probs[4]),
-             'INST': (('longitude', 'latitude'), stitched_map_probs[5]),
-             'DL': (('longitude', 'latitude'), stitched_map_probs[6])},
-            coords={'latitude': lats, 'longitude': lons})
+            {'CF_merged': (spatial_dims, stitched_map_probs[0]),
+             'WF_merged': (spatial_dims, stitched_map_probs[1]),
+             'SF_merged': (spatial_dims, stitched_map_probs[2]),
+             'OF_merged': (spatial_dims, stitched_map_probs[3]),
+             'TROF_merged': (spatial_dims, stitched_map_probs[4]),
+             'INST': (spatial_dims, stitched_map_probs[5]),
+             'DL': (spatial_dims, stitched_map_probs[6])},
+            coords=coords)
     elif type(front_types) == list:
         probs_ds_dict = dict({})
         for probs_ds_index, front_type in enumerate(front_types):
-            probs_ds_dict[front_type] = (('longitude', 'latitude'), stitched_map_probs[probs_ds_index])
-        probs_ds = xr.Dataset(probs_ds_dict, coords={'latitude': lats, 'longitude': lons})
+            probs_ds_dict[front_type] = (spatial_dims, stitched_map_probs[probs_ds_index])
+        probs_ds = xr.Dataset(probs_ds_dict, coords=coords)
     else:
         raise ValueError(f"'{front_types}' is not a valid set of front types.")
 
@@ -434,9 +441,12 @@ if __name__ == '__main__':
 
     ### Properties of the final map made from stitched images ###
     domain_images_lon, domain_images_lat = args['domain_images'][0], args['domain_images'][1]
-    domain_size_lon = int((domain_extent[1] - domain_extent[0]) // 0.25) + 1
-    domain_size_lat = int((domain_extent[3] - domain_extent[2]) // 0.25) + 1
-    image_size_lon, image_size_lat = args['image_size'][0], args['image_size'][1]  # Dimensions of the model's predictions
+    if args["domain_images"] == [1, 1]:
+        domain_size_lon, domain_size_lat = args["image_size"]
+    else:
+        domain_size_lon = int((domain_extent[1] - domain_extent[0]) // 0.25) + 1
+        domain_size_lat = int((domain_extent[3] - domain_extent[2]) // 0.25) + 1
+    image_size_lon, image_size_lat = args['image_size']  # Dimensions of the model's predictions
 
     if domain_images_lon > 1:
         lon_image_spacing = int((domain_size_lon - image_size_lon)/(domain_images_lon-1))
@@ -463,8 +473,19 @@ if __name__ == '__main__':
     ####################################################################################################################
 
     dataset_kwargs = {'engine': 'netcdf4'}  # Keyword arguments for loading variable files with xarray
-    coords_sel_kwargs = {'longitude': slice(domain_extent[0], domain_extent[1]),
-                         'latitude': slice(domain_extent[3], domain_extent[2])}
+
+    if args["data_source"] not in ["hrrr", "nam-12km"]:
+        coords_sel_kwargs = {'longitude': slice(domain_extent[0], domain_extent[1]),
+                             'latitude': slice(domain_extent[3], domain_extent[2])}
+        spatial_dims = ('longitude', 'latitude')
+        if args["data_source"] == "era5":
+            transpose_dims = ('time', 'longitude', 'latitude', 'pressure_level')
+        else:
+            transpose_dims = ('time', 'forecast_hour', 'longitude', 'latitude', 'pressure_level')
+    else:
+        coords_sel_kwargs = {}
+        spatial_dims = ('x', 'y')
+        transpose_dims = ('time', 'forecast_hour', 'x', 'y', 'pressure_level')
 
     if args['init_time'] is not None:
         timestep_str = '%d%02d%02d%02d' % (args['init_time'][0], args['init_time'][1], args['init_time'][2], args['init_time'][3])
@@ -488,19 +509,25 @@ if __name__ == '__main__':
         variable_ds = xr.open_mfdataset(files_in_chunk, **dataset_kwargs).sel(**coords_sel_kwargs)[variables]
 
         if args['data_source'] == 'era5':
-            variable_ds = variable_ds.sel(pressure_level=pressure_levels).transpose('time', 'longitude', 'latitude', 'pressure_level')
+            variable_ds = variable_ds.sel(pressure_level=pressure_levels).transpose(*transpose_dims)
+            image_lats = variable_ds.latitude.values[:domain_size_lat]
+            image_lons = variable_ds.longitude.values[:domain_size_lon]
         else:
-            variable_ds = variable_ds.sel(pressure_level=pressure_levels).transpose('time', 'forecast_hour', 'longitude', 'latitude', 'pressure_level')
+            variable_ds = variable_ds.sel(pressure_level=pressure_levels).transpose(*transpose_dims)
             forecast_hours = variable_ds['forecast_hour'].values
+            if args["data_source"] in ["hrrr", "nam-12km"]:
+                image_lats = variable_ds.latitude.values[:domain_size_lon, :domain_size_lat]
+                image_lons = variable_ds.longitude.values[:domain_size_lon, :domain_size_lat]
+            else:
+                image_lats = variable_ds.latitude.values[:domain_size_lat]
+                image_lons = variable_ds.longitude.values[:domain_size_lon]
 
         # Older 2D models were trained with the pressure levels not in the proper order
         if args['model_number'] in [7805504, 7866106, 7961517]:
             variable_ds = variable_ds.isel(pressure_level=[0, 4, 3, 2, 1])
 
-        image_lats = variable_ds.latitude.values[:domain_size_lat]
-        image_lons = variable_ds.longitude.values[:domain_size_lon]
-
-        timestep_predict_size = settings.TIMESTEP_PREDICT_SIZE[args['domain']]
+        # TODO: get rid of this variable, doesn't really hold a purpose
+        timestep_predict_size = 128
 
         if args['data_source'] != 'era5':
             num_forecast_hours = len(forecast_hours)
@@ -533,8 +560,8 @@ if __name__ == '__main__':
                     lon_index = int(lon_image * lon_image_spacing)
 
                     # Select the current image
-                    variable_batch_ds_new = variable_batch_ds[variables].isel(longitude=slice(lon_index, lon_index + args['image_size'][0]),
-                                                                              latitude=slice(lat_index, lat_index + args['image_size'][1])).to_array().values
+                    variable_batch_ds_new = variable_batch_ds[variables].isel({'%s' % spatial_dims[0]: slice(lon_index, lon_index + args['image_size'][0]),
+                                                                               '%s' % spatial_dims[1]: slice(lat_index, lat_index + args['image_size'][1])}).to_array().values
 
                     if args['data_source'] == 'era5':
                         variable_batch_ds_new = variable_batch_ds_new.transpose([1, 2, 3, 4, 0])  # (time, longitude, latitude, pressure level, variable)
@@ -555,7 +582,7 @@ if __name__ == '__main__':
                         variable_ds_new_shape = np.shape(variable_batch_ds_new)
                         variable_batch_ds_new = variable_batch_ds_new.reshape(variable_ds_new_shape[0] * variable_ds_new_shape[1], *[dim_size for dim_size in variable_ds_new_shape[2:]])
 
-                    prediction = model.predict(variable_batch_ds_new, batch_size=settings.GPU_PREDICT_BATCH_SIZE, verbose=0)
+                    prediction = model.predict(variable_batch_ds_new, batch_size=1, verbose=0)
                     num_dims_in_pred = len(np.shape(prediction))
 
                     if model_type in ['unet', 'attention_unet']:
@@ -586,13 +613,23 @@ if __name__ == '__main__':
                     if args['data_source'] != 'era5':
                         for timestep in range(num_timesteps_in_batch):
                             for fcst_hr_index in range(num_forecast_hours):
-                                stitched_map_probs[timestep][fcst_hr_index], map_created = _add_image_to_map(stitched_map_probs[timestep][fcst_hr_index], image_probs[timestep * num_forecast_hours + fcst_hr_index], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
-                                    image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
+                                if args["domain_images"] == [1, 1]:
+                                    stitched_map_probs[timestep] = image_probs
+                                    if timestep == num_timesteps_in_batch - 1 and fcst_hr_index == num_forecast_hours - 1:
+                                        map_created = True
+                                else:
+                                    stitched_map_probs[timestep][fcst_hr_index], map_created = _add_image_to_map(stitched_map_probs[timestep][fcst_hr_index], image_probs[timestep * num_forecast_hours + fcst_hr_index], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
+                                        image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
 
                     else:  # if args['data_source'] == 'era5'
                         for timestep in range(num_timesteps_in_batch):
-                            stitched_map_probs[timestep], map_created = _add_image_to_map(stitched_map_probs[timestep], image_probs[timestep], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
-                                image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
+                            if args["domain_images"] == [1, 1]:
+                                stitched_map_probs[timestep] = image_probs
+                                if timestep == num_timesteps_in_batch - 1:
+                                    map_created = True
+                            else:
+                                stitched_map_probs[timestep], map_created = _add_image_to_map(stitched_map_probs[timestep], image_probs[timestep], map_created, domain_images_lon, domain_images_lat, lon_image, lat_image,
+                                    image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
                     ####################################################################################################
 
                     if map_created:

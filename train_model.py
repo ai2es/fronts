@@ -2,11 +2,11 @@
 Function that trains a new U-Net model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.3.9
+Script version: 2024.5.18
 """
 import argparse
 import pandas as pd
-from tensorflow.keras.callbacks import EarlyStopping, CSVLogger, LearningRateScheduler
+from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 import tensorflow as tf
 import pickle
 import numpy as np
@@ -16,7 +16,7 @@ import custom_losses
 import custom_metrics
 import models
 import datetime
-from utils import settings, misc, data_utils
+from utils import misc, data_utils
 import wandb
 
 
@@ -34,10 +34,11 @@ if __name__ == "__main__":
     parser.add_argument('--project', type=str, help="WandB project that will be used to store model training data.")
     parser.add_argument('--log_freq', type=int, default=1, help="WandB loss/metric logging frequency in epochs.")
     parser.add_argument('--upload_model', action='store_true', help="Upload model checkpoints to WandB.")
+    parser.add_argument('--key', type=str, help="WandB API key.")
     parser.add_argument('--name', type=str,
         help="WandB name for the current model run. If no name is specified, it will default to the model number (e.g. model_129482).")
 
-    # ### General arguments ###
+    ### General arguments ###
     parser.add_argument('--model_dir', type=str, required=True, help='Directory where the models are or will be saved to.')
     parser.add_argument('--model_number', type=int,
         help='Number that the model will be assigned. If no argument is passed, a number will be automatically assigned based '
@@ -65,6 +66,9 @@ if __name__ == "__main__":
     parser.add_argument('--buffer_size', type=int, 
         help="Maximum buffer size used when shuffling the training dataset. By default, the entire training dataset will "
              "be shuffled, and the buffer size is equal to the number of images in the training dataset.")
+    parser.add_argument('--cache', type=str,
+        help="Directory where the datasets will be cached for training. Passing 'RAM' or an empty string will cache the "
+             "datasets directly to RAM.")
     parser.add_argument('--disable_tensorfloat32', action='store_true', help='Disable TensorFloat32 execution.')
 
     ### Hyperparameters ###
@@ -281,25 +285,7 @@ if __name__ == "__main__":
 
     if not args['retrain']:
 
-        if args['loss'][0] == 'fractions_skill_score':
-            loss_string = 'fss_loss'
-        elif args['loss'][0] == 'critical_success_index':
-            loss_string = 'csi_loss'
-        elif args['loss'][0] == 'brier_skill_score':
-            loss_string = 'bss_loss'
-        else:
-            loss_string = None
-
-        if args['metric'][0] == 'fractions_skill_score':
-            metric_string = 'fss'
-        elif args['metric'][0] == 'critical_success_index':
-            metric_string = 'csi'
-        elif args['metric'][0] == 'brier_skill_score':
-            metric_string = 'bss'
-        else:
-            metric_string = None
-
-        all_years = np.arange(2008, 2022.1, 1)
+        all_years = np.arange(2007, 2022.1, 1)
 
         if args['num_training_years'] is not None:
             if args['training_years'] is not None:
@@ -319,8 +305,8 @@ if __name__ == "__main__":
                 raise TypeError("Must pass one of the following arguments: --validation_years, --num_validation_years")
             validation_years = list(sorted(args['validation_years']))
 
-        if len(training_years) + len(validation_years) > 12:
-            raise ValueError("No testing years are available: the total number of training and validation years cannot be greater than 12")
+        if len(training_years) + len(validation_years) > 15:
+            raise ValueError("No testing years are available: the total number of training and validation years cannot be greater than 15")
 
         test_years = [year for year in all_years if year not in training_years + validation_years]
 
@@ -430,11 +416,18 @@ if __name__ == "__main__":
     images_in_training_dataset = len(training_dataset)
     print(f"Images in validation dataset: {images_in_training_dataset:,}")
 
-    # training_dataset = training_dataset.cache("I:/tf_datasets/cache.tmp")
     # Shuffle the entire training dataset
     if args['shuffle'] == 'full':
         training_buffer_size = args["buffer_size"] if args["buffer_size"] is not None else images_in_training_dataset
         training_dataset = training_dataset.shuffle(buffer_size=training_buffer_size)
+
+    ### Cache the training dataset ###
+    if args["cache"] is not None:
+        if args["cache"] == "" or args["cache"] == "RAM":
+            training_dataset = training_dataset.cache()  # cache to RAM
+        else:
+            training_dataset = training_dataset.cache('%s/%d_training' % (args["cache"], args["model_number"]))  # cache to specified directory
+
     training_dataset = training_dataset.batch(train_batch_size, drop_remainder=True, num_parallel_calls=args['num_parallel_calls'])
     training_dataset = training_dataset.prefetch(tf.data.AUTOTUNE)
 
@@ -459,10 +452,22 @@ if __name__ == "__main__":
     validation_dataset = data_utils.combine_datasets(validation_inputs, validation_labels)
     images_in_validation_dataset = len(validation_dataset)
     print(f"Images in validation dataset: {images_in_validation_dataset:,}")
+
+    ### Cache the validation dataset ###
+    if args["cache"] is not None:
+        if args["cache"] == "" or args["cache"] == "RAM":
+            validation_dataset = validation_dataset.cache()  # cache to RAM
+        else:
+            validation_dataset = validation_dataset.cache('%s/%d_validation' % (args["cache"], args["model_number"]))  # cache to specified directory
+
     validation_dataset = validation_dataset.batch(valid_batch_size, drop_remainder=True, num_parallel_calls=args['num_parallel_calls'])
     validation_dataset = validation_dataset.prefetch(tf.data.AUTOTUNE)
 
-    # set steps per epoch and validation frequency
+    """
+    If the number of training steps is not passed, the number of training steps will be determined by the dataset size
+    and the provided batch size. The calculated number of training steps will allow for one complete pass over the training
+    dataset during each epoch.
+    """
     if args['steps'] is None:
         train_steps = int(images_in_training_dataset/train_batch_size)
         print("Using %d training steps per epoch" % train_steps)
@@ -479,12 +484,12 @@ if __name__ == "__main__":
     batch size and number of steps per epoch.
     """
     if args['patience'] is None:
-        patience = int(len(training_dataset) / (train_batch_size * train_steps)) + 1
+        patience = int(images_in_training_dataset / (train_batch_size * train_steps)) + 1
         print("Using patience value of %d epochs for early stopping" % patience)
     else:
         patience = args['patience']
 
-    # Set the lat/lon dimensions to have a None shape so images of any sized can be passed into the U-Net
+    # Set the lat/lon dimensions to have a None shape so images of any size can be passed into the model
     input_shape = list(training_dataset.take(0).element_spec[0].shape[1:])
     for i in range(2):
         input_shape[i] = None
@@ -498,6 +503,11 @@ if __name__ == "__main__":
             metric_function = getattr(custom_metrics, args['metric'][0])(**metric_args)
             optimizer = getattr(tf.keras.optimizers, args['optimizer'][0])(**optimizer_args)
             model.compile(loss=loss_function, optimizer=optimizer, metrics=metric_function)
+
+            model_properties["loss_parent_string"] = loss_args[0]
+            model_properties["loss_child_string"] = loss_function.function_spec._name
+            model_properties["metric_parent_string"] = metric_args[0]
+            model_properties["metric_child_string"] = metric_function.function_spec._name
         else:
             model = fm.load_model(args['model_number'], args['model_dir'])
 
@@ -533,20 +543,30 @@ if __name__ == "__main__":
 
     if not args["no_train"]:
 
-        wandb_init_config = dict({key: model_properties[key] for key in ["activation", "activity_regularizer", "batch_normalization",
-            "batch_sizes", "bias_constraint", "bias_initializer", "bias_regularizer", "domains", "image_size", "kernel_constraint",
-            "kernel_initializer", "kernel_regularizer", "kernel_size", "learning_rate", "loss_string", "metric_string", "model_number",
-            "model_type", "modules_per_node", "optimizer", "padding", "steps_per_epoch", "test_years", "training_years", "use_bias",
-            "validation_years"]})
-
-        # add keys from dataset_properties dictionary
-        for key in ["variables", "pressure_levels", "domain", "timestep_fraction", "image_fraction", "flip_chance_lon", "flip_chance_lat", "front_dilation"]:
-            wandb_init_config[key] = model_properties["dataset_properties"][key]
-
-        wandb_init_name = "model_%d" % args['model_number'] if args["name"] is None else args["name"]
-
         ### Initialize WandB ###
         if args["project"] is not None:
+
+            wandb_init_config = dict(
+                {key: model_properties[key] for key in ["activation", "activity_regularizer", "batch_normalization",
+                                                        "batch_sizes", "bias_constraint", "bias_initializer",
+                                                        "bias_regularizer", "domains", "image_size",
+                                                        "kernel_constraint",
+                                                        "kernel_initializer", "kernel_regularizer", "kernel_size",
+                                                        "learning_rate", "loss_parent_string", "metric_parent_string", "model_number",
+                                                        "model_type", "modules_per_node", "optimizer", "padding",
+                                                        "steps_per_epoch", "test_years", "training_years", "use_bias",
+                                                        "validation_years"]})
+
+            # add keys from dataset_properties dictionary
+            for key in ["variables", "pressure_levels", "domain", "timestep_fraction", "image_fraction",
+                        "flip_chance_lon", "flip_chance_lat", "front_dilation"]:
+                wandb_init_config[key] = model_properties["dataset_properties"][key]
+
+            wandb_init_name = "model_%d" % args['model_number'] if args["name"] is None else args["name"]
+
+            if args["key"] is not None:
+                wandb.login(key=args["key"])
+
             wandb.init(project=args["project"], config=wandb_init_config, name=wandb_init_name)
             callbacks.append(wandb.keras.WandbMetricsLogger(log_freq=args["log_freq"]))
 

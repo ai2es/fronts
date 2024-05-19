@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.1.5
+Script version: 2024.5.15
 """
 import argparse
 import cartopy.crs as ccrs
@@ -94,6 +94,11 @@ if __name__ == '__main__':
         false_positives_temporal_sum = np.sum(false_positives_temporal, axis=0)
         false_negatives_temporal_sum = np.sum(false_negatives_temporal, axis=0)
 
+        num_forecasts = true_positives_temporal_sum + false_positives_temporal_sum
+        num_forecasts = num_forecasts[0, :]
+        total_pixels = true_positives_temporal.shape[0] * len(spatial_csi_ds["latitude"]) * len(spatial_csi_ds["longitude"])
+        relative_forecast_fraction = 100 * num_forecasts / total_pixels
+
         ### Find the number of true positives and false positives in each probability bin ###
         true_positives_diff = np.abs(np.diff(true_positives_temporal_sum))
         false_positives_diff = np.abs(np.diff(false_positives_temporal_sum))
@@ -121,6 +126,10 @@ if __name__ == '__main__':
         cbar = fig.colorbar(csi_contour, ax=axarr[0], pad=0.02, label='Critical Success Index (CSI)')
         cbar.set_ticks(axis_ticks)
 
+        axarr1_2 = axarr[1].twinx()
+        axarr1_2.set_ylabel("Percentage of Grid Points with Forecasts [bars]")
+        axarr1_2.yaxis.set_major_locator(plt.LinearLocator(11))
+        axarr1_2.bar(thresholds[:-1], relative_forecast_fraction[1:], color='blue', width=0.005, alpha=0.25)
         axarr[1].plot(thresholds, thresholds, color='black', linestyle='--', linewidth=0.5, label='Perfect Reliability')
 
         cell_text = []  # List of strings that will be used in the table near the bottom of this function
@@ -148,7 +157,7 @@ if __name__ == '__main__':
             axarr[0].plot(sr[boundary], pod[boundary], color=color, linewidth=1)
 
             # Plot reliability curve
-            axarr[1].plot(thresholds[1:], observed_relative_frequency[boundary], color=color, linewidth=1)
+            axarr[1].plot(thresholds[:-1], observed_relative_frequency[boundary], color=color, linewidth=1)
 
             # Confidence interval
             xs = np.concatenate([CI_SR[0, boundary, :polygon_stop_index], CI_SR[1, boundary, :polygon_stop_index][::-1]])
@@ -162,7 +171,7 @@ if __name__ == '__main__':
 
         axarr[1].set_xticklabels(axis_ticklabels)
         axarr[1].set_xlabel("Forecast Probability (uncalibrated; %)")
-        axarr[1].set_ylabel("Observed Relative Frequency (%)")
+        axarr[1].set_ylabel("Observed Relative Frequency (%) [lines]")
         axarr[1].set_title(r'$\bf{b)}$ $\bf{Reliability}$ $\bf{diagram}$')
 
         for ax in axarr:
@@ -178,18 +187,18 @@ if __name__ == '__main__':
 
         ### Adjust the data table and spatial CSI plot based on the domain ###
         if args['domain'] == 'conus':
-            table_axis_extent = [0.063, -0.038, 0.4, 0.239]
+            table_axis_extent = [0.063, -0.038, 0.39, 0.239]
             table_scale = (1, 3.3)
             table_title_kwargs = dict(x=0.5, y=0.098, pad=-4)
-            spatial_axis_extent = [0.51, -0.582, 0.512, 0.544]
+            spatial_axis_extent = [0.5, -0.582, 0.512, 0.544]
             cbar_kwargs['shrink'] = 1
             spatial_plot_xlabels = [-140, -105, -70]
             spatial_plot_ylabels = [30, 40, 50]
         elif args["domain"] == "full":
-            table_axis_extent = [0.063, -0.038, 0.4, 0.239]
+            table_axis_extent = [0.063, -0.038, 0.39, 0.229]
             table_scale = (1, 2.8)
             table_title_kwargs = dict(x=0.5, y=0.096, pad=-4)
-            spatial_axis_extent = [0.538, -0.5915, 0.48, 0.66]
+            spatial_axis_extent = [0.523, -0.5915, 0.48, 0.66]
             cbar_kwargs['shrink'] = 0.675
             spatial_plot_xlabels = [-150, -120, -90, -60, -30, 0, 120, 150, 180]
             spatial_plot_ylabels = [0, 20, 40, 60, 80]
@@ -244,7 +253,7 @@ if __name__ == '__main__':
             domain_text = args['domain'].upper()
         else:
             domain_text = args['domain']
-        plt.suptitle(f'Model %d: %ss over %s domain' % (args['model_number'], settings.FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
+        plt.suptitle(f'Five-class model: %ss over %s domain' % (settings.FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
         # plt.suptitle(f'Five-class model: %ss over %s domain' % (settings.FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
 
         filename = f"%s/model_%d/performance_%s_%s_%s_{args['data_source']}.{args['output_type']}" % (args['model_dir'], args['model_number'], front_label, args['dataset'], args['domain'])

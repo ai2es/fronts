@@ -2,7 +2,7 @@
 Create ERA5 netCDF datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.23
+Script version: 2024.5.12
 
 TODO:
     * remove hard-coded folder structure for surface and pressure level data
@@ -11,6 +11,7 @@ import argparse
 import numpy as np
 import os
 from utils import variables
+from glob import glob
 import xarray as xr
 
 
@@ -42,13 +43,9 @@ if __name__ == "__main__":
     u_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_u_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
     v_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_v_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
 
-    PL_data = xr.open_mfdataset(
-        paths=('%s/Pressure_Level/ERA5Global_PL_%s_3hrly_Q.nc' % (args['netcdf_era5_indir'], year),
-               '%s/Pressure_Level/ERA5Global_PL_%s_3hrly_T.nc' % (args['netcdf_era5_indir'], year),
-               '%s/Pressure_Level/ERA5Global_PL_%s_3hrly_U.nc' % (args['netcdf_era5_indir'], year),
-               '%s/Pressure_Level/ERA5Global_PL_%s_3hrly_V.nc' % (args['netcdf_era5_indir'], year),
-               '%s/Pressure_Level/ERA5Global_PL_%s_3hrly_Z.nc' % (args['netcdf_era5_indir'], year)),
-        chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
+    pressure_level_files = list(sorted(glob('%s/Pressure_Level/ERA5Global_PL_%s_3hrly_*.nc' % (args['netcdf_era5_indir'], year))))
+
+    PL_data = xr.open_mfdataset(pressure_level_files, chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
 
     if not os.path.isdir('%s/%d%02d' % (args['netcdf_outdir'], year, month)):
         os.mkdir('%s/%d%02d' % (args['netcdf_outdir'], year, month))

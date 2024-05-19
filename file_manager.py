@@ -2,7 +2,7 @@
 Functions in this code manage data files and models.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.19
+Script version: 2024.5.18
 """
 
 import argparse
@@ -17,7 +17,8 @@ import tarfile
 def compress_files(
     main_dir: str,
     glob_file_string: str,
-    tar_filename: str, 
+    tar_filename: str,
+    algorithm: str = "gz",
     remove_files: bool = False,
     status_printout: bool = True):
     """
@@ -31,6 +32,8 @@ def compress_files(
         String of the names of the files to compress.
     tar_filename: str
         Name of the compressed TAR file that will be made. Do not include the .tar.gz extension in the name, this is added automatically.
+    algorithm: str
+        Compression algorithm to use when generating the TAR file.
     remove_files: bool
         Setting this to true will remove the files after they have been compressed to a TAR file.
     status_printout: bool
@@ -76,12 +79,12 @@ def compress_files(
     num_files = len(files)  # Total number of files
 
     ### Create the TAR file ###
-    with tarfile.open(f"{main_dir}/{tar_filename}.tar.gz", "w:gz") as tarF:
+    with tarfile.open(f"{main_dir}/{tar_filename}.tar.{algorithm}", f"w:{algorithm}") as tarF:
 
         ### Iterate through all the available files ###
         for file in range(num_files):
             tarF.add(files[file], arcname=files[file].replace(main_dir, ''))  # Add the file to the TAR file
-            tarF_size = os.path.getsize(f"{main_dir}/{tar_filename}.tar.gz")/1e6  # Compressed size of the files within the TAR file (megabytes)
+            tarF_size = os.path.getsize(f"{main_dir}/{tar_filename}.tar.{algorithm}")/1e6  # Compressed size of the files within the TAR file (megabytes)
             uncompressed_size += os.path.getsize(files[file])/1e6  # Uncompressed size of the files within the TAR file (megabytes)
 
             ### Print out the current status of the compression (if enabled) ###
@@ -241,11 +244,12 @@ class DataFileLoader:
             raise TypeError(f"synoptic_only must be a boolean, received {type(synoptic_only)}")
         ################################################################################################################
 
-        valid_data_sources = ['era5', 'ecmwf', 'fronts', 'gdas', 'gfs']
+        valid_data_sources = ['era5', 'ecmwf', 'fronts', 'gdas', 'gfs', 'hrrr', 'nam-12km']
         valid_file_types = ['netcdf', 'tensorflow']
 
         data_file_type = data_file_type.lower().split('-')
-        self._file_type = data_file_type[1]
+        data_source = '-'.join(data_file_type[:-1])
+        self._file_type = data_file_type[-1]
 
         if self._file_type == 'netcdf':
             self._file_extension = '.nc'
@@ -256,17 +260,22 @@ class DataFileLoader:
         else:
             raise TypeError(f"'%s' is not a valid file type, valid types are: {', '.join(valid_file_types)}" % self._file_type)
 
-        if data_file_type[0] not in valid_data_sources:
-            raise TypeError(f"'%s' is not a valid data source, valid sources are: {', '.join(valid_data_sources)}" % data_file_type[0])
+        if data_source not in valid_data_sources:
+            raise TypeError(f"'%s' is not a valid data source, valid sources are: {', '.join(valid_data_sources)}" % data_source)
 
-        if data_file_type[0] == 'fronts':
+        if data_source == 'fronts':
             self._file_prefix = 'FrontObjects'
         else:
-            self._file_prefix = data_file_type[0]
+            self._file_prefix = data_source
 
         self._all_data_files = sorted(glob("%s%s%s*%s" % (file_dir, self._subdir_glob, self._file_prefix, self._file_extension)))  # All data files without filtering
-        self._data_file_information = [os.path.basename(file).split('_')[1:] for file in self._all_data_files]  # timesteps in the unfiltered data files
-        [data_file_info.insert(1, 'f000') for data_file_info in self._data_file_information if len(data_file_info) == 2]
+
+        if self._file_type == 'netcdf':
+            self._data_file_information = [[*os.path.basename(file).replace(self._file_extension, '').split('_')[1:-1]] for file in self._all_data_files]  # timesteps in the unfiltered data files
+        else:
+            self._data_file_information = [[os.path.basename(file).replace(self._file_extension, '').split('_')[1],] for file in self._all_data_files]  # timesteps in the unfiltered data files
+
+        [data_file_info.insert(1, 'f000') for data_file_info in self._data_file_information if len(data_file_info) == 1]
 
         if synoptic_only:
             ### Filter out non-synoptic hours (3, 9, 15, 21z) ###
@@ -584,10 +593,14 @@ class DataFileLoader:
             raise ValueError(f"The available options for 'file_type' are: 'netcdf', 'tensorflow'. Received: {self._file_type}")
 
         self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self._subdir_glob, file_prefix, self._file_extension)))  # All front files without filtering
-        front_file_information = [os.path.basename(file).split('_')[1 + underscore_skips:] for file in self._all_front_files]
+
+        if self._file_type == 'netcdf':
+            front_file_information = [[*os.path.basename(file).replace(self._file_extension, '').split('_')[1 + underscore_skips:-1]] for file in self._all_front_files]
+        else:  # tensorflow
+            front_file_information = [[os.path.basename(file).replace(self._file_extension, '').split('_')[1 + underscore_skips],] for file in self._all_front_files]
 
         # Add forecast hour 0 to file information if a forecast hour is not in the filename(s)
-        [front_file_info.insert(1, 'f000') for front_file_info in front_file_information if len(front_file_info) == 2]
+        [front_file_info.insert(1, 'f000') for front_file_info in front_file_information if len(front_file_info) == 1]
 
         if self._file_type == 'tensorflow':
             # Dates in tensorflow dataset filenames are only the year and month, so we will add a day and hour to the file information
@@ -693,36 +706,21 @@ def load_model(model_number: int,
     model_path = f"{model_dir}/model_{model_number}/model_{model_number}.h5"
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 
-    try:
-        loss_string = model_properties['loss_string']
-    except KeyError:
-        loss_string = model_properties['loss']  # Error in the training sometimes resulted in the incorrect key ('loss' instead of 'loss_string')
-    loss_args = model_properties['loss_args']
-
-    try:
-        metric_string = model_properties['metric_string']
-    except KeyError:
-        metric_string = model_properties['metric']  # Error in the training sometimes resulted in the incorrect key ('metric' instead of 'metric_string')
-    metric_args = model_properties['metric_args']
-
     custom_objects = {}
 
-    if 'fss' in loss_string.lower():
-        if model_number in [6846496, 7236500, 7507525]:
-            loss_string = 'fss_loss'
-        custom_objects[loss_string] = custom_losses.fractions_skill_score(**loss_args)
+    loss_args = model_properties["loss_args"]
+    loss_parent_string = model_properties["loss_parent_string"]
+    loss_child_string = model_properties["loss_child_string"]
 
-    if 'brier' in metric_string.lower() or 'bss' in metric_string.lower():
-        if model_number in [6846496, 7236500, 7507525]:
-            metric_string = 'bss'
-        custom_objects[metric_string] = custom_metrics.brier_skill_score(**metric_args)
+    metric_args = model_properties["metric_args"]
+    metric_parent_string = model_properties["metric_parent_string"]
+    metric_child_string = model_properties["metric_child_string"]
 
-    if 'csi' in metric_string.lower():
-        custom_objects[metric_string] = custom_metrics.critical_success_index(**metric_args)
+    # add the loss and metric functions to the custom_objects dictionary
+    custom_objects[loss_child_string] = getattr(custom_losses, loss_parent_string)(**loss_args)
+    custom_objects[metric_child_string] = getattr(custom_metrics, metric_parent_string)(**metric_args)
 
-    if 'csi' in loss_string.lower():
-        custom_objects[loss_string] = custom_losses.critical_success_index(**loss_args)
-
+    # add the activation function to the custom_objects dictionary
     activation_string = model_properties['activation']
     if activation_string in ["elliott", "gaussian", "gcu", "hexpo", "isigmoid", "lisht", "psigmoid", "ptanh", "ptelu", "resech",
                              "smelu", "snake", "srs", "stanh"]:

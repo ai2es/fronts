@@ -2,10 +2,7 @@
 Convert front XML files to netCDF files.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.2.19
-
-TODO:
-    * Fix bug with fronts sitting on the edge of model domains
+Script version: 2024.5.14
 """
 
 import argparse
@@ -30,6 +27,9 @@ global: 179.75 W to 180 E, 90 N to 89.75 N
 domain_coords = {'conus': {'lons': np.arange(-132, -60, 0.25), 'lats': np.arange(57, 25, -0.25)},
                  'full': {'lons': np.append(np.arange(-179.75, 10, 0.25), np.arange(130, 180.25, 0.25)), 'lats': np.arange(80, 0, -0.25)},
                  'global': {'lons': np.arange(-179.75, 180.25, 0.25), 'lats': np.arange(90, -90, -0.25)}}
+domain_lons_360 = {'conus': np.arange(228, 300, 0.25),
+                   'full': np.arange(130, 370, 0.25),
+                   'global': np.arange(0, 360, 0.25)}
 
 
 if __name__ == "__main__":
@@ -101,17 +101,18 @@ if __name__ == "__main__":
             if front_needs_modification or domain_from_model:
                 lons = np.where(lons < 0, lons + 360, lons)  # convert coordinates to a 360 degree system
 
-            x_transform_init, y_transform_init = data_utils.lambert_conformal_to_cartesian(lons, lats, **transform_args)
+                if domain_from_model:
+                    x_transform_init, y_transform_init = data_utils.lambert_conformal_to_cartesian(lons, lats, **transform_args)
 
-            # find points outside the model domain
-            points_outside_domain = np.where((x_transform_init < model_x_min) | (x_transform_init > model_x_max) | (y_transform_init < model_y_min) | (y_transform_init > model_y_max))
+                    # find points outside the model domain
+                    points_outside_domain = np.where((x_transform_init < model_x_min) | (x_transform_init > model_x_max) | (y_transform_init < model_y_min) | (y_transform_init > model_y_max))
 
-            if len(points_outside_domain) > 0:  # remove points outside the model domain
-                lons = np.delete(lons, points_outside_domain)
-                lats = np.delete(lats, points_outside_domain)
+                    if len(points_outside_domain) > 0:  # remove points outside the model domain
+                        lons = np.delete(lons, points_outside_domain)
+                        lats = np.delete(lats, points_outside_domain)
 
-                if len(lons) < 2:  # do not generate front if there are not at least two points
-                    continue
+            if len(lons) < 2:  # do not generate front if there are not at least two points
+                continue
 
             xs, ys = data_utils.haversine(lons, lats)  # x/y coordinates in kilometers
             xy_linestring = data_utils.geometric(xs, ys)  # convert coordinates to a LineString object
@@ -163,6 +164,12 @@ if __name__ == "__main__":
                 fronts_ds = xr.Dataset({"identifier": (('longitude', 'latitude'), identifier)},
                                        coords={"longitude": gridded_lons, "latitude": gridded_lats}).expand_dims(**expand_dims_args)
 
+                if args['domain'] == 'full':
+                    fronts_ds = fronts_ds.sel(longitude=np.append(np.arange(130, 180.25, 0.25), np.arange(-179.75, 10, 0.25)))
+
+                # convert longitudes back to 360-degree system
+                fronts_ds["longitude"] = domain_lons_360[args["domain"]]
+
         if not os.path.isdir("%s/%d%02d" % (args['netcdf_outdir'], year, month)):
             os.mkdir("%s/%d%02d" % (args['netcdf_outdir'], year, month))
 
@@ -170,6 +177,6 @@ if __name__ == "__main__":
         fronts_ds.attrs["interpolation_distance_km"] = args["distance"]
         fronts_ds.attrs["num_front_types"] = 16
         fronts_ds.attrs["front_types"] = "ALL"
-        fronts_ds.attrs["xml_to_nc_script_version"] = "2024.2.19"
+        fronts_ds.attrs["xml_to_nc_script_version"] = "2024.5.14"
 
         fronts_ds.to_netcdf(path="%s/%d%02d/%s" % (args['netcdf_outdir'], year, month, filename_netcdf), engine='netcdf4', mode='w')

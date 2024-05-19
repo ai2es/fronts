@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.1.5
+Script version: 2024.5.15
 
 TODO: Fix colorbar position issues
 """
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--init_time', type=int, nargs=4, help='Date and time of the data. Pass 4 ints in the following order: year, month, day, hour')
     parser.add_argument('--domain', type=str, required=True, help='Domain of the data.')
-    parser.add_argument('--domain_images', type=int, nargs=2, help='Number of images for each dimension the final stitched map for predictions: lon, lat')
+    parser.add_argument('--domain_images', type=int, nargs=2, default=[1, 1], help='Number of images for each dimension the final stitched map for predictions: lon, lat')
     parser.add_argument('--forecast_hour', type=int, help='Forecast hour for the GDAS data')
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
@@ -46,15 +46,17 @@ if __name__ == '__main__':
     if args['deterministic'] and args['targets']:
         raise TypeError("Cannot plot deterministic splines and ground truth targets at the same time. Only one of --deterministic, --targets may be passed")
 
-    if args['domain_images'] is None:
-        args['domain_images'] = [1, 1]
-
-    DEFAULT_COLORBAR_POSITION = {'conus': 0.78, 'full': 0.84, 'global': 0.74}
-    cbar_position = DEFAULT_COLORBAR_POSITION['conus']
+    DEFAULT_COLORBAR_POSITION = {'conus': 0.75, 'full': 0.85, 'global': 0.74}
+    cbar_position = DEFAULT_COLORBAR_POSITION[args["domain"]]
 
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
 
     args['data_source'] = args['data_source'].lower()
+
+    if args["data_source"] in ["hrrr", "nam-12km"]:
+        transpose_dims = ('y', 'x')
+    else:
+        transpose_dims = ('latitude', 'longitude')
 
     extent = settings.DOMAIN_EXTENTS[args['domain']]
 
@@ -108,7 +110,7 @@ if __name__ == '__main__':
         front_types = [front_types, ]
 
     mask, prob_int = args['prob_mask'][0], args['prob_mask'][1]  # Probability mask, contour interval for probabilities
-    vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1, prob_int, 10, 11
+    vmax, cbar_tick_adjust, cbar_label_adjust, n_colors = 1.01, prob_int, 10, 11
     levels = np.around(np.arange(0, 1 + prob_int, prob_int), 2)
     cbar_ticks = np.around(np.arange(mask, 1 + prob_int, prob_int), 2)
 
@@ -120,13 +122,13 @@ if __name__ == '__main__':
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
 
     probs_ds = probs_ds.isel(time=0) if args['data_source'] == 'era5' else probs_ds.isel(time=0, forecast_hour=0)
-    probs_ds = probs_ds.transpose('latitude', 'longitude')
+    probs_ds = probs_ds.transpose(*transpose_dims)
 
     for key in list(probs_ds.keys()):
 
         if args['deterministic']:
             spline_threshold = model_properties['front_obj_thresholds'][args['domain']][key]['100']
-            probs_ds[f'{key}_obj'] = (('latitude', 'longitude'), skeletonize(xr.where(probs_ds[key] > spline_threshold, 1, 0).values.copy(order='C')))
+            probs_ds[f'{key}_obj'] = (transpose_dims, skeletonize(xr.where(probs_ds[key] > spline_threshold, 1, 0).values.copy(order='C')))
 
         if args['calibration'] is not None:
             try:
@@ -146,6 +148,7 @@ if __name__ == '__main__':
                 probs_ds[combination[0]].values = np.where(probs_ds[combination[0]].values > probs_ds[combination[1]].values - 0.02, probs_ds[combination[0]].values, 0)
 
     probs_ds = xr.where(probs_ds > mask, probs_ds, float("NaN"))
+
     if args['data_source'] != 'era5':
         valid_time = timestep + np.timedelta64(args['forecast_hour'], 'h').astype(object)
         data_title = f"Run: {args['data_source'].upper()} {year}-%02d-%02d-%02dz F%03d \nPredictions valid: %d-%02d-%02d-%02dz" % (month, day, hour, args['forecast_hour'], valid_time.year, valid_time.month, valid_time.day, valid_time.hour)
@@ -153,7 +156,7 @@ if __name__ == '__main__':
         data_title = 'Data: ERA5 reanalysis %d-%02d-%02d-%02dz\n' \
                      'Predictions valid: %d-%02d-%02d-%02dz' % (year, month, day, hour, year, month, day, hour)
 
-    fig, ax = plt.subplots(1, 1, figsize=(22, 8), subplot_kw={'projection': ccrs.PlateCarree(central_longitude=0)})
+    fig, ax = plt.subplots(1, 1, figsize=(22, 8), subplot_kw={'projection': ccrs.PlateCarree(central_longitude=250)})
     plot_background(extent, ax=ax, linewidth=0.5)
     # ax.gridlines(draw_labels=True, zorder=0)
 
@@ -202,6 +205,7 @@ if __name__ == '__main__':
 
     ax.set_title('')
     ax.set_title(data_title, loc='left')
+    ax.set_title("Five-class Model Predictions", loc='right')
 
     plt.savefig(plot_filename, bbox_inches='tight', dpi=300)
     plt.close()

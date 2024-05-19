@@ -2,15 +2,16 @@
 Plot saliency maps for model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.2.13
+Script version: 2024.5.18
 """
 import argparse
+import matplotlib.colors
 import pandas as pd
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-from matplotlib import cm, colors  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
+from matplotlib import cm  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
 import os
 import sys
 sys.path.insert(0, os.getcwd())
@@ -64,7 +65,7 @@ if __name__ == '__main__':
         # mask out low probabilities
         probs_ds[front_type].values = np.where(probs_ds[front_type].values < 0.1, np.nan, probs_ds[front_type].values)
 
-        cmap_probs, norm = cm.get_cmap(settings.CONTOUR_CMAPS[front_type], 11), colors.Normalize(vmin=0, vmax=1)
+        cmap_probs, norm = cm.get_cmap(settings.CONTOUR_CMAPS[front_type], 11), matplotlib.colors.Normalize(vmin=0, vmax=1)
 
         salmap_for_type = salmap_ds[front_type].sel(time=init_time)
         salmap_for_type_pl = salmap_ds[front_type + '_pl'].sel(time=init_time)
@@ -88,6 +89,9 @@ if __name__ == '__main__':
         axarr[3].set_title("d) Saliency map - 950 hPa")
         axarr[4].set_title("e) Saliency map - 900 hPa")
         axarr[5].set_title("f) Saliency map - 850 hPa")
+
+        cbar_ax = fig.add_axes([0.1, -0.05, 0.8, 0.05])
+        cbar = plt.colorbar(cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=0, vmax=1), cmap=args["cmap"]), orientation='horizontal', cax=cbar_ax, alpha=0.8, label="Normalized saliency")
 
         # if a directory for the plots is not provided, save the plots to the folder containing saliency maps
         plot_outdir = args['plot_outdir'] if args['plot_outdir'] is not None else salmap_folder

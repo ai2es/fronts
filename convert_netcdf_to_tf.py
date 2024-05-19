@@ -2,7 +2,7 @@
 Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.3.5
+Script version: 2024.5.14
 
 TODO:
     * fix bug in file manager script that incorrectly matches files with different initialization times and/or forecast hours
@@ -124,7 +124,7 @@ if __name__ == '__main__':
             for key in sorted(dataset_props.keys()):
                 f.write(f"{key}: {dataset_props[key]}\n")
             f.write(f"\n\n\nFile generated at {datetime.utcnow()} UTC\n")
-            f.write(f"convert_netcdf_to_tf.py script version: 2024.3.5")
+            f.write(f"convert_netcdf_to_tf.py script version: 2024.5.14")
 
     else:
 
@@ -133,7 +133,7 @@ if __name__ == '__main__':
 
         for key in sorted(['front_types', 'variables', 'pressure_levels', 'num_dims', 'images', 'image_size', 'front_dilation',
                            'noise_fraction', 'flip_chance_lon', 'flip_chance_lat', 'shuffle_images', 'shuffle_timesteps',
-                           'domain', 'add_previous_fronts', 'timestep_fraction', 'image_fraction']):
+                           'domain', 'add_previous_fronts', 'timestep_fraction', 'image_fraction', 'override_extent']):
             args[key] = dataset_props[key]
             print(f"%s: {args[key]}" % key)
 
@@ -188,7 +188,7 @@ if __name__ == '__main__':
     # assert that the dates of the files match
     files_match_flag = all(os.path.basename(variables_file).split('_')[1] == os.path.basename(fronts_file).split('_')[1] for variables_file, fronts_file in zip(variables_netcdf_files, fronts_netcdf_files))
 
-    if args["data_source"] in ["conus", "full", "domain"]:
+    if args["domain"] in ["conus", "full"]:
         if args['override_extent'] is None:
             sel_kwargs = {'longitude': slice(settings.DOMAIN_EXTENTS[args['domain']][0], settings.DOMAIN_EXTENTS[args['domain']][1]),
                           'latitude': slice(settings.DOMAIN_EXTENTS[args['domain']][3], settings.DOMAIN_EXTENTS[args['domain']][2])}

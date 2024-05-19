@@ -15,12 +15,10 @@ Custom activation function layers:
     * Soft-root-sign (SRS)
     * Scaled hyperbolic tangent (STanh)
 
-
-
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.19
+Script version: 2024.5.18
 
-TODO: Add more activation functions
+TODO: thoroughly test all activation functions
 """
 from tensorflow.keras.layers import Layer
 import tensorflow as tf
