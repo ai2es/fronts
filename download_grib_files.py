@@ -2,7 +2,7 @@
 Download grib files containing NWP model data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.2.29
+Script version: 2024.6.6
 """
 
 import argparse
@@ -61,6 +61,19 @@ if __name__ == "__main__":
                  for forecast_hour in args['forecast_hours']]
             else:
                 [files.append(f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.%d%02d%02d/%02d/atmos/gdas.t%02dz.pgrb2.0p25.f%03d" % (init_time.year, init_time.month, init_time.day, init_time.hour, init_time.hour, forecast_hour))
+                 for forecast_hour in args['forecast_hours']]
+        elif "gefs" in args["model"]:
+            member = args["model"].split("-")[-1]
+            if datetime.datetime(init_time.year, init_time.month, init_time.day, init_time.hour) < datetime.datetime(2017, 1, 1, 0):
+                raise ConnectionAbortedError("Cannot download GEFS data prior to January 1, 2017.")
+            elif datetime.datetime(init_time.year, init_time.month, init_time.day, init_time.hour) < datetime.datetime(2018, 7, 27, 0):
+                [files.append(f"https://noaa-gefs-pds.s3.amazonaws.com/gefs.%d%02d%02d/%02d/ge%s.t%02dz.pgrb2af%03d" % (init_time.year, init_time.month, init_time.day, init_time.hour, member, init_time.hour, forecast_hour))
+                 for forecast_hour in args['forecast_hours']]
+            elif datetime.datetime(init_time.year, init_time.month, init_time.day, init_time.hour) < datetime.datetime(2020, 9, 24, 0):
+                [files.append(f"https://noaa-gefs-pds.s3.amazonaws.com/gefs.%d%02d%02d/%02d/pgrb2a/ge%s.t%02dz.pgrb2af%02d" % (init_time.year, init_time.month, init_time.day, init_time.hour, member, init_time.hour, forecast_hour))
+                 for forecast_hour in args['forecast_hours']]
+            else:
+                [files.append(f"https://noaa-gefs-pds.s3.amazonaws.com/gefs.%d%02d%02d/%02d/atmos/pgrb2ap5/ge%s.t%02dz.pgrb2a.0p50.f%03d" % (init_time.year, init_time.month, init_time.day, init_time.hour, member, init_time.hour, forecast_hour))
                  for forecast_hour in args['forecast_hours']]
         elif args['model'] == 'gfs':
             if datetime.datetime(init_time.year, init_time.month, init_time.day, init_time.hour) < datetime.datetime(2021, 2, 26, 0):

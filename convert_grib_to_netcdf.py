@@ -2,7 +2,7 @@
 Convert GDAS and/or GFS grib files to netCDF files.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.3.27
+Script version: 2024.6.6
 """
 
 import argparse
@@ -66,7 +66,7 @@ if __name__ == "__main__":
         print("Reading pressure level data", end='')
         start_time = time.time()
         # open pressure level data from grib files
-        if args["model"] not in ["nam-12km", "namnest-conus"]:
+        if args["model"] not in ["nam-12km", "namnest-conus"] and "gefs" not in args["model"]:
             pressure_level_data = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'isobaricInhPa'}}, **open_ds_args)
             pressure_level_data = pressure_level_data.sel(isobaricInhPa=pressure_levels)  # select pressure levels
             pressure_level_data = pressure_level_data[["t", "u", "v", "r", "gh"]]  # select variables
@@ -82,7 +82,7 @@ if __name__ == "__main__":
             RH = pressure_level_data["r"].values / 100  # relative humidity
             sp_z = pressure_level_data["gh"].values / 10  # geopotential height (dam)
 
-        else:  # need to open NAM grib files one variable at a time (typical cfgrib nonsense)
+        else:  # need to open NAM, GEFS grib files one variable at a time (typical cfgrib nonsense)
             T = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'isobaricInhPa', 'cfVarName': 't'}}, **open_ds_args).sel(isobaricInhPa=pressure_levels)['t'].values  # temperature
             u = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'isobaricInhPa', 'cfVarName': 'u'}}, **open_ds_args).sel(isobaricInhPa=pressure_levels)['u'].values  # u-wind
             v = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'isobaricInhPa', 'cfVarName': 'v'}}, **open_ds_args).sel(isobaricInhPa=pressure_levels)['v'].values  # v-wind
@@ -107,6 +107,12 @@ if __name__ == "__main__":
         if args["model"] in ["gfs", "gdas"]:
             sp_data = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'surface', 'stepType': 'instant'}}, **open_ds_args)["sp"].values[:, np.newaxis, ...]
             surface_data = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'sigma', 'stepType': 'instant'}}, **open_ds_args)
+        elif "gefs" in args["model"]:
+            sp_data = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'surface', 'stepType': 'instant'}}, **open_ds_args)["sp"].values[:, np.newaxis, ...]
+            surface_data = xr.merge([xr.open_mfdataset(grib_files, filter_by_keys={"paramId": 167}, **open_ds_args).rename({"t2m": "t"}).drop_vars("heightAboveGround"),
+                                     xr.open_mfdataset(grib_files, filter_by_keys={"paramId": 165}, **open_ds_args).rename({"u10": "u"}).drop_vars("heightAboveGround"),
+                                     xr.open_mfdataset(grib_files, filter_by_keys={"paramId": 166}, **open_ds_args).rename({"v10": "v"}).drop_vars("heightAboveGround"),
+                                     xr.open_mfdataset(grib_files, filter_by_keys={"paramId": 260242}, **open_ds_args).rename({"r2": "r"}).drop_vars("heightAboveGround")])
         elif args["model"] == "hrrr":
             sp_data = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'surface', 'stepType': 'instant'}}, **open_ds_args)["sp"].values[:, np.newaxis, ...]
             surface_data = xr.open_mfdataset(grib_files, backend_kwargs={"filter_by_keys": {'typeOfLevel': 'surface', 'stepType': 'instant'}}, **open_ds_args)
@@ -177,7 +183,7 @@ if __name__ == "__main__":
 
     forecast_hours = [int(filename.split('_f')[1][:3]) for filename in grib_files]  # can pull forecast hours straight from the grib filenames
 
-    if args["model"] in ["gfs", "gdas"]:
+    if args["model"] in ["gfs", "gdas"] or "gefs" in args["model"]:
         dataset_dimensions = ('forecast_hour', 'pressure_level', 'latitude', 'longitude')
     else:  # HRRR/NAM - both have non-uniform lat/lon grids
         dataset_dimensions = ('forecast_hour', 'pressure_level', 'y', 'x')
@@ -196,7 +202,7 @@ if __name__ == "__main__":
                                   theta_v=(dataset_dimensions, theta_v),
                                   RH=(dataset_dimensions, RH),
                                   r=(dataset_dimensions, r),
-                                  q=(dataset_dimensions, q),
+                                  q=(dataset_dimensions, q * 1000),
                                   u=(dataset_dimensions, u),
                                   v=(dataset_dimensions, v),
                                   sp_z=(dataset_dimensions, sp_z))
@@ -204,7 +210,7 @@ if __name__ == "__main__":
     full_dataset = xr.Dataset(data_vars=full_dataset_variables, coords=full_dataset_coordinates).astype('float32')
 
     # final dataset attributes
-    full_dataset.attrs = dict(grib_to_netcdf_script_version="2024.3.27", model=args["model"], Nx=np.shape(T)[-1], Ny=np.shape(T)[-2])
+    full_dataset.attrs = dict(grib_to_netcdf_script_version="2024.6.6", model=args["model"], Nx=np.shape(T)[-1], Ny=np.shape(T)[-2])
 
     # turn the time coordinate into a dimension, allows for concatenation when opening multiple datasets
     full_dataset = full_dataset.expand_dims({"time": np.atleast_1d(timestep)})

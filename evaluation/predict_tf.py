@@ -4,7 +4,7 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.1.5
+Script version: 2024.6.1
 """
 import argparse
 import sys
@@ -16,6 +16,16 @@ import pandas as pd
 from utils.settings import *
 import xarray as xr
 import tensorflow as tf
+
+# some months do not have complete front labels, so we need to specify what dates do NOT have data for the final prediction datasets
+incomplete_months = {"2007-05": np.array([122, 128, 130, 132]),
+                     "2007-06": np.array([32, 34, 36, 200, 202]),
+                     "2007-11": np.array([126, 128, 130, 132]),
+                     "2007-12": np.array([206, 207]),
+                     "2018-03": 203,
+                     "2022-09": np.append(np.array([44, 46]), np.arange(48, 95.1, 1)).astype(int),
+                     "2022-10": np.append(np.arange(80, 87.1, 1), np.arange(160, 167.1, 1)).astype(int),
+                     "2022-11": 196}
 
 
 if __name__ == '__main__':
@@ -123,9 +133,9 @@ if __name__ == '__main__':
                                    np.datetime64(f"{input_file[-9:-5]}-{input_file[-5:-3]}") + np.timedelta64(1, "M"),
                                    np.timedelta64(hour_interval, "h"))
 
-            ## A network outage prevented fronts from being generated for 2018-03-26-09z, so we need to remove the timestep from the array as it's not included in the tensorflow dataset
-            if year == 2018 and month == 3 and hour_interval == 3:
-                time_array = np.delete(time_array, 203)
+            # remove timesteps that do not have data
+            if "%d-%02d" % (year, month) in incomplete_months:
+                time_array = np.delete(time_array, incomplete_months["%d-%02d" % (year, month)])
 
             assert len(tf_ds) == len(time_array)  # make sure tensorflow dataset has all timesteps
 
