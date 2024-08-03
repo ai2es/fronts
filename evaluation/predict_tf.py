@@ -4,16 +4,14 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.6.1
+Script version: 2024.8.3
 """
 import argparse
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
-import numpy as np
-import pandas as pd
-from utils.settings import *
+from utils.data_utils import *
 import xarray as xr
 import tensorflow as tf
 
@@ -37,9 +35,9 @@ if __name__ == '__main__':
     parser.add_argument('--tf_indir', type=str, help='Directory for the tensorflow dataset that will be used when generating predictions.')
     parser.add_argument('--data_source', type=str, default='era5', help='Data source for variables')
     parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
+    parser.add_argument('--batch_size', type=int, default=8, help="Batch size for the model predictions.")
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU')
     parser.add_argument('--overwrite', action='store_true', help="Overwrite any existing prediction files.")
-
     args = vars(parser.parse_args())
     
     model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']))
@@ -139,7 +137,7 @@ if __name__ == '__main__':
 
             assert len(tf_ds) == len(time_array)  # make sure tensorflow dataset has all timesteps
 
-            tf_ds = tf_ds.batch(GPU_PREDICT_BATCH_SIZE)
+            tf_ds = tf_ds.batch(args['batch_size'])
             prediction = np.array(model.predict(tf_ds)).astype(np.float16)
 
             if model_properties['deep_supervision']:

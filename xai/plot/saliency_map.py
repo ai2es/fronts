@@ -2,7 +2,7 @@
 Plot saliency maps for model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.18
+Script version: 2024.8.3
 """
 import argparse
 import matplotlib.colors
@@ -16,8 +16,8 @@ import os
 import sys
 sys.path.insert(0, os.getcwd())
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
-from utils import settings
-from utils.plotting_utils import plot_background
+from utils import data_utils
+from utils.plotting import plot_background
 
 
 if __name__ == '__main__':
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     args = vars(parser.parse_args())
 
     init_time = pd.date_range(args['init_time'], args['init_time'])[0]
-    extent = settings.DOMAIN_EXTENTS[args['domain']] if args['extent'] is None else args['extent']
+    extent = data_utils.DOMAIN_EXTENTS[args['domain']] if args['extent'] is None else args['extent']
 
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
     front_types = model_properties['dataset_properties']['front_types']
@@ -65,7 +65,7 @@ if __name__ == '__main__':
         # mask out low probabilities
         probs_ds[front_type].values = np.where(probs_ds[front_type].values < 0.1, np.nan, probs_ds[front_type].values)
 
-        cmap_probs, norm = cm.get_cmap(settings.CONTOUR_CMAPS[front_type], 11), matplotlib.colors.Normalize(vmin=0, vmax=1)
+        cmap_probs, norm = cm.get_cmap(data_utils.CONTOUR_CMAPS[front_type], 11), matplotlib.colors.Normalize(vmin=0, vmax=1)
 
         salmap_for_type = salmap_ds[front_type].sel(time=init_time)
         salmap_for_type_pl = salmap_ds[front_type + '_pl'].sel(time=init_time)
@@ -97,6 +97,6 @@ if __name__ == '__main__':
         plot_outdir = args['plot_outdir'] if args['plot_outdir'] is not None else salmap_folder
 
         plt.tight_layout()
-        plt.suptitle("%s predictions: %d-%02d-%02d-%02dz" % (settings.FRONT_NAMES[front_type], init_time.year, init_time.month, init_time.day, init_time.hour), y=1.05)
+        plt.suptitle("%s predictions: %d-%02d-%02d-%02dz" % (data_utils.FRONT_NAMES[front_type], init_time.year, init_time.month, init_time.day, init_time.hour), y=1.05)
         plt.savefig('%s/model_%d_salmap_%d%02d%02d%02d_%s_%s.png' % (plot_outdir, args['model_number'], init_time.year, init_time.month, init_time.day, init_time.hour, args['domain'], front_type), bbox_inches='tight', dpi=500)
         plt.close()

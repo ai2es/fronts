@@ -2,10 +2,7 @@
 Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.14
-
-TODO:
-    * fix bug in file manager script that incorrectly matches files with different initialization times and/or forecast hours
+Script version: 2024.8.3
 """
 import argparse
 import itertools
@@ -15,7 +12,7 @@ import pandas as pd
 import pickle
 import tensorflow as tf
 import file_manager as fm
-from utils import data_utils, settings
+from utils import data_utils
 from datetime import datetime
 import xarray as xr
 
@@ -83,6 +80,8 @@ if __name__ == '__main__':
         # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all the GPU's memory.
         if args['memory_growth']:
             tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args['gpu_device']][0], enable=True)
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
     year, month = args['year_and_month'][0], args['year_and_month'][1]
 
@@ -190,8 +189,8 @@ if __name__ == '__main__':
 
     if args["domain"] in ["conus", "full"]:
         if args['override_extent'] is None:
-            sel_kwargs = {'longitude': slice(settings.DOMAIN_EXTENTS[args['domain']][0], settings.DOMAIN_EXTENTS[args['domain']][1]),
-                          'latitude': slice(settings.DOMAIN_EXTENTS[args['domain']][3], settings.DOMAIN_EXTENTS[args['domain']][2])}
+            sel_kwargs = {'longitude': slice(data_utils.DOMAIN_EXTENTS[args['domain']][0], data_utils.DOMAIN_EXTENTS[args['domain']][1]),
+                          'latitude': slice(data_utils.DOMAIN_EXTENTS[args['domain']][3], data_utils.DOMAIN_EXTENTS[args['domain']][2])}
         else:
             sel_kwargs = {'longitude': slice(args['override_extent'][0], args['override_extent'][1]),
                           'latitude': slice(args['override_extent'][3], args['override_extent'][2])}
@@ -242,6 +241,9 @@ if __name__ == '__main__':
         front_dataset = front_dataset.to_array().transpose(*transpose_dims, 'variable')
         timestep_front_bins = np.bincount(front_dataset.values.astype('int64').flatten(), minlength=num_front_types)  # counts for each front type
         all_fronts_in_timestep = all([front_count > 0 for front_count in timestep_front_bins]) > 0  # boolean flag that says if all front types are present in the current timestep
+
+        if args['verbose']:
+            print("%d-%02d Dataset progress (kept/discarded):  (%d/%d timesteps, %d/%d images)" % (year, month, timesteps_kept, timesteps_discarded, images_kept, images_discarded), end='\r')
 
         if all_fronts_in_timestep or keep_timestep:
 

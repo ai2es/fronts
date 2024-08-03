@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.4.29
+Script version: 2024.8.3
 """
 import argparse
 import glob
@@ -16,7 +16,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
 from utils import data_utils
-from utils.settings import DOMAIN_EXTENTS
+from utils.data_utils import DOMAIN_EXTENTS
 
 
 def combine_statistics_for_dataset():

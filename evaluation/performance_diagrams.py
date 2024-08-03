@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.15
+Script version: 2024.8.3
 """
 import argparse
 import cartopy.crs as ccrs
@@ -17,7 +17,7 @@ import xarray as xr
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
-from utils import settings, plotting_utils
+from utils import data_utils, plotting
 
 
 if __name__ == '__main__':
@@ -228,11 +228,11 @@ if __name__ == '__main__':
         bottom_labels = True  # Longitude labels on the bottom of the subplot
 
         ## Set up the spatial CSI plot ###
-        csi_cmap = plotting_utils.truncated_colormap('gnuplot2', maxval=0.9, n=10)
-        extent = settings.DOMAIN_EXTENTS[args['domain']]
+        csi_cmap = plotting.truncated_colormap('gnuplot2', maxval=0.9, n=10)
+        extent = data_utils.DOMAIN_EXTENTS[args['domain']]
         spatial_axis = plt.axes(spatial_axis_extent, projection=ccrs.Miller(central_longitude=250))
         spatial_axis_title_text = r'$\bf{d)}$ $\bf{%d}$ $\bf{km}$ $\bf{CSI}$ $\bf{map}$' % args['map_neighborhood']
-        plotting_utils.plot_background(extent=extent, ax=spatial_axis)
+        plotting.plot_background(extent=extent, ax=spatial_axis)
         norm_probs = colors.Normalize(vmin=0.1, vmax=1)
         spatial_csi_ds = xr.where(spatial_csi_ds >= 0.1, spatial_csi_ds, float("NaN"))
         spatial_csi_ds.sel(boundary=args['map_neighborhood']).plot(ax=spatial_axis, x='longitude', y='latitude', norm=norm_probs,
@@ -253,8 +253,8 @@ if __name__ == '__main__':
             domain_text = args['domain'].upper()
         else:
             domain_text = args['domain']
-        plt.suptitle(f'Five-class model: %ss over %s domain' % (settings.FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
-        # plt.suptitle(f'Five-class model: %ss over %s domain' % (settings.FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
+
+        plt.suptitle(f'Five-class model: %ss over %s domain' % (data_utils.FRONT_NAMES[front_label], domain_text), fontsize=20)  # Create and plot the main title
 
         filename = f"%s/model_%d/performance_%s_%s_%s_{args['data_source']}.{args['output_type']}" % (args['model_dir'], args['model_number'], front_label, args['dataset'], args['domain'])
         if args['data_source'] != 'era5':

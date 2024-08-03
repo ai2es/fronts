@@ -2,7 +2,7 @@
 Generate predictions with a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.15
+Script version: 2024.8.3
 """
 import argparse
 import pandas as pd
@@ -12,7 +12,7 @@ import os
 import sys
 import tensorflow as tf
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
-from utils import data_utils, settings
+from utils import data_utils
 import file_manager as fm
 
 
@@ -391,6 +391,8 @@ if __name__ == '__main__':
     parser.add_argument('--domain', type=str, help='Domain of the data.')
     parser.add_argument('--domain_images', type=int, nargs=2, default=[1, 1], help='Number of images for each dimension the final stitched map for predictions: lon, lat')
     parser.add_argument('--gpu_device', type=int, help='GPU device number.')
+    parser.add_argument('--batch_size', type=int, default=8, help="Batch size for the model predictions.")
+    parser.add_argument('--max_file_chunk_size', type=int, default=2500, help="Maximum number of ")
     parser.add_argument('--image_size', type=int, nargs=2, help="Number of pixels along each dimension of the model's output: lon, lat")
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU')
     parser.add_argument('--model_dir', type=str, help='Directory for the models.')
@@ -435,9 +437,9 @@ if __name__ == '__main__':
     test_years, valid_years = model_properties['test_years'], model_properties['validation_years']
 
     try:
-        domain_extent = settings.DOMAIN_EXTENTS[args['data_source']]
+        domain_extent = data_utils.DOMAIN_EXTENTS[args['data_source']]
     except KeyError:
-        domain_extent = settings.DOMAIN_EXTENTS[args['domain']]
+        domain_extent = data_utils.DOMAIN_EXTENTS[args['domain']]
 
     ### Properties of the final map made from stitched images ###
     domain_images_lon, domain_images_lat = args['domain_images'][0], args['domain_images'][1]
@@ -499,7 +501,7 @@ if __name__ == '__main__':
 
     num_files = len(variable_files)
 
-    num_chunks = int(np.ceil(num_files / settings.MAX_FILE_CHUNK_SIZE))  # Number of files/timesteps to process at once
+    num_chunks = int(np.ceil(num_files / args["max_file_chunk_size"]))  # Number of files/timesteps to process at once
     chunk_indices = np.linspace(0, num_files, num_chunks + 1, dtype=int)
 
     for chunk_no in range(num_chunks):
@@ -582,7 +584,7 @@ if __name__ == '__main__':
                         variable_ds_new_shape = np.shape(variable_batch_ds_new)
                         variable_batch_ds_new = variable_batch_ds_new.reshape(variable_ds_new_shape[0] * variable_ds_new_shape[1], *[dim_size for dim_size in variable_ds_new_shape[2:]])
 
-                    prediction = model.predict(variable_batch_ds_new, batch_size=1, verbose=0)
+                    prediction = model.predict(variable_batch_ds_new, batch_size=args['batch_size'], verbose=0)
                     num_dims_in_pred = len(np.shape(prediction))
 
                     if model_type in ['unet', 'attention_unet']:

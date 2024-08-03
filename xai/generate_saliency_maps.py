@@ -2,14 +2,14 @@
 Generate saliency maps for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.1.5
+Script version: 2024.8.3
 """
 
 import argparse
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
-from utils import settings
+from utils import data_utils
 import numpy as np
 import pandas as pd
 import file_manager as fm
@@ -98,7 +98,7 @@ if __name__ == '__main__':
                     batch_gradient = np.stack([np.max(tape.gradient(predictions[..., class_idx+1:class_idx+2], batch).numpy(), axis=-1) for class_idx in range(num_classes-1)], axis=-1).astype('float32')
                     gradients = batch_gradient if gradients is None else np.concatenate([gradients, batch_gradient], axis=0)
 
-            domain_ext = settings.DOMAIN_EXTENTS[domain]
+            domain_ext = data_utils.DOMAIN_EXTENTS[domain]
 
             domain_size = (int((domain_ext[1] - domain_ext[0]) // 0.25) + 1,
                            int((domain_ext[3] - domain_ext[2]) // 0.25) + 1)

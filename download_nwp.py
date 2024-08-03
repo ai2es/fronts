@@ -2,7 +2,7 @@
 Download grib files containing NWP model data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.6.6
+Script version: 2024.8.3
 """
 
 import argparse

@@ -2,7 +2,7 @@
 Generate plots for permutation data from a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.26
+Script version: 2024.8.3
 
 TODO:
     * add option for including multi-pass permutation results
@@ -16,7 +16,7 @@ import matplotlib as mpl
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from utils.settings import FRONT_COLORS, FRONT_NAMES, VARIABLE_NAMES, VERTICAL_LEVELS
+from utils.data_utils import FRONT_COLORS, FRONT_NAMES, VARIABLE_NAMES, VERTICAL_LEVELS
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

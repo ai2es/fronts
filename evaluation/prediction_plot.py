@@ -2,7 +2,7 @@
 Plot model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.15
+Script version: 2024.8.3
 
 TODO: Fix colorbar position issues
 """
@@ -17,8 +17,8 @@ from matplotlib import cm, colors  # Here we explicitly import the cm and color 
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
-from utils import data_utils, settings
-from utils.plotting_utils import plot_background
+from utils import data_utils
+from utils.plotting import plot_background
 from skimage.morphology import skeletonize
 
 
@@ -47,7 +47,7 @@ if __name__ == '__main__':
         raise TypeError("Cannot plot deterministic splines and ground truth targets at the same time. Only one of --deterministic, --targets may be passed")
 
     DEFAULT_COLORBAR_POSITION = {'conus': 0.75, 'full': 0.85, 'global': 0.74}
-    cbar_position = DEFAULT_COLORBAR_POSITION[args["domain"]]
+    cbar_position = DEFAULT_COLORBAR_POSITION[args['domain']]
 
     model_properties = pd.read_pickle(f"{args['model_dir']}/model_{args['model_number']}/model_{args['model_number']}_properties.pkl")
 
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     else:
         transpose_dims = ('latitude', 'longitude')
 
-    extent = settings.DOMAIN_EXTENTS[args['domain']]
+    extent = data_utils.DOMAIN_EXTENTS[args['domain']]
 
     year, month, day, hour = args['init_time'][0], args['init_time'][1], args['init_time'][2], args['init_time'][3]
 
@@ -114,9 +114,9 @@ if __name__ == '__main__':
     levels = np.around(np.arange(0, 1 + prob_int, prob_int), 2)
     cbar_ticks = np.around(np.arange(mask, 1 + prob_int, prob_int), 2)
 
-    contour_maps_by_type = [settings.CONTOUR_CMAPS[label] for label in labels]
-    front_colors_by_type = [settings.FRONT_COLORS[label] for label in labels]
-    front_names_by_type = [settings.FRONT_NAMES[label] for label in labels]
+    contour_maps_by_type = [data_utils.CONTOUR_CMAPS[label] for label in labels]
+    front_colors_by_type = [data_utils.FRONT_COLORS[label] for label in labels]
+    front_names_by_type = [data_utils.FRONT_NAMES[label] for label in labels]
 
     cmap_front = colors.ListedColormap(front_colors_by_type, name='from_list', N=len(front_colors_by_type))
     norm_front = colors.Normalize(vmin=1, vmax=len(front_colors_by_type) + 1)
@@ -206,6 +206,5 @@ if __name__ == '__main__':
     ax.set_title('')
     ax.set_title(data_title, loc='left')
     ax.set_title("Five-class Model Predictions", loc='right')
-
     plt.savefig(plot_filename, bbox_inches='tight', dpi=300)
     plt.close()

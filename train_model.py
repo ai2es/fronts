@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.18
+Script version: 2024.8.3
 """
 import argparse
 import pandas as pd
@@ -342,8 +342,7 @@ if __name__ == "__main__":
         model_properties['activation'] = model_properties['activation'].lower()
 
         # Place local variables into the model properties dictionary
-        for arg in ['loss_string', 'loss_args', 'metric_string', 'metric_args', 'image_size', 'training_years',
-                    'validation_years', 'test_years']:
+        for arg in ['loss_args', 'metric_args', 'image_size', 'training_years', 'validation_years', 'test_years']:
             model_properties[arg] = locals()[arg]
 
         # If using 3D inputs and 2D targets, squeeze out the vertical dimension of the model (index 3)
@@ -414,7 +413,7 @@ if __name__ == "__main__":
 
     training_dataset = data_utils.combine_datasets(training_inputs, training_labels)
     images_in_training_dataset = len(training_dataset)
-    print(f"Images in validation dataset: {images_in_training_dataset:,}")
+    print(f"Images in training dataset: {images_in_training_dataset:,}")
 
     # Shuffle the entire training dataset
     if args['shuffle'] == 'full':
@@ -504,9 +503,9 @@ if __name__ == "__main__":
             optimizer = getattr(tf.keras.optimizers, args['optimizer'][0])(**optimizer_args)
             model.compile(loss=loss_function, optimizer=optimizer, metrics=metric_function)
 
-            model_properties["loss_parent_string"] = loss_args[0]
+            model_properties["loss_parent_string"] = args['loss'][0]
             model_properties["loss_child_string"] = loss_function.function_spec._name
-            model_properties["metric_parent_string"] = metric_args[0]
+            model_properties["metric_parent_string"] = args['metric'][0]
             model_properties["metric_child_string"] = metric_function.function_spec._name
         else:
             model = fm.load_model(args['model_number'], args['model_dir'])

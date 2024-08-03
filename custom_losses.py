@@ -6,18 +6,29 @@ Custom loss functions for U-Net models.
     - Probability of Detection (POD)
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.18
+Script version: 2024.8.3
 """
 import tensorflow as tf
 
 
-def brier_skill_score(class_weights: list[int | float, ...] = None):
+def brier_skill_score(alpha: int | float = 1.0,
+                      beta: int | float = 0.5,
+                      class_weights: list[int | float, ...] = None):
     """
     Brier skill score (BSS) loss function.
 
+    alpha: int or float
+        Parameter that controls how steep the sigmoid function is for discretization. Higher alpha makes the sigmoid function
+            steeper and can help prevent the training process from stalling. Default value is 1. Values greater than 4 are
+            not recommended.
+    beta: int or float
+        Parameter used to control some behaviors of the sigmoid discretization function. Default and recommended value is 0.5.
     class_weights: list of values or None
         List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
     """
+
+    if class_weights is not None:
+        class_weights = tf.cast(class_weights, tf.float32)
 
     @tf.function
     def bss_loss(y_true, y_pred):
@@ -28,11 +39,14 @@ def brier_skill_score(class_weights: list[int | float, ...] = None):
             Tensor containing model predictions.
         """
 
+        # discretize model predictions and labels
+        y_true = tf.math.sigmoid(alpha * (y_true - beta))
+        y_pred = tf.math.sigmoid(alpha * (y_pred - beta))
+
         losses = tf.math.square(tf.subtract(y_true, y_pred))
 
         if class_weights is not None:
-            relative_class_weights = tf.cast(class_weights / tf.math.reduce_sum(class_weights), tf.float32)
-            losses *= relative_class_weights
+            losses *= class_weights
 
         brier_score_loss = tf.math.reduce_sum(losses) / tf.size(losses)
         return brier_score_loss
@@ -40,27 +54,24 @@ def brier_skill_score(class_weights: list[int | float, ...] = None):
     return bss_loss
 
 
-def critical_success_index(threshold: float = None,
-                           window_size: tuple[int, ...] | list[int, ...] = None,
+def critical_success_index(alpha: int | float = 1.0,
+                           beta: int | float = 0.5,
                            class_weights: list[int | float, ...] = None):
     """
     Critical Success Index (CSI) loss function.
 
-    y_true: tf.Tensor
-        One-hot encoded tensor containing labels.
-    y_pred: tf.Tensor
-        Tensor containing model predictions.
-    threshold: float or None
-        Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
-            set to 1, and 0 otherwise.
-        If the threshold is set, it must be greater than 0 and less than 1.
-    window_size: tuple or list of ints or None
-        Pool/kernel size of the max-pooling window for neighborhood statistics. (e.g. if calculating the loss with a 4-pixel
-            window, this should be set to 4).
-        Note that this parameter is experimental and may return unexpected results.
+    alpha: int or float
+        Parameter that controls how steep the sigmoid function is for discretization. Higher alpha makes the sigmoid function
+            steeper and can help prevent the training process from stalling. Default value is 1. Values greater than 4 are
+            not recommended.
+    beta: int or float
+        Parameter used to control some behaviors of the sigmoid discretization function. Default and recommended value is 0.5.
     class_weights: list of values or None
         List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
     """
+
+    if class_weights is not None:
+        class_weights = tf.cast(class_weights, tf.float32)
 
     @tf.function
     def csi_loss(y_true, y_pred):
@@ -71,12 +82,9 @@ def critical_success_index(threshold: float = None,
             Tensor containing model predictions.
         """
 
-        if window_size is not None:
-            y_pred = tf.nn.max_pool(y_pred, ksize=window_size, strides=1, padding="VALID")
-            y_true = tf.nn.max_pool(y_true, ksize=window_size, strides=1, padding="VALID")
-
-        if threshold is not None:
-            y_pred = tf.where(y_pred >= threshold, 1, 0)
+        # discretize model predictions and labels
+        y_true = tf.math.sigmoid(alpha * (y_true - beta))
+        y_pred = tf.math.sigmoid(alpha * (y_pred - beta))
 
         y_pred_neg = 1 - y_pred
         y_true_neg = 1 - y_true
@@ -88,10 +96,9 @@ def critical_success_index(threshold: float = None,
         false_positives = tf.math.reduce_sum(y_pred * y_true_neg, axis=sum_over_axes)
 
         if class_weights is not None:
-            relative_class_weights = tf.cast(class_weights / tf.math.reduce_sum(class_weights), tf.float32)
-            true_positives *= relative_class_weights
-            false_positives *= relative_class_weights
-            false_negatives *= relative_class_weights
+            true_positives *= class_weights
+            false_positives *= class_weights
+            false_negatives *= class_weights
 
         csi = tf.math.divide(tf.math.reduce_sum(true_positives),
             tf.math.reduce_sum(true_positives) + tf.math.reduce_sum(false_positives) + tf.math.reduce_sum(false_negatives))
@@ -102,8 +109,9 @@ def critical_success_index(threshold: float = None,
 
 
 def fractions_skill_score(mask_size: int | tuple[int, ...] | list[int, ...] = (3, 3),
-                          threshold: float = None,
-                          c: float = 1.0):
+                          alpha: int | float = 1.0,
+                          beta: int | float = 0.5,
+                          class_weights: list[int | float, ...] = None):
     """
     Fractions skill score loss function.
 
@@ -111,10 +119,14 @@ def fractions_skill_score(mask_size: int | tuple[int, ...] | list[int, ...] = (3
     ----------
     mask_size: int or tuple
         Size of the mask/pool in the AveragePooling layers.
-    threshold: float or None
-        Threshold for discretization.
-    c: int or float
-        C parameter in the sigmoid function for soft discretization. Has no effect if 'threshold' parameter is not set.
+    alpha: int or float
+        Parameter that controls how steep the sigmoid function is for discretization. Higher alpha makes the sigmoid function
+            steeper and can help prevent the training process from stalling. Default value is 1. Values greater than 4 are
+            not recommended.
+    beta: int or float
+        Parameter used to control some behaviors of the sigmoid discretization function. Default and recommended value is 0.5.
+    class_weights: list of values or None
+            List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
 
     Returns
     -------
@@ -144,6 +156,9 @@ def fractions_skill_score(mask_size: int | tuple[int, ...] | list[int, ...] = (3
     # get the pooling layer based off the length of the mask_size tuple
     pool = getattr(tf.keras.layers, "AveragePooling%dD" % len(mask_size))(**pool_args)
 
+    if class_weights is not None:
+        class_weights = tf.cast(class_weights, tf.float32)
+
     @tf.function
     def fss_loss(y_true, y_pred):
         """
@@ -154,9 +169,12 @@ def fractions_skill_score(mask_size: int | tuple[int, ...] | list[int, ...] = (3
         """
 
         # discretize model predictions and labels
-        if threshold is not None:
-            y_true = tf.math.sigmoid(c * (y_true - threshold))
-            y_pred = tf.math.sigmoid(c * (y_pred - threshold))
+        y_true = tf.math.sigmoid(alpha * (y_true - beta))
+        y_pred = tf.math.sigmoid(alpha * (y_pred - beta))
+
+        if class_weights is not None:
+            y_true *= class_weights
+            y_pred *= class_weights
 
         O_n = pool(y_true)  # observed fractions (Eq. 2 in RL2008)
         M_n = pool(y_pred)  # model forecast fractions (Eq. 3 in RL2008)
@@ -171,22 +189,14 @@ def fractions_skill_score(mask_size: int | tuple[int, ...] | list[int, ...] = (3
     return fss_loss
 
 
-def probability_of_detection(threshold: float = None,
-                             window_size: tuple[int, ...] | list[int, ...] = None,
-                             class_weights: list[int | float, ...] = None):
+def probability_of_detection(class_weights: list[int | float, ...] = None):
     """
     Probability of Detection (POD) as a loss function. This turns the function into the miss rate.
 
-    threshold: float or None
-        Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
-            set to 1, and 0 otherwise.
-        If the threshold is set, it must be greater than 0 and less than 1.
-    window_size: tuple or list of ints or None
-        Pool/kernel size of the max-pooling window for neighborhood statistics. (e.g. if calculating the loss with a 5-pixel
-            window, this should be set to 5).
-        Note that this parameter is experimental and may return unexpected results.
     class_weights: list of values or None
         List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+
+    NOTE: This function is only intended for use in permutation studies and should NOT be used to train models.
     """
 
     @tf.function
@@ -197,12 +207,6 @@ def probability_of_detection(threshold: float = None,
         y_pred: tf.Tensor
             Tensor containing model predictions.
         """
-
-        if window_size is not None:
-            y_pred = tf.nn.max_pool(y_pred, ksize=window_size, strides=1, padding="VALID")
-            y_true = tf.nn.max_pool(y_true, ksize=window_size, strides=1, padding="VALID")
-
-        y_pred = tf.where(y_pred >= threshold, 1.0, 0.0) if threshold is not None else y_pred
 
         y_pred_neg = 1 - y_pred
 
