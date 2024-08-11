@@ -1,8 +1,8 @@
 """
-Convert netCDF files containing variable and frontal boundary data into tensorflow datasets for model training.
+Convert netCDF files containing variable, satellite, and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.8.10
 """
 import argparse
 import itertools
@@ -12,7 +12,7 @@ import pandas as pd
 import pickle
 import tensorflow as tf
 import file_manager as fm
-from utils import data_utils
+from utils import data_utils, misc
 from datetime import datetime
 import xarray as xr
 
@@ -23,6 +23,8 @@ if __name__ == '__main__':
         help="Input directory for the netCDF files containing variable data.")
     parser.add_argument('--fronts_netcdf_indir', type=str, required=True,
         help="Input directory for the netCDF files containing frontal boundary data.")
+    parser.add_argument('--satellite_netcdf_indir', type=str, required=True,
+        help="Input directory for the netCDF files containing GOES satellite data.")
     parser.add_argument('--tf_outdir', type=str, required=True,
         help="Output directory for the generated tensorflow datasets.")
     parser.add_argument('--year_and_month', type=int, nargs=2, required=True,
@@ -31,7 +33,7 @@ if __name__ == '__main__':
     parser.add_argument('--front_types', type=str, nargs='+', required=True,
         help="Code(s) for the front types that will be generated in the tensorflow datasets. Refer to documentation in 'utils.data_utils.reformat_fronts' "
              "for more information on these codes.")
-    parser.add_argument('--variables', type=str, nargs='+', help='Variables to select')
+    parser.add_argument('--variables', type=str, nargs='+', required=True, help='Variables to select')
     parser.add_argument('--pressure_levels', type=str, nargs='+', help='Variables pressure levels to select')
     parser.add_argument('--num_dims', type=int, nargs=2, default=[3, 3], help='Number of dimensions in the variables and front object images, repsectively.')
     parser.add_argument('--domain', type=str, default='conus', help='Domain from which to pull the images.')
@@ -64,7 +66,6 @@ if __name__ == '__main__':
         help='The probability that the current image will have its longitude dimension reversed. Can be any float 0 <= x <= 1.')
     parser.add_argument('--flip_chance_lat', type=float, default=0.0,
         help='The probability that the current image will have its latitude dimension reversed. Can be any float 0 <= x <= 1.')
-    parser.add_argument('--overwrite', action='store_true', help='Overwrite the contents of any existing variables and fronts data.')
     parser.add_argument('--verbose', action='store_true', help='Print out the progress of the dataset generation.')
     parser.add_argument('--gpu_device', type=int, nargs='+', help='GPU device numbers.')
     parser.add_argument('--memory_growth', action='store_true', help='Use memory growth on the GPU(s).')
@@ -72,34 +73,28 @@ if __name__ == '__main__':
         help="Seed for the random number generators. The same seed will be used for all months within a particular dataset.")
 
     args = vars(parser.parse_args())
-
+    
+    # configure GPU devices
     if args['gpu_device'] is not None:
-        gpus = tf.config.list_physical_devices(device_type='GPU')
-        tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args['gpu_device']], device_type='GPU')
-
-        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all the GPU's memory.
-        if args['memory_growth']:
-            tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args['gpu_device']][0], enable=True)
+        misc.initialize_gpus(args['gpu_device'], args['memory_growth'])
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-    year, month = args['year_and_month'][0], args['year_and_month'][1]
-
-    tf_dataset_folder_variables = f'%s/%s_%d%02d_tf' % (args['tf_outdir'], args['data_source'], year, month)
-    tf_dataset_folder_fronts = f"%s/fronts_%d%02d_tf" % (args['tf_outdir'], year, month)
-
-    if os.path.isdir(tf_dataset_folder_variables) or os.path.isdir(tf_dataset_folder_fronts):
-        if args['overwrite']:
-            print("WARNING: Tensorflow dataset(s) already exist for the provided year and month and will be overwritten.")
-        else:
-            raise FileExistsError("Tensorflow dataset(s) already exist for the provided year and month. If you would like to "
-                                  "overwrite the existing datasets, pass the --overwrite flag into the command line.")
-
-    if not os.path.isdir(args['tf_outdir']):
-        try:
-            os.mkdir(args['tf_outdir'])
-        except FileExistsError:  # When running in parallel, sometimes multiple instances will try to create this directory at once, resulting in a FileExistsError
-            pass
+    year, month = args['year_and_month']
+    
+    load_satellite = args['satellite_netcdf_indir'] is not None  # boolean flag that says if satellite data will be loaded
+    
+    data_vars = [var for var in args['variables'] if 'CMI_' not in var]
+    satellite_vars = [var for var in args['variables'] if 'CMI_' in var]
+    
+    os.makedirs(args['tf_outdir'], exist_ok=True)  # ensure that a folder exists for the dataset
+    
+    tf_dataset_folder_inputs = f'%s/inputs_%d%02d_tf' % (args['tf_outdir'], year, month)
+    tf_dataset_folder_fronts = tf_dataset_folder_inputs.replace('inputs', 'fronts')
+    tf_dataset_folder_satellite = tf_dataset_folder_inputs.replace('inputs', 'satellite')
+    
+    if os.path.isdir(tf_dataset_folder_inputs) or os.path.isdir(tf_dataset_folder_fronts):
+        raise FileExistsError("Tensorflow dataset(s) already exist for the provided year and month.")
 
     dataset_props_file = '%s/dataset_properties.pkl' % args['tf_outdir']
 
@@ -123,7 +118,7 @@ if __name__ == '__main__':
             for key in sorted(dataset_props.keys()):
                 f.write(f"{key}: {dataset_props[key]}\n")
             f.write(f"\n\n\nFile generated at {datetime.utcnow()} UTC\n")
-            f.write(f"convert_netcdf_to_tf.py script version: 2024.5.14")
+            f.write(f"convert_netcdf_to_tf.py script version: 2024.8.10")
 
     else:
 
@@ -144,21 +139,20 @@ if __name__ == '__main__':
     tf.random.set_seed(args["seed"])
     np.random.seed(args["seed"])
 
-    all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
+    all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v',
+                     'CMI_C02', 'CMI_C07', 'CMI_C08', 'CMI_C09', 'CMI_C10', 'CMI_C13', 'CMI_C16']
     all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1013', '1000', '950', '900', '850', '700', '500']
-
-    synoptic_only = True if args['domain'] not in ['conus', 'hrrr'] else False
-
-    file_loader = fm.DataFileLoader(args['variables_netcdf_indir'], '%s-netcdf' % args['data_source'], synoptic_only)
-    file_loader.test_years = [year, ]
-    file_loader.pair_with_fronts(args['fronts_netcdf_indir'])
-
-    variables_netcdf_files = file_loader.data_files_test
-    fronts_netcdf_files = file_loader.front_files_test
-
-    variables_netcdf_files = [file for file in variables_netcdf_files if '_%d%02d' % (year, month) in file]
-    fronts_netcdf_files = [file for file in fronts_netcdf_files if '_%d%02d' % (year, month) in file]
-
+    
+    file_obj = fm.DataFileLoader(args['variables_netcdf_indir'], 'era5', 'netcdf', years=year, months=month, domains='full')
+    file_obj.add_file_list(args['fronts_netcdf_indir'], 'fronts')
+    
+    ### add satellite data files ###
+    if load_satellite:
+        file_obj.add_file_list(args['satellite_netcdf_indir'], 'satellite')
+        variables_netcdf_files, fronts_netcdf_files, satellite_netcdf_files = file_obj.files
+    else:
+        variables_netcdf_files, fronts_netcdf_files = file_obj.files
+    
     ### Grab front files from previous timesteps so previous fronts can be used as predictors ###
     if args['add_previous_fronts'] is not None:
         files_to_remove = []  # variables and front files that will be removed from the dataset
@@ -178,14 +172,23 @@ if __name__ == '__main__':
             for file in files_to_remove:
                 index_to_pop = fronts_netcdf_files.index(file)
                 variables_netcdf_files.pop(index_to_pop), fronts_netcdf_files.pop(index_to_pop)
-
+                if load_satellite:
+                    satellite_netcdf_files.pop(index_to_pop)
+    
+    synoptic_only = True if args['domain'] not in ['conus', 'hrrr'] else False
+    if synoptic_only:
+        synoptic_ind = [variables_netcdf_files.index(file) for file in variables_netcdf_files if any(['%02d_' % hr in file for hr in [0, 6, 12, 18]])]
+        variables_netcdf_files = list([variables_netcdf_files[i] for i in synoptic_ind])
+        fronts_netcdf_files = list([fronts_netcdf_files[i] for i in synoptic_ind])
+        satellite_netcdf_files = list([satellite_netcdf_files[i] for i in synoptic_ind])
+        
     if args['shuffle_timesteps']:
-        zipped_list = list(zip(variables_netcdf_files, fronts_netcdf_files))
+        zipped_list = list(zip(variables_netcdf_files, fronts_netcdf_files)) if not load_satellite else list(zip(variables_netcdf_files, fronts_netcdf_files, satellite_netcdf_files))
         np.random.shuffle(zipped_list)
-        variables_netcdf_files, fronts_netcdf_files = zip(*zipped_list)
-
-    # assert that the dates of the files match
-    files_match_flag = all(os.path.basename(variables_file).split('_')[1] == os.path.basename(fronts_file).split('_')[1] for variables_file, fronts_file in zip(variables_netcdf_files, fronts_netcdf_files))
+        if load_satellite:
+            variables_netcdf_files, fronts_netcdf_files, satellite_netcdf_files = zip(*zipped_list)
+        else:
+            variables_netcdf_files, fronts_netcdf_files = zip(*zipped_list)
 
     if args["domain"] in ["conus", "full"]:
         if args['override_extent'] is None:
@@ -196,11 +199,6 @@ if __name__ == '__main__':
                           'latitude': slice(args['override_extent'][3], args['override_extent'][2])}
     else:
         sel_kwargs = {}
-
-    if not files_match_flag:
-        raise OSError("%s/fronts files do not match" % args["data_source"])
-
-    variables_to_use = all_variables if args['variables'] is None else args['variables']
 
     args['pressure_levels'] = all_pressure_levels if args['pressure_levels'] is None else [lvl for lvl in all_pressure_levels if lvl in args['pressure_levels']]
 
@@ -248,8 +246,13 @@ if __name__ == '__main__':
         if all_fronts_in_timestep or keep_timestep:
 
             ### Open variables dataset ###
-            variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[variables_to_use].sel(pressure_level=args['pressure_levels'], **sel_kwargs).isel(**isel_kwargs).transpose('time', *transpose_dims, 'pressure_level').astype('float16')
+            variables_dataset = xr.open_dataset(variables_netcdf_files[timestep_no], engine='netcdf4')[data_vars].sel(pressure_level=args['pressure_levels'], **sel_kwargs).isel(**isel_kwargs).transpose('time', *transpose_dims, 'pressure_level').astype('float16')
             variables_dataset = variables_dataset.isel(time=0).transpose(*transpose_dims, 'pressure_level').astype('float16')
+            
+            ### open satellite data ###
+            if load_satellite:
+                satellite_dataset = xr.open_dataset(satellite_netcdf_files[timestep_no], engine='netcdf4')
+                satellite_dataset = satellite_dataset.sel(**sel_kwargs).isel(**isel_kwargs).transpose(*transpose_dims)
 
             ### Reformat the fronts from the previous timestep ###
             if args['add_previous_fronts'] is not None:
@@ -305,7 +308,7 @@ if __name__ == '__main__':
 
                 images_kept += 1
 
-                new_variables_dataset = variables_dataset.copy()
+                new_variables_dataset = variables_dataset.copy()  # copy variables dataset to isolate it in memory
 
                 # boolean flags for rotating and flipping images
                 flip_lon = np.random.random() <= args['flip_chance_lon']
@@ -318,33 +321,53 @@ if __name__ == '__main__':
                     new_variables_dataset["v"] = -new_variables_dataset["v"]  # need to reverse v-wind component if flipping the latitude axis
 
                 new_variables_dataset = data_utils.normalize_variables(new_variables_dataset).to_array().transpose(*transpose_dims, 'pressure_level', 'variable')
-                variables_tensor = tf.convert_to_tensor(new_variables_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :, :], dtype=tf.float16)
-
+                input_tensor = tf.convert_to_tensor(new_variables_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat, :, :], dtype=tf.float16)
+                
+                random_values = tf.random.uniform(shape=input_tensor.shape)  # random noise values, will not necessarily be used
+                
+                ### rotate input variables image ###
                 if flip_lon:
-                    variables_tensor = tf.reverse(variables_tensor, axis=[0])  # Reverse values along the longitude dimension
+                    input_tensor = tf.reverse(input_tensor, axis=[0])  # Reverse values along the longitude dimension
                 if flip_lat:
-                    variables_tensor = tf.reverse(variables_tensor, axis=[1])  # Reverse values along the latitude dimension
+                    input_tensor = tf.reverse(input_tensor, axis=[1])  # Reverse values along the latitude dimension
 
                 if args['noise_fraction'] > 0:
-                    ### Add salt and pepper noise to image ###
-                    random_values = tf.random.uniform(shape=variables_tensor.shape)
-                    variables_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, variables_tensor)  # add 0s to image
-                    variables_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, variables_tensor)  # add 1s to image
-
+                    ### Add salt and pepper noise to images ###
+                    input_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, input_tensor)  # add 0s to image
+                    input_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, input_tensor)  # add 1s to image
+                
                 if args['num_dims'][0] == 2:
                     ### Combine pressure level and variables dimensions, making the images 2D (excluding the final dimension) ###
-                    variables_tensor_shape_3d = variables_tensor.shape
-                    variables_tensor = tf.reshape(variables_tensor, [variables_tensor_shape_3d[0], variables_tensor_shape_3d[1], variables_tensor_shape_3d[2] * variables_tensor_shape_3d[3]])
+                    input_tensor_shape_3d = input_tensor.shape
+                    input_tensor = tf.reshape(input_tensor, [input_tensor_shape_3d[0], input_tensor_shape_3d[1], input_tensor_shape_3d[2] * input_tensor_shape_3d[3]])
+
+                ### process satellite image ###
+                if load_satellite:
+                    new_satellite_dataset = satellite_dataset.copy()  # copy satellite dataset to isolate it in memory
+                    new_satellite_dataset = data_utils.normalize_satellite(new_satellite_dataset).to_array().transpose(*transpose_dims, 'variable')
+                    satellite_tensor = tf.convert_to_tensor(new_satellite_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat], dtype=tf.float16)
+
+                    ### rotate satellite image ###
+                    if flip_lon:
+                        satellite_tensor = tf.reverse(satellite_tensor, axis=[0])  # Reverse values along the longitude dimension
+                    if flip_lat:
+                        satellite_tensor = tf.reverse(satellite_tensor, axis=[1])  # Reverse values along the latitude dimension
+                    
+                    if args['noise_fraction'] > 0:
+                        satellite_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, satellite_tensor)  # add 0s to image
+                        satellite_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, satellite_tensor)  # add 1s to image
+                    
+                    input_tensor = tf.concat([input_tensor, satellite_tensor], axis=-1)
 
                 ### add input images to tensorflow dataset ###
-                variables_tensor_for_timestep = tf.data.Dataset.from_tensors(variables_tensor)
-                if 'variables_tensors_for_month' not in locals():
-                    variables_tensors_for_month = variables_tensor_for_timestep
+                input_tensor_for_timestep = tf.data.Dataset.from_tensors(input_tensor)
+                if 'input_tensors_for_month' not in locals():
+                    input_tensors_for_month = input_tensor_for_timestep
                 else:
-                    variables_tensors_for_month = variables_tensors_for_month.concatenate(variables_tensor_for_timestep)
+                    input_tensors_for_month = input_tensors_for_month.concatenate(input_tensor_for_timestep)
 
                 front_tensor = tf.convert_to_tensor(front_image, dtype=tf.int32)
-
+                
                 if flip_lon:
                     front_tensor = tf.reverse(front_tensor, axis=[0])  # Reverse values along the longitude dimension
                 if flip_lat:
@@ -368,15 +391,10 @@ if __name__ == '__main__':
             timesteps_discarded += 1
 
     print("%d-%02d Dataset progress (kept/discarded):  (%d/%d timesteps, %d/%d images)" % (year, month, timesteps_kept, timesteps_discarded, images_kept, images_discarded))
-
-    if args['overwrite']:
-        if os.path.isdir(tf_dataset_folder_variables):
-            os.rmdir(tf_dataset_folder_variables)
-        if os.path.isdir(tf_dataset_folder_fronts):
-            os.rmdir(tf_dataset_folder_fronts)
-
+    
+    ### save the tensorflow datasets ###
     try:
-        tf.data.Dataset.save(variables_tensors_for_month, path=tf_dataset_folder_variables)
+        tf.data.Dataset.save(input_tensors_for_month, path=tf_dataset_folder_inputs)
         tf.data.Dataset.save(front_tensors_for_month, path=tf_dataset_folder_fronts)
         print("Tensorflow datasets for %d-%02d saved to %s." % (year, month, args['tf_outdir']))
     except NameError:

@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.8.10
 """
 import argparse
 import pandas as pd
@@ -394,17 +394,10 @@ if __name__ == "__main__":
     model_properties['batch_sizes'] = [train_batch_size, valid_batch_size]
 
     ### Training dataset ###
-    try:
-        train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], data_file_type='%s-tensorflow' % train_data_source)
-        train_files_obj.training_years = training_years
-        train_files_obj.pair_with_fronts(args['tf_indirs'][0])
-    except IndexError:
-        train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], data_file_type='%s-tensorflow' % train_data_source)
-        train_files_obj.training_years = training_years
-        train_files_obj.pair_with_fronts(args['tf_indirs'][0], underscore_skips=len(front_types))
-    training_inputs = train_files_obj.data_files_training
-    training_labels = train_files_obj.front_files_training
-
+    train_files_obj = fm.DataFileLoader(args['tf_indirs'][0], years=training_years, data_type='inputs', file_format='tensorflow')
+    train_files_obj.add_file_list(args['tf_indirs'][0], data_type='fronts')
+    training_inputs, training_labels = train_files_obj.files
+    
     # Shuffle monthly data lazily
     if args['shuffle'] == 'lazy':
         training_files = list(zip(training_inputs, training_labels))
@@ -438,16 +431,9 @@ if __name__ == "__main__":
         valid_data_source = valid_dataset_properties["domain"]
 
     ### Validation dataset ###
-    try:
-        valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], data_file_type='%s-tensorflow' % valid_data_source)
-        valid_files_obj.validation_years = validation_years
-        valid_files_obj.pair_with_fronts(args['tf_indirs'][1])
-    except IndexError:
-        valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], data_file_type='%s-tensorflow' % valid_data_source)
-        valid_files_obj.validation_years = validation_years
-        valid_files_obj.pair_with_fronts(args['tf_indirs'][1], underscore_skips=len(front_types))
-    validation_inputs = valid_files_obj.data_files_validation
-    validation_labels = valid_files_obj.front_files_validation
+    valid_files_obj = fm.DataFileLoader(args['tf_indirs'][0], years=validation_years, data_type='inputs', file_format='tensorflow')
+    valid_files_obj.add_file_list(args['tf_indirs'][0], data_type='fronts')
+    validation_inputs, validation_labels = valid_files_obj.files
     validation_dataset = data_utils.combine_datasets(validation_inputs, validation_labels)
     images_in_validation_dataset = len(validation_dataset)
     print(f"Images in validation dataset: {images_in_validation_dataset:,}")

@@ -4,27 +4,31 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.8.10
 """
 import argparse
 import sys
 import os
+import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
 from utils.data_utils import *
+from utils.misc import initialize_gpus
 import xarray as xr
 import tensorflow as tf
 
-# some months do not have complete front labels, so we need to specify what dates do NOT have data for the final prediction datasets
-incomplete_months = {"2007-05": np.array([122, 128, 130, 132]),
-                     "2007-06": np.array([32, 34, 36, 200, 202]),
-                     "2007-11": np.array([126, 128, 130, 132]),
-                     "2007-12": np.array([206, 207]),
-                     "2018-03": 203,
-                     "2022-09": np.append(np.array([44, 46]), np.arange(48, 95.1, 1)).astype(int),
-                     "2022-10": np.append(np.arange(80, 87.1, 1), np.arange(160, 167.1, 1)).astype(int),
-                     "2022-11": 196}
+# some months do not have complete front labels, so we need to specify what dates (indices) do NOT have data for the final prediction datasets
+missing_fronts_ind = {"2007-05": np.array([122, 128, 130, 132]), "2007-06": np.array([32, 34, 36, 200, 202]), "2007-11": np.array([126, 128, 130, 132]),
+    "2007-12": np.array([206, 207]), "2018-03": 203, "2022-09": np.append(np.array([44, 46]), np.arange(48, 95.1, 1)).astype(int),
+    "2022-10": np.append(np.arange(80, 87.1, 1), np.arange(160, 167.1, 1)).astype(int), "2022-11": 196}
 
+missing_satellite_ind = {"2018-09": np.array([78, 79, 80, 81, 82, 83, 142, 146]), "2018-10": np.append(np.array([86, 134]), np.arange(189, 237.1)).astype(int),
+    "2018-11": np.append(np.arange(0, 99.1, 1), np.array([120, 121, 122, 123, 124, 125, 126, 159])).astype(int), "2018-12": np.array([153, 157, 205, 206, 207]),
+    "2019-01": 22, "2019-02": np.array([197, 198]), "2019-03": 215, "2019-04": 189, "2019-05": 237, "2019-06": np.array([213, 221, 222]),
+    "2019-08": np.array([114, 115, 116, 117]), "2020-06": np.array([22, 23, 24, 25, 26, 27]), "2020-07": np.array([207, 208]),
+    "2020-08": 86, "2021-01": 167, "2021-03": np.array([125, 181, 182, 183]), "2021-04": 231, "2021-06": np.array([116, 228, 229, 230]),
+    "2021-07": np.append(np.array([67]), np.arange(170, 179.1, 1)), "2022-01": 112, "2022-04": 141, "2022-05": np.array([189, 190]),
+    "2022-08": np.array([42, 43, 50, 51, 58]), "2022-09": np.array([100, 101, 102, 103]), "2022-11": np.array([55, 56, 134])}
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -45,10 +49,7 @@ if __name__ == '__main__':
 
     domain = dataset_properties['domain']
 
-    if domain == 'conus':
-        hour_interval = 3
-    else:
-        hour_interval = 6
+    hour_interval = 3 if domain == 'conus' else 6
 
     # Some older models do not have the 'dataset_properties' dictionary
     try:
@@ -81,42 +82,28 @@ if __name__ == '__main__':
         raise ValueError("Cannot evaluate model with the selected dataset. Reason: pressure levels do not match "
                          f"(model: {model_properties['dataset_properties']['pressure_levels']}, dataset: {dataset_properties['pressure_levels']})")
 
-    gpus = tf.config.list_physical_devices(device_type='GPU')  # Find available GPUs
-    if len(gpus) > 0:
-
-        print("Number of GPUs available: %d" % len(gpus))
-
-        # Only make the selected GPU(s) visible to TensorFlow
-        if args['gpu_device'] is not None:
-            tf.config.set_visible_devices(devices=[gpus[gpu] for gpu in args['gpu_device']], device_type='GPU')
-            gpus = tf.config.get_visible_devices(device_type='GPU')  # List of selected GPUs
-            print("Using %d GPU(s):" % len(gpus), gpus)
-
-        # Allow for memory growth on the GPU. This will only use the GPU memory that is required rather than allocating all the GPU's memory.
-        if args['memory_growth']:
-            tf.config.experimental.set_memory_growth(device=[gpu for gpu in gpus][0], enable=True)
-
+    if args['gpu_device'] is not None:
+        initialize_gpus(args['gpu_device'], args['memory_growth'])
     else:
-        print('WARNING: No GPUs found, all computations will be performed on CPUs.')
-        tf.config.set_visible_devices([], 'GPU')
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
     # The axis that the predicts will be concatenated on depends on the shape of the output, which is determined by deep supervision
-    if model_properties['deep_supervision']:
-        concat_axis = 1
+    concat_axis = 1 if model_properties['deep_supervision'] else 0
+    
+    if dataset_properties['override_extent'] is not None:
+        extent = dataset_properties['override_extent']
+        lons = np.arange(extent[0], extent[1] + 0.25, 0.25)
+        lats = np.arange(extent[2], extent[3] + 0.25, 0.25)[::-1]
     else:
-        concat_axis = 0
-
-    tf_ds_obj = fm.DataFileLoader(args['tf_indir'], data_file_type='%s-tensorflow' % args['data_source'])
-
-    lons = np.arange(DOMAIN_EXTENTS[domain][0], DOMAIN_EXTENTS[domain][1] + 0.25, 0.25)
-    lats = np.arange(DOMAIN_EXTENTS[domain][2], DOMAIN_EXTENTS[domain][3] + 0.25, 0.25)[::-1]
+        lons = np.arange(DOMAIN_EXTENTS[domain][0], DOMAIN_EXTENTS[domain][1] + 0.25, 0.25)
+        lats = np.arange(DOMAIN_EXTENTS[domain][2], DOMAIN_EXTENTS[domain][3] + 0.25, 0.25)[::-1]
 
     model = fm.load_model(args['model_number'], args['model_dir'])
 
     for year in years:
         
-        tf_ds_obj.test_years = [year, ]
-        files_for_year = tf_ds_obj.data_files_test
+        tf_ds_obj = fm.DataFileLoader(args['tf_indir'], data_type='inputs', file_format='tensorflow', years=years)
+        files_for_year = tf_ds_obj.files[0]
         
         for month in months:
 
@@ -131,10 +118,17 @@ if __name__ == '__main__':
                                    np.datetime64(f"{input_file[-9:-5]}-{input_file[-5:-3]}") + np.timedelta64(1, "M"),
                                    np.timedelta64(hour_interval, "h"))
 
-            # remove timesteps that do not have data
-            if "%d-%02d" % (year, month) in incomplete_months:
-                time_array = np.delete(time_array, incomplete_months["%d-%02d" % (year, month)])
+            ### remove timesteps that do not have data ###
+            missing_indices = np.array([])
+            if "%d-%02d" % (year, month) in missing_fronts_ind:
+                missing_indices = np.append(missing_indices, missing_fronts_ind["%d-%02d" % (year, month)])
 
+            model_uses_satellite = any(['CMI_' in var for var in model_properties['dataset_properties']['variables']])
+            if model_uses_satellite and "%d-%02d" % (year, month) in missing_satellite_ind:
+                missing_indices = np.append(missing_indices, missing_satellite_ind["%d-%02d" % (year, month)])
+                missing_indices = np.unique(missing_indices.flatten())
+            ##############################################
+            
             assert len(tf_ds) == len(time_array)  # make sure tensorflow dataset has all timesteps
 
             tf_ds = tf_ds.batch(args['batch_size'])
@@ -155,4 +149,4 @@ if __name__ == '__main__':
                        coords={'time': time_array, 'longitude': lons, 'latitude': lats}).astype('float32').\
                 to_netcdf(path=prediction_dataset_path, mode='w', engine='netcdf4')
 
-            del prediction  # Delete the prediction variable so it can be recreated for the next year
+            del prediction  # Delete the prediction variable so it can be recreated for the next month

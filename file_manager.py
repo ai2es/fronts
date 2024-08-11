@@ -2,7 +2,7 @@
 Functions in this code manage data files and models.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.18
+Script version: 2024.8.10
 """
 
 import argparse
@@ -200,482 +200,166 @@ def extract_tarfile(main_dir: str,
 
 class DataFileLoader:
     """
-    Object that loads and manages ERA5, GDAS, GFS, and front object files.
+    Objects that loads and manages various types of files containing weather data.
     """
     def __init__(
-        self, 
-        file_dir: str, 
-        data_file_type: str, 
-        synoptic_only: bool = False):
+        self,
+        file_dir: str,
+        data_type: str,
+        file_format: str,
+        years = None,
+        months = None,
+        days = None,
+        hours = None,
+        domains = None):
         """
-        When the DataFileLoader object is created, find all netCDF or tensorflow datasets.
-
-        Parameters
-        ----------
         file_dir: str
-            Input directory for the netCDF or tensorflow datasets.
-        data_file_type: str
-            This string will contain two parts, separated by a hyphen: the source for the variable data, and the type of file/dataset.
-            Options for the variable data sources are: 'era5', 'fronts', 'gdas', and 'gfs'.
-            Options for the file/dataset type string are: 'netcdf', 'tensorflow'.
-        synoptic_only: bool
-            Setting this to True will remove any files with timesteps at non-synoptic hours (3, 9, 15, 21z).
-
-        Examples
-        --------
-        <<<<< start example >>>>
-
-            import file_manager as fm
-
-            file_dir = '/home/user/data'  # Directory where the data is stored
-            data_file_type = 'era5-netcdf'  # We want to load netCDF files containing ERA5 data
-
-            era5_file_obj = fm.DataFileLoader(file_dir, data_file_type)  # Load the data files
-
-        <<<<< end example >>>>
+            Parent directory for the first set of various data files to load.
+        data_type: str
+            The source/type of the data files to load. Options for the data sources are: 'era5', 'fronts', 'gdas', 'gfs', 'nam-12km', 'satellite'.
+        file_format: str
+            Formatting of the data files to load. Options for the file/dataset type string are: 'grib', 'netcdf', 'tensorflow'.
+                Note that this CANNOT be changed after it has been set, you must create an entirely separate DataFileLoader
+                object to load a separate file type.
+        years: int or iterable of ints, optional
+            Year(s) to select from the available files.
+        months: int or iterable of ints, optional
+            Month(s) to select from the avilable files.
+        days: int or iterable of ints, optional
+            Day(s) to select from the available files.
+        hours: int or iterable of ints, optional
+            Hour(s) to select from the available files.
+        domains: str or iterable of strs, optional
+            Domain(s) to select from the available files.
         """
-
-        ######################################### Check the parameters for errors ######################################
-        if not isinstance(file_dir, str):
-            raise TypeError(f"file_dir must be a string, received {type(file_dir)}")
-        if not isinstance(data_file_type, str):
-            raise TypeError(f"data_file_type must be a string, received {type(data_file_type)}")
-        if not isinstance(synoptic_only, bool):
-            raise TypeError(f"synoptic_only must be a boolean, received {type(synoptic_only)}")
-        ################################################################################################################
-
-        valid_data_sources = ['era5', 'ecmwf', 'fronts', 'gdas', 'gfs', 'hrrr', 'nam-12km']
-        valid_file_types = ['netcdf', 'tensorflow']
-
-        data_file_type = data_file_type.lower().split('-')
-        data_source = '-'.join(data_file_type[:-1])
-        self._file_type = data_file_type[-1]
-
-        if self._file_type == 'netcdf':
+        
+        self._file_format = file_format
+        self._years = years
+        self._months = months
+        self._days = days
+        self._hours = hours
+        self._domains = domains
+        
+        self._format_args()
+        
+        if data_type == 'fronts' and self._file_format != 'tensorflow':
+            data_type = 'FrontObjects'
+        
+        if self._file_format == 'grib':
+            self._file_extension = '.grib'
+        elif self._file_format == 'netcdf':
             self._file_extension = '.nc'
-            self._subdir_glob = '/*/'
-        elif self._file_type == 'tensorflow':
+        elif self._file_format == 'tensorflow':
             self._file_extension = '_tf'
-            self._subdir_glob = '/'
         else:
-            raise TypeError(f"'%s' is not a valid file type, valid types are: {', '.join(valid_file_types)}" % self._file_type)
-
-        if data_source not in valid_data_sources:
-            raise TypeError(f"'%s' is not a valid data source, valid sources are: {', '.join(valid_data_sources)}" % data_source)
-
-        if data_source == 'fronts':
-            self._file_prefix = 'FrontObjects'
+            raise ValueError('Unknown file type: %s' % self._file_format)
+        
+        if self._file_format in ['grib', 'netcdf']:
+            glob_strs = [f'{file_dir}/{yr}{mo}/{data_type}_{yr}{mo}{dy}{hr}_{domain}{self._file_extension}'
+                         for yr in self._years
+                         for mo in self._months
+                         for dy in self._days
+                         for hr in self._hours
+                         for domain in self._domains]
         else:
-            self._file_prefix = data_source
-
-        self._all_data_files = sorted(glob("%s%s%s*%s" % (file_dir, self._subdir_glob, self._file_prefix, self._file_extension)))  # All data files without filtering
-
-        if self._file_type == 'netcdf':
-            self._data_file_information = [[*os.path.basename(file).replace(self._file_extension, '').split('_')[1:-1]] for file in self._all_data_files]  # timesteps in the unfiltered data files
-        else:
-            self._data_file_information = [[os.path.basename(file).replace(self._file_extension, '').split('_')[1],] for file in self._all_data_files]  # timesteps in the unfiltered data files
-
-        [data_file_info.insert(1, 'f000') for data_file_info in self._data_file_information if len(data_file_info) == 1]
-
-        if synoptic_only:
-            ### Filter out non-synoptic hours (3, 9, 15, 21z) ###
-            for file_info in self._data_file_information:
-                if any('%02d' % hour in file_info[0][-2:] for hour in [3, 9, 15, 21]):
-                    self._all_data_files.pop(self._data_file_information.index(file_info))
-                    self._data_file_information.pop(self._data_file_information.index(file_info))
-
-        ### All available options for specific filters ###
-        self._all_forecast_hours = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
-        self._all_years = (2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
-
-        self.reset_all_filters()  # Resetting the filters simply creates the list of data files
-
-        ### Current values for the filters used in the files ###
-        self._forecast_hours = self._all_forecast_hours
-        self._training_years = self._all_years
-        self._validation_years = self._all_years
-        self._test_years = self._all_years
-
-    def reset_all_filters(self):
+            glob_strs = [f'{file_dir}/{data_type}_{yr}{mo}{self._file_extension}'
+                         for yr in self._years
+                         for mo in self._months]
+        
+        # remove consecutive asterisks to prevent recursive searches
+        glob_strs = [glob_str.replace('****', '*').replace('***', '*').replace('**', '*') for glob_str in glob_strs]
+        
+        self.files = []
+        for glob_str in glob_strs:
+            self.files.extend(glob(glob_str))
+        self.files = [sorted(self.files)]
+        
+    def add_file_list(self, file_dir, data_type):
         """
-        Reset the lists of files back to their original states with no filters
+        Add another file list.
         """
-
-        if self._file_prefix == 'FrontObjects':
-            self.front_files = self._all_data_files
-            self.front_files_training = self.front_files
-            self.front_files_validation = self.front_files
-            self.front_files_test = self.front_files
-        else:
-            self.data_files = self._all_data_files
-            self.data_files_training = self.data_files
-            self.data_files_validation = self.data_files
-            self.data_files_test = self.data_files
-
-        ### If front object files have been loaded to be paired with variable files, reset the front file lists ###
-        if hasattr(self, '_all_front_files'):
-            self.front_files = self._all_front_files
-            self.front_files_training = self.front_files
-            self.front_files_validation = self.front_files
-            self.front_files_test = self.front_files
-
-    ####################################################################################################################
-
-    def __get_training_years(self):
-        """
-        Return the list of training years used
-        """
-
-        return self._training_years
-
-    def __set_training_years(self, training_years: tuple | list):
-        """
-        Select the training years to load
-        """
-
-        self.__reset_training_years()  # Return file list to last state before training years were modified (no effect is this is first training year selection)
-
-        self._training_years = training_years
-
-        ### Check that all selected training years are valid ###
-        invalid_training_years = [year for year in training_years if year not in self._all_years]
-        if len(invalid_training_years) > 0:
-            raise TypeError(f"The following training years are not valid: {','.join(sorted(invalid_training_years))}")
-
-        self._training_years_not_in_data = [year for year in self._all_years if year not in training_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._training_years_not_in_data:
-            if self._file_prefix == 'FrontObjects':
-                self.front_files_training = [file for file in self.front_files_training if '_%s' % str(year) not in file]
-            else:
-                self.data_files_training = [file for file in self.data_files_training if '_%s' % str(year) not in file]
-
-    def __reset_training_years(self):
-        """
-        Reset training years
-        """
-
-        if not hasattr(self, '_filtered_data_files_before_training_year_selection'):  # If the training years have not been selected yet
-            if self._file_prefix == 'FrontObjects':
-                self._filtered_data_files_before_training_year_selection = self.front_files_training
-            else:
-                self._filtered_data_files_before_training_year_selection = self.data_files_training
-        else:  # Return file list to last state before training years were modified
-            if self._file_prefix == 'FrontObjects':
-                self.front_files_training = self._filtered_data_files_before_training_year_selection
-            else:
-                self.data_files_training = self._filtered_data_files_before_training_year_selection
-
-    training_years = property(__get_training_years, __set_training_years)  # Property method for setting training years
-
-    ####################################################################################################################
-
-    def __get_validation_years(self):
-        """
-        Return the list of validation years used
-        """
-
-        return self._validation_years
-
-    def __set_validation_years(self, validation_years: tuple | list):
-        """
-        Select the validation years to load
-        """
-
-        self.__reset_validation_years()  # Return file list to last state before validation years were modified (no effect is this is first validation year selection)
-
-        self._validation_years = validation_years
-
-        ### Check that all selected validation years are valid ###
-        invalid_validation_years = [year for year in validation_years if year not in self._all_years]
-        if len(invalid_validation_years) > 0:
-            raise TypeError(f"The following validation years are not valid: {','.join(sorted(invalid_validation_years))}")
-
-        self._validation_years_not_in_data = [year for year in self._all_years if year not in validation_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._validation_years_not_in_data:
-            if self._file_prefix == 'FrontObjects':
-                self.front_files_validation = [file for file in self.front_files_validation if '_%s' % str(year) not in file]
-            else:
-                self.data_files_validation = [file for file in self.data_files_validation if '_%s' % str(year) not in file]
-
-    def __reset_validation_years(self):
-        """
-        Reset validation years
-        """
-
-        if not hasattr(self, '_filtered_data_files_before_validation_year_selection'):  # If the validation years have not been selected yet
-            if self._file_prefix == 'FrontObjects':
-                self._filtered_data_files_before_validation_year_selection = self.front_files_validation
-            else:
-                self._filtered_data_files_before_validation_year_selection = self.data_files_validation
-        else:  # Return file list to last state before validation years were modified
-            if self._file_prefix == 'FrontObjects':
-                self.front_files_validation = self._filtered_data_files_before_validation_year_selection
-            else:
-                self.data_files_validation = self._filtered_data_files_before_validation_year_selection
-
-    validation_years = property(__get_validation_years, __set_validation_years)  # Property method for setting validation years
-
-    ####################################################################################################################
-
-    def __get_test_years(self):
-        """
-        Return the list of test years used
-        """
-
-        return self._test_years
-
-    def __set_test_years(self, test_years: tuple | list):
-        """
-        Select the test years to load
-        """
-
-        self.__reset_test_years()  # Return file list to last state before test years were modified (no effect is this is first test year selection)
-
-        self._test_years = test_years
-
-        ### Check that all selected test years are valid ###
-        invalid_test_years = [year for year in test_years if year not in self._all_years]
-        if len(invalid_test_years) > 0:
-            raise TypeError(f"The following test years are not valid: {','.join(sorted(invalid_test_years))}")
-
-        self._test_years_not_in_data = [year for year in self._all_years if year not in test_years]
-
-        ### Remove unwanted years from the list of files ###
-        for year in self._test_years_not_in_data:
-            if self._file_prefix == 'FrontObjects':
-                self.front_files_test = [file for file in self.front_files_test if '_%s' % str(year) not in file]
-            else:
-                self.data_files_test = [file for file in self.data_files_test if '_%s' % str(year) not in file]
-
-    def __reset_test_years(self):
-        """
-        Reset test years
-        """
-
-        if not hasattr(self, '_filtered_data_files_before_test_year_selection'):  # If the test years have not been selected yet
-            if self._file_prefix == 'FrontObjects':
-                self._filtered_data_files_before_test_year_selection = self.front_files_test
-            else:
-                self._filtered_data_files_before_test_year_selection = self.data_files_test
-        else:  # Return file list to last state before test years were modified
-            if self._file_prefix == 'FrontObjects':
-                self.front_files_test = self._filtered_data_files_before_test_year_selection
-            else:
-                self.data_files_test = self._filtered_data_files_before_test_year_selection
-
-    test_years = property(__get_test_years, __set_test_years)  # Property method for setting test years
-
-    ####################################################################################################################
-
-    def __get_forecast_hours(self):
-        """
-        Return the list of forecast hours used
-        """
-
-        if self._file_type == 'era5':
-            return None
-        else:
-            return self._forecast_hours
-
-    def __set_forecast_hours(self, forecast_hours: tuple | list):
-        """
-        Select the forecast hours to load
-        """
-
-        self.__reset_forecast_hours()  # Return file list to last state before forecast hours were modified (no effect is this is first forecast hour selection)
-
-        self._forecast_hours = forecast_hours
-
-        ### Check that all selected forecast hours are valid ###
-        invalid_forecast_hours = [hour for hour in forecast_hours if hour not in self._all_forecast_hours]
-        if len(invalid_forecast_hours) > 0:
-            raise TypeError(f"The following forecast hours are not valid: {','.join(sorted(str(hour) for hour in invalid_forecast_hours))}")
-
-        self._forecast_hours_not_in_data = [hour for hour in self._all_forecast_hours if hour not in forecast_hours]
-
-        ### Remove unwanted forecast hours from the list of files ###
-        for hour in self._forecast_hours_not_in_data:
-            self.data_files = [file for file in self.data_files if '_f%03d_' % hour not in file]
-            self.data_files_training = [file for file in self.data_files_training if '_f%03d_' % hour not in file]
-            self.data_files_validation = [file for file in self.data_files_validation if '_f%03d_' % hour not in file]
-            self.data_files_test = [file for file in self.data_files_test if '_f%03d_' % hour not in file]
-
-    def __reset_forecast_hours(self):
-        """
-        Reset forecast hours in the data files
-        """
-
-        if not hasattr(self, '_filtered_data_files_before_forecast_hour_selection'):  # If the forecast hours have not been selected yet
-            self._filtered_data_files_before_forecast_hour_selection = self.data_files
-            self._filtered_data_training_files_before_forecast_hour_selection = self.data_files_training
-            self._filtered_data_validation_files_before_forecast_hour_selection = self.data_files_validation
-            self._filtered_data_test_files_before_forecast_hour_selection = self.data_files_test
-        else:
-            ### Return file lists to last state before forecast hours were modified ###
-            self.data_files = self._filtered_data_files_before_forecast_hour_selection
-            self.data_files_training = self._filtered_data_training_files_before_forecast_hour_selection
-            self.data_files_validation = self._filtered_data_validation_files_before_forecast_hour_selection
-            self.data_files_test = self._filtered_data_test_files_before_forecast_hour_selection
-
-    forecast_hours = property(__get_forecast_hours, __set_forecast_hours)  # Property method for setting forecast hours
-
-    ####################################################################################################################
-
-    def __sort_files_by_dataset(self, data_timesteps_used, sort_fronts=False):
-        """
-        Filter files for the training, validation, and test datasets. This is done by finding indices for each timestep in the 'data_timesteps_used' list.
-
-        data_timesteps_used: list
-            List of timesteps used when sorting variable and/or frontal object files.
-        sort_fronts: bool
-            Setting this to True will sort the lists of frontal object files. This will only be True when sorting both variable and frontal object files at the
-                same time.
-        """
-
-        ### Find all indices where timesteps for training, validation, and test datasets are present in the selected variable files ###
-        training_indices = [index for index, timestep in enumerate(data_timesteps_used) if any('%d' % training_year in timestep[:4] for training_year in self._training_years)]
-        validation_indices = [index for index, timestep in enumerate(data_timesteps_used) if any('%d' % validation_year in timestep[:4] for validation_year in self._validation_years)]
-        test_indices = [index for index, timestep in enumerate(data_timesteps_used) if any('%d' % test_year in timestep[:4] for test_year in self._test_years)]
-
-        ### Create new variable file lists for training, validation, and test datasets using the indices pulled from above ###
-        self.data_files_training = [self.data_files[index] for index in training_indices]
-        self.data_files_validation = [self.data_files[index] for index in validation_indices]
-        self.data_files_test = [self.data_files[index] for index in test_indices]
-
-        if sort_fronts:
-            ### Create new frontal object file lists for training, validation, and test datasets using the indices pulled from above ###
-            self.front_files_training = [self.front_files[index] for index in training_indices]
-            self.front_files_validation = [self.front_files[index] for index in validation_indices]
-            self.front_files_test = [self.front_files[index] for index in test_indices]
-
-    def pair_with_fronts(self, front_indir, match='same', underscore_skips=0):
-        """
-        Parameters
-        ----------
-        front_indir: str
-            Directory where the frontal object files are stored.
-        match: 'same', 'data-forecast', 'fronts-forecast', 'forecast', or 'any'
-            Method to use when creating the final paired file lists.
-            * 'same' will only match variable and front files that have the same file information (timestep, forecast hour, domain)
-            * 'data-forecast' will attempt to match variable files with forecast hours greater than 0 to front files with forecast hours of 0.
-                For example, gfs_2023033100_f006_global.nc will be paired with FrontObjects_2023033106_f000_global.nc.
-            * 'fronts-forecast' will attempt to match front files with forecast hours greater than 0 to variable files with forecast hours of 0.
-                For example, FrontObjects_2023033100_f006_global.nc will be paired with gfs_2023033106_f000_global.nc.
-            * 'forecast' will perform actions in 'data-forecast' and 'fronts-forecast'
-            * 'any' will perform the actions in both 'same' and 'forecast'.
-        underscore_skips: int
-            This argument is meant to make older tensorflow datasets for front objects compatible with the file loader object.
-            If using older tensorflow datasets with the front types in the filenames, this argument should be equal to the number of front types.
-        """
-
-        if self._file_prefix == 'FrontObjects':
-            print("WARNING: 'DataFileLoader.pair_with_fronts' can only be used with ERA5, GDAS, or GFS files.")
-            return
-
-        ######################################### Check the parameters for errors ######################################
-        if not isinstance(front_indir, str):
-            raise TypeError(f"front_indir must be a string, received {type(front_indir)}")
-        if match not in ['same', 'data-forecast', 'fronts-forecast', 'forecast', 'any']:
-            raise ValueError("Invalid match type: '%s'" % match)
-        ################################################################################################################
-
-        if self._file_type == 'netcdf':
-            file_prefix = 'FrontObjects'
-        elif self._file_type == 'tensorflow':
-            file_prefix = 'fronts'
-            if match != 'same':
-                raise TypeError(f"Matching method must be 'same' with tensorflow datasets. Received: {match}")
-        else:
-            raise ValueError(f"The available options for 'file_type' are: 'netcdf', 'tensorflow'. Received: {self._file_type}")
-
-        self._all_front_files = sorted(glob("%s%s%s*%s" % (front_indir, self._subdir_glob, file_prefix, self._file_extension)))  # All front files without filtering
-
-        if self._file_type == 'netcdf':
-            front_file_information = [[*os.path.basename(file).replace(self._file_extension, '').split('_')[1 + underscore_skips:-1]] for file in self._all_front_files]
+        num_lists = len(self.files)  # the current number of file lists
+        
+        if data_type == 'fronts' and self._file_format != 'tensorflow':
+            data_type = 'FrontObjects'
+        
+        if self._file_format in ['grib', 'netcdf']:
+            glob_strs = [f'{file_dir}/{yr}{mo}/{data_type}_{yr}{mo}{dy}{hr}_{domain}{self._file_extension}'
+                         for yr in self._years
+                         for mo in self._months
+                         for dy in self._days
+                         for hr in self._hours
+                         for domain in self._domains]
         else:  # tensorflow
-            front_file_information = [[os.path.basename(file).replace(self._file_extension, '').split('_')[1 + underscore_skips],] for file in self._all_front_files]
-
-        # Add forecast hour 0 to file information if a forecast hour is not in the filename(s)
-        [front_file_info.insert(1, 'f000') for front_file_info in front_file_information if len(front_file_info) == 1]
-
-        if self._file_type == 'tensorflow':
-            # Dates in tensorflow dataset filenames are only the year and month, so we will add a day and hour to the file information
-            self._data_file_information = [[data_file_info[0] + '0100', *data_file_info[1:]] for data_file_info in self._data_file_information]
-            front_file_information = [[front_file_info[0] + '0100', *front_file_info[1:]] for front_file_info in front_file_information]
-
-        new_data_file_list = []
-        new_front_file_list = []
-        data_timesteps_used = []  # timesteps used in the data; used to sort into training/validation/test datasets
-
-        if match == 'same':
-            # Indices in the data and front file lists where all file information is the same
-            index_pairs = np.array([[data_idx, front_file_information.index(file_info)] for data_idx, file_info in enumerate(self._data_file_information)
-                                    if file_info in front_file_information])
-
-            # Files corresponding to the above indices
-            _data_files = [self._all_data_files[idx] for idx in index_pairs[:, 0]]
-            _front_files = [self._all_front_files[idx] for idx in index_pairs[:, 1]]
-
-            # Update file information to only include information for the selected files
-            self._data_file_information = [self._data_file_information[idx] for idx in index_pairs[:, 0]]
-            front_file_information = [front_file_information[idx] for idx in index_pairs[:, 1]]
-
-        if 'forecast' in match:
-
-            data_file_info_to_retain = []
-            front_file_info_to_retain = []
-
-            if match == 'data-forecast':
-                # Remove all data files with forecast hours equal to 0 and all front files with forecast hours NOT equal to 0
-                data_file_info_to_retain.append([file_info for file_info in self._data_file_information if file_info[1] != 'f000'])
-                front_file_info_to_retain.append([file_info for file_info in front_file_information if file_info[1] == 'f000'])
-
-            elif match == 'fronts-forecast':
-                # Remove all data files with forecast hours NOT equal to 0 and all front files with forecast hours equal to 0
-                data_file_info_to_retain.append([file_info for file_info in self._data_file_information if file_info[1] == 'f000'])
-                front_file_info_to_retain.append([file_info for file_info in front_file_information if file_info[1] != 'f000'])
-
-            _data_files = [self._all_data_files[self._data_file_information.index(file_info)] for file_info in data_file_info_to_retain]
-            _front_files = [self._all_front_files[front_file_information.index(file_info)] for file_info in front_file_info_to_retain]
-
-            self._data_file_information = [self._data_file_information[self._data_file_information.index(file_info)] for file_info in data_file_info_to_retain]
-            front_file_information = [front_file_information[front_file_information.index(file_info)] for file_info in front_file_info_to_retain]
-
-        # Valid time = initialization time + forecast hours
-        data_file_valid_times = [np.datetime64(
-            '%s-%s-%sT%s' % (file_info[0][:4], file_info[0][4:6], file_info[0][6:8], file_info[0][8:]))
-                                 + np.timedelta64(int(file_info[1][1:])) for file_info in
-                                 self._data_file_information]
-        front_file_valid_times = [np.datetime64(
-            '%s-%s-%sT%s' % (file_info[0][:4], file_info[0][4:6], file_info[0][6:8], file_info[0][8:]))
-                                  + np.timedelta64(int(file_info[1][1:])) for file_info in
-                                  front_file_information]
-
-        if match == 'any':
-            _data_files = [self._all_data_files[self._data_file_information.index(file_info)] for file_info in self._data_file_information]
-            _front_files = [self._all_front_files[front_file_information.index(file_info)] for file_info in front_file_information]
-
-            index_pairs = [[idx, np.where(front_file_valid_times == data_file_valid_time)[0]] for idx, data_file_valid_time in enumerate(data_file_valid_times)]
-
-            [new_data_file_list.append(_data_files[idx_pair[0]]) for idx_pair in index_pairs if len(idx_pair[1]) > 0 for _ in range(len(idx_pair[1]))]
-            [new_front_file_list.append(_front_files[idx]) for idx_pair in index_pairs if len(idx_pair[1]) > 0 for idx in idx_pair[1]]
-            [data_timesteps_used.append(pd.to_datetime(front_file_valid_times[idx]).strftime('%Y%m%d%H')) for idx_pair in index_pairs if len(idx_pair[1]) > 0 for idx in idx_pair[1]]
-
+            glob_strs = [f'{file_dir}/{data_type}_{yr}{mo}{self._file_extension}'
+                         for yr in self._years
+                         for mo in self._months]
+        
+        # remove consecutive asterisks to prevent recursive searches
+        glob_strs = [glob_str.replace('****', '*').replace('***', '*').replace('**', '*') for glob_str in glob_strs]
+        
+        current_file_list = []
+        for glob_str in glob_strs:
+            current_file_list.extend(glob(glob_str))
+        current_file_list = sorted(current_file_list)
+        
+        # file basenames
+        control_basename_list = [os.path.basename(file) for file in self.files[0]]
+        current_basename_list = [os.path.basename(file) for file in current_file_list]
+        
+        # get details contained within the file names
+        control_basename_info = [file.replace(self._file_extension, '').split('_')[1:] for file in control_basename_list]
+        current_basename_info = [file.replace(self._file_extension, '').split('_')[1:] for file in current_basename_list]
+        
+        # if the file info has length 2, there is no forecast hour tag, so we need to add it
+        if len(control_basename_info[0]) == 2:
+            [file_info.insert(1, 'f000') for file_info in control_basename_info]
+        if len(current_basename_info[0]) == 2:
+            [file_info.insert(1, 'f000') for file_info in current_basename_info]
+        
+        # find indices where all file details match
+        index_pairs = np.array([[data_idx, current_basename_info.index(file_info)] for data_idx, file_info in enumerate(control_basename_info) if file_info in current_basename_info])
+        
+        # filter files and add new list
+        self.files = [[self.files[list_num][i] for i in index_pairs[:, 0]] for list_num in range(num_lists)]
+        current_file_list = [current_file_list[i] for i in index_pairs[:, 1]]
+        self.files.append(current_file_list)
+        
+    def _format_args(self):
+        
+        if isinstance(self._years, int):
+            self._years = [f'{self._years:04d}', ]
+        elif self._years is not None:
+            self._years = ['%04d' % yr for yr in self._years]
         else:
-            _, data_indices, front_indices = np.intersect1d(data_file_valid_times, front_file_valid_times, return_indices=True)
+            self._years = ['*', ]
+        
+        if isinstance(self._months, int):
+            self._months = [f'{self._months:02d}', ]
+        elif self._months is not None:
+            self._months = ['%02d' % mo for mo in self._months]
+        else:
+            self._months = ['*', ]
 
-            [new_data_file_list.append(_data_files[idx]) for idx in data_indices]
-            [new_front_file_list.append(_front_files[idx]) for idx in front_indices]
-            [data_timesteps_used.append(pd.to_datetime(data_file_valid_times[idx]).strftime('%Y%m%d%H')) for idx in data_indices]
+        if isinstance(self._days, int):
+            self._days = [f'{self._days:02d}', ]
+        elif self._days is not None:
+            self._days = ['%02d' % dy for dy in self._days]
+        else:
+            self._days = ['*', ]
 
-        self.data_files = new_data_file_list
-        self.front_files = new_front_file_list
+        if isinstance(self._hours, int):
+            self._hours = [f'{self._hours:02d}', ]
+        elif self._hours is not None:
+            self._hours = ['%02d' % hr for hr in self._hours]
+        else:
+            self._hours = ['*', ]
 
-        self.__sort_files_by_dataset(data_timesteps_used, sort_fronts=True)
+        if isinstance(self._domains, str):
+            self._domains = [self._domains, ]
+        elif self._domains is None:
+            self._domains = ['*', ]
+
 
 
 def load_model(model_number: int,

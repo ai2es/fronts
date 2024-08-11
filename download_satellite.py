@@ -2,7 +2,7 @@
 Download netCDF files containing GOES satellite data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.8.10
 """
 
 import argparse
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     
     fs = s3fs.S3FileSystem(anon=True)
     
-    for init_time in init_times:
+    for i, init_time in enumerate(init_times):
         
         day_of_year = init_time.timetuple().tm_yday
 
@@ -67,7 +67,7 @@ if __name__ == "__main__":
         try:
             files.append(list(sorted(fs.glob(s3_glob_str)))[0].replace("noaa-%s" % args['satellite'], "https://noaa-%s.s3.amazonaws.com" % args['satellite']))
         except IndexError:
-            print("NO DATA FOUND: satellite=[%s] domain=[%s] product=[%s] init_time=[%s] " % (args['satellite'], args['domain'], args['product'], init_time))
+            print("NO DATA FOUND (ind %d): satellite=[%s] domain=[%s] product=[%s] init_time=[%s] " % (i, args['satellite'], args['domain'], args['product'], init_time))
         else:
             print("Gathering data: satellite=[%s] domain=[%s] product=[%s] init_time=[%s]" % (args['satellite'], args['domain'], args['product'], init_time), end='\r')
             local_filenames.append("%s_%d%02d%02d%02d_%s.nc" % (args['satellite'], init_time.year, init_time.month, init_time.day, init_time.hour, args['domain']))

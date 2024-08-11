@@ -6,7 +6,7 @@ References
 * Snyder 1987: https://doi.org/10.3133/pp1395
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.8.10
 """
 
 import pandas as pd
@@ -33,7 +33,9 @@ normalization_parameters = {
     'Tw_surface': [305., 212.], 'Tw_1000': [305., 218.], 'Tw_950': [304., 216.], 'Tw_900': [301., 219.], 'Tw_850': [299., 227.],
     'u_surface': [36., -35.], 'u_1013': [36., -35.], 'u_1000': [38., -35.], 'u_950': [48., -55.], 'u_900': [59., -58.], 'u_850': [59., -58.],
     'v_surface': [30., -35.], 'v_1013': [30., -35.], 'v_1000': [35., -38.], 'v_950': [55., -56.], 'v_900': [58., -59.], 'v_850': [58., -59.],
-    'z_1013': [40., -82.], 'z_1000': [48., -69.], 'z_950': [86., -27.], 'z_900': [127., 17.], 'z_850': [174., 63.]}
+    'z_1013': [40., -82.], 'z_1000': [48., -69.], 'z_950': [86., -27.], 'z_900': [127., 17.], 'z_850': [174., 63.],
+    'CMI_C01': [0., 1.], 'CMI_C02': [0., 1.], 'CMI_C07': [200., 350.], 'CMI_C08': [200., 300.], 'CMI_C09': [200., 300.],
+    'CMI_C10': [200., 325.], 'CMI_C13': [200., 330.], 'CMI_C16': [200., 300.]}
 
 # default values for extents of domains [start lon, end lon, start lat, end lat]
 DOMAIN_EXTENTS = {'atlantic': [290, 349.75, 16, 55.75],
@@ -559,7 +561,7 @@ def normalize_variables(variable_ds, normalization_parameters=normalization_para
 
     # Place pressure levels as the last dimension of the dataset
     original_dim_order = variable_ds.dims
-    variable_ds = variable_ds.transpose(*[dim for dim in original_dim_order if dim != 'pressure_level'], 'pressure_level').astype('float64')
+    variable_ds = variable_ds.transpose(*[dim for dim in original_dim_order if dim != 'pressure_level'], 'pressure_level')
 
     variable_list = list(variable_ds.keys())
     pressure_levels = variable_ds['pressure_level'].values
@@ -575,40 +577,46 @@ def normalize_variables(variable_ds, normalization_parameters=normalization_para
             new_variable_values[..., idx] = np.nan_to_num((variable_ds[var].values[..., idx] - min_val) / (max_val - min_val))
 
         variable_ds[var].values = new_variable_values  # assign new values for variable
-
+    
     variable_ds = variable_ds.transpose(*[dim for dim in original_dim_order])
     return variable_ds
 
 
-def randomize_variables(variable_ds: xr.Dataset, random_variables: list or tuple):
+def normalize_satellite(satellite_ds, normalization_parameters=normalization_parameters):
     """
-    Scramble the values of specific variables within a given dataset.
+    Function that normalizes satellite variables via min-max normalization.
 
     Parameters
     ----------
-    variable_ds: xr.Dataset
-        Xarray dataset containing thermodynamic variable data.
-    random_variables: list or tuple
-        List of variables to randomize the values of.
+    satellite_ds: xarray Dataset or DataArray
+        Dataset containing thermodynamic variable data.
+    normalization_parameters: dict
+        Dictionary containing parameters for normalization.
 
     Returns
     -------
-    variable_ds: xr.Dataset
-        Same as input, but with the given variables having scrambled values.
+    satellite_ds: xr.Dataset
+        Same as input dataset, but the variables are normalized via min-max normalization.
     """
+    
+    # Place pressure levels as the last dimension of the dataset
+    band_list = list(satellite_ds.keys())
+    
+    # prevents original dataset outside of the function scope from being overwritten
+    satellite_ds = satellite_ds.copy(deep=True)
+    
+    for band in band_list:
+        current_variable_values = satellite_ds[band].values
+        min_val, max_val = normalization_parameters[band]
+        new_variable_values = np.nan_to_num((current_variable_values - min_val) / (max_val - min_val))
+        satellite_ds[band].values = new_variable_values  # assign new values for variable
 
-    for random_variable in random_variables:
-        variable_values = variable_ds[random_variable].values  # DataArray of the current variable
-        variable_shape = np.shape(variable_values)
-        flattened_variable_values = variable_values.flatten()
-        np.random.shuffle(flattened_variable_values)
-        variable_ds[random_variable].values = np.reshape(flattened_variable_values, variable_shape)
-
-    return variable_ds
+    return satellite_ds
 
 
 def combine_datasets(input_files: list[str],
-                     label_files: list[str] = None):
+                     label_files: list[str] = None,
+                     satellite_files: list[str] = None):
     """
     Combine many tensorflow datasets into one entire dataset.
 
@@ -617,10 +625,8 @@ def combine_datasets(input_files: list[str],
     complete_dataset: tf.data.Dataset object
         Concatenated tensorflow dataset.
     """
-    inputs = tf.data.Dataset.load(input_files[0])
-
-    if label_files is not None:
-
+    if label_files is not None and satellite_files is None:
+        inputs = tf.data.Dataset.load(input_files[0])
         labels = tf.data.Dataset.load(label_files[0])
         for input_file, label_file in zip(input_files[1:], label_files[1:]):
             inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
@@ -628,8 +634,21 @@ def combine_datasets(input_files: list[str],
 
         return tf.data.Dataset.zip((inputs, labels))
 
-    else:
+    elif label_files is not None and satellite_files is not None:
+        inputs = tf.data.Dataset.load(input_files[0])
+        sat = tf.data.Dataset.load(satellite_files[0])
+        labels = tf.data.Dataset.load(label_files[0])
+        for input_file, satellite_file, label_file in zip(input_files[1:], satellite_files[1:], label_files[1:]):
+            inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
+            sat = sat.concatenate(tf.data.Dataset.load(satellite_file))
+            labels = labels.concatenate(tf.data.Dataset.load(label_file))
+        
+        new_inputs = tf.data.Dataset.zip((sat, inputs))
+        
+        return tf.data.Dataset.zip((new_inputs, labels))
 
+    else:
+        inputs = tf.data.Dataset.load(input_files[0])
         for input_file in input_files[1:]:
             inputs = inputs.concatenate(tf.data.Dataset.load(input_file))
 
