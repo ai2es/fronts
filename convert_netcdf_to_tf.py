@@ -2,7 +2,7 @@
 Convert netCDF files containing variable, satellite, and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.10
+Script version: 2024.8.25
 """
 import argparse
 import itertools
@@ -23,7 +23,7 @@ if __name__ == '__main__':
         help="Input directory for the netCDF files containing variable data.")
     parser.add_argument('--fronts_netcdf_indir', type=str, required=True,
         help="Input directory for the netCDF files containing frontal boundary data.")
-    parser.add_argument('--satellite_netcdf_indir', type=str, required=True,
+    parser.add_argument('--satellite_netcdf_indir', type=str, required=False,
         help="Input directory for the netCDF files containing GOES satellite data.")
     parser.add_argument('--tf_outdir', type=str, required=True,
         help="Output directory for the generated tensorflow datasets.")
@@ -81,12 +81,12 @@ if __name__ == '__main__':
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
     year, month = args['year_and_month']
-    
-    load_satellite = args['satellite_netcdf_indir'] is not None  # boolean flag that says if satellite data will be loaded
-    
-    data_vars = [var for var in args['variables'] if 'CMI_' not in var]
-    satellite_vars = [var for var in args['variables'] if 'CMI_' in var]
-    
+
+    data_vars = [var for var in args['variables'] if 'band_' not in var]
+    satellite_vars = [var for var in args['variables'] if 'band_' in var]
+
+    load_satellite = args['satellite_netcdf_indir'] is not None and len(satellite_vars) > 0  # boolean flag that says if satellite data will be loaded
+
     os.makedirs(args['tf_outdir'], exist_ok=True)  # ensure that a folder exists for the dataset
     
     tf_dataset_folder_inputs = f'%s/inputs_%d%02d_tf' % (args['tf_outdir'], year, month)
@@ -118,7 +118,7 @@ if __name__ == '__main__':
             for key in sorted(dataset_props.keys()):
                 f.write(f"{key}: {dataset_props[key]}\n")
             f.write(f"\n\n\nFile generated at {datetime.utcnow()} UTC\n")
-            f.write(f"convert_netcdf_to_tf.py script version: 2024.8.10")
+            f.write(f"convert_netcdf_to_tf.py script version: 2024.8.20")
 
     else:
 
@@ -140,7 +140,7 @@ if __name__ == '__main__':
     np.random.seed(args["seed"])
 
     all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v',
-                     'CMI_C02', 'CMI_C07', 'CMI_C08', 'CMI_C09', 'CMI_C10', 'CMI_C13', 'CMI_C16']
+                     'band_2', 'band_7', 'band_8', 'band_9', 'band_10', 'band_13', 'band_16']
     all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1013', '1000', '950', '900', '850', '700', '500']
     
     file_obj = fm.DataFileLoader(args['variables_netcdf_indir'], 'era5', 'netcdf', years=year, months=month, domains='full')
@@ -180,7 +180,8 @@ if __name__ == '__main__':
         synoptic_ind = [variables_netcdf_files.index(file) for file in variables_netcdf_files if any(['%02d_' % hr in file for hr in [0, 6, 12, 18]])]
         variables_netcdf_files = list([variables_netcdf_files[i] for i in synoptic_ind])
         fronts_netcdf_files = list([fronts_netcdf_files[i] for i in synoptic_ind])
-        satellite_netcdf_files = list([satellite_netcdf_files[i] for i in synoptic_ind])
+        if load_satellite:
+            satellite_netcdf_files = list([satellite_netcdf_files[i] for i in synoptic_ind])
         
     if args['shuffle_timesteps']:
         zipped_list = list(zip(variables_netcdf_files, fronts_netcdf_files)) if not load_satellite else list(zip(variables_netcdf_files, fronts_netcdf_files, satellite_netcdf_files))
@@ -222,7 +223,7 @@ if __name__ == '__main__':
         else:
             transpose_dims = ("x", "y")  # spatial dimensions that need to be transposed
         domain_size = (len(front_dataset[transpose_dims[0]]), len(front_dataset[transpose_dims[1]]))
-
+        
         ### Reformat the fronts in the current timestep ###
         if args['front_types'] is not None:
             front_dataset = data_utils.reformat_fronts(front_dataset, args['front_types'])
@@ -252,8 +253,8 @@ if __name__ == '__main__':
             ### open satellite data ###
             if load_satellite:
                 satellite_dataset = xr.open_dataset(satellite_netcdf_files[timestep_no], engine='netcdf4')
-                satellite_dataset = satellite_dataset.sel(**sel_kwargs).isel(**isel_kwargs).transpose(*transpose_dims)
-
+                satellite_dataset = satellite_dataset.sel(**sel_kwargs).isel(time=0, **isel_kwargs).transpose(*transpose_dims)
+            
             ### Reformat the fronts from the previous timestep ###
             if args['add_previous_fronts'] is not None:
                 previous_front_dataset = xr.open_dataset(previous_fronts_netcdf_files[timestep_no], engine='netcdf4').sel(**sel_kwargs).isel(**isel_kwargs).astype('float16')
@@ -287,7 +288,7 @@ if __name__ == '__main__':
                 np.random.shuffle(image_order)
 
             images_to_keep = np.random.random(size=len(image_order)) <= args["image_fraction"]
-
+            
             for i, image_start_indices in enumerate(image_order):
 
                 if args['verbose']:
@@ -346,7 +347,7 @@ if __name__ == '__main__':
                     new_satellite_dataset = satellite_dataset.copy()  # copy satellite dataset to isolate it in memory
                     new_satellite_dataset = data_utils.normalize_satellite(new_satellite_dataset).to_array().transpose(*transpose_dims, 'variable')
                     satellite_tensor = tf.convert_to_tensor(new_satellite_dataset[start_index_lon:end_index_lon, start_index_lat:end_index_lat], dtype=tf.float16)
-
+                    
                     ### rotate satellite image ###
                     if flip_lon:
                         satellite_tensor = tf.reverse(satellite_tensor, axis=[0])  # Reverse values along the longitude dimension
@@ -356,7 +357,7 @@ if __name__ == '__main__':
                     if args['noise_fraction'] > 0:
                         satellite_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, satellite_tensor)  # add 0s to image
                         satellite_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, satellite_tensor)  # add 1s to image
-                    
+                        
                     input_tensor = tf.concat([input_tensor, satellite_tensor], axis=-1)
 
                 ### add input images to tensorflow dataset ###

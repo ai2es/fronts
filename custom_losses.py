@@ -6,7 +6,7 @@ Custom loss functions for U-Net models.
     - Probability of Detection (POD)
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.8.25
 """
 import tensorflow as tf
 
@@ -172,14 +172,14 @@ def fractions_skill_score(mask_size: int | tuple[int, ...] | list[int, ...] = (3
         y_true = tf.math.sigmoid(alpha * (y_true - beta))
         y_pred = tf.math.sigmoid(alpha * (y_pred - beta))
 
-        if class_weights is not None:
-            y_true *= class_weights
-            y_pred *= class_weights
-
         O_n = pool(y_true)  # observed fractions (Eq. 2 in RL2008)
         M_n = pool(y_pred)  # model forecast fractions (Eq. 3 in RL2008)
 
-        MSE_n = tf.keras.metrics.mean_squared_error(O_n, M_n)  # MSE for model forecast fractions (Eq. 5 in RL2008)
+        if class_weights is not None:
+            MSE_n = tf.keras.metrics.mean_squared_error(O_n * class_weights, M_n * class_weights)  # MSE for model forecast fractions (Eq. 5 in RL2008)
+        else:
+            MSE_n = tf.keras.metrics.mean_squared_error(O_n, M_n)  # MSE for model forecast fractions (Eq. 5 in RL2008)
+
         MSE_ref = tf.reduce_mean(tf.square(O_n)) + tf.reduce_mean(tf.square(M_n))  # reference forecast (Eq. 7 in RL2008)
 
         FSS = 1 - MSE_n / (MSE_ref + 1e-10)  # fractions skill score (Eq. 6 in RL2008)

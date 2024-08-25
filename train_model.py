@@ -2,7 +2,7 @@
 Function that trains a new U-Net model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.10
+Script version: 2024.8.25
 """
 import argparse
 import pandas as pd
@@ -429,10 +429,10 @@ if __name__ == "__main__":
         valid_data_source = "gfs"
     else:
         valid_data_source = valid_dataset_properties["domain"]
-
+    
     ### Validation dataset ###
-    valid_files_obj = fm.DataFileLoader(args['tf_indirs'][0], years=validation_years, data_type='inputs', file_format='tensorflow')
-    valid_files_obj.add_file_list(args['tf_indirs'][0], data_type='fronts')
+    valid_files_obj = fm.DataFileLoader(args['tf_indirs'][1], years=validation_years, data_type='inputs', file_format='tensorflow')
+    valid_files_obj.add_file_list(args['tf_indirs'][1], data_type='fronts')
     validation_inputs, validation_labels = valid_files_obj.files
     validation_dataset = data_utils.combine_datasets(validation_inputs, validation_labels)
     images_in_validation_dataset = len(validation_dataset)

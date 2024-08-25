@@ -6,7 +6,7 @@ References
 * Snyder 1987: https://doi.org/10.3133/pp1395
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.10
+Script version: 2024.8.25
 """
 
 import pandas as pd
@@ -34,8 +34,8 @@ normalization_parameters = {
     'u_surface': [36., -35.], 'u_1013': [36., -35.], 'u_1000': [38., -35.], 'u_950': [48., -55.], 'u_900': [59., -58.], 'u_850': [59., -58.],
     'v_surface': [30., -35.], 'v_1013': [30., -35.], 'v_1000': [35., -38.], 'v_950': [55., -56.], 'v_900': [58., -59.], 'v_850': [58., -59.],
     'z_1013': [40., -82.], 'z_1000': [48., -69.], 'z_950': [86., -27.], 'z_900': [127., 17.], 'z_850': [174., 63.],
-    'CMI_C01': [0., 1.], 'CMI_C02': [0., 1.], 'CMI_C07': [200., 350.], 'CMI_C08': [200., 300.], 'CMI_C09': [200., 300.],
-    'CMI_C10': [200., 325.], 'CMI_C13': [200., 330.], 'CMI_C16': [200., 300.]}
+    'band_1': [0., 1.], 'band_2': [0., 1.], 'band_7': [200., 350.], 'band_8': [200., 300.], 'band_9': [200., 300.], 'band_10': [200., 325.],
+    'band_13': [200., 330.], 'band_16': [200., 300.]}
 
 # default values for extents of domains [start lon, end lon, start lat, end lat]
 DOMAIN_EXTENTS = {'atlantic': [290, 349.75, 16, 55.75],
@@ -101,6 +101,20 @@ VARIABLE_NAMES = {"T": "Air temperature", "T_sfc": "2-meter Air temperature", "T
                   "mslp_z_950": "950mb Geopotential height", "mslp_z_900": "900mb Geopotential height", "mslp_z_850": "850mb Geopotential height"}
 
 VERTICAL_LEVELS = {"surface": "Surface", "1000": "1000mb", "950": "950mb", "900": "900mb", "850": "850mb", "700": "700mb"}
+
+# some months do not have complete front labels, so we need to specify what dates (indices) do NOT have data for the final prediction datasets
+missing_fronts_ind = {"2007-05": np.array([122, 128, 130, 132]), "2007-06": np.array([32, 34, 36, 200, 202]), "2007-11": np.array([126, 128, 130, 132]),
+    "2007-12": np.array([206, 207]), "2018-03": 203, "2022-09": np.append(np.array([44, 46]), np.arange(48, 95.1, 1)).astype(int),
+    "2022-10": np.append(np.arange(80, 87.1, 1), np.arange(160, 167.1, 1)).astype(int), "2022-11": 196}
+
+# 3-hourly indices with missing satellite data
+missing_satellite_ind = {"2018-09": np.array([78, 79, 80, 81, 82, 83, 142, 146]), "2018-10": np.append(np.array([86, 134]), np.arange(189, 237.1)).astype(int),
+    "2018-11": np.append(np.arange(0, 99.1, 1), np.array([120, 121, 122, 123, 124, 125, 126, 159])).astype(int), "2018-12": np.array([153, 157, 205, 206, 207]),
+    "2019-01": 22, "2019-02": np.array([197, 198]), "2019-03": 215, "2019-04": 189, "2019-05": 237, "2019-06": np.array([213, 221, 222]),
+    "2019-08": np.array([114, 115, 116, 117]), "2020-06": np.array([22, 23, 24, 25, 26, 27]), "2020-07": np.array([207, 208]),
+    "2020-08": 86, "2021-01": 167, "2021-03": np.array([125, 181, 182, 183]), "2021-04": 231, "2021-06": np.array([116, 228, 229, 230]),
+    "2021-07": np.append(np.array([67]), np.arange(170, 179.1, 1)), "2022-01": 112, "2022-04": 141, "2022-05": np.array([189, 190]),
+    "2022-08": np.array([42, 43, 50, 51, 58]), "2022-09": np.array([100, 101, 102, 103]), "2022-11": np.array([55, 56, 134])}
 
 
 def expand_fronts(fronts: np.ndarray | tf.Tensor | xr.Dataset | xr.DataArray, iterations: int = 1):

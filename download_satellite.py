@@ -2,7 +2,7 @@
 Download netCDF files containing GOES satellite data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.10
+Script version: 2024.8.14
 """
 
 import argparse
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     files = []  # complete urls for the files to pull from AWS
     local_filenames = []  # filenames for the local files after downloading
 
-    if args['satellite'] not in ['goes16', 'goes17', 'goes18']:
+    if args['satellite'] not in ['goes13', 'goes15', 'goes16', 'goes17', 'goes18']:
         raise ValueError("'%s' is not a valid satellite source. Options are 'goes16', 'goes17', 'goes18'." % args['satellite'])
 
     if args['domain'] == 'full-disk':
@@ -54,24 +54,34 @@ if __name__ == "__main__":
     files = []  # complete urls for the files to pull from AWS
     local_filenames = []  # filenames for the local files after downloading
     
-    fs = s3fs.S3FileSystem(anon=True)
+    if args['satellite'] in ['goes16', 'goes17', 'goes18']:
+        
+        fs = s3fs.S3FileSystem(anon=True)
+        
+        for i, init_time in enumerate(init_times):
+            
+            day_of_year = init_time.timetuple().tm_yday
     
-    for i, init_time in enumerate(init_times):
-        
-        day_of_year = init_time.timetuple().tm_yday
-
-        s3_folder = 's3://noaa-%s/%s%s/%d/%03d/%02d' % (args['satellite'], args['product'], domain_str, init_time.year, day_of_year, init_time.hour)
-        s3_timestring = '%d%03d%02d' % (init_time.year, day_of_year, init_time.hour)
-        s3_glob_str = s3_folder + "/*s" + s3_timestring + "*.nc"
-        
-        try:
-            files.append(list(sorted(fs.glob(s3_glob_str)))[0].replace("noaa-%s" % args['satellite'], "https://noaa-%s.s3.amazonaws.com" % args['satellite']))
-        except IndexError:
-            print("NO DATA FOUND (ind %d): satellite=[%s] domain=[%s] product=[%s] init_time=[%s] " % (i, args['satellite'], args['domain'], args['product'], init_time))
-        else:
-            print("Gathering data: satellite=[%s] domain=[%s] product=[%s] init_time=[%s]" % (args['satellite'], args['domain'], args['product'], init_time), end='\r')
+            s3_folder = 's3://noaa-%s/%s%s/%d/%03d/%02d' % (args['satellite'], args['product'], domain_str, init_time.year, day_of_year, init_time.hour)
+            s3_timestring = '%d%03d%02d' % (init_time.year, day_of_year, init_time.hour)
+            s3_glob_str = s3_folder + "/*s" + s3_timestring + "*.nc"
+            
+            try:
+                files.append(list(sorted(fs.glob(s3_glob_str)))[0].replace("noaa-%s" % args['satellite'], "https://noaa-%s.s3.amazonaws.com" % args['satellite']))
+            except IndexError:
+                print("NO DATA FOUND (ind %d): satellite=[%s] domain=[%s] product=[%s] init_time=[%s] " % (i, args['satellite'], args['domain'], args['product'], init_time))
+            else:
+                print("Gathering data: satellite=[%s] domain=[%s] product=[%s] init_time=[%s]" % (args['satellite'], args['domain'], args['product'], init_time), end='\r')
+                local_filenames.append("%s_%d%02d%02d%02d_%s.nc" % (args['satellite'], init_time.year, init_time.month, init_time.day, init_time.hour, args['domain']))
+    
+    else:
+    
+        for i, init_time in enumerate(init_times):
+            
+            files.append('https://www.ncei.noaa.gov/data/gridsat-goes/access/goes/%d/%02d/GridSat-GOES.%s.%d.%02d.%02d.%02d00.v01.nc' %
+                         (init_time.year, init_time.month, args['satellite'], init_time.year, init_time.month, init_time.day, init_time.hour))
             local_filenames.append("%s_%d%02d%02d%02d_%s.nc" % (args['satellite'], init_time.year, init_time.month, init_time.day, init_time.hour, args['domain']))
-
+            
     # If --verbose is passed, include a progress bar to show the download progress
     bar = bar_progress if args['verbose'] else None
 

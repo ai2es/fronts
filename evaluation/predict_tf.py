@@ -4,7 +4,7 @@
 Generate predictions using a model with tensorflow datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.10
+Script version: 2024.8.21
 """
 import argparse
 import sys
@@ -16,19 +16,6 @@ from utils.data_utils import *
 from utils.misc import initialize_gpus
 import xarray as xr
 import tensorflow as tf
-
-# some months do not have complete front labels, so we need to specify what dates (indices) do NOT have data for the final prediction datasets
-missing_fronts_ind = {"2007-05": np.array([122, 128, 130, 132]), "2007-06": np.array([32, 34, 36, 200, 202]), "2007-11": np.array([126, 128, 130, 132]),
-    "2007-12": np.array([206, 207]), "2018-03": 203, "2022-09": np.append(np.array([44, 46]), np.arange(48, 95.1, 1)).astype(int),
-    "2022-10": np.append(np.arange(80, 87.1, 1), np.arange(160, 167.1, 1)).astype(int), "2022-11": 196}
-
-missing_satellite_ind = {"2018-09": np.array([78, 79, 80, 81, 82, 83, 142, 146]), "2018-10": np.append(np.array([86, 134]), np.arange(189, 237.1)).astype(int),
-    "2018-11": np.append(np.arange(0, 99.1, 1), np.array([120, 121, 122, 123, 124, 125, 126, 159])).astype(int), "2018-12": np.array([153, 157, 205, 206, 207]),
-    "2019-01": 22, "2019-02": np.array([197, 198]), "2019-03": 215, "2019-04": 189, "2019-05": 237, "2019-06": np.array([213, 221, 222]),
-    "2019-08": np.array([114, 115, 116, 117]), "2020-06": np.array([22, 23, 24, 25, 26, 27]), "2020-07": np.array([207, 208]),
-    "2020-08": 86, "2021-01": 167, "2021-03": np.array([125, 181, 182, 183]), "2021-04": 231, "2021-06": np.array([116, 228, 229, 230]),
-    "2021-07": np.append(np.array([67]), np.arange(170, 179.1, 1)), "2022-01": 112, "2022-04": 141, "2022-05": np.array([189, 190]),
-    "2022-08": np.array([42, 43, 50, 51, 58]), "2022-09": np.array([100, 101, 102, 103]), "2022-11": np.array([55, 56, 134])}
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -120,15 +107,21 @@ if __name__ == '__main__':
 
             ### remove timesteps that do not have data ###
             missing_indices = np.array([])
-            if "%d-%02d" % (year, month) in missing_fronts_ind:
+            missing_fronts = "%d-%02d" % (year, month) in missing_fronts_ind
+            if missing_fronts:
                 missing_indices = np.append(missing_indices, missing_fronts_ind["%d-%02d" % (year, month)])
 
-            model_uses_satellite = any(['CMI_' in var for var in model_properties['dataset_properties']['variables']])
+            model_uses_satellite = any(['band_' in var for var in model_properties['dataset_properties']['variables']])
             if model_uses_satellite and "%d-%02d" % (year, month) in missing_satellite_ind:
                 missing_indices = np.append(missing_indices, missing_satellite_ind["%d-%02d" % (year, month)])
                 missing_indices = np.unique(missing_indices.flatten())
+
+            if missing_fronts or model_uses_satellite:
+                if hour_interval == 6:
+                    missing_indices = np.array([int(ind / 2) for ind in missing_indices if ind % 2 == 0])
+                time_array = np.delete(time_array, missing_indices.astype('int32'))
             ##############################################
-            
+
             assert len(tf_ds) == len(time_array)  # make sure tensorflow dataset has all timesteps
 
             tf_ds = tf_ds.batch(args['batch_size'])

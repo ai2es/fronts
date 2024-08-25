@@ -2,7 +2,7 @@
 Plotting tools.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.8.25
 """
 
 import cartopy.feature as cfeature
@@ -13,7 +13,7 @@ from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 
 
-def plot_background(extent=None, ax=None, linewidth: float | int = 0.5, projection: str = 'PlateCarree'):
+def plot_background(extent=None, ax=None, linewidth: float | int = 0.5, crs = ccrs.PlateCarree()):
     """
     Returns new background for the plot.
 
@@ -26,7 +26,7 @@ def plot_background(extent=None, ax=None, linewidth: float | int = 0.5, projecti
         Axis on which the background will be plotted.
     linewidth: float or int
         Thickness of coastlines and the borders of states and countries.
-    projection: str
+    crs: cartopy.crs instance
         Coordinate reference system from cartopy.
 
     Returns
@@ -35,16 +35,14 @@ def plot_background(extent=None, ax=None, linewidth: float | int = 0.5, projecti
         New plot background.
     """
 
-    crs = getattr(ccrs, projection)
-
     if ax is None:
-        ax = plt.axes(projection=crs)
+        ax = plt.axes(crs=crs)
     else:
         ax.add_feature(cfeature.COASTLINE.with_scale('50m'), linewidth=linewidth)
         ax.add_feature(cfeature.BORDERS, linewidth=linewidth)
         ax.add_feature(cfeature.STATES, linewidth=linewidth)
         if extent is not None:
-            ax.set_extent(extent, crs=ccrs.PlateCarree())
+            ax.set_extent(extent, crs=crs)
     return ax
 
 

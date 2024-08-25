@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.8.25
 """
 import argparse
 import glob
@@ -123,6 +123,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_dir', type=str, required=True, help='Directory for the models.')
     parser.add_argument('--model_number', type=int, required=True, help='Model number.')
     parser.add_argument('--num_iterations', type=int, default=10000, help='Number of iterations to perform when bootstrapping the data.')
+    parser.add_argument('--satellite_netcdf_indir', type=str, help='Main directory for the netcdf files containing satellite data.')
     parser.add_argument('--fronts_netcdf_indir', type=str, help='Main directory for the netcdf files containing frontal objects.')
     parser.add_argument('--data_source', type=str, default='era5', help='Data source for variables')
     parser.add_argument('--overwrite', action='store_true', help="Overwrite any existing statistics files.")
@@ -131,6 +132,13 @@ if __name__ == '__main__':
 
     model_properties = pd.read_pickle('%s/model_%d/model_%d_properties.pkl' % (args['model_dir'], args['model_number'], args['model_number']))
     domain = args['domain']
+    
+    model_uses_satellite = any(['band_' in var for var in model_properties['dataset_properties']['variables']])
+    if not args['combine']:
+        if model_uses_satellite and args['satellite_netcdf_indir'] is None:
+            raise ValueError("satellite_netcdf_indir cannot be left as None if the model uses satellite data")
+        elif not model_uses_satellite and args['satellite_netcdf_indir'] is not None:
+            raise ValueError("satellite_netcdf_indir can only be passed if the model uses satellite data")
 
     # Some older models do not have the 'dataset_properties' dictionary
     try:
@@ -165,21 +173,20 @@ if __name__ == '__main__':
             tf.config.experimental.set_memory_growth(device=[gpus[gpu] for gpu in args['gpu_device']][0], enable=True)
 
     for year in years:
-
-        era5_files_obj = fm.DataFileLoader(args['fronts_netcdf_indir'], data_file_type='fronts-netcdf')
-        era5_files_obj.test_years = [year, ]  # does not matter which year attribute we set the years to
-        front_files = era5_files_obj.front_files_test
+        
+        front_files_obj = fm.DataFileLoader(args['fronts_netcdf_indir'], years=year, data_type='fronts', file_format='netcdf', domains=domain)
+        front_files_obj.add_file_list(args['satellite_netcdf_indir'], data_type='satellite')
+        front_files = front_files_obj.files[0]
 
         for month in months:
 
             front_files_month = [file for file in front_files if '_%d%02d' % (year, month) in file]
-
-            if args['domain'] == 'full':
-                print("full")
-                for front_file in front_files_month:
-                    if any(['%02d_full.nc' % hour in front_file for hour in np.arange(3, 27, 6)]):
+            
+            if domain != 'conus':
+                for front_file in front_files_month[::-1]:
+                    if any(['%02d_full.nc' % hour in front_file for hour in np.arange(3, 21.1, 6)]):
                         front_files_month.pop(front_files_month.index(front_file))
-
+            
             prediction_file = f'%s/model_%d/probabilities/model_%d_pred_%s_%d%02d.nc' % \
                               (args['model_dir'], args['model_number'], args['model_number'], args['domain'], year, month)
 
@@ -191,13 +198,18 @@ if __name__ == '__main__':
             probs_ds = xr.open_dataset(prediction_file)
             lons = probs_ds['longitude'].values
             lats = probs_ds['latitude'].values
+            
+            if model_properties['dataset_properties']['override_extent'] is None:
+                slice_extent = dict(longitude=slice(DOMAIN_EXTENTS[args['domain']][0], DOMAIN_EXTENTS[args['domain']][1]),
+                                    latitude=slice(DOMAIN_EXTENTS[args['domain']][3], DOMAIN_EXTENTS[args['domain']][2]))
+            else:
+                custom_extent = model_properties['dataset_properties']['override_extent']
+                slice_extent = dict(longitude=slice(custom_extent[0], custom_extent[1]),
+                                    latitude=slice(custom_extent[3], custom_extent[2]))
 
-            fronts_ds = xr.open_mfdataset(front_files_month, combine='nested', concat_dim='time')\
-                .sel(longitude=slice(DOMAIN_EXTENTS[args['domain']][0], DOMAIN_EXTENTS[args['domain']][1]),
-                     latitude=slice(DOMAIN_EXTENTS[args['domain']][3], DOMAIN_EXTENTS[args['domain']][2]))
-
+            fronts_ds = xr.open_mfdataset(front_files_month, combine='nested', concat_dim='time').sel(**slice_extent)
             fronts_ds_month = data_utils.reformat_fronts(fronts_ds.sel(time='%d-%02d' % (year, month)), front_types)
-
+            
             time_array = probs_ds['time'].values
             num_timesteps = len(time_array)
 
@@ -230,7 +242,7 @@ if __name__ == '__main__':
                     False negative ==> model does not predict a front, but a front exists
                     
                     The numbers of true negatives and false negatives are the same for all neighborhoods and are calculated WITHOUT expanding the fronts.
-                    If we were to calculate the negatives separately for each neighborhood, the number of misses would be artificially inflated, lowering the 
+                    If we were to calculate the negatives separately for each neighborhood, the number of misses would be artificially inflated, lowering the
                     final CSI scores and making the neighborhood method effectively useless.
                     """
                     tn = tf.where((probs_dss[front_type] < thresholds[i]) & (bool_tn_fn_dss[front_type] == 0), 1, 0)
