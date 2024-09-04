@@ -2,7 +2,7 @@
 Download netCDF files containing GOES satellite data.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.14
+Script version: 2024.8.29
 """
 
 import argparse
@@ -23,7 +23,7 @@ def bar_progress(current, total, width=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--netcdf_outdir', type=str, required=True, help="Output directory for the satellite netCDF files.")
-    parser.add_argument('--satellite', type=str, default='goes16', help="GOES satellite source. Options are 'goes16', 'goes17', 'goes18'.")
+    parser.add_argument('--satellite', type=str, default='goes16', help="Satellite source. Options are 'goes16', 'goes17', 'goes18', 'MERGIR'.")
     parser.add_argument('--domain', type=str, default='full-disk', help="Domain of the satellite data. Options are 'full_disk', 'conus', 'meso'.")
     parser.add_argument('--product', type=str, default='ABI-L2-MCMIP', help="Satellite product to download.")
     parser.add_argument('--init_time', type=str, help="Initialization time for which to search for satellite data. Format: YYYY-MM-DD-HH.")
@@ -39,8 +39,8 @@ if __name__ == "__main__":
     files = []  # complete urls for the files to pull from AWS
     local_filenames = []  # filenames for the local files after downloading
 
-    if args['satellite'] not in ['goes13', 'goes15', 'goes16', 'goes17', 'goes18']:
-        raise ValueError("'%s' is not a valid satellite source. Options are 'goes16', 'goes17', 'goes18'." % args['satellite'])
+    if args['satellite'] not in ['goes16', 'goes17', 'goes18', 'MERGIR']:
+        raise ValueError("'%s' is not a valid satellite source. Options are 'goes16', 'goes17', 'goes18', 'MERGIR'." % args['satellite'])
 
     if args['domain'] == 'full-disk':
         domain_str = 'F'
@@ -53,35 +53,35 @@ if __name__ == "__main__":
 
     files = []  # complete urls for the files to pull from AWS
     local_filenames = []  # filenames for the local files after downloading
-    
-    if args['satellite'] in ['goes16', 'goes17', 'goes18']:
-        
+
+    if args['satellite'] != 'MERGIR':
         fs = s3fs.S3FileSystem(anon=True)
-        
-        for i, init_time in enumerate(init_times):
-            
-            day_of_year = init_time.timetuple().tm_yday
+    else:
+        args['domain'] = 'global'  # force override the domain if downloading merged IR brightness temperature
     
-            s3_folder = 's3://noaa-%s/%s%s/%d/%03d/%02d' % (args['satellite'], args['product'], domain_str, init_time.year, day_of_year, init_time.hour)
-            s3_timestring = '%d%03d%02d' % (init_time.year, day_of_year, init_time.hour)
+    for i, init_time in enumerate(init_times):
+        
+        day_of_year = init_time.timetuple().tm_yday
+        yr, mo, dy, hr = init_time.year, init_time.month, init_time.day, init_time.hour
+
+        if args['satellite'] != 'MERGIR':
+            s3_folder = 's3://noaa-%s/%s%s/%d/%03d/%02d' % (args['satellite'], args['product'], domain_str, yr, day_of_year, hr)
+            s3_timestring = '%d%03d%02d' % (yr, day_of_year, hr)
             s3_glob_str = s3_folder + "/*s" + s3_timestring + "*.nc"
-            
+        
             try:
                 files.append(list(sorted(fs.glob(s3_glob_str)))[0].replace("noaa-%s" % args['satellite'], "https://noaa-%s.s3.amazonaws.com" % args['satellite']))
             except IndexError:
                 print("NO DATA FOUND (ind %d): satellite=[%s] domain=[%s] product=[%s] init_time=[%s] " % (i, args['satellite'], args['domain'], args['product'], init_time))
+                continue
             else:
                 print("Gathering data: satellite=[%s] domain=[%s] product=[%s] init_time=[%s]" % (args['satellite'], args['domain'], args['product'], init_time), end='\r')
-                local_filenames.append("%s_%d%02d%02d%02d_%s.nc" % (args['satellite'], init_time.year, init_time.month, init_time.day, init_time.hour, args['domain']))
-    
-    else:
-    
-        for i, init_time in enumerate(init_times):
-            
-            files.append('https://www.ncei.noaa.gov/data/gridsat-goes/access/goes/%d/%02d/GridSat-GOES.%s.%d.%02d.%02d.%02d00.v01.nc' %
-                         (init_time.year, init_time.month, args['satellite'], init_time.year, init_time.month, init_time.day, init_time.hour))
-            local_filenames.append("%s_%d%02d%02d%02d_%s.nc" % (args['satellite'], init_time.year, init_time.month, init_time.day, init_time.hour, args['domain']))
-            
+
+        else:
+            files.append('https://disc2.gesdisc.eosdis.nasa.gov/data/MERGED_IR/GPM_MERGIR.1/%d/%03d/merg_%d%02d%02d%02d_4km-pixel.nc4' % (yr, day_of_year, yr, mo, dy, hr))
+
+        local_filenames.append("%s_%d%02d%02d%02d_%s.nc" % (args['satellite'], yr, mo, dy, hr, args['domain']))
+
     # If --verbose is passed, include a progress bar to show the download progress
     bar = bar_progress if args['verbose'] else None
 
@@ -104,9 +104,17 @@ if __name__ == "__main__":
         full_file_path = f'{monthly_directory}/{local_filename}'
 
         if not os.path.isfile(full_file_path):
-            try:
-                wget.download(file, out=full_file_path, bar=bar)
-            except urllib.error.HTTPError:
-                print(f"Error downloading {file}")
+            if args['satellite'] != 'MERGIR':
+                try:
+                    wget.download(file, out=full_file_path, bar=bar)
+                except urllib.error.HTTPError:
+                    print(f"Error downloading {file}")
+            else:
+                print("Downloading", file)
+                result = requests.get(file)
+                result.raise_for_status()
+                f = open(full_file_path, 'wb')
+                f.write(result.content)
+                f.close()
         else:
             print(f"{full_file_path} already exists, skipping file....")

@@ -2,7 +2,7 @@
 Convert netCDF files containing variable, satellite, and frontal boundary data into tensorflow datasets for model training.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.25
+Script version: 2024.8.31
 """
 import argparse
 import itertools
@@ -81,17 +81,29 @@ if __name__ == '__main__':
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
     year, month = args['year_and_month']
-
-    data_vars = [var for var in args['variables'] if 'band_' not in var]
-    satellite_vars = [var for var in args['variables'] if 'band_' in var]
-
-    load_satellite = args['satellite_netcdf_indir'] is not None and len(satellite_vars) > 0  # boolean flag that says if satellite data will be loaded
+    
+    """
+    all_data_vars: Variables found in ERA5 reanalysis and NWP models
+    all_sat_vars: Satellite variables
+    """
+    all_data_vars = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v']
+    all_sat_vars = ['Tb',]
+    
+    all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1013', '1000', '950', '900', '850', '700', '500']
+    
+    # check for invalid variables
+    invalid_vars = [var for var in args['variables'] if var not in all_data_vars and var not in all_sat_vars]
+    assert len(invalid_vars) == 0, 'Invalid variables (%d): %s' % (len(invalid_vars), ', '.join(invalid_vars))
+    
+    data_vars = [var for var in args['variables'] if var in all_data_vars]
+    sat_vars = [var for var in args['variables'] if var in all_sat_vars]
+    
+    load_satellite = args['satellite_netcdf_indir'] is not None and len(sat_vars) > 0  # boolean flag that says if satellite data will be loaded
 
     os.makedirs(args['tf_outdir'], exist_ok=True)  # ensure that a folder exists for the dataset
     
     tf_dataset_folder_inputs = f'%s/inputs_%d%02d_tf' % (args['tf_outdir'], year, month)
     tf_dataset_folder_fronts = tf_dataset_folder_inputs.replace('inputs', 'fronts')
-    tf_dataset_folder_satellite = tf_dataset_folder_inputs.replace('inputs', 'satellite')
     
     if os.path.isdir(tf_dataset_folder_inputs) or os.path.isdir(tf_dataset_folder_fronts):
         raise FileExistsError("Tensorflow dataset(s) already exist for the provided year and month.")
@@ -118,7 +130,7 @@ if __name__ == '__main__':
             for key in sorted(dataset_props.keys()):
                 f.write(f"{key}: {dataset_props[key]}\n")
             f.write(f"\n\n\nFile generated at {datetime.utcnow()} UTC\n")
-            f.write(f"convert_netcdf_to_tf.py script version: 2024.8.20")
+            f.write(f"convert_netcdf_to_tf.py script version: 2024.8.31")
 
     else:
 
@@ -138,17 +150,13 @@ if __name__ == '__main__':
     # set the seeds
     tf.random.set_seed(args["seed"])
     np.random.seed(args["seed"])
-
-    all_variables = ['T', 'Td', 'sp_z', 'u', 'v', 'theta_w', 'r', 'RH', 'Tv', 'Tw', 'theta_e', 'q', 'theta', 'theta_v',
-                     'band_2', 'band_7', 'band_8', 'band_9', 'band_10', 'band_13', 'band_16']
-    all_pressure_levels = ['surface', '1000', '950', '900', '850'] if args['data_source'] == 'era5' else ['surface', '1013', '1000', '950', '900', '850', '700', '500']
     
     file_obj = fm.DataFileLoader(args['variables_netcdf_indir'], 'era5', 'netcdf', years=year, months=month, domains='full')
     file_obj.add_file_list(args['fronts_netcdf_indir'], 'fronts')
     
     ### add satellite data files ###
     if load_satellite:
-        file_obj.add_file_list(args['satellite_netcdf_indir'], 'satellite')
+        file_obj.add_file_list(args['satellite_netcdf_indir'], 'MERGIR')
         variables_netcdf_files, fronts_netcdf_files, satellite_netcdf_files = file_obj.files
     else:
         variables_netcdf_files, fronts_netcdf_files = file_obj.files
@@ -357,9 +365,13 @@ if __name__ == '__main__':
                     if args['noise_fraction'] > 0:
                         satellite_tensor = tf.where(random_values < args['noise_fraction'] / 2, 0.0, satellite_tensor)  # add 0s to image
                         satellite_tensor = tf.where(random_values > 1.0 - (args['noise_fraction'] / 2), 1.0, satellite_tensor)  # add 1s to image
-                        
+                    
+                    if args['num_dims'][0] == 3:
+                        satellite_tensor = tf.expand_dims(satellite_tensor, axis=2)  # create a vertical dimension
+                        satellite_tensor = tf.tile(satellite_tensor, (1, 1, len(args['pressure_levels']), 1))
+                    
                     input_tensor = tf.concat([input_tensor, satellite_tensor], axis=-1)
-
+                    
                 ### add input images to tensorflow dataset ###
                 input_tensor_for_timestep = tf.data.Dataset.from_tensors(input_tensor)
                 if 'input_tensors_for_month' not in locals():
