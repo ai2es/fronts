@@ -1,4 +1,4 @@
-# AI2ES Fronts Project Training Guide
+# AI2ES Fronts Project Training Guide (outdated, needs updates)
 
 The following guide will detail the steps toward successfully train a UNET-style model for frontal boundary predictions.
 
@@ -61,8 +61,7 @@ files will be created for 03z 2019-05-20 and 06z 2019-05-20 if the provided date
 | *distance*      | int or float | 1       | Interpolation distance for the fronts in kilometers.                                              |
 | *domain*        | str          | "full"  | Domain for which to interpolate fronts over. To process IBM fronts, this must be set to 'global'. |
 
-* The resulting netCDF files will be placed in subdirectories sorted by month (e.g. */netcdf/201304* contains all netCDF
-  files for April 2013).
+* The resulting netCDF files will be placed in subdirectories sorted by month (e.g. */netcdf/201304* contains all netCDF files for April 2013).
 
 #### 1b. Predictor variables
 
@@ -95,20 +94,20 @@ Predictor variables can be obtained from multiple sources, however the main sour
 * ###### All netCDF files will be stored in subdirectories sorted by month (e.g.
   */netcdf/201304* only contains data with initialization times in April 2013).
 
-* Predictor variables can also be sourced from multiple NWP models using the *download_grib_files.py* script. Supported
+* Predictor variables can also be sourced from multiple NWP models using the *download_nwp.py* script. Supported
   models include GFS, HRRR, NAM 12km, and the individual NAM nests.
     * Similar to sliced ERA5 netCDF files, downloaded GRIB files will be sorted into monthly directories.
 
-      python download_grib_files.py --grib_outdir {} --model {} --init_time {}
+      python download_nwp.py --grib_outdir {} --model {} --init_time {}
 
-| Argument         | Type       | Default | Description                                                                                                                                                                                                                     |
-|------------------|------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| *grib_outdir*    | str        | (none)  | Output directory for the downloaded GRIB files.                                                                                                                                                                                 |
-| *model*          | str        | (none)  | Output directory for the sliced ERA5 netCDF files with additional variables.                                                                                                                                                    |
-| *init_time*      | str        | (none)  | Initialization time of the model run, string formatted as YYYY-MM-DD-HH.                                                                                                                                                        |
-| *range*          | str (3)    | (none)  | Date range and frequency of the data to download. 3 arguments must be passed: the start and end dates of the range, and the timestep frequency. Reference *download_grib_files.py* for additional information on this argument. |
-| *forecast_hours* | int (xN)   | (none)  | List of forecast hours to download for the initialization time(s).                                                                                                                                                              |
-| *verbose*        | store_true | N/A     | Print out the status for the GRIB file downloads.                                                                                                                                                                               |
+| Argument         | Type       | Default | Description                                                                                                                                                                                                              |
+|------------------|------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| *grib_outdir*    | str        | (none)  | Output directory for the downloaded GRIB files.                                                                                                                                                                          |
+| *model*          | str        | (none)  | Output directory for the sliced ERA5 netCDF files with additional variables.                                                                                                                                             |
+| *init_time*      | str        | (none)  | Initialization time of the model run, string formatted as YYYY-MM-DD-HH.                                                                                                                                                 |
+| *range*          | str (3)    | (none)  | Date range and frequency of the data to download. 3 arguments must be passed: the start and end dates of the range, and the timestep frequency. Reference *download_nwp.py* for additional information on this argument. |
+| *forecast_hours* | int (xN)   | (none)  | List of forecast hours to download for the initialization time(s).                                                                                                                                                       |
+| *verbose*        | store_true | N/A     | Print out the status for the GRIB file downloads.                                                                                                                                                                        |
 
 ###### Note that one of "init_time", "range" must be passed into the command line.
 
@@ -158,9 +157,9 @@ There are several steps in the process of building TensorFlow datasets.
    include 2021-2023). The same year cannot be used in multiple datasets (e.g. if 2016 data is used in the training
    dataset, in cannot be used in validation nor testing sets).
 2. Determine the predictor variables (inputs) and front types (targets/labels) that will make up the dataset. Complete
-   lists of variables and front types can be found in appendices 5b and 5c of this guide.
+   lists of variables and front types can be found in appendices 6b and 6c of this guide.
 3. Choose what vertical levels to include in the inputs. The list of acceptable vertical levels can be found in appendix
-   6c.
+   6d.
 4. Determine the shape (number of dimensions) of the inputs and targets. (e.g. do you want a model that takes 3D inputs
    and tries to predict 2D targets?)
 5. Choose the domains of the datasets. All available domains can be found in appendix 6a.
