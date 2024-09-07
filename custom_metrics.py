@@ -3,28 +3,29 @@ Custom metrics for U-Net models.
     - Brier Skill Score (BSS)
     - Critical Success Index (CSI)
     - Fractions Skill Score (FSS)
+    - Probability of Detection (POD)
 
-Code written by: Andrew Justin (andrewjustinwx@gmail.com)
-Last updated: 3/17/2023 4:28 PM CT
+Author: Andrew Justin (andrewjustinwx@gmail.com)
+Script version: 2024.5.18
 """
 import tensorflow as tf
 
 
-def brier_skill_score(class_weights=None):
+def brier_skill_score(class_weights: list[int | float, ...] = None):
     """
     Brier skill score (BSS).
 
     class_weights: list of values or None
-        - List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+        List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
     """
 
     @tf.function
-    def _bss(y_true, y_pred):
+    def bss(y_true, y_pred):
         """
         y_true: tf.Tensor
-            - One-hot encoded tensor containing labels.
+            One-hot encoded tensor containing labels.
         y_pred: tf.Tensor
-            - Tensor containing model predictions.
+            Tensor containing model predictions.
         """
 
         squared_errors = tf.math.square(tf.subtract(y_true, y_pred))
@@ -33,38 +34,46 @@ def brier_skill_score(class_weights=None):
             relative_class_weights = tf.cast(class_weights / tf.math.reduce_sum(class_weights), tf.float32)
             squared_errors *= relative_class_weights
 
-        return 1 - tf.math.reduce_sum(squared_errors) / tf.size(squared_errors)
+        bss = 1 - tf.math.reduce_sum(squared_errors) / tf.size(squared_errors)
 
-    return _bss
+        return bss
+
+    return bss
 
 
-def critical_success_index(threshold=None, class_weights=None):
+def critical_success_index(threshold: float = None,
+                           window_size: tuple[int, ...] | list[int, ...] = None,
+                           class_weights: list[int | float, ...] = None):
     """
     Critical success index (CSI).
 
-    y_true: tf.Tensor
-        - One-hot encoded tensor containing labels.
-    y_pred: tf.Tensor
-        - Tensor containing model predictions.
     threshold: float or None
-        - Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
+        Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
             set to 1, and 0 otherwise.
-        - If the threshold is set, it must be greater than 0 and less than 1.
+        If the threshold is set, it must be greater than 0 and less than 1.
+    window_size: tuple or list of ints or None
+        Pool/kernel size of the max-pooling window for neighborhood statistics. (e.g. if calculating the CSI with a 3-pixel
+            window, this should be set to 3).
+        Note that this parameter is experimental and may return unexpected results.
     class_weights: list of values or None
-        - List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+        List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
     """
 
     @tf.function
-    def _csi(y_true, y_pred):
+    def csi(y_true, y_pred):
         """
         y_true: tf.Tensor
-            - One-hot encoded tensor containing labels.
+            One-hot encoded tensor containing labels.
         y_pred: tf.Tensor
-            - Tensor containing model predictions.
+            Tensor containing model predictions.
         """
 
+        if window_size is not None:
+            y_pred = tf.nn.max_pool(y_pred, ksize=window_size, strides=1, padding="VALID")
+            y_true = tf.nn.max_pool(y_true, ksize=window_size, strides=1, padding="VALID")
+
         if threshold is not None:
-            y_pred = tf.where(y_pred >= threshold, 1.0, 0.0)
+            y_pred = tf.where(y_pred >= threshold, 1., 0.)
 
         y_pred_neg = 1 - y_pred
         y_true_neg = 1 - y_true
@@ -83,91 +92,166 @@ def critical_success_index(threshold=None, class_weights=None):
 
         return csi
 
-    return _csi
+    return csi
 
 
-def fractions_skill_score(mask_size, num_dims, c=1.0, cutoff=0.5, want_hard_discretization=False, class_weights=None):
+def fractions_skill_score(mask_size: int | tuple[int, ...] | list[int, ...] = (3, 3)):
     """
-    Fractions skill score. Visit https://github.com/CIRA-ML/custom_loss_functions for documentation.
+    Fractions skill score (FSS) loss function.
 
-    Parameters
+    mask_size: int or tuple or list of ints
+        Size of the mask/pool in the AveragePooling layers.
+
+    References
     ----------
-    mask_size: int or tuple
-        - Size of the mask/pool in the AveragePooling layers.
-    num_dims: int
-        - Number of dimensions for the mask.
-    c: int or float
-        - C parameter in the sigmoid function. This will only be used if 'want_hard_discretization' is False.
-    cutoff: float
-        - If 'want_hard_discretization' is True, y_true and y_pred will be discretized to only have binary values (0/1)
-    want_hard_discretization: bool
-        - If True, y_true and y_pred will be discretized to only have binary values (0/1).
-        - If False, y_true and y_pred will be discretized using a sigmoid function.
-    class_weights: list of values or None
-        - List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
-
-    Returns
-    -------
-    fractions_skill_score: float
-        - Fractions skill score.
+    (RL2008) Roberts, N. M., and H. W. Lean, 2008: Scale-Selective Verification of Rainfall Accumulations from High-Resolution
+        Forecasts of Convective Events. Mon. Wea. Rev., 136, 78–97, https://doi.org/10.1175/2007MWR2123.1.
     """
 
-    pool_kwargs = {'pool_size': (mask_size, ) * num_dims,
-                   'strides': (1, ) * num_dims,
-                   'padding': 'valid'}
+    # keyword arguments for the AveragePooling layer
+    pool_args = dict(pool_size=mask_size, strides=1, padding="same")
 
-    if num_dims == 2:
-        pool1 = tf.keras.layers.AveragePooling2D(**pool_kwargs)
-        pool2 = tf.keras.layers.AveragePooling2D(**pool_kwargs)
-    else:
-        pool1 = tf.keras.layers.AveragePooling3D(**pool_kwargs)
-        pool2 = tf.keras.layers.AveragePooling3D(**pool_kwargs)
+    # if mask_size is an int, convert to a tuple. This allows us to check the length of the tuple and pull the correct AveragePooling layer
+    if isinstance(mask_size, int):
+        mask_size = (mask_size, )
+
+    # if mask_size is an list, convert to a tuple
+    elif isinstance(mask_size, list):
+        mask_size = tuple(mask_size)
+
+    # make sure the length of the mask size is between 1 and 3
+    assert 1 <= len(mask_size) <= 3, "mask_size must have length between 1 and 3, received length %d" % len(mask_size)
+
+    # get the pooling layer based off the length of the mask_size tuple
+    pool = getattr(tf.keras.layers, "AveragePooling%dD" % len(mask_size))(**pool_args)
 
     @tf.function
-    def _fss(y_true, y_pred):
+    def fss(y_true, y_pred):
         """
         y_true: tf.Tensor
-            - One-hot encoded tensor containing labels.
+            One-hot encoded tensor containing labels.
         y_pred: tf.Tensor
-            - Tensor containing model predictions.
+            Tensor containing model predictions.
         """
 
-        if want_hard_discretization:
-            y_true_binary = tf.where(y_true > cutoff, 1.0, 0.0)
-            y_pred_binary = tf.where(y_pred > cutoff, 1.0, 0.0)
-        else:
-            y_true_binary = tf.math.sigmoid(c * (y_true - cutoff))
-            y_pred_binary = tf.math.sigmoid(c * (y_pred - cutoff))
+        O_n = pool(y_true)  # observed fractions (Eq. 2 in RL2008)
+        M_n = pool(y_pred)  # model forecast fractions (Eq. 3 in RL2008)
 
-        y_true_density = pool1(y_true_binary)
-        n_density_pixels = tf.cast((tf.shape(y_true_density)[1] * tf.shape(y_true_density)[2]), tf.float32)
+        MSE_n = tf.keras.metrics.mean_squared_error(O_n, M_n)  # MSE for model forecast fractions (Eq. 5 in RL2008)
+        MSE_ref = tf.reduce_mean(tf.square(O_n)) + tf.reduce_mean(tf.square(M_n))  # reference forecast (Eq. 7 in RL2008)
 
-        y_pred_density = pool2(y_pred_binary)
+        FSS = 1 - MSE_n / (MSE_ref + 1e-10)  # fractions skill score (Eq. 6 in RL2008)
 
-        if class_weights is None:
-            MSE_n = tf.keras.metrics.mean_squared_error(y_true_density, y_pred_density)
-        else:
+        return FSS
+
+    return fss
+
+
+def heidke_skill_score(threshold: float = None,
+                       window_size: tuple[int, ...] | list[int, ...] = None,
+                       class_weights: list[int | float, ...] = None):
+    """
+    Heidke Skill Score (HSS).
+
+    threshold: float or None
+        Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
+            set to 1, and 0 otherwise.
+        If the threshold is set, it must be greater than 0 and less than 1.
+    window_size: tuple or list of ints or None
+        Pool/kernel size of the max-pooling window for neighborhood statistics. (e.g. if calculating the HSS with a 3-pixel
+            window, this should be set to 3).
+        Note that this parameter is experimental and may return unexpected results.
+    class_weights: list of values or None
+        List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+    """
+
+    @tf.function
+    def hss(y_true, y_pred):
+        """
+        y_true: tf.Tensor
+            One-hot encoded tensor containing labels.
+        y_pred: tf.Tensor
+            Tensor containing model predictions.
+        """
+
+        if window_size is not None:
+            y_pred = tf.nn.max_pool(y_pred, ksize=window_size, strides=1, padding="VALID")
+            y_true = tf.nn.max_pool(y_true, ksize=window_size, strides=1, padding="VALID")
+
+        if threshold is not None:
+            y_pred = tf.where(y_pred >= threshold, 1., 0.)
+
+        sum_over_axes = tf.range(tf.rank(y_pred) - 1)  # Indices for axes to sum over. Excludes the final (class) dimension.
+
+        true_positives = tf.math.reduce_sum(y_true * y_pred, axis=sum_over_axes)
+        false_positives = tf.math.reduce_sum((1 - y_true) * y_pred, axis=sum_over_axes)
+        false_negatives = tf.math.reduce_sum(y_true * (1 - y_pred), axis=sum_over_axes)
+        true_negatives = (1 - false_negatives) * (1 - false_positives) * (1 - true_positives)
+
+        if class_weights is not None:
             relative_class_weights = tf.cast(class_weights / tf.math.reduce_sum(class_weights), tf.float32)
-            MSE_n = tf.reduce_mean(tf.math.square(y_true_density - y_pred_density) * relative_class_weights, axis=-1)
+            true_positives *= relative_class_weights
+            true_negatives *= relative_class_weights
+            false_positives *= relative_class_weights
+            false_negatives *= relative_class_weights
 
-        O_n_squared_image = tf.keras.layers.Multiply()([y_true_density, y_true_density])
-        O_n_squared_vector = tf.keras.layers.Flatten()(O_n_squared_image)
-        O_n_squared_sum = tf.reduce_sum(O_n_squared_vector)
+        a = tf.math.reduce_sum(true_positives)
+        b = tf.math.reduce_sum(false_positives)
+        c = tf.math.reduce_sum(false_negatives)
+        d = tf.math.reduce_sum(true_negatives)
 
-        M_n_squared_image = tf.keras.layers.Multiply()([y_pred_density, y_pred_density])
-        M_n_squared_vector = tf.keras.layers.Flatten()(M_n_squared_image)
-        M_n_squared_sum = tf.reduce_sum(M_n_squared_vector)
+        hss = 2 * tf.math.divide((a * d) - (b * c), ((a + c) * (c + d)) + ((a + b) * (b + d)))
 
-        MSE_n_ref = (O_n_squared_sum + M_n_squared_sum) / n_density_pixels
+        return hss
 
-        my_epsilon = tf.keras.backend.epsilon()  # this is 10^(-7)
+    return hss
 
-        if want_hard_discretization:
-            if MSE_n_ref == 0:
-                return 1 - MSE_n
-            else:
-                return 1 - (MSE_n / MSE_n_ref)
+
+def probability_of_detection(threshold: float = None,
+                             window_size: tuple[int, ...] | list[int, ...] = None,
+                             class_weights: list[int | float, ...] = None):
+    """
+    Probability of Detection (POD).
+
+    threshold: float or None
+        Optional probability threshold that binarizes y_pred. Values in y_pred greater than or equal to the threshold are
+            set to 1, and 0 otherwise.
+        If the threshold is set, it must be greater than 0 and less than 1.
+    window_size: tuple or list of ints or None
+        Pool/kernel size of the max-pooling window for neighborhood statistics. (e.g. if calculating the POD with a 5-pixel
+            window, this should be set to 5).
+        Note that this parameter is experimental and may return unexpected results.
+    class_weights: list of values or None
+        List of weights to apply to each class. The length must be equal to the number of classes in y_pred and y_true.
+    """
+
+    @tf.function
+    def pod(y_true, y_pred):
+        """
+        y_true: tf.Tensor
+            One-hot encoded tensor containing labels.
+        y_pred: tf.Tensor
+            Tensor containing model predictions.
+        """
+
+        if window_size is not None:
+            y_pred = tf.nn.max_pool(y_pred, ksize=window_size, strides=1, padding="VALID")
+            y_true = tf.nn.max_pool(y_true, ksize=window_size, strides=1, padding="VALID")
+
+        y_pred = tf.where(y_pred >= threshold, 1., 0.) if threshold is not None else y_pred
+        y_pred_neg = 1 - y_pred
+
+        sum_over_axes = tf.range(tf.rank(y_pred) - 1)  # Indices for axes to sum over. Excludes the final (class) dimension.
+
+        true_positives = tf.math.reduce_sum(y_pred * y_true, axis=sum_over_axes)
+        false_negatives = tf.math.reduce_sum(y_pred_neg * y_true, axis=sum_over_axes)
+
+        if class_weights is not None:
+            relative_class_weights = tf.cast(class_weights / tf.math.reduce_sum(class_weights), tf.float32)
+            pod = tf.math.reduce_sum(tf.math.divide_no_nan(true_positives, true_positives + false_negatives) * relative_class_weights)
         else:
-            return 1 - (MSE_n / (MSE_n_ref + my_epsilon))
+            pod = tf.math.reduce_sum(tf.math.divide_no_nan(true_positives, true_positives + false_negatives))
 
-    return _fss
+        return pod
+
+    return pod

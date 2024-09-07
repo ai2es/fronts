@@ -9,7 +9,7 @@ References
 * Vasaila 2013: https://www.vaisala.com/sites/default/files/documents/Humidity_Conversion_Formulas_B210973EN-F.pdf
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.10.21
+Script version: 2024.2.19
 """
 import numpy as np
 from utils import data_utils
@@ -163,9 +163,9 @@ def dewpoint_from_specific_humidity(
     vap_pres /= 100  # convert to hPa
 
     # Dewpoint calculation from Vasaila 2013
-    Td_gt = Tn / ((m / (np.log10(vap_pres / A))) - 1)
-    Td_lt = Tn1 / ((m1 / (np.log10(vap_pres / A1))) - 1)
-    Td = np.where(T >= 0, Td_gt, Td_lt)
+    Td_gt = Tn / ((m / (np.log10(vap_pres / A))) - 1)  # if you get a divide by zero warning here, just ignore it
+    Td_lt = Tn1 / ((m1 / (np.log10(vap_pres / A1))) - 1)  # if you get a divide by zero warning here, just ignore it
+    Td = tf.where(T >= 0, Td_gt, Td_lt) if tf.is_tensor(P) and tf.is_tensor(T) and tf.is_tensor(q) else np.where(T >= 0, Td_gt, Td_lt)
     return Td + 273.15
 
 
@@ -865,3 +865,36 @@ def virtual_temperature_from_dewpoint(T: int | float | np.ndarray | tf.Tensor,
     r = mixing_ratio_from_dewpoint(Td, P)
     Tv = virtual_temperature_from_mixing_ratio(T, r)
     return Tv
+
+
+def advection(field, u, v, lons, lats):
+    """
+    Calculates advection of a scalar field.
+
+    Parameters
+    ----------
+    field: Array-like with shape (M, N)
+        Scalar field that is being advected.
+    u: Array-like with shape (M, N)
+        Zonal wind velocities expressed as meters per second (m/s).
+    v: Array-like with shape (M, N)
+        Meridional wind velocities expressed as meters per second (m/s).
+    lons: Array-like with shape (M, )
+        Longitude values expressed as degrees east.
+    lats: Array-like with shape (N, )
+        Latitude values expressed as degrees north.
+    """
+
+    advect = np.ones(u.shape) * np.nan
+
+    Lons, Lats = np.meshgrid(lons, lats)
+    x, y = data_utils.haversine(Lons, Lats)  # x and y are expressed as kilometers
+    x = x.T; y = y.T  # transpose x and y so arrays have shape M x N
+    x *= 1e3; y *= 1e3  # convert x and y coordinates to meters
+
+    dfield_dx = np.diff(field, axis=0) / np.diff(x, axis=0)
+    dfield_dy = np.diff(field, axis=1) / np.diff(y, axis=1)
+
+    advect[:-1, :-1] = - (u[:-1, :-1] * dfield_dx[:, :-1]) - (v[:-1, :-1] * dfield_dy[:-1, :])
+
+    return advect
