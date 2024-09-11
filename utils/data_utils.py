@@ -38,7 +38,7 @@ normalization_parameters = {
     'band_13': [200., 330.], 'band_16': [200., 300.]}
 
 # default values for extents of domains [start lon, end lon, start lat, end lat]
-DOMAIN_EXTENTS = {'atlantic': [290, 349.75, 16, 55.75],
+DOMAIN_EXTENTS = {'north-atlantic': [290, 349.75, 16, 55.75],
                   'conus': [228, 299.75, 25, 56.75],
                   'ecmwf': [0, 359.75, -89.75, 90],
                   'full': [130, 369.75, 0.25, 80],
@@ -46,7 +46,7 @@ DOMAIN_EXTENTS = {'atlantic': [290, 349.75, 16, 55.75],
                   'hrrr': [225.90452026573686, 299.0828072281622, 21.138123000000018, 52.61565330680793],
                   'namnest-conus': [225.90387325951775, 299.08216099364034, 21.138, 52.61565399063001],
                   'nam-12km': [207.12137749594984, 310.58401341435564, 12.190000000000005, 61.30935757335816],
-                  'pacific': [145, 234.75, 16, 55.75]}
+                  'north-pacific': [145, 234.75, 16, 55.75]}
 
 # colors for plotted ground truth fronts
 FRONT_COLORS = {'CF': 'blue', 'WF': 'red', 'SF': 'limegreen', 'OF': 'darkviolet', 'CF-F': 'darkblue', 'WF-F': 'darkred',

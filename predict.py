@@ -62,7 +62,7 @@ def _add_image_to_map(stitched_map_probs: np.array,
     stitched_map_probs: array
         Array of front probabilities for the final map.
     """
-
+    
     if lon_image == 0:  # If the image is on the western edge of the domain
         if lat_image == 0:  # If the image is on the northern edge of the domain
             # Add first image to map
@@ -95,10 +95,11 @@ def _add_image_to_map(stitched_map_probs: np.array,
             stitched_map_probs[:, 0: image_size_lon, int(lat_image_spacing * (lat_image-1)) + image_size_lat:] = \
                 image_probs[:, :image_size_lon,  image_size_lat - lat_image_spacing:image_size_lat]
 
-            if num_images_lon == 1 and num_images_lat > 2:
+            if num_images_lon == 1:
                 map_created = True
 
     elif lon_image != num_images_lon - 1:  # If the image is not on the western nor the eastern edge of the domain
+        
         if lat_image == 0:  # If the image is on the northern edge of the domain
             # Take the maximum of the overlapping pixels along sets of constant longitude
             stitched_map_probs[:, int(lon_image * lon_image_spacing):int((lon_image-1)*lon_image_spacing) + image_size_lon, 0: image_size_lat] = \
@@ -108,7 +109,7 @@ def _add_image_to_map(stitched_map_probs: np.array,
             # Add the remaining pixels of the current image to the map
             stitched_map_probs[:, int(lon_image_spacing * (lon_image-1)) + image_size_lon:lon_image_spacing * lon_image + image_size_lon, 0: image_size_lat] = \
                 image_probs[:, image_size_lon - lon_image_spacing:image_size_lon, :image_size_lat]
-
+            
             if num_images_lon == 2 and num_images_lat == 1:
                 map_created = True
 
@@ -158,7 +159,7 @@ def _add_image_to_map(stitched_map_probs: np.array,
             stitched_map_probs[:, int(lon_image_spacing * (lon_image-1)) + image_size_lon:, 0: image_size_lat] = \
                 image_probs[:, image_size_lon - lon_image_spacing:image_size_lon, :image_size_lat]
 
-            if num_images_lon > 2 and num_images_lat == 1:
+            if num_images_lat == 1:
                 map_created = True
 
         elif lat_image != num_images_lat - 1:  # If the image is not on the northern nor the southern edge of the domain
@@ -507,14 +508,14 @@ if __name__ == '__main__':
     variable_batch_ds = data_utils.normalize_variables(variable_ds, normalization_parameters)
     
     timesteps = variable_batch_ds['time'].values
-    num_timesteps_in_batch = len(timesteps)
+    num_timesteps = len(timesteps)
     num_forecast_hours = len(variable_batch_ds['forecast_hour'])
     map_created = False  # Boolean that determines whether the final stitched map has been created
 
     if args['data_source'] == 'era5':
-        stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, classes-1, domain_size_lon, domain_size_lat])
+        stitched_map_probs = np.empty(shape=[num_timesteps, classes-1, domain_size_lon, domain_size_lat])
     else:
-        stitched_map_probs = np.empty(shape=[num_timesteps_in_batch, len(forecast_hours), classes-1, domain_size_lon, domain_size_lat])
+        stitched_map_probs = np.empty(shape=[num_timesteps, len(forecast_hours), classes-1, domain_size_lon, domain_size_lat])
 
     for lat_image in range(num_images_lat):
         lat_index = int(lat_image * lat_image_spacing)
@@ -525,7 +526,7 @@ if __name__ == '__main__':
             # Select the current image
             variable_batch_ds_new = variable_batch_ds[variables].isel({'%s' % spatial_dims[0]: slice(lon_index, lon_index + args['image_size'][0]),
                                                                        '%s' % spatial_dims[1]: slice(lat_index, lat_index + args['image_size'][1])}).to_array().values
-
+            
             if args['data_source'] == 'era5':
                 variable_batch_ds_new = variable_batch_ds_new.transpose([1, 2, 4, 3, 0])  # (time, longitude, latitude, pressure level, variable)
             else:
@@ -573,61 +574,25 @@ if __name__ == '__main__':
                         image_probs = np.transpose(np.amax(prediction[:, :, :, :, 1:], axis=3), transpose_indices)  # Take the maximum probability over the vertical dimension and transpose the predictions
 
             # Add predictions to the map
-            if args['data_source'] != 'era5':
-                for timestep in range(num_timesteps_in_batch):
-                    for fcst_hr_index in range(num_forecast_hours):
-                        if args["num_images"] == [1, 1]:
-                            stitched_map_probs[timestep] = image_probs
-                            if timestep == num_timesteps_in_batch - 1 and fcst_hr_index == num_forecast_hours - 1:
-                                map_created = True
-                        else:
-                            stitched_map_probs[timestep][fcst_hr_index], map_created = _add_image_to_map(stitched_map_probs[timestep][fcst_hr_index], image_probs[timestep * num_forecast_hours + fcst_hr_index], map_created, num_images_lon, num_images_lat, lon_image, lat_image,
-                                image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
-
-            else:  # if args['data_source'] == 'era5'
-                for timestep in range(num_timesteps_in_batch):
+            for timestep in range(num_timesteps):
+                for fcst_hr_index in range(num_forecast_hours):
                     if args["num_images"] == [1, 1]:
                         stitched_map_probs[timestep] = image_probs
-                        if timestep == num_timesteps_in_batch - 1:
+                        if timestep == num_timesteps - 1 and fcst_hr_index == num_forecast_hours - 1:
                             map_created = True
                     else:
-                        stitched_map_probs[timestep], map_created = _add_image_to_map(stitched_map_probs[timestep], image_probs[timestep], map_created, num_images_lon, num_images_lat, lon_image, lat_image,
+                        stitched_map_probs[timestep][fcst_hr_index], map_created = _add_image_to_map(stitched_map_probs[timestep][fcst_hr_index], image_probs[timestep * num_forecast_hours + fcst_hr_index], map_created, num_images_lon, num_images_lat, lon_image, lat_image,
                             image_size_lon, image_size_lat, lon_image_spacing, lat_image_spacing)
-            ####################################################################################################
 
             if map_created:
 
-                ### Create subdirectories for the data if they do not exist ###
-                if not os.path.isdir('%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base)):
-                    os.makedirs('%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base))
-                    print("New subdirectory made:", '%s/model_%d/maps/%s' % (args['model_dir'], args['model_number'], subdir_base))
-                if not os.path.isdir('%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base)):
-                    os.makedirs('%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base))
-                    print("New subdirectory made:", '%s/model_%d/probabilities/%s' % (args['model_dir'], args['model_number'], subdir_base))
-                if not os.path.isdir('%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base)):
-                    os.makedirs('%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base))
-                    print("New subdirectory made:", '%s/model_%d/statistics/%s' % (args['model_dir'], args['model_number'], subdir_base))
-
-                if args['data_source'] != 'era5':
-
-                    for timestep_no, timestep in enumerate(timesteps):
-                        timestep = str(timestep)
-                        for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
-                            time = f'{timestep[:4]}%s%s%s' % (timestep[5:7], timestep[8:10], timestep[11:13])
-                            probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no][fcst_hr_index], image_lats, image_lons, front_types)
-                            probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep), 'forecast_hour': np.atleast_1d(forecast_hours[fcst_hr_index])})
-                            filename_base = 'model_%d_%s_%s_%s_f%03d_%dx%d' % (args['model_number'], time, args['domain'], args['data_source'], forecast_hours[fcst_hr_index], num_images_lon, num_images_lat)
-
-                            outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (args['model_dir'], args['model_number'], subdir_base, filename_base)
-                            probs_ds.to_netcdf(path=outfile, engine='netcdf4', mode='w')
-
-                else:
-
-                    for timestep_no, timestep in enumerate(timesteps):
+                for timestep_no, timestep in enumerate(timesteps):
+                    timestep = str(timestep)
+                    for fcst_hr_index, forecast_hour in enumerate(forecast_hours):
                         time = f'{timestep[:4]}%s%s%s' % (timestep[5:7], timestep[8:10], timestep[11:13])
-                        probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no], image_lats, image_lons, front_types)
-                        probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep)})
-                        filename_base = 'model_%d_%s_%s_%dx%d' % (args['model_number'], time, args['domain'], num_images_lon, num_images_lat)
+                        probs_ds = create_model_prediction_dataset(stitched_map_probs[timestep_no][fcst_hr_index], image_lats, image_lons, front_types)
+                        probs_ds = probs_ds.expand_dims({'time': np.atleast_1d(timestep), 'forecast_hour': np.atleast_1d(forecast_hours[fcst_hr_index])})
+                        filename_base = 'model_%d_%s_%s_%s_f%03d' % (args['model_number'], time, args['domain'], args['data_source'], forecast_hours[fcst_hr_index])
 
-                        outfile = '%s/model_%d/probabilities/%s/%s_probabilities.nc' % (args['model_dir'], args['model_number'], subdir_base, filename_base)
+                        outfile = '%s/model_%d/predictions/%s_probabilities.nc' % (args['model_dir'], args['model_number'], filename_base)
                         probs_ds.to_netcdf(path=outfile, engine='netcdf4', mode='w')
