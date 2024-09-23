@@ -120,7 +120,7 @@ if init_input:
         fhr_disabled = len(forecast_hours) == 1
         fhr_index = 0 if fhr_disabled else None
         fhr_input = st.selectbox('Select Forecast Hour', options=valid_times, index=fhr_index, disabled=fhr_disabled)
-            
+        
         if fhr_input:
             selected_file = [file for file in files_filtered_nwp if '_f%s' % fhr_input[1:4] in file][0]
             show_map = st.button('Show Map (opens in new tab)')
@@ -128,5 +128,3 @@ if init_input:
             if show_map:
                 
                 webbrowser.open(selected_file)
-                
-                
