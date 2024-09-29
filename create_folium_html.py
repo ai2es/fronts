@@ -2,7 +2,7 @@
 Generate folium maps for FrontFinder predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.9.20
+Script version: 2024.9.28
 """
 import argparse
 import datetime
@@ -178,7 +178,6 @@ def _wind_barb_feature_group(u, v, step=5, pole_length=1.25, barb_length=0.5, ba
 def _potential_temperature_feature_group(T, P, fg_name='2-meter Potential temperature'):
     
     theta = variables.potential_temperature(T, P)
-    theta = gaussian_filter(theta, 2)
     
     temp_thresholds = np.arange(200, 340, 2).astype(np.int32)
     
@@ -206,7 +205,7 @@ def _potential_temperature_feature_group(T, P, fg_name='2-meter Potential temper
 
 def _isobar_feature_group(mslp, fg_name='MSLP'):
     
-    pres_thresholds = np.arange(860, 1080, 4).astype(np.int32)
+    pres_thresholds = np.arange(860, 1080.1, 2).astype(np.int32)
     
     fg_pres = folium.FeatureGroup(fg_name, show=False)
     
@@ -227,7 +226,7 @@ def _isobar_feature_group(mslp, fg_name='MSLP'):
 def _mixing_ratio_feature_group(Td, P, fg_name='2-meter Mixing ratio'):
     
     r = variables.mixing_ratio_from_dewpoint(Td, P) * 1000  # g/g ---> g/kg
-    r = gaussian_filter(r, sigma=2)
+    r = gaussian_filter(r, sigma=1)
     r_thresholds = np.arange(6, 30.1, 1).astype(np.int32)
 
     cmap_probs, norm_probs = cm.get_cmap('terrain_r', len(r_thresholds)), colors.Normalize(vmin=2, vmax=20)
