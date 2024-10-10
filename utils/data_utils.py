@@ -100,7 +100,7 @@ VARIABLE_NAMES = {"T": "Air temperature", "T_sfc": "2-meter Air temperature", "T
                   "mslp_z": "Pressure/heights", "mslp_z_sfc": "Mean sea level pressure", "mslp_z_1000": "1000mb Geopotential height",
                   "mslp_z_950": "950mb Geopotential height", "mslp_z_900": "900mb Geopotential height", "mslp_z_850": "850mb Geopotential height"}
 
-VERTICAL_LEVELS = {"surface": "Surface", "1000": "1000mb", "950": "950mb", "900": "900mb", "850": "850mb", "700": "700mb"}
+VERTICAL_LEVELS = {"surface": "Surface", "1000": "1000 hPa", "950": "950 hPa", "900": "900 hPa", "850": "850 hPa", "700": "700 hPa"}
 
 # some months do not have complete front labels, so we need to specify what dates (indices) do NOT have data for the final prediction datasets
 missing_fronts_ind = {"2007-05": np.array([122, 128, 130, 132]), "2007-06": np.array([32, 34, 36, 200, 202]), "2007-11": np.array([126, 128, 130, 132]),
