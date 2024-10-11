@@ -2,19 +2,15 @@
 Calculate permutation importance.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.12.9
+Script version: 2024.10.11
 
 TODO:
-    * Generalize and simplify multi-pass importance code
     * Add more documentation
 """
-
 import itertools
 import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import pandas as pd
-import custom_losses
+from models import custom_losses
 from utils.data_utils import combine_datasets
 import file_manager as fm
 import tensorflow as tf

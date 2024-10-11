@@ -12,9 +12,7 @@ import pickle
 import numpy as np
 import file_manager as fm
 import os
-import custom_losses
-import custom_metrics
-import models
+from models import unets, custom_metrics, custom_losses
 import datetime
 from utils import misc, data_utils
 import wandb
@@ -348,7 +346,7 @@ if __name__ == "__main__":
         # If using 3D inputs and 2D targets, squeeze out the vertical dimension of the model (index 3)
         squeeze_axes = 3 if num_dims[0] == 3 and num_dims[1] == 2 else None
 
-        unet_model = getattr(models, args['model_type'])
+        unet_model = getattr(unets, args['model_type'])
         unet_model_args = unet_model.__code__.co_varnames[:unet_model.__code__.co_argcount]  # pull argument names from unet function
 
         ### Arguments for the function used to build the U-Net ###

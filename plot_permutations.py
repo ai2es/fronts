@@ -2,15 +2,8 @@
 Generate plots for permutation data from a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
-
-TODO:
-    * add option for including multi-pass permutation results
+Script version: 2024.10.10
 """
-
-import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import argparse
 import matplotlib as mpl
 import pandas as pd

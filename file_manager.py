@@ -2,7 +2,7 @@
 Functions in this code manage data files and models.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.10
+Script version: 2024.10.11
 """
 
 import argparse
@@ -361,7 +361,6 @@ class DataFileLoader:
             self._domains = ['*', ]
 
 
-
 def load_model(model_number: int,
                model_dir: str):
     """
@@ -383,10 +382,10 @@ def load_model(model_number: int,
     ####################################################################################################################
 
     from tensorflow.keras.models import load_model as lm
-    import custom_activations
-    import custom_losses
-    import custom_metrics
-
+    from models import custom_activations
+    from models import custom_losses
+    from models import custom_metrics
+    
     model_path = f"{model_dir}/model_{model_number}/model_{model_number}.h5"
     model_properties = pd.read_pickle(f"{model_dir}/model_{model_number}/model_{model_number}_properties.pkl")
 

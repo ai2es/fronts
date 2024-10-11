@@ -2,7 +2,7 @@
 Plot saliency maps for model predictions.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.10.11
 """
 import argparse
 import matplotlib.colors
@@ -11,11 +11,7 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-from matplotlib import cm  # Here we explicitly import the cm and color modules to suppress a PyCharm bug
-import os
-import sys
-sys.path.insert(0, os.getcwd())
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
+from matplotlib import cm
 from utils import data_utils
 from utils.plotting import plot_background
 

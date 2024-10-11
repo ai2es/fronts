@@ -1,9 +1,9 @@
 """
 Changes values of dictionary keys in a model_properties.pkl file.
-This script is mainly used to address bugs in train_model.py, where the dictionaries are created.
+This script is mainly used to address bugs in train_unet.py, where the dictionaries are created.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2023.8.12
+Script version: 2024.10.11
 """
 import argparse
 import pandas as pd

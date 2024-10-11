@@ -2,7 +2,7 @@
 Plot performance diagrams for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.3
+Script version: 2024.10.10
 """
 import argparse
 import cartopy.crs as ccrs
@@ -14,9 +14,6 @@ import numpy as np
 import pandas as pd
 import pickle
 import xarray as xr
-import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 from utils import data_utils, plotting
 
 

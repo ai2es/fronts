@@ -2,7 +2,7 @@
 Generate performance statistics for a model.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.8.25
+Script version: 2024.10.10
 """
 import argparse
 import glob
@@ -12,8 +12,6 @@ import random
 import tensorflow as tf
 import xarray as xr
 import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))  # this line allows us to import scripts outside the current directory
 import file_manager as fm
 from utils import data_utils
 from utils.data_utils import DOMAIN_EXTENTS
