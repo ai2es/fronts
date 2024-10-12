@@ -8,7 +8,6 @@ Script version: 2024.8.14
 import argparse
 import os
 import pandas as pd
-import requests
 import urllib.error
 import wget
 import sys
