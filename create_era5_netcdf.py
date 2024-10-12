@@ -2,7 +2,7 @@
 Create ERA5 netCDF datasets.
 
 Author: Andrew Justin (andrewjustinwx@gmail.com)
-Script version: 2024.5.12
+Script version: 2024.10.11
 
 TODO:
     * remove hard-coded folder structure for surface and pressure level data
@@ -33,19 +33,18 @@ if __name__ == "__main__":
 
     timestring = "%d-%02d-%02d" % (year, month, day)
 
-    lons = np.append(np.arange(130, 360, 0.25), np.arange(0, 10.25, 0.25))
-    lats = np.arange(0, 80.25, 0.25)[::-1]
-    lons360 = np.arange(130, 370.25, 0.25)
-
-    T_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_T_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
-    Td_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_Td_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
-    sp_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_sp_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
-    u_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_u_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
-    v_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_v_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
-
+    T_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_T_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
+    Td_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_Td_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
+    sp_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_sp_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
+    u_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_u_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
+    v_sfc_full_day = xr.open_mfdataset("%s/Surface/%s" % (args['netcdf_era5_indir'], era5_v_sfc_file), chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
+    
+    lons = T_sfc_full_day['longitude'].values
+    lats = T_sfc_full_day['latitude'].values
+    
     pressure_level_files = list(sorted(glob('%s/Pressure_Level/ERA5Global_PL_%s_3hrly_*.nc' % (args['netcdf_era5_indir'], year))))
 
-    PL_data = xr.open_mfdataset(pressure_level_files, chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring), longitude=lons, latitude=lats)
+    PL_data = xr.open_mfdataset(pressure_level_files, chunks={'latitude': 721, 'longitude': 1440, 'time': 4}).sel(time=('%s' % timestring))
 
     if not os.path.isdir('%s/%d%02d' % (args['netcdf_outdir'], year, month)):
         os.mkdir('%s/%d%02d' % (args['netcdf_outdir'], year, month))
@@ -136,21 +135,22 @@ if __name__ == "__main__":
         Tw_1000 = variables.wet_bulb_temperature(T_1000, Td_1000)
 
         pressure_levels = ['surface', 1000, 950, 900, 850]
-
-        T = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        Td = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        Tv = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        Tw = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        theta = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        theta_e = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        theta_v = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        theta_w = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        RH = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        r = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        q = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        u = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        v = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
-        sp_z = np.empty(shape=(len(pressure_levels), len(lats), len(lons360)))
+        
+        arr_shape = (len(pressure_levels), len(lats), len(lons))
+        T = np.empty(arr_shape)
+        Td = np.empty(arr_shape)
+        Tv = np.empty(arr_shape)
+        Tw = np.empty(arr_shape)
+        theta = np.empty(arr_shape)
+        theta_e = np.empty(arr_shape)
+        theta_v = np.empty(arr_shape)
+        theta_w = np.empty(arr_shape)
+        RH = np.empty(arr_shape)
+        r = np.empty(arr_shape)
+        q = np.empty(arr_shape)
+        u = np.empty(arr_shape)
+        v = np.empty(arr_shape)
+        sp_z = np.empty(arr_shape)
 
         T[0, :, :], T[1, :, :], T[2, :, :], T[3, :, :], T[4, :, :] = T_sfc, T_1000, T_950, T_900, T_850
         Td[0, :, :], Td[1, :, :], Td[2, :, :], Td[3, :, :], Td[4, :, :] = Td_sfc, Td_1000, Td_950, Td_900, Td_850
@@ -181,8 +181,8 @@ if __name__ == "__main__":
                                                       u=(('pressure_level', 'latitude', 'longitude'), u),
                                                       v=(('pressure_level', 'latitude', 'longitude'), v),
                                                       sp_z=(('pressure_level', 'latitude', 'longitude'), sp_z)),
-                                       coords=dict(pressure_level=pressure_levels, latitude=lats, longitude=lons360)).astype('float32')
+                                       coords=dict(pressure_level=pressure_levels, latitude=lats, longitude=lons)).astype('float32')
 
         full_era5_dataset = full_era5_dataset.expand_dims({'time': np.atleast_1d(timestep)})
 
-        full_era5_dataset.to_netcdf(path='%s/%d%02d/era5_%d%02d%02d%02d_full.nc' % (args['netcdf_outdir'], year, month, year, month, day, hour), mode='w', engine='netcdf4')
+        full_era5_dataset.to_netcdf(path='%s/%d%02d/era5_%d%02d%02d%02d_global.nc' % (args['netcdf_outdir'], year, month, year, month, day, hour), mode='w', engine='netcdf4')
