@@ -1,0 +1,60 @@
+_wandb:
+    value:
+        cli_version: 0.26.1
+        e:
+            ewo9owh26igaqtqob7hfuywnl44bepvq:
+                codePath: src/fronts2/train.py
+                codePathLocal: src/fronts2/train.py
+                cpu_count: 10
+                cpu_count_logical: 20
+                cudaVersion: "12.2"
+                disk:
+                    /:
+                        total: "102611623936"
+                        used: "79292112896"
+                email: mandelbaum.taylor@gmail.com
+                executable: /home/taylor/code/fronts2/.pixi/envs/default/bin/python
+                git:
+                    commit: 0b47cec4d362251851fbda59f5c1475736234667
+                gpu: NVIDIA GeForce GTX 1080 Ti
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Pascal
+                      cudaCores: 3584
+                      memoryTotal: "11811160064"
+                      name: NVIDIA GeForce GTX 1080 Ti
+                      uuid: GPU-c1ea9a17-d2a3-fb49-8f70-16392d25bb1d
+                host: Neoki
+                memory:
+                    total: "101160419328"
+                os: Linux-6.17.0-22-generic-x86_64-with-glibc2.39
+                program: /home/taylor/code/fronts2/src/fronts2/train.py
+                python: CPython 3.12.13
+                root: /home/taylor/code/fronts2
+                startedAt: "2026-05-07T23:37:02.378738Z"
+                writerId: ewo9owh26igaqtqob7hfuywnl44bepvq
+        m: []
+        python_version: 3.12.13
+        t:
+            "1":
+                - 2
+                - 3
+                - 5
+                - 53
+                - 54
+            "2":
+                - 2
+                - 3
+                - 5
+                - 53
+                - 54
+            "3":
+                - 2
+                - 13
+                - 61
+            "4": 3.12.13
+            "5": 0.26.1
+            "10":
+                - 20
+            "12": 0.26.1
+            "13": linux-x86_64

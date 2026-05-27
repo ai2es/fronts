@@ -1,0 +1,39 @@
+{
+  "os": "Linux-6.17.0-22-generic-x86_64-with-glibc2.39",
+  "python": "CPython 3.12.13",
+  "startedAt": "2026-05-07T19:28:15.093768Z",
+  "program": "/home/taylor/code/fronts2/src/fronts2/train.py",
+  "codePath": "src/fronts2/train.py",
+  "codePathLocal": "src/fronts2/train.py",
+  "git": {
+    "commit": "cd30071bef2f0d3f1141af4195d39b9379532c70"
+  },
+  "email": "mandelbaum.taylor@gmail.com",
+  "root": "/home/taylor/code/fronts2",
+  "host": "Neoki",
+  "executable": "/home/taylor/code/fronts2/.pixi/envs/default/bin/python",
+  "cpu_count": 10,
+  "cpu_count_logical": 20,
+  "gpu": "NVIDIA GeForce GTX 1080 Ti",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "102611623936",
+      "used": "78989762560"
+    }
+  },
+  "memory": {
+    "total": "101160419328"
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce GTX 1080 Ti",
+      "memoryTotal": "11811160064",
+      "cudaCores": 3584,
+      "architecture": "Pascal",
+      "uuid": "GPU-c1ea9a17-d2a3-fb49-8f70-16392d25bb1d"
+    }
+  ],
+  "cudaVersion": "12.2",
+  "writerId": "fc2hlzcacvr97arb4dtzlnkkmqo3iymu"
+}
