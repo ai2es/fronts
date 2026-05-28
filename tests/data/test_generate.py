@@ -66,9 +66,7 @@ def era5_config(era5_zarr: pathlib.Path) -> config.ERA5DataLoaderConfig:
         time_start=datetime(2019, 1, 1),
         time_end=datetime(2019, 1, 1, 18),
         time_resolution="6h",
-        coordinates=BoundingBox(
-            lat_min=25.0, lat_max=45.0, lon_min=-110.0, lon_max=-70.0
-        ),
+        coordinates=BoundingBox(lat_min=25.0, lat_max=45.0, lon_min=-110.0, lon_max=-70.0),
         storage_options=None,
         chunks={"time": 1},
     )
@@ -144,9 +142,7 @@ class TestWriteOrAppendIcechunkStore:
         repo = ic.Repository.open(storage)
         session = repo.readonly_session("main")
         result = xr.open_zarr(session.store)
-        np.testing.assert_array_equal(
-            result["temperature"].values, write_ds["temperature"].values
-        )
+        np.testing.assert_array_equal(result["temperature"].values, write_ds["temperature"].values)
 
     def test_append_increases_time_steps(self, storage_config, write_ds):
         second_time = pd.date_range("2019-01-02", periods=4, freq="6h")

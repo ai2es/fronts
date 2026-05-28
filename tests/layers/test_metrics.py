@@ -67,9 +67,7 @@ class TestHeidkeSkillScorePerfect:
 
     def test_perfect_with_window(self, perfect_pred):
         y_true, y_pred = perfect_pred
-        result = heidke_skill_score(threshold=0.5, window_size=(3, 3))(
-            y_true, y_pred
-        ).numpy()
+        result = heidke_skill_score(threshold=0.5, window_size=(3, 3))(y_true, y_pred).numpy()
         assert result == pytest.approx(1.0, abs=1e-5)
 
 
@@ -78,15 +76,9 @@ class TestHeidkeSkillScoreSoftMode:
         """Soft HSS (no threshold) should be positive when p(CF)=0.35; hard threshold=0.5 should not fire."""
         y_true, y_pred = front_pred
         class_weights = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-        score_soft = heidke_skill_score(class_weights=class_weights)(
-            y_true, y_pred
-        ).numpy()
-        score_hard = heidke_skill_score(threshold=0.5, class_weights=class_weights)(
-            y_true, y_pred
-        ).numpy()
-        assert score_soft > 0.0, (
-            f"Soft HSS should be positive for a detected front; got {score_soft:.4f}"
-        )
+        score_soft = heidke_skill_score(class_weights=class_weights)(y_true, y_pred).numpy()
+        score_hard = heidke_skill_score(threshold=0.5, class_weights=class_weights)(y_true, y_pred).numpy()
+        assert score_soft > 0.0, f"Soft HSS should be positive for a detected front; got {score_soft:.4f}"
         assert score_soft > score_hard, (
             f"Soft HSS ({score_soft:.4f}) should exceed hard-threshold HSS ({score_hard:.4f}) "
             "when softmax front probs sit below 0.5"
@@ -133,12 +125,10 @@ class TestHeidkeSkillScoreWindow:
         y_pred[0, 5, :, 1] = 1.0
 
         class_weights = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-        score_exact = heidke_skill_score(threshold=0.5, class_weights=class_weights)(
+        score_exact = heidke_skill_score(threshold=0.5, class_weights=class_weights)(y_true, y_pred).numpy()
+        score_window = heidke_skill_score(threshold=0.5, window_size=(3, 3), class_weights=class_weights)(
             y_true, y_pred
         ).numpy()
-        score_window = heidke_skill_score(
-            threshold=0.5, window_size=(3, 3), class_weights=class_weights
-        )(y_true, y_pred).numpy()
 
         assert score_window >= score_exact, (
             f"Window score ({score_window:.4f}) should be >= exact score ({score_exact:.4f}) for a 1-pixel offset"
@@ -155,16 +145,12 @@ class TestHeidkeSkillScoreClassWeights:
         y_true[0, 4, 4, 0] = 0.0
         y_true[0, 4, 4, 2] = 1.0
 
-        result = heidke_skill_score(
-            threshold=0.5, class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-        )(y_true, y_pred).numpy()
+        result = heidke_skill_score(threshold=0.5, class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0])(y_true, y_pred).numpy()
         assert result < 1.0, "HSS should be less than 1 when a front pixel is missed"
 
     def test_equal_weights_matches_unweighted(self, perfect_pred):
         """All-equal non-zero weights should give the same result as no weights for perfect predictions."""
         y_true, y_pred = perfect_pred
         score_no_weights = heidke_skill_score(threshold=0.5)(y_true, y_pred).numpy()
-        score_equal_weights = heidke_skill_score(
-            threshold=0.5, class_weights=[1.0] * N_CLASSES
-        )(y_true, y_pred).numpy()
+        score_equal_weights = heidke_skill_score(threshold=0.5, class_weights=[1.0] * N_CLASSES)(y_true, y_pred).numpy()
         assert score_no_weights == pytest.approx(score_equal_weights, abs=1e-5)

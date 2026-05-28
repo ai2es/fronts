@@ -16,9 +16,7 @@ class ModelConfig:
     n_classes: int = 6
     n_channels: int = 30
     levels: int = 4
-    filter_num: list[int] = dataclasses.field(
-        default_factory=lambda: [32, 64, 128, 256]
-    )
+    filter_num: list[int] = dataclasses.field(default_factory=lambda: [32, 64, 128, 256])
     pool_size: tuple[int, int] = (2, 2)
     upsample_size: tuple[int, int] = (2, 2)
     squeeze_axes: int | None = None
@@ -260,9 +258,7 @@ class UNet3Plus(UNetBase):
         ndims = len(self.input_shape) - 1
 
         if self.levels < 3:
-            raise ValueError(
-                f"levels must be greater than 2. Received value: {self.levels}"
-            )
+            raise ValueError(f"levels must be greater than 2. Received value: {self.levels}")
         if len(self.input_shape) > 4 or len(self.input_shape) < 3:
             raise ValueError(
                 f"input_shape can only have 3 or 4 dimensions. Received shape: {np.shape(self.input_shape)}"
@@ -272,13 +268,9 @@ class UNet3Plus(UNetBase):
                 f"length of filter_num ({len(self.filter_num)}) does not match the number of levels ({self.levels})"
             )
 
-        filter_num_skip = (
-            self.filter_num[0] if self.filter_num_skip is None else self.filter_num_skip
-        )
+        filter_num_skip = self.filter_num[0] if self.filter_num_skip is None else self.filter_num_skip
         filter_num_aggregate = (
-            self.levels * filter_num_skip
-            if self.filter_num_aggregate is None
-            else self.filter_num_aggregate
+            self.levels * filter_num_skip if self.filter_num_aggregate is None else self.filter_num_aggregate
         )
 
         module_kwargs: dict[str, Any] = {}
@@ -361,10 +353,7 @@ class UNet3Plus(UNetBase):
         # No separate normalization file is needed at inference time.
         tensors["input"] = Input(shape=self.input_shape, name="Input")
 
-        if (
-            self.normalization_mean is not None
-            and self.normalization_variance is not None
-        ):
+        if self.normalization_mean is not None and self.normalization_variance is not None:
             norm_layer = tf.keras.layers.Normalization(
                 axis=-1,
                 mean=self.normalization_mean,
@@ -385,14 +374,12 @@ class UNet3Plus(UNetBase):
 
         if self.first_encoder_connections is True:
             for full_connection in range(2, self.levels):
-                tensors[f"1---{full_connection}_full-scale"] = (
-                    modules.full_scale_skip_connection(
-                        tensors["En1"],
-                        level1=1,
-                        level2=full_connection,
-                        name=f"1---{full_connection}_full-scale",
-                        **full_scale_kwargs,
-                    )
+                tensors[f"1---{full_connection}_full-scale"] = modules.full_scale_skip_connection(
+                    tensors["En1"],
+                    level1=1,
+                    level2=full_connection,
+                    name=f"1---{full_connection}_full-scale",
+                    **full_scale_kwargs,
                 )
 
         for encoder in np.arange(2, self.levels):
@@ -407,22 +394,18 @@ class UNet3Plus(UNetBase):
                 name=f"En{encoder}",
                 **module_kwargs,
             )
-            tensors[f"{encoder}---{encoder}_skip"] = (
-                modules.conventional_skip_connection(
-                    tensors[f"En{encoder}"],
-                    name=f"{encoder}---{encoder}_skip",
-                    **conventional_kwargs,
-                )
+            tensors[f"{encoder}---{encoder}_skip"] = modules.conventional_skip_connection(
+                tensors[f"En{encoder}"],
+                name=f"{encoder}---{encoder}_skip",
+                **conventional_kwargs,
             )
             for full_connection in range(encoder + 1, self.levels):
-                tensors[f"{encoder}---{full_connection}_full-scale"] = (
-                    modules.full_scale_skip_connection(
-                        tensors[f"En{encoder}"],
-                        level1=encoder,
-                        level2=full_connection,
-                        name=f"{encoder}---{full_connection}_full-scale",
-                        **full_scale_kwargs,
-                    )
+                tensors[f"{encoder}---{full_connection}_full-scale"] = modules.full_scale_skip_connection(
+                    tensors[f"En{encoder}"],
+                    level1=encoder,
+                    level2=full_connection,
+                    name=f"{encoder}---{full_connection}_full-scale",
+                    **full_scale_kwargs,
                 )
 
         tensors[f"En{self.levels}"] = modules.max_pool(
@@ -447,14 +430,12 @@ class UNet3Plus(UNetBase):
             tensors_with_supervision.append(tensors[f"sup{self.levels}_output"])
 
         for feature_map in range(1, self.levels - 1):
-            tensors[f"{self.levels}---{feature_map}_feature"] = (
-                modules.aggregated_feature_map(
-                    tensors[f"En{self.levels}"],
-                    level1=self.levels,
-                    level2=feature_map,
-                    name=f"{self.levels}---{feature_map}_feature",
-                    **aggregated_kwargs,
-                )
+            tensors[f"{self.levels}---{feature_map}_feature"] = modules.aggregated_feature_map(
+                tensors[f"En{self.levels}"],
+                level1=self.levels,
+                level2=feature_map,
+                name=f"{self.levels}---{feature_map}_feature",
+                **aggregated_kwargs,
             )
 
         for decoder in np.arange(1, self.levels)[::-1]:
@@ -467,9 +448,7 @@ class UNet3Plus(UNetBase):
                 tensors_to_concatenate = [
                     tensors[f"De{decoder}"],
                 ]
-                connections_to_add = sorted(
-                    [tensor for tensor in tensors if f"---{decoder}" in tensor]
-                )[::-1]
+                connections_to_add = sorted([tensor for tensor in tensors if f"---{decoder}" in tensor])[::-1]
                 for connection in connections_to_add:
                     tensors_to_concatenate.append(tensors[connection])
             else:
@@ -478,20 +457,12 @@ class UNet3Plus(UNetBase):
                     name=f"De{decoder + 1}-De{decoder}",
                     **upsample_kwargs,
                 )
-                tensors_to_concatenate = sorted(
-                    [tensor for tensor in tensors if f"---{decoder}" in tensor]
-                )[::-1]
+                tensors_to_concatenate = sorted([tensor for tensor in tensors if f"---{decoder}" in tensor])[::-1]
                 for index in range(len(tensors_to_concatenate)):
-                    tensors_to_concatenate[index] = tensors[
-                        tensors_to_concatenate[index]
-                    ]
-                tensors_to_concatenate.insert(
-                    self.levels - 1 - decoder, tensors[f"De{decoder}"]
-                )
+                    tensors_to_concatenate[index] = tensors[tensors_to_concatenate[index]]
+                tensors_to_concatenate.insert(self.levels - 1 - decoder, tensors[f"De{decoder}"])
 
-            tensors[f"De{decoder}"] = Concatenate(name=f"De{decoder}_Concatenate")(
-                tensors_to_concatenate
-            )
+            tensors[f"De{decoder}"] = Concatenate(name=f"De{decoder}_Concatenate")(tensors_to_concatenate)
             tensors[f"De{decoder}"] = modules.convolution(
                 tensors[f"De{decoder}"],
                 filters=filter_num_aggregate,
@@ -509,14 +480,12 @@ class UNet3Plus(UNetBase):
                 tensors_with_supervision.append(tensors[f"sup{decoder}_output"])
 
             for feature_map in range(1, decoder - 1):
-                tensors[f"{decoder}---{feature_map}_feature"] = (
-                    modules.aggregated_feature_map(
-                        tensors[f"De{decoder}"],
-                        level1=decoder,
-                        level2=feature_map,
-                        name=f"{decoder}---{feature_map}_feature",
-                        **aggregated_kwargs,
-                    )
+                tensors[f"{decoder}---{feature_map}_feature"] = modules.aggregated_feature_map(
+                    tensors[f"De{decoder}"],
+                    level1=decoder,
+                    level2=feature_map,
+                    name=f"{decoder}---{feature_map}_feature",
+                    **aggregated_kwargs,
                 )
 
         output_model = Model(

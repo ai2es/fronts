@@ -121,14 +121,8 @@ def make_batch_dataset(
             targets = targets.compute()
         logger.info("Pre-load complete.")
 
-    effective_chunk_steps = (
-        load_chunk_steps if load_chunk_steps is not None else epoch_steps
-    )
-    chunk_size = (
-        (effective_chunk_steps * batch_size)
-        if effective_chunk_steps is not None
-        else total
-    )
+    effective_chunk_steps = load_chunk_steps if load_chunk_steps is not None else epoch_steps
+    chunk_size = (effective_chunk_steps * batch_size) if effective_chunk_steps is not None else total
 
     # Persists across _gen() calls: the thread loading chunk i+1 can finish
     # before _gen() is re-invoked, so the next epoch starts without blocking.
@@ -137,9 +131,7 @@ def make_batch_dataset(
     def _gen():
         order = np.random.permutation(total) if shuffle else np.arange(total)
         chunk_starts = list(range(0, total, chunk_size))
-        threading.Thread(
-            target=_load, args=(order[:chunk_size].tolist(),), daemon=True
-        ).start()
+        threading.Thread(target=_load, args=(order[:chunk_size].tolist(),), daemon=True).start()
 
         for i, _chunk_start in enumerate(chunk_starts):
             chunk_x, chunk_y = prefetch_q.get()
@@ -152,9 +144,7 @@ def make_batch_dataset(
                 ).start()
             yield from _iter_chunk(chunk_x, chunk_y)
 
-    output_signature = _make_output_signature(
-        n_lat, n_lon, n_channels, n_classes, n_supervision_outputs
-    )
+    output_signature = _make_output_signature(n_lat, n_lon, n_channels, n_classes, n_supervision_outputs)
 
     steps_per_epoch = math.ceil(total / batch_size)
     ds = (
@@ -272,30 +262,20 @@ def _set_seed(seed: int) -> None:
     tf.random.set_seed(seed)
 
 
-def _show_input_sample(
-    label: str, inputs: np.ndarray | xr.DataArray, n_show: int = 5
-) -> None:
+def _show_input_sample(label: str, inputs: np.ndarray | xr.DataArray, n_show: int = 5) -> None:
     patch = np.asarray(inputs[0, :, :, :])
     n_channels = patch.shape[-1]
-    logger.info(
-        f"\n  {label} — first patch stats (first {n_show} of {n_channels} channels):"
-    )
+    logger.info(f"\n  {label} — first patch stats (first {n_show} of {n_channels} channels):")
     logger.info(f"  {'channel':<10} {'mean':>10} {'std':>10} {'min':>10} {'max':>10}")
     logger.info(f"  {'-' * 52}")
     for i in range(n_show):
         ch = patch[..., i]
-        logger.info(
-            f"  {i:<10} {ch.mean():>10.3f} {ch.std():>10.3f} {ch.min():>10.3f} {ch.max():>10.3f}"
-        )
+        logger.info(f"  {i:<10} {ch.mean():>10.3f} {ch.std():>10.3f} {ch.min():>10.3f} {ch.max():>10.3f}")
 
 
-def _compile(
-    model: tf.keras.Model, learning_rate: float, class_weights: list[float] | None
-) -> int:
+def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[float] | None) -> int:
     n_out = len(model.outputs)
-    loss_fn = losses.fractions_skill_score(
-        mask_size=(3, 3), class_weights=class_weights
-    )
+    loss_fn = losses.fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)
     hss_fn = metrics.heidke_skill_score(class_weights=class_weights)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
@@ -333,9 +313,7 @@ def _run(
             config=run_config or {},
         )
     callbacks = [
-        tf.keras.callbacks.EarlyStopping(
-            monitor=monitor, patience=patience, restore_best_weights=True
-        ),
+        tf.keras.callbacks.EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True),
         *([_WandbLogger()] if use_wandb else []),
     ]
     t0 = time.time()
@@ -390,15 +368,9 @@ def _collect_run_metadata(data_config: config.DataConfig) -> dict:
 
 def main():
     """Entry point: load config, build dataset and model, run training."""
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
-    )
-    parser = argparse.ArgumentParser(
-        description="Train UNet3Plus on ERA5 using NOAA fronts data"
-    )
-    parser.add_argument(
-        "--config", type=str, required=True, help="Path to YAML training config"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    parser = argparse.ArgumentParser(description="Train UNet3Plus on ERA5 using NOAA fronts data")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML training config")
     args = parser.parse_args()
 
     cfg = utils.open_config_yaml_as_dataclass(args.config, TrainConfig)
@@ -422,18 +394,14 @@ def main():
     train_front = front_da.isel(time=train_indices)
     val_front = front_da.isel(time=val_indices)
 
-    logger.info(
-        f"Train timesteps: {train_era5.sizes['time']}, Val timesteps: {val_era5.sizes['time']}"
-    )
+    logger.info(f"Train timesteps: {train_era5.sizes['time']}, Val timesteps: {val_era5.sizes['time']}")
 
     n_lat = train_era5.sizes["latitude"]
     n_lon = train_era5.sizes["longitude"]
 
     t0 = time.time()
     norm_mean, norm_variance = inputs.compute_norm_stats(train_era5)
-    logger.info(
-        f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)"
-    )
+    logger.info(f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)")
 
     _set_seed(cfg.seed)
 
@@ -461,6 +429,13 @@ def main():
 
     unet.summary()
 
+    if cfg.data_config.front_dilation > 0:
+        logger.info("Pre-computing dilated training targets into RAM...")
+        t0 = time.time()
+        with dask.config.set(scheduler="threads", num_workers=16):
+            train_front = train_front.compute()
+        logger.info(f"Training targets pre-computed ({time.time() - t0:.1f} s)")
+
     train_ds, train_steps = make_batch_dataset(
         train_era5,
         train_front,
@@ -483,9 +458,7 @@ def main():
 
     _show_input_sample("builtin-norm (raw)", train_era5)
 
-    wandb_project = (
-        cfg.wandb_config.project_name if cfg.wandb_config is not None else None
-    )
+    wandb_project = cfg.wandb_config.project_name if cfg.wandb_config is not None else None
     run_name = cfg.wandb_config.run_name if cfg.wandb_config is not None else None
     history, elapsed = _run(
         "builtin-norm",

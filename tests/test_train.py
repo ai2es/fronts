@@ -14,9 +14,7 @@ except ImportError:
 _ALL_CODES = list(FRONT_CLASS_MAP.keys())  # [1, 2, 3, 4, 15]
 
 
-def _make_fronts(
-    time_codes: list[list[int]], lat: int = 4, lon: int = 8
-) -> xr.DataArray:
+def _make_fronts(time_codes: list[list[int]], lat: int = 4, lon: int = 8) -> xr.DataArray:
     """Build a (time, lat, lon) fronts DataArray where each timestep gets exactly the front codes listed.
 
     Codes are placed at the first pixels of the first row.
@@ -61,9 +59,7 @@ class TestFilterTimesteps:
     def test_background_only_uses_rng(self):
         # Pure background (0) has no front types; result is a 50% draw.
         da = _make_fronts([[0]])
-        kept = sum(
-            filter_timesteps(da, np.random.default_rng(s))[0] for s in range(200)
-        )
+        kept = sum(filter_timesteps(da, np.random.default_rng(s))[0] for s in range(200))
         assert 70 < kept < 130  # expect ~100 with reasonable variance
 
     def test_mixed_timesteps(self):
@@ -81,35 +77,35 @@ class TestFilterTimesteps:
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
-class TestMakeXbatcherDataset:
+class TestMakeBatchDataset:
     def test_input_batch_shape(self, era5_da, front_da):
         batch_size = 2
-        ds = make_batch_dataset(era5_da, front_da, 1, batch_size)
+        ds, _ = make_batch_dataset(era5_da, front_da, 1, batch_size)
         x_batch, _ = next(iter(ds))
         assert x_batch.shape == (batch_size, N_LAT, N_LON, N_CHANNELS)
 
     def test_target_batch_shape(self, era5_da, front_da):
         batch_size = 2
-        ds = make_batch_dataset(era5_da, front_da, 1, batch_size)
+        ds, _ = make_batch_dataset(era5_da, front_da, 1, batch_size)
         _, y_batch = next(iter(ds))
         assert y_batch[0].shape == (batch_size, N_LAT, N_LON, N_CLASSES)
 
     def test_n_supervision_outputs(self, era5_da, front_da):
         for n_out in [1, 3, 5]:
-            ds = make_batch_dataset(era5_da, front_da, n_out, batch_size=2)
+            ds, _ = make_batch_dataset(era5_da, front_da, n_out, batch_size=2)
             _, y_batch = next(iter(ds))
             assert len(y_batch) == n_out
 
     def test_covers_all_timesteps(self, era5_da, front_da):
         batch_size = 2
-        ds = make_batch_dataset(era5_da, front_da, 1, batch_size)
+        ds, _ = make_batch_dataset(era5_da, front_da, 1, batch_size)
         total_samples = sum(x.shape[0] for x, _ in ds)
         assert total_samples == N_TIME
 
     def test_dtypes_are_float32(self, era5_da, front_da):
         import tensorflow as tf
 
-        ds = make_batch_dataset(era5_da, front_da, 1, batch_size=2)
+        ds, _ = make_batch_dataset(era5_da, front_da, 1, batch_size=2)
         x_batch, y_batch = next(iter(ds))
         assert x_batch.dtype == tf.float32
         assert y_batch[0].dtype == tf.float32

@@ -219,7 +219,7 @@ def heidke_skill_score(
         c = tf.math.reduce_sum(false_negatives)
         d = tf.math.reduce_sum(true_negatives)
 
-        hss = 2 * tf.math.divide((a * d) - (b * c), ((a + c) * (c + d)) + ((a + b) * (b + d)))
+        hss = 2 * tf.math.divide_no_nan((a * d) - (b * c), ((a + c) * (c + d)) + ((a + b) * (b + d)))
 
         return hss
 
