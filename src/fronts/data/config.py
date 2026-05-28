@@ -79,5 +79,6 @@ class DataConfig:
     batch_size: int = 4
     steps_per_epoch: int | None = None
     load_chunk_steps: int | None = None
+    prefetch_chunks: int = 2
     class_weights: list[float] | None = None
     front_dilation: int = 0

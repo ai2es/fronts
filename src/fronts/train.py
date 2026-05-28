@@ -41,6 +41,7 @@ def make_batch_dataset(
     preload: bool = False,
     epoch_steps: int | None = None,
     load_chunk_steps: int | None = None,
+    prefetch_chunks: int = 2,
 ) -> Any:
     """Create a batched tf.data.Dataset from ERA5 and fronts DataArrays.
 
@@ -74,6 +75,11 @@ def make_batch_dataset(
         load_chunk_steps: Number of steps' worth of samples to load per
             background prefetch. Defaults to ``epoch_steps`` when not set.
             Set this smaller than ``epoch_steps`` to cap peak RAM per chunk.
+        prefetch_chunks: Number of chunks to keep loaded in RAM ahead of the
+            generator. With the default of 2, chunk N+1 loads in parallel while
+            the GPU trains on chunk N, so the GPU never waits for a new chunk
+            as long as one chunk's load time is less than one chunk's train time.
+            Increase if disk I/O is slower than GPU throughput.
 
     Returns:
         Tuple of (tf.data.Dataset, steps_per_epoch).
@@ -124,19 +130,26 @@ def make_batch_dataset(
     effective_chunk_steps = load_chunk_steps if load_chunk_steps is not None else epoch_steps
     chunk_size = (effective_chunk_steps * batch_size) if effective_chunk_steps is not None else total
 
-    # Persists across _gen() calls: the thread loading chunk i+1 can finish
-    # before _gen() is re-invoked, so the next epoch starts without blocking.
-    prefetch_q: queue.Queue = queue.Queue(maxsize=1)
+    # Persists across _gen() calls so the last prefetch of epoch N is already
+    # in the queue when _gen() restarts for epoch N+1.
+    prefetch_q: queue.Queue = queue.Queue(maxsize=prefetch_chunks)
 
     def _gen():
         order = np.random.permutation(total) if shuffle else np.arange(total)
         chunk_starts = list(range(0, total, chunk_size))
-        threading.Thread(target=_load, args=(order[:chunk_size].tolist(),), daemon=True).start()
+        for k in range(min(prefetch_chunks, len(chunk_starts))):
+            nxt = chunk_starts[k]
+            threading.Thread(
+                target=_load,
+                args=(order[nxt : nxt + chunk_size].tolist(),),
+                daemon=True,
+            ).start()
 
         for i, _chunk_start in enumerate(chunk_starts):
             chunk_x, chunk_y = prefetch_q.get()
-            if i + 1 < len(chunk_starts):
-                nxt = chunk_starts[i + 1]
+            next_k = i + prefetch_chunks
+            if next_k < len(chunk_starts):
+                nxt = chunk_starts[next_k]
                 threading.Thread(
                     target=_load,
                     args=(order[nxt : nxt + chunk_size].tolist(),),
@@ -402,6 +415,16 @@ def main():
     norm_mean, norm_variance = inputs.compute_norm_stats(train_era5)
     logger.info(f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)")
 
+    with dask.config.set(scheduler="threads", num_workers=16):
+        val_channel_means = val_era5.mean(dim=["latitude", "longitude"], skipna=False).compute().values
+    nan_timesteps = np.asarray(np.isnan(val_channel_means).any(axis=1))
+    if nan_timesteps.any():
+        n_total = val_era5.sizes["time"]
+        logger.warning("Dropping %d/%d val timesteps with NaN ERA5 values", int(nan_timesteps.sum()), n_total)
+        keep = ~nan_timesteps
+        val_era5 = val_era5.isel(time=keep)
+        val_front = val_front.isel(time=keep)
+
     _set_seed(cfg.seed)
 
     strategy = _get_distribution_strategy()
@@ -443,6 +466,7 @@ def main():
         shuffle=True,
         epoch_steps=cfg.data_config.steps_per_epoch,
         load_chunk_steps=cfg.data_config.load_chunk_steps,
+        prefetch_chunks=cfg.data_config.prefetch_chunks,
     )
     logger.info("Pre-loading validation set into RAM...")
     val_ds, val_steps = make_batch_dataset(
