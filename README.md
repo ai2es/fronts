@@ -27,6 +27,10 @@ This repository is the updated version of NOAA's FrontFinder code, created by An
     - **Much** faster than conda
 
 ## Getting Started
+**NOTE: Some parts of this README are not ready yet:**
+
+* Training
+* Prediction
 
 ### Installing
 
@@ -60,6 +64,7 @@ If you want to invoke your own YAML with all of the required attributes:
 The fronts truth data from 2018-2024 is available on request.
 
 ### Training the Model
+>_Currently in-flight (not ready yet)_
 
 Assuming you have all the data in the icechunk store:
 
@@ -68,6 +73,7 @@ Assuming you have all the data in the icechunk store:
 This uses `src/fronts/configs/train_model.yaml` to train a UNet3+.
 
 ## Prediction
+>_Currently in-flight (not ready yet)_
 
 Predicting using the `.keras` model is straightforward as well:
 
