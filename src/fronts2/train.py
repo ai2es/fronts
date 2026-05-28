@@ -11,6 +11,7 @@ import argparse
 import dataclasses
 import logging
 import math
+import os
 import queue
 import random
 import threading
@@ -301,10 +302,11 @@ def _run(
     run_name: str | None = None,
     steps_per_epoch: int | None = None,
     validation_steps: int | None = None,
+    run_config: dict | None = None,
 ) -> tuple:
     use_wandb = wandb_project is not None
     if use_wandb:
-        wandb.init(project=wandb_project, name=run_name or name, reinit=True)
+        wandb.init(project=wandb_project, name=run_name or name, reinit=True, config=run_config or {})
     callbacks = [
         tf.keras.callbacks.EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True),
         *([_WandbLogger()] if use_wandb else []),
@@ -324,6 +326,36 @@ def _run(
     return history, elapsed
 
 
+def _collect_run_metadata(data_config: config.DataConfig) -> dict:
+    """Collect provenance metadata for logging: git commit, icechunk snapshots, SLURM vars.
+
+    Args:
+        data_config: DataConfig containing icechunk store configurations.
+
+    Returns:
+        Dict suitable for passing to wandb.init(config=...) and logger.info.
+    """
+    slurm_keys = ("SLURM_JOB_ID", "SLURM_JOB_NAME", "SLURM_NODELIST", "SLURM_ARRAY_TASK_ID")
+    meta = {
+        "git_commit": utils.get_git_commit(),
+        "era5_snapshot_id": utils.get_icechunk_snapshot_id(
+            data_config.era5_icechunk_config.store_path,
+            data_config.era5_icechunk_config.branch_name,
+            data_config.era5_icechunk_config.virtual_chunk_local_path,
+        ),
+        "fronts_snapshot_id": utils.get_icechunk_snapshot_id(
+            data_config.fronts_icechunk_config.store_path,
+            data_config.fronts_icechunk_config.branch_name,
+            data_config.fronts_icechunk_config.virtual_chunk_local_path,
+        ),
+    }
+    for key in slurm_keys:
+        value = os.environ.get(key)
+        if value is not None:
+            meta[key.lower()] = value
+    return meta
+
+
 def main():
     """Entry point: load config, build dataset and model, run training."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -332,6 +364,10 @@ def main():
     args = parser.parse_args()
 
     cfg = utils.open_config_yaml_as_dataclass(args.config, TrainConfig)
+
+    run_meta = _collect_run_metadata(cfg.data_config)
+    for key, value in run_meta.items():
+        logger.info("run_meta %s=%s", key, value)
 
     zarr.config.update({"threading.max_workers": 16})
 
@@ -419,6 +455,7 @@ def main():
         patience=cfg.callbacks_config.patience,
         wandb_project=wandb_project,
         run_name=run_name,
+        run_config=run_meta,
     )
 
     best_val = min(history.history.get("val_loss", [float("nan")]))

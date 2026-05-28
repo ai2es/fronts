@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from collections import namedtuple
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -144,6 +145,55 @@ def open_config_yaml_as_dataclass(
         data=config_yaml,
         config=dacite.Config(check_types=False, type_hooks=type_hooks or {}),
     )
+
+
+def get_git_commit() -> str:
+    """Return the current HEAD commit hash, or 'unknown' if not in a git repo.
+
+    Returns:
+        Full SHA-1 commit hash string, or 'unknown' on failure.
+    """
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "unknown"
+
+
+def get_icechunk_snapshot_id(
+    store_path: str,
+    branch: str,
+    virtual_chunk_local_path: str | None = None,
+) -> str:
+    """Return the snapshot ID at the tip of a branch in an icechunk store.
+
+    Args:
+        store_path: Path to the icechunk store directory.
+        branch: Branch name to read from.
+        virtual_chunk_local_path: Local directory containing netcdf files referenced
+            by virtual chunks. Leave None for stores with no virtual chunks.
+
+    Returns:
+        The snapshot ID string for the branch tip.
+    """
+    storage = ic.local_filesystem_storage(store_path)
+    repo_config = ic.RepositoryConfig.default()
+    authorize_virtual_chunk_access = None
+    if virtual_chunk_local_path is not None:
+        url_prefix = f"file://{virtual_chunk_local_path}"
+        repo_config.set_virtual_chunk_container(
+            ic.VirtualChunkContainer(
+                url_prefix=url_prefix,
+                store=ic.local_filesystem_store(virtual_chunk_local_path),
+            )
+        )
+        authorize_virtual_chunk_access = ic.containers_credentials({url_prefix: None})
+    repo = ic.Repository.open(
+        storage,
+        config=repo_config,
+        authorize_virtual_chunk_access=authorize_virtual_chunk_access,
+    )
+    session = repo.readonly_session(branch)
+    return session.snapshot_id
 
 
 def open_readonly_icechunk_store(
