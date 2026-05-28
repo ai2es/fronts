@@ -46,4 +46,4 @@ callbacks_config:
 
 wandb_config:
   project_name: "fronts"
-  run_name: null
+  run_name: "with_dilation"

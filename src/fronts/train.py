@@ -291,7 +291,6 @@ class _WandbLogger(tf.keras.callbacks.Callback):
 
 
 def _run(
-    name: str,
     model: tf.keras.Model,
     train_ds,
     val_ds,
@@ -308,7 +307,7 @@ def _run(
     if use_wandb:
         wandb.init(
             project=wandb_project,
-            name=run_name or name,
+            name=run_name,
             reinit=True,
             config=run_config or {},
         )
@@ -461,7 +460,6 @@ def main():
     wandb_project = cfg.wandb_config.project_name if cfg.wandb_config is not None else None
     run_name = cfg.wandb_config.run_name if cfg.wandb_config is not None else None
     history, elapsed = _run(
-        "builtin-norm",
         unet,
         train_ds,
         val_ds,

@@ -146,7 +146,6 @@ def main():
         train_ds_a, val_ds_a, train_steps_a, val_steps_a = _make_batch_datasets(train_norm, val_norm, n_out)
         _show_input_sample("prenorm (normalized)", train_norm)
         results["prenorm"] = _run(
-            "prenorm",
             model_a,
             train_ds_a,
             val_ds_a,
@@ -154,6 +153,7 @@ def main():
             monitor=callbacks_config.monitor,
             patience=callbacks_config.patience,
             wandb_project=WANDB_PROJECT,
+            run_name="prenorm",
             steps_per_epoch=train_steps_a,
             validation_steps=val_steps_a,
         )
@@ -180,7 +180,6 @@ def main():
         train_ds_b, val_ds_b, train_steps_b, val_steps_b = _make_batch_datasets(train_era5, val_era5, n_out)
         _show_input_sample("builtin-norm (raw)", train_era5)
         results["builtin-norm"] = _run(
-            "builtin-norm",
             model_b,
             train_ds_b,
             val_ds_b,
@@ -188,6 +187,7 @@ def main():
             monitor=callbacks_config.monitor,
             patience=callbacks_config.patience,
             wandb_project=WANDB_PROJECT,
+            run_name="builtin-norm",
             steps_per_epoch=train_steps_b,
             validation_steps=val_steps_b,
         )
@@ -206,7 +206,6 @@ def main():
         train_ds_c, val_ds_c, train_steps_c, val_steps_c = _make_batch_datasets(train_era5, val_era5, n_out)
         _show_input_sample("no-norm (raw)", train_era5)
         results["no-norm"] = _run(
-            "no-norm",
             model_c,
             train_ds_c,
             val_ds_c,
@@ -214,6 +213,7 @@ def main():
             monitor=callbacks_config.monitor,
             patience=callbacks_config.patience,
             wandb_project=WANDB_PROJECT,
+            run_name="no-norm",
             steps_per_epoch=train_steps_c,
             validation_steps=val_steps_c,
         )
