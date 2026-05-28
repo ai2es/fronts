@@ -448,7 +448,7 @@ wheels = [
 ]
 
 [[package]]
-name = "fronts2"
+name = "fronts"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [

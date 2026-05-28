@@ -2779,9 +2779,9 @@ packages:
   size: 59299
   timestamp: 1734014884486
 - pypi: ./
-  name: fronts2
-  version: 0.3.0
-  sha256: 087a713fe1b629a1cacf6642c13330df5c66b0267c9c2698eeabfd7751100ff4
+  name: fronts
+  version: 0.2.0
+  sha256: 5fc49e14b51f8afe34fc6914bf2a073285f00469a5d238d6f99d36a73b86c57c
   requires_dist:
   - dacite>=1.9.2,<2
   - icechunk>=2

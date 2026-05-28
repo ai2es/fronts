@@ -3,7 +3,7 @@ from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 import tensorflow as tf
 
-from fronts2.layers import activations, losses, metrics
+from fronts.layers import activations, losses, metrics
 
 T = TypeVar("T")
 
@@ -305,7 +305,9 @@ class ConvOutputConfig:
         Returns:
             A dictionary of keyword arguments to pass to convolutional layer constructors.
         """
-        regularizer_object = self.regularizer.build() if self.regularizer is not None else None
+        regularizer_object = (
+            self.regularizer.build() if self.regularizer is not None else None
+        )
         return ConvOutput(activity_regularizer=regularizer_object)
 
 
@@ -329,9 +331,13 @@ class BiasVectorConfig:
         Returns:
             A dictionary of keyword arguments to pass to layer constructors for bias vectors.
         """
-        constraint_object = self.constraint.build() if self.constraint is not None else None
+        constraint_object = (
+            self.constraint.build() if self.constraint is not None else None
+        )
         initializer_object = self.initializer.build()
-        regularizer_object = self.regularizer.build() if self.regularizer is not None else None
+        regularizer_object = (
+            self.regularizer.build() if self.regularizer is not None else None
+        )
 
         return BiasVector(
             bias_constraint=constraint_object,
@@ -360,9 +366,13 @@ class KernelMatrixConfig:
         Returns:
             A dictionary of keyword arguments to pass to layer constructors for kernel matrices.
         """
-        constraint_object = self.constraint.build() if self.constraint is not None else None
+        constraint_object = (
+            self.constraint.build() if self.constraint is not None else None
+        )
         initializer_object = self.initializer.build()
-        regularizer_object = self.regularizer.build() if self.regularizer is not None else None
+        regularizer_object = (
+            self.regularizer.build() if self.regularizer is not None else None
+        )
 
         return KernelMatrix(
             kernel_constraint=constraint_object,

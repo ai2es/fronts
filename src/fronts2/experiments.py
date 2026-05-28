@@ -15,10 +15,10 @@ import time
 import numpy as np
 import xarray as xr
 
-from fronts2 import utils
-from fronts2.data import inputs
-from fronts2.model import UNet3Plus
-from fronts2.train import (
+from fronts import utils
+from fronts.data import inputs
+from fronts.model import UNet3Plus
+from fronts.train import (
     TrainConfig,
     _compile,
     _get_distribution_strategy,
@@ -31,7 +31,7 @@ from fronts2.train import (
 
 logger = logging.getLogger(__name__)
 
-WANDB_PROJECT = "fronts2-norm-experiment"
+WANDB_PROJECT = "fronts-norm-experiment"
 
 
 def normalize(inputs: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
@@ -59,7 +59,9 @@ def _best_val_loss(hist):
 
 def _parse_args():
     parser = argparse.ArgumentParser(description="UNet3Plus normalization experiment")
-    parser.add_argument("--config", type=str, required=True, help="Path to YAML training config")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to YAML training config"
+    )
     parser.add_argument(
         "--experiments",
         nargs="+",
@@ -73,7 +75,9 @@ def _parse_args():
 
 def main():
     """Run the normalization comparison experiments and log results to W&B."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
     args = _parse_args()
     experiments = set(args.experiments)
 
@@ -90,7 +94,9 @@ def main():
     train_front = front_da.isel(time=slice(None, data_config.train_split))
     val_front = front_da.isel(time=slice(data_config.train_split, None))
 
-    logger.info(f"Train timesteps: {train_era5.sizes['time']}, Val timesteps: {val_era5.sizes['time']}")
+    logger.info(
+        f"Train timesteps: {train_era5.sizes['time']}, Val timesteps: {val_era5.sizes['time']}"
+    )
 
     n_lat = train_era5.sizes["latitude"]
     n_lon = train_era5.sizes["longitude"]
@@ -116,8 +122,12 @@ def main():
     total_times = {}
 
     def _make_batch_datasets(train_in: xr.DataArray, val_in: xr.DataArray, n_out: int):
-        train_ds, train_steps = make_batch_dataset(train_in, train_front, n_out, data_config.batch_size, shuffle=True)
-        val_ds, val_steps = make_batch_dataset(val_in, val_front, n_out, data_config.batch_size)
+        train_ds, train_steps = make_batch_dataset(
+            train_in, train_front, n_out, data_config.batch_size, shuffle=True
+        )
+        val_ds, val_steps = make_batch_dataset(
+            val_in, val_front, n_out, data_config.batch_size
+        )
         return train_ds, val_ds, train_steps, val_steps
 
     # ── Experiment A: pre-normalization ───────────────────────────────────────
@@ -143,7 +153,9 @@ def main():
         n_out = _compile(model_a, cfg.learning_rate, data_config.class_weights)
         model_a.summary()
 
-        train_ds_a, val_ds_a, train_steps_a, val_steps_a = _make_batch_datasets(train_norm, val_norm, n_out)
+        train_ds_a, val_ds_a, train_steps_a, val_steps_a = _make_batch_datasets(
+            train_norm, val_norm, n_out
+        )
         _show_input_sample("prenorm (normalized)", train_norm)
         results["prenorm"] = _run(
             "prenorm",
@@ -158,7 +170,9 @@ def main():
             validation_steps=val_steps_a,
         )
         total_times["prenorm"] = time.time() - t_start
-        logger.info(f"Time to train with pre-normalization: {total_times['prenorm']:.1f} s")
+        logger.info(
+            f"Time to train with pre-normalization: {total_times['prenorm']:.1f} s"
+        )
 
     # ── Experiment B: built-in normalization ──────────────────────────────────
     if "builtin-norm" in experiments:
@@ -166,7 +180,9 @@ def main():
         logger.info("\n=== Experiment B: Built-in normalization ===")
         t0 = time.time()
         norm_mean, norm_variance = inputs.compute_norm_stats(train_era5)
-        logger.info(f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)")
+        logger.info(
+            f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)"
+        )
 
         _set_seed(cfg.seed)
         with strategy.scope():
@@ -177,7 +193,9 @@ def main():
             ).build()
         n_out = _compile(model_b, cfg.learning_rate, data_config.class_weights)
 
-        train_ds_b, val_ds_b, train_steps_b, val_steps_b = _make_batch_datasets(train_era5, val_era5, n_out)
+        train_ds_b, val_ds_b, train_steps_b, val_steps_b = _make_batch_datasets(
+            train_era5, val_era5, n_out
+        )
         _show_input_sample("builtin-norm (raw)", train_era5)
         results["builtin-norm"] = _run(
             "builtin-norm",
@@ -192,7 +210,9 @@ def main():
             validation_steps=val_steps_b,
         )
         total_times["builtin-norm"] = time.time() - t_start
-        logger.info(f"Time to train with built-in normalization: {total_times['builtin-norm']:.1f} s")
+        logger.info(
+            f"Time to train with built-in normalization: {total_times['builtin-norm']:.1f} s"
+        )
 
     # ── Experiment C: no normalization ────────────────────────────────────────
     if "no-norm" in experiments:
@@ -203,7 +223,9 @@ def main():
             model_c = UNet3Plus(**model_kwargs).build()
         n_out = _compile(model_c, cfg.learning_rate, data_config.class_weights)
 
-        train_ds_c, val_ds_c, train_steps_c, val_steps_c = _make_batch_datasets(train_era5, val_era5, n_out)
+        train_ds_c, val_ds_c, train_steps_c, val_steps_c = _make_batch_datasets(
+            train_era5, val_era5, n_out
+        )
         _show_input_sample("no-norm (raw)", train_era5)
         results["no-norm"] = _run(
             "no-norm",
@@ -218,13 +240,19 @@ def main():
             validation_steps=val_steps_c,
         )
         total_times["no-norm"] = time.time() - t_start
-        logger.info(f"Time to train with no normalization: {total_times['no-norm']:.1f} s")
+        logger.info(
+            f"Time to train with no normalization: {total_times['no-norm']:.1f} s"
+        )
 
     logger.info("\n=== Results ===")
-    logger.info(f"{'Experiment':<20} | {'Best val_loss':>14} | {'Time (s)':>10} | {'Total time (s)':>14}")
+    logger.info(
+        f"{'Experiment':<20} | {'Best val_loss':>14} | {'Time (s)':>10} | {'Total time (s)':>14}"
+    )
     logger.info("-" * 68)
     for name, (hist, elapsed) in results.items():
-        logger.info(f"{name:<20} | {_best_val_loss(hist):>14.4f} | {elapsed:>10.1f} | {total_times[name]:>14.1f}")
+        logger.info(
+            f"{name:<20} | {_best_val_loss(hist):>14.4f} | {elapsed:>10.1f} | {total_times[name]:>14.1f}"
+        )
 
 
 if __name__ == "__main__":

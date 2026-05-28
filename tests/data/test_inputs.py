@@ -2,7 +2,7 @@ import numpy as np
 import xarray as xr
 import xbatcher
 
-from fronts2.data.inputs import (
+from fronts.data.inputs import (
     collect_norm_sample_from_bgen,
     era5_to_dataarray,
 )
@@ -12,7 +12,13 @@ N_LAT = 32
 N_LON = 64
 N_CLASSES = 6
 
-_VARS = ["geopotential", "temperature", "u_component_of_wind", "v_component_of_wind", "specific_humidity"]
+_VARS = [
+    "geopotential",
+    "temperature",
+    "u_component_of_wind",
+    "v_component_of_wind",
+    "specific_humidity",
+]
 _LEVELS = [1000, 950, 900, 850, 700, 500]
 _N_LEVELS = len(_LEVELS)
 _N_VARS = len(_VARS)

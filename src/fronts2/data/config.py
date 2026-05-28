@@ -1,7 +1,7 @@
 import dataclasses
 import datetime
 
-from fronts2 import utils
+from fronts import utils
 
 
 @dataclasses.dataclass

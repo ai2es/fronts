@@ -1,4 +1,4 @@
-from fronts2.layers.modules import (
+from fronts.layers.modules import (
     aggregated_feature_map,
     attention_gate,
     conventional_skip_connection,

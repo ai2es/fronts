@@ -1,6 +1,6 @@
 [project]
-name = "fronts2"
-version = "0.3.0"
+name = "fronts"
+version = "0.2.0"
 description = "FrontFinder AI for finding various frontal and baroclinic boundaries"
 requires-python = ">=3.12,<=3.14.5"
 keywords = [
@@ -66,14 +66,14 @@ cartopy = ">=0.24.0"
 matplotlib = ">=3.9.0"
 
 [tool.pixi.feature.train.pypi-dependencies]
-fronts2 = { path = ".", editable = true }
+fronts = { path = ".", editable = true }
 tensorflow = { extras = ["and-cuda"] }
 obstore = "*"
 s3fs = ">=2024.6.0"
 
 [tool.pixi.feature.train.tasks]
-train = "python -m fronts2.train --config configs/default.yaml"
-experiment = "python -m fronts2.experiments"
+train = "python -m fronts.train --config configs/default.yaml"
+experiment = "python -m fronts.experiments"
 eval = { cmd = "echo 'eval script not yet implemented'", description = "Run model evaluation (placeholder)" }
 
 [tool.pixi.system-requirements]
@@ -83,7 +83,7 @@ libc = "2.17"
 platforms = ["linux-64"]
 
 [tool.pixi.feature.schooner.tasks]
-generate = "python -m fronts2.data.generate --config configs/generate_icechunk.yaml"
+generate = "python -m fronts.data.generate --config configs/generate_icechunk.yaml"
 
 [tool.pixi.feature.schooner.activation]
 env = { LD_LIBRARY_PATH = "$CONDA_PREFIX/lib:$LD_LIBRARY_PATH" }
@@ -151,13 +151,13 @@ build-backend = "hatchling.build"
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/fronts2"]
+packages = ["src/fronts"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/fronts2/**/*"]
+include = ["src/fronts/**/*"]
 
 [tool.pixi.package] 
-name = "fronts2"
+name = "fronts"
 version = "0.3.0"
 
 [tool.pixi.package.host-dependencies] 
@@ -206,8 +206,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/fronts2/layers/losses.py" = ["N806"]        # scientific notation: O_n, M_n, MSE, FSS
-"src/fronts2/layers/metrics.py" = ["N806"]       # scientific notation: O_n, M_n, MSE, FSS
+"src/fronts/layers/losses.py" = ["N806"]        # scientific notation: O_n, M_n, MSE, FSS
+"src/fronts/layers/metrics.py" = ["N806"]       # scientific notation: O_n, M_n, MSE, FSS
 "tests/**/*.py" = ["D101", "D102", "D103"]        # test names are self-documenting
 
 [tool.ruff.lint.pydocstyle]
@@ -215,7 +215,7 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 case-sensitive = true
-known-first-party = ["fronts2"]
+known-first-party = ["fronts"]
 known-third-party = ["wandb"]
 
 [tool.ruff.lint.flake8-tidy-imports]

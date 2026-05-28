@@ -7,8 +7,8 @@ import icechunk.xarray
 import pandas as pd
 import xarray as xr
 
-from fronts2 import utils
-from fronts2.data import config
+from fronts import utils
+from fronts.data import config
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -38,7 +38,9 @@ def generate_era5_data(config: config.ERA5DataLoaderConfig) -> utils.XArrayType:
 
     # Subset variables, time range, and spatial bounding box according to config
     ds_variable_subset = ds[config.variables]
-    date_range = pd.date_range(config.time_start, config.time_end, freq=config.time_resolution)
+    date_range = pd.date_range(
+        config.time_start, config.time_end, freq=config.time_resolution
+    )
     # Attach periodic index to longitude for > 360 to avoid wrap-crossing slice issues,
     # then rechunk after subsetting
     ds_variable_subset = utils.attach_periodic_lon_index(ds_variable_subset)
@@ -70,7 +72,9 @@ def get_local_icechunk_repository(
     # a new one
     if ic.Repository.exists(storage):
         append = "time"
-        logger.info(f"Opening existing icechunk repository at {storage_config.store_path}")
+        logger.info(
+            f"Opening existing icechunk repository at {storage_config.store_path}"
+        )
     else:
         append = None
         logger.info(f"Creating new icechunk repository at {storage_config.store_path}")
@@ -78,7 +82,9 @@ def get_local_icechunk_repository(
     return repo, append
 
 
-def write_or_append_icechunk_store(storage_config: config.IcechunkStorageConfig, ds: utils.XArrayType) -> None:
+def write_or_append_icechunk_store(
+    storage_config: config.IcechunkStorageConfig, ds: utils.XArrayType
+) -> None:
     """Write or append an xarray Dataset to an icechunk store.
 
     If the store already exists, the new data will be appended along the time dimension.
@@ -110,8 +116,12 @@ def write_or_append_icechunk_store(storage_config: config.IcechunkStorageConfig,
         session = repo.writable_session(storage_config.branch_name)
         ds_slice = ds_slice.drop_encoding()
 
-        icechunk.xarray.to_icechunk(ds_slice, session, append_dim=append, safe_chunks=False)
-        session.commit(f"{storage_config.commit_message}, time steps {i} to {i + len(time_slice)}")
+        icechunk.xarray.to_icechunk(
+            ds_slice, session, append_dim=append, safe_chunks=False
+        )
+        session.commit(
+            f"{storage_config.commit_message}, time steps {i} to {i + len(time_slice)}"
+        )
         append = "time"  # always append after first write
 
         logger.info(f"Committed time steps {i} to {i + len(time_slice)}")
@@ -152,8 +162,12 @@ def create_dask_client(
 
 def main():
     """Entry point for generating ERA5 icechunk data from config."""
-    parser = argparse.ArgumentParser(description="Generate ERA5 data and store in icechunk")
-    parser.add_argument("--config", type=str, default=None, help="Path to YAML data generation config")
+    parser = argparse.ArgumentParser(
+        description="Generate ERA5 data and store in icechunk"
+    )
+    parser.add_argument(
+        "--config", type=str, default=None, help="Path to YAML data generation config"
+    )
     args = parser.parse_args()
 
     # client = create_dask_client()

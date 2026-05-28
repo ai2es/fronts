@@ -14,7 +14,7 @@ from tensorflow.keras.layers import (
     UpSampling3D,
 )
 
-from fronts2.layers import keras_builders
+from fronts.layers import keras_builders
 
 
 def attention_gate(
@@ -39,7 +39,9 @@ def attention_gate(
     conv_layer = getattr(
         tf.keras.layers, f"Conv{len(x.shape) - 2}D"
     )  # Select the convolution layer for the x and g tensors
-    upsample_layer = getattr(tf.keras.layers, f"UpSampling{len(x.shape) - 2}D")  # Select the upsampling layer
+    upsample_layer = getattr(
+        tf.keras.layers, f"UpSampling{len(x.shape) - 2}D"
+    )  # Select the upsampling layer
 
     shape_x = x.shape  # Shapes of the ORIGINAL inputs
     filters_x = shape_x[-1]
@@ -58,20 +60,24 @@ def attention_gate(
         name=f"{name}_Conv{len(x.shape) - 2}D_g",
     )(g)
 
-    xg = tf.add(x_conv, g_conv, name=f"{name}_sum")  # Sum the x and g signals element-wise
+    xg = tf.add(
+        x_conv, g_conv, name=f"{name}_sum"
+    )  # Sum the x and g signals element-wise
     xg = Activation(activation="relu", name=f"{name}_relu")(
         xg
     )  # Pass the summed signals through a ReLU activation layer
 
-    xg_collapse = conv_layer(filters=1, kernel_size=1, padding="same", name=f"{name}_collapse")(
-        xg
-    )  # Collapse the number of filters to just 1
+    xg_collapse = conv_layer(
+        filters=1, kernel_size=1, padding="same", name=f"{name}_collapse"
+    )(xg)  # Collapse the number of filters to just 1
     xg_collapse = Activation(activation="sigmoid", name=f"{name}_sigmoid")(
         xg_collapse
     )  # Pass collapsed tensor through a sigmoid activation layer
 
     # Upsample the collapsed tensor to match x's spatial shape, then expand filters to match g
-    upsample_xg = upsample_layer(size=pool_size, name=f"{name}_UpSampling{len(x.shape) - 2}D")(xg_collapse)
+    upsample_xg = upsample_layer(
+        size=pool_size, name=f"{name}_UpSampling{len(x.shape) - 2}D"
+    )(xg_collapse)
     upsample_xg = tf.repeat(upsample_xg, filters_x, axis=-1, name=f"{name}_repeat")
 
     coeffs = tf.multiply(
@@ -142,14 +148,18 @@ def convolution(
     )  # Number of dims in the tensor (including the first 'None' dimension for batch size)
 
     if num_modules < 1:
-        raise ValueError("num_modules must be greater than 0, at least one module must be added")
+        raise ValueError(
+            "num_modules must be greater than 0, at least one module must be added"
+        )
 
     if tensor_dims == 4:  # (batch, x, y, channels)
         conv_layer = Conv2D
     elif tensor_dims == 5:  # (batch, x, y, z, channels)
         conv_layer = Conv3D
     else:
-        raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
+        raise TypeError(
+            f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions"
+        )
 
     # Arguments for the Conv2D/Conv3D layer.
     conv_kwargs: dict[str, Any] = {}
@@ -182,7 +192,9 @@ def convolution(
         conv_kwargs["name"] = f"{name}_Conv{tensor_dims - 2}D_{module + 1}"
         activation_kwargs["name"] = f"{name}_{activation}_{module + 1}"
 
-        conv_tensor = conv_layer(**conv_kwargs)(tensor)  # Perform convolution on the input tensor
+        conv_tensor = conv_layer(**conv_kwargs)(
+            tensor
+        )  # Perform convolution on the input tensor
 
         activation_config = keras_builders.ActivationConfig(
             name=activation,  # pyrefly: ignore[bad-argument-type]
@@ -191,9 +203,9 @@ def convolution(
         activation_layer = activation_config.build()
 
         if batch_normalization:
-            batch_norm_tensor = BatchNormalization(name=f"{name}_BatchNorm_{module + 1}")(
-                conv_tensor
-            )  # Insert layer for batch normalization
+            batch_norm_tensor = BatchNormalization(
+                name=f"{name}_BatchNorm_{module + 1}"
+            )(conv_tensor)  # Insert layer for batch normalization
             activation_tensor = activation_layer(
                 batch_norm_tensor
             )  # Pass output tensor from BatchNormalization into the activation layer
@@ -263,7 +275,9 @@ def aggregated_feature_map(
     )  # Number of dims in the tensor (including the first 'None' dimension for batch size)
 
     if level1 <= level2:
-        raise ValueError("level2 must be smaller than level1 in aggregated feature maps")
+        raise ValueError(
+            "level2 must be smaller than level1 in aggregated feature maps"
+        )
 
     # Arguments for the convolution module.
     module_kwargs: dict[str, Any] = {"num_modules": 1}
@@ -294,17 +308,27 @@ def aggregated_feature_map(
     if tensor_dims == 4:  # If the image is 2D
         upsample_layer = UpSampling2D
         if len(upsample_size) != 2:
-            raise TypeError(f"For 2D up-sampling, pool size must have 2 integers. Got shape: {np.shape(upsample_size)}")
+            raise TypeError(
+                f"For 2D up-sampling, pool size must have 2 integers. Got shape: {np.shape(upsample_size)}"
+            )
     elif tensor_dims == 5:  # If the image is 3D
         upsample_layer = UpSampling3D
         if len(upsample_size) != 3:
-            raise TypeError(f"For 3D up-sampling, pool size must have 3 integers. Got shape: {np.shape(upsample_size)}")
+            raise TypeError(
+                f"For 3D up-sampling, pool size must have 3 integers. Got shape: {np.shape(upsample_size)}"
+            )
     else:
-        raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
+        raise TypeError(
+            f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions"
+        )
 
-    tensor = upsample_layer(**upsample_kwargs)(tensor)  # Pass the tensor through the UpSample2D/UpSample3D layer
+    tensor = upsample_layer(**upsample_kwargs)(
+        tensor
+    )  # Pass the tensor through the UpSample2D/UpSample3D layer
 
-    tensor = convolution(tensor, **module_kwargs)  # Pass input tensor through convolution module
+    tensor = convolution(
+        tensor, **module_kwargs
+    )  # Pass input tensor through convolution module
 
     return tensor
 
@@ -365,7 +389,9 @@ def full_scale_skip_connection(
     )  # Number of dims in the tensor (including the first 'None' dimension for batch size)
 
     if level1 >= level2:
-        raise ValueError("level2 must be greater than level1 in full-scale skip connections")
+        raise ValueError(
+            "level2 must be greater than level1 in full-scale skip connections"
+        )
 
     # Arguments for the convolution module.
     module_kwargs: dict[str, Any] = {"num_modules": 1}
@@ -398,11 +424,17 @@ def full_scale_skip_connection(
     elif tensor_dims == 5:  # If the image is 3D
         pool_layer = MaxPooling3D
     else:
-        raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
+        raise TypeError(
+            f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions"
+        )
 
-    tensor = pool_layer(**pool_kwargs)(tensor)  # Pass the tensor through the MaxPooling2D/MaxPooling3D layer
+    tensor = pool_layer(**pool_kwargs)(
+        tensor
+    )  # Pass the tensor through the MaxPooling2D/MaxPooling3D layer
 
-    tensor = convolution(tensor, **module_kwargs)  # Pass the tensor through the convolution module
+    tensor = convolution(
+        tensor, **module_kwargs
+    )  # Pass the tensor through the convolution module
 
     return tensor
 
@@ -469,7 +501,9 @@ def conventional_skip_connection(
     ]:
         module_kwargs[arg] = locals()[arg]
 
-    tensor = convolution(tensor, **module_kwargs)  # Pass the tensor through the convolution module
+    tensor = convolution(
+        tensor, **module_kwargs
+    )  # Pass the tensor through the convolution module
 
     return tensor
 
@@ -490,7 +524,9 @@ def max_pool(tensor: tf.Tensor, pool_size: tuple[int, ...], name: str | None = N
         TypeError: If the tensor does not have 4 or 5 dimensions.
     """
     if not isinstance(pool_size, tuple) and not isinstance(pool_size, list):
-        raise TypeError(f"pool_size can only be a tuple or list. Received type: {type(pool_size)}")
+        raise TypeError(
+            f"pool_size can only be a tuple or list. Received type: {type(pool_size)}"
+        )
 
     tensor_dims = len(
         tensor.shape
@@ -503,15 +539,23 @@ def max_pool(tensor: tf.Tensor, pool_size: tuple[int, ...], name: str | None = N
     if tensor_dims == 4:  # If the image is 2D
         pool_layer = MaxPooling2D
         if len(pool_size) != 2:
-            raise TypeError(f"For 2D max-pooling, pool size must have 2 integers. Got shape: {np.shape(pool_size)}")
+            raise TypeError(
+                f"For 2D max-pooling, pool size must have 2 integers. Got shape: {np.shape(pool_size)}"
+            )
     elif tensor_dims == 5:  # If the image is 3D
         pool_layer = MaxPooling3D
         if len(pool_size) != 3:
-            raise TypeError(f"For 3D max-pooling, pool size must have 3 integers. Got shape: {np.shape(pool_size)}")
+            raise TypeError(
+                f"For 3D max-pooling, pool size must have 3 integers. Got shape: {np.shape(pool_size)}"
+            )
     else:
-        raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
+        raise TypeError(
+            f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions"
+        )
 
-    pool_tensor = pool_layer(**pool_kwargs)(tensor)  # Pass the tensor through the MaxPooling2D/MaxPooling3D layer
+    pool_tensor = pool_layer(**pool_kwargs)(
+        tensor
+    )  # Pass the tensor through the MaxPooling2D/MaxPooling3D layer
 
     return pool_tensor
 
@@ -568,7 +612,9 @@ def upsample(
     )  # Number of dims in the tensor (including the first 'None' dimension for batch size)
 
     if not isinstance(upsample_size, tuple) and not isinstance(upsample_size, list):
-        raise TypeError(f"upsample_size can only be a tuple or list. Received type: {type(upsample_size)}")
+        raise TypeError(
+            f"upsample_size can only be a tuple or list. Received type: {type(upsample_size)}"
+        )
 
     # Arguments for the convolution module.
     module_kwargs: dict[str, Any] = {"num_modules": 1}
@@ -599,19 +645,27 @@ def upsample(
     if tensor_dims == 4:  # If the image is 2D
         upsample_layer = UpSampling2D
         if len(upsample_size) != 2:
-            raise TypeError(f"For 2D up-sampling, pool size must have 2 integers. Got shape: {np.shape(upsample_size)}")
+            raise TypeError(
+                f"For 2D up-sampling, pool size must have 2 integers. Got shape: {np.shape(upsample_size)}"
+            )
     elif tensor_dims == 5:  # If the image is 3D
         upsample_layer = UpSampling3D
         if len(upsample_size) != 3:
-            raise TypeError(f"For 3D up-sampling, pool size must have 3 integers. Got shape: {np.shape(upsample_size)}")
+            raise TypeError(
+                f"For 3D up-sampling, pool size must have 3 integers. Got shape: {np.shape(upsample_size)}"
+            )
     else:
-        raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions")
+        raise TypeError(
+            f"Incompatible tensor shape: {tensor.shape}. The tensor must only have 4 or 5 dimensions"
+        )
 
     upsample_tensor = upsample_layer(**upsample_kwargs)(
         tensor
     )  # Pass the tensor through the UpSampling2D/UpSampling3D layer
 
-    tensor = convolution(upsample_tensor, **module_kwargs)  # Pass the up-sampled tensor through a convolution module
+    tensor = convolution(
+        upsample_tensor, **module_kwargs
+    )  # Pass the up-sampled tensor through a convolution module
 
     return tensor
 
@@ -693,7 +747,9 @@ def deep_supervision_side_output(
             upsample_size_2 = None
 
     else:
-        raise TypeError(f"Incompatible tensor shape: {tensor.shape}. The tensor can only have 4 or 5 dimensions")
+        raise TypeError(
+            f"Incompatible tensor shape: {tensor.shape}. The tensor can only have 4 or 5 dimensions"
+        )
 
     # Arguments for the Conv2D/Conv3D layer.
     conv_kwargs: dict[str, Any] = {}
@@ -713,26 +769,30 @@ def deep_supervision_side_output(
         conv_kwargs[arg] = locals()[arg]
 
     if upsample_size_1 is not None:
-        tensor = upsample_layer(size=upsample_size_1, name=f"{name}_UpSampling{tensor_dims - 2}D_1")(
-            tensor
-        )  # Pass the tensor through the UpSampling2D/UpSampling3D layer
+        tensor = upsample_layer(
+            size=upsample_size_1, name=f"{name}_UpSampling{tensor_dims - 2}D_1"
+        )(tensor)  # Pass the tensor through the UpSampling2D/UpSampling3D layer
 
     tensor = conv_layer(filters=num_classes, **conv_kwargs)(
         tensor
     )  # This convolution layer contains num_classes filters, one for each class
 
     if upsample_size_2 is not None:
-        tensor = upsample_layer(size=upsample_size_2, name=f"{name}_UpSampling{tensor_dims - 2}D_2")(
-            tensor
-        )  # Pass the tensor through the UpSampling2D/UpSampling3D layer
+        tensor = upsample_layer(
+            size=upsample_size_2, name=f"{name}_UpSampling{tensor_dims - 2}D_2"
+        )(tensor)  # Pass the tensor through the UpSampling2D/UpSampling3D layer
 
     ### Squeeze the given dimensions/axes ###
     if squeeze_axes is not None:
         conv_kwargs["kernel_size"] = [1 for _ in range(tensor_dims - 2)]
 
-        squeeze_axes_list: list[int] = [squeeze_axes] if isinstance(squeeze_axes, int) else list(squeeze_axes)
+        squeeze_axes_list: list[int] = (
+            [squeeze_axes] if isinstance(squeeze_axes, int) else list(squeeze_axes)
+        )
 
-        squeeze_axes_sizes = [tensor.shape[ax_to_squeeze] for ax_to_squeeze in squeeze_axes_list]
+        squeeze_axes_sizes = [
+            tensor.shape[ax_to_squeeze] for ax_to_squeeze in squeeze_axes_list
+        ]
 
         for ax, size in enumerate(squeeze_axes_sizes):
             # Set kernel to full dimension size so the output collapses to 1

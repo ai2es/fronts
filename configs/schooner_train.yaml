@@ -45,5 +45,5 @@ callbacks_config:
   model_checkpoint_path: null
 
 wandb_config:
-  project_name: "fronts2"
+  project_name: "fronts"
   run_name: null

@@ -2,10 +2,10 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from fronts2.data.targets import FRONT_CLASS_MAP, filter_timesteps
+from fronts.data.targets import FRONT_CLASS_MAP, filter_timesteps
 
 try:
-    from fronts2.train import make_batch_dataset
+    from fronts.train import make_batch_dataset
 
     _TF_AVAILABLE = True
 except ImportError:
@@ -14,7 +14,9 @@ except ImportError:
 _ALL_CODES = list(FRONT_CLASS_MAP.keys())  # [1, 2, 3, 4, 15]
 
 
-def _make_fronts(time_codes: list[list[int]], lat: int = 4, lon: int = 8) -> xr.DataArray:
+def _make_fronts(
+    time_codes: list[list[int]], lat: int = 4, lon: int = 8
+) -> xr.DataArray:
     """Build a (time, lat, lon) fronts DataArray where each timestep gets exactly the front codes listed.
 
     Codes are placed at the first pixels of the first row.
@@ -59,7 +61,9 @@ class TestFilterTimesteps:
     def test_background_only_uses_rng(self):
         # Pure background (0) has no front types; result is a 50% draw.
         da = _make_fronts([[0]])
-        kept = sum(filter_timesteps(da, np.random.default_rng(s))[0] for s in range(200))
+        kept = sum(
+            filter_timesteps(da, np.random.default_rng(s))[0] for s in range(200)
+        )
         assert 70 < kept < 130  # expect ~100 with reasonable variance
 
     def test_mixed_timesteps(self):
