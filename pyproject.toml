@@ -158,7 +158,7 @@ include = ["src/fronts/**/*"]
 
 [tool.pixi.package] 
 name = "fronts"
-version = "0.3.0"
+version = "0.2.0"
 
 [tool.pixi.package.host-dependencies] 
 hatchling = ">=1.26.3"
