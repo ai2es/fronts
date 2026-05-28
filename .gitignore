@@ -130,3 +130,6 @@ dmypy.json
 
 # For PyCharm
 .idea
+
+# Weights and Biases
+wandb/
