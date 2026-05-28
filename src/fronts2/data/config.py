@@ -78,5 +78,6 @@ class DataConfig:
     train_split: float = 0.8
     batch_size: int = 4
     steps_per_epoch: int | None = None
+    load_chunk_steps: int | None = None
     class_weights: list[float] | None = None
     front_dilation: int = 0

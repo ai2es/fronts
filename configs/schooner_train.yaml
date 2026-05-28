@@ -13,6 +13,7 @@ data_config:
   batch_size: 32
   train_split: 0.8
   steps_per_epoch: 30
+  load_chunk_steps: 5
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
   variables: [

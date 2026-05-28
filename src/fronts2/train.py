@@ -39,16 +39,20 @@ def make_batch_dataset(
     shuffle: bool = False,
     preload: bool = False,
     epoch_steps: int | None = None,
+    load_chunk_steps: int | None = None,
 ) -> Any:
     """Create a batched tf.data.Dataset from ERA5 and fronts DataArrays.
 
     Loads data in chunks via a single parallel dask compute per chunk rather
     than one sample at a time. With ``preload=True`` the entire dataset is
     materialised into RAM once at creation time (recommended for validation).
-    With ``epoch_steps`` set, each generator invocation loads
-    ``epoch_steps * batch_size`` samples in one compute call so that zarr's
-    bounded thread pool can parallelise all chunk reads for that epoch; this
-    load overlaps with GPU training via tf.data prefetch.
+
+    The load chunk size is ``load_chunk_steps * batch_size`` samples. Setting
+    this independently of ``epoch_steps`` lets you control peak RAM usage: a
+    full epoch's worth of data may be too large to allocate as one contiguous
+    array, while a smaller chunk still lets the background thread overlap I/O
+    with GPU training. Falls back to ``epoch_steps`` when ``load_chunk_steps``
+    is not set.
 
     Thread safety: zarr's global ``ThreadPoolExecutor`` must be bounded before
     any zarr I/O. Call ``zarr.config.update({"threading.max_workers": N})`` in
@@ -64,10 +68,11 @@ def make_batch_dataset(
         preload: If True, loads the entire dataset into RAM at creation time
             via a single parallel dask compute. Eliminates all I/O during
             iteration. Recommended for validation.
-        epoch_steps: If set, the generator loads ``epoch_steps * batch_size``
-            samples per chunk in one parallel dask compute. Set to
-            ``steps_per_epoch`` for training to overlap loading with GPU
-            compute.
+        epoch_steps: Number of batches per epoch passed to model.fit. Controls
+            how many steps TF counts before advancing the epoch counter.
+        load_chunk_steps: Number of steps' worth of samples to load per
+            background prefetch. Defaults to ``epoch_steps`` when not set.
+            Set this smaller than ``epoch_steps`` to cap peak RAM per chunk.
 
     Returns:
         Tuple of (tf.data.Dataset, steps_per_epoch).
@@ -115,7 +120,8 @@ def make_batch_dataset(
             targets = targets.compute()
         logger.info("Pre-load complete.")
 
-    chunk_size = (epoch_steps * batch_size) if epoch_steps is not None else total
+    effective_chunk_steps = load_chunk_steps if load_chunk_steps is not None else epoch_steps
+    chunk_size = (effective_chunk_steps * batch_size) if effective_chunk_steps is not None else total
 
     # Persists across _gen() calls: the thread loading chunk i+1 can finish
     # before _gen() is re-invoked, so the next epoch starts without blocking.
@@ -384,6 +390,7 @@ def main():
         cfg.data_config.batch_size,
         shuffle=True,
         epoch_steps=cfg.data_config.steps_per_epoch,
+        load_chunk_steps=cfg.data_config.load_chunk_steps,
     )
     logger.info("Pre-loading validation set into RAM...")
     val_ds, val_steps = make_batch_dataset(
