@@ -21,6 +21,8 @@ from typing import Any
 
 import dask
 import numpy as np
+import psutil
+import pynvml
 import tensorflow as tf
 import wandb
 import xarray as xr
@@ -302,13 +304,29 @@ def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[fl
 
 
 class _GcCallback(tf.keras.callbacks.Callback):
+    def on_train_begin(self, logs=None):
+        pynvml.nvmlInit()
+
+    def on_train_end(self, logs=None):
+        pynvml.nvmlShutdown()
+
     def on_epoch_end(self, epoch, logs=None):
         gc.collect()
-
-
-class _WandbLogger(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        wandb.log(logs or {}, step=epoch)
+        proc = psutil.Process()
+        ram_used_gib = proc.memory_info().rss / 2**30
+        ram_total_gib = psutil.virtual_memory().total / 2**30
+        logger.info("RAM: %.1f%% (%.1f / %.1f GiB)", 100 * ram_used_gib / ram_total_gib, ram_used_gib, ram_total_gib)
+        n_gpus = pynvml.nvmlDeviceGetCount()
+        for i in range(n_gpus):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            logger.info(
+                "GPU %d VRAM: %.1f%% (%.1f / %.1f GiB)",
+                i,
+                100 * mem.used / mem.total,
+                mem.used / 2**30,
+                mem.total / 2**30,
+            )
 
 
 def _run(
@@ -318,25 +336,38 @@ def _run(
     epochs: int,
     monitor: str,
     patience: int,
-    wandb_project: str | None,
+    model_checkpoint_path: str | None = None,
+    wandb_project: str | None = None,
     run_name: str | None = None,
     steps_per_epoch: int | None = None,
     validation_steps: int | None = None,
     run_config: dict | None = None,
 ) -> tuple:
-    use_wandb = wandb_project is not None
-    if use_wandb:
+    if wandb_project:
         wandb.init(
             project=wandb_project,
             name=run_name,
             reinit=True,
             config=run_config or {},
         )
+
+    # Use the W&B Keras callback if logging to W&B, otherwise the standard ModelCheckpoint.
+    ckpt_cls = wandb.keras.WandbModelCheckpoint if wandb_project else tf.keras.callbacks.ModelCheckpoint
     callbacks = [
         tf.keras.callbacks.EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True),
         _GcCallback(),
-        *([_WandbLogger()] if use_wandb else []),
     ]
+    if wandb_project:
+        callbacks.append(wandb.keras.WandbMetricsLogger(log_freq="epoch"))
+    if model_checkpoint_path:
+        callbacks.append(
+            ckpt_cls(
+                f"{model_checkpoint_path}_best_loss.keras",
+                monitor="val_loss",
+                save_best_only=True,
+                mode="min",
+            )
+        )
     t0 = time.time()
     history = model.fit(
         train_ds,
@@ -347,7 +378,11 @@ def _run(
         callbacks=callbacks,
     )
     elapsed = time.time() - t0
-    if use_wandb:
+    if model_checkpoint_path:
+        final_path = f"{model_checkpoint_path}_final.keras"
+        model.save(final_path)
+        logger.info("Saved final model to %s", final_path)
+    if wandb_project:
         wandb.finish()
     return history, elapsed
 
@@ -501,6 +536,7 @@ def main():
         validation_steps=val_steps,
         monitor=cfg.callbacks_config.monitor,
         patience=cfg.callbacks_config.patience,
+        model_checkpoint_path=cfg.callbacks_config.model_checkpoint_path,
         wandb_project=wandb_project,
         run_name=run_name,
         run_config=run_meta,

@@ -42,8 +42,8 @@ model_config:
 callbacks_config:
   monitor: "val_loss"
   patience: 16
-  model_checkpoint_path: null
-
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/"
+  
 wandb_config:
   project_name: "fronts"
   run_name: "with_dilation"
