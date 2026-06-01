@@ -9,6 +9,7 @@ Metrics are logged to Weights & Biases.
 
 import argparse
 import dataclasses
+import gc
 import logging
 import math
 import os
@@ -156,6 +157,8 @@ def make_batch_dataset(
                     daemon=True,
                 ).start()
             yield from _iter_chunk(chunk_x, chunk_y)
+            del chunk_x, chunk_y
+            gc.collect()
 
     output_signature = _make_output_signature(n_lat, n_lon, n_channels, n_classes, n_supervision_outputs)
 
@@ -298,6 +301,11 @@ def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[fl
     return n_out
 
 
+class _GcCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        gc.collect()
+
+
 class _WandbLogger(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         wandb.log(logs or {}, step=epoch)
@@ -326,6 +334,7 @@ def _run(
         )
     callbacks = [
         tf.keras.callbacks.EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True),
+        _GcCallback(),
         *([_WandbLogger()] if use_wandb else []),
     ]
     t0 = time.time()
