@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import subprocess
 from collections import namedtuple
-from collections.abc import Callable
 from typing import Any, TypeVar
 
 import dacite
@@ -14,9 +13,8 @@ from xarray.core.indexes import IndexSelResult, PandasIndex, _query_slice
 from xarray.core.indexing import _expand_slice
 
 T = TypeVar("T")
+_XArray = TypeVar("_XArray", xr.Dataset, xr.DataArray)
 BoundingBox = namedtuple("BoundingBox", ["lat_min", "lat_max", "lon_min", "lon_max"])
-XArrayType = xr.Dataset | xr.DataArray
-TransformFunc = Callable[[XArrayType], XArrayType]
 
 
 class PeriodicBoundaryIndex(PandasIndex):
@@ -76,6 +74,8 @@ class PeriodicBoundaryIndex(PandasIndex):
 
         if isinstance(label, slice):
             start, stop, step = label.start, label.stop, label.step
+            if start is None or stop is None:
+                return super().sel({coord_name: label})
             if stop < start:
                 return super().sel({coord_name: []})
 
@@ -99,12 +99,12 @@ class PeriodicBoundaryIndex(PandasIndex):
         return f"PeriodicBoundaryIndex(period={self.period})"
 
 
-def attach_periodic_lon_index(data: XArrayType) -> XArrayType:
+def attach_periodic_lon_index(data: _XArray) -> _XArray:
     """Attach a 360°-period :class:`PeriodicBoundaryIndex` to ``longitude``.
 
     Replaces the default ``PandasIndex`` so wrap-crossing
-    ``.sel(longitude=slice(...))`` queries work via
-    :func:`_wrap_lon_slice`.
+    ``.sel(longitude=slice(...))`` queries work, e.g. ``slice(130, 369.75)``
+    correctly wraps past 360° to include both 130-359.75 and 0-9.75.
 
     Args:
         data: Dataset or DataArray with a 1-D longitude coordinate.
@@ -113,6 +113,68 @@ def attach_periodic_lon_index(data: XArrayType) -> XArrayType:
         ``PeriodicBoundaryIndex``.
     """
     return data.drop_indexes("longitude").set_xindex("longitude", index_cls=PeriodicBoundaryIndex, period=360)
+
+
+def select_spatial_domain(data: xr.Dataset, bb: BoundingBox) -> xr.Dataset:
+    """Select latitude and longitude from a Dataset, handling wrap-crossing ranges.
+
+    Attaches a :class:`PeriodicBoundaryIndex` to longitude if one is not already
+    present, then performs a single ``.sel()`` so wrap-crossing slices (e.g.
+    ``lon_min=350, lon_max=370``) are handled transparently.
+
+    Args:
+        data: Dataset with ``latitude`` and ``longitude`` coordinates.
+        bb: Bounding box. ``lon_max > 360`` triggers wrap-crossing logic.
+
+    Returns:
+        Spatially subsetted Dataset.
+    """
+    lat_vals = data["latitude"].values
+    lat_slice = (
+        slice(bb.lat_max, bb.lat_min)
+        if len(lat_vals) >= 2 and lat_vals[0] > lat_vals[1]
+        else slice(bb.lat_min, bb.lat_max)
+    )
+    if not isinstance(data.xindexes.get("longitude"), PeriodicBoundaryIndex):
+        data = attach_periodic_lon_index(data)
+    return data.sel(latitude=lat_slice, longitude=slice(bb.lon_min, bb.lon_max))
+
+
+def unwrap_longitude(data: _XArray) -> _XArray:
+    """Remap a wrap-crossing longitude coordinate to be monotonically increasing.
+
+    After a wrap-crossing ``select_spatial_domain`` the longitude coordinate may
+    look like ``[130, ..., 359.75, 0, ..., 9.75]``.  Plotting libraries expect
+    monotonically increasing coordinates, so this function shifts the second chunk
+    to ``[360, ..., 369.75]``, giving ``[130, ..., 359.75, 360, ..., 369.75]``.
+
+    Args:
+        data: Dataset or DataArray with a 1-D ``longitude`` coordinate.
+
+    Returns:
+        Input with the longitude coordinate remapped to be monotonically increasing.
+        If the coordinate is already monotonic, it is returned unchanged.
+    """
+    lons = data["longitude"].values
+    if len(lons) < 2 or np.all(np.diff(lons) >= 0):
+        return data
+    wrap_idx = int(np.argmax(np.diff(lons) < 0)) + 1
+    new_lons = lons.copy()
+    new_lons[wrap_idx:] += 360.0
+    return data.assign_coords(longitude=new_lons)
+
+
+def drop_duplicate_times(data: _XArray) -> _XArray:
+    """Drop duplicate timestamps along the time dimension, keeping the first occurrence.
+
+    Args:
+        data: DataArray or Dataset with a ``time`` coordinate.
+
+    Returns:
+        Input with any duplicate time values removed.
+    """
+    _, unique_idx = np.unique(data["time"].values, return_index=True)
+    return data.isel(time=sorted(unique_idx))
 
 
 def open_config_yaml_as_dataclass(
@@ -237,3 +299,31 @@ def open_readonly_icechunk_store(
     )
     session = repo.readonly_session(branch)
     return xr.open_zarr(session.store, group=group, zarr_format=zarr_format, consolidated=False)
+
+
+def configure_gpu(gpu_device: int | None) -> None:
+    """Configure TensorFlow GPU visibility before the first TF import.
+
+    Must be called before ``import tensorflow`` in the calling scope.
+    Setting ``CUDA_VISIBLE_DEVICES`` after TF has been imported has no effect
+    because TF caches device enumeration on first import.
+
+    Args:
+        gpu_device: Index of the GPU to use, or None for CPU-only.
+
+    Raises:
+        RuntimeError: If ``gpu_device`` is specified but no GPUs are detected.
+        IndexError: If ``gpu_device`` is out of range for the available GPUs.
+    """
+    import tensorflow as tf
+
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpu_device is None:
+        tf.config.set_visible_devices([], "GPU")
+        return
+    if not gpus:
+        raise RuntimeError(f"gpu_device={gpu_device} requested but no GPUs detected.")
+    if gpu_device >= len(gpus):
+        raise IndexError(f"gpu_device={gpu_device} is out of range — {len(gpus)} GPU(s) available.")
+    tf.config.set_visible_devices(gpus[gpu_device], "GPU")
+    tf.config.experimental.set_memory_growth(gpus[gpu_device], True)

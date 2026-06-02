@@ -20,7 +20,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-def generate_era5_data(config: config.ERA5DataLoaderConfig) -> utils.XArrayType:
+def generate_era5_data(config: config.ERA5DataLoaderConfig) -> xr.Dataset | xr.DataArray:
     """Generate a subset of ERA5 data for model training, validation, and testing.
 
     Args:
@@ -78,7 +78,7 @@ def get_local_icechunk_repository(
     return repo, append
 
 
-def write_or_append_icechunk_store(storage_config: config.IcechunkStorageConfig, ds: utils.XArrayType) -> None:
+def write_or_append_icechunk_store(storage_config: config.IcechunkStorageConfig, ds: xr.Dataset | xr.DataArray) -> None:
     """Write or append an xarray Dataset to an icechunk store.
 
     If the store already exists, the new data will be appended along the time dimension.

@@ -31,8 +31,9 @@ dependencies = [
     "dacite>=1.9.2,<2",
     "icechunk>=2",
     "psutil>=7.2.2",
-    "pynvml>=13.0.1",
+    "nvidia-ml-py>=12.0.0",
     "pyyaml>=6.0",
+    "scipy>=1.13.0",
 ]
 
 [tool.pixi.workspace]
@@ -47,6 +48,10 @@ ipykernel = ">=7.2.0,<8"
 dask-jobqueue = ">=0.9.0,<0.10"
 tqdm = ">=4.67.3,<5"
 pyyaml = ">=6.0"
+cartopy = ">=0.24.0"
+matplotlib = ">=3.9.0"
+regionmask = ">=0.13.0"
+scipy = ">=1.13.0"
 
 [tool.pixi.feature.train]
 platforms = ["linux-64"]
@@ -111,6 +116,7 @@ xarray = ">=2024"
 xbatcher = ">=0.4.0,<0.5"
 icechunk = ">=2"
 pandas = ">=2"
+numpy = ">=2,<2.1"
 
 [tool.pixi.feature.test.tasks]
 test = "PYTHONPATH=src python -m pytest tests/ -v"
@@ -173,7 +179,8 @@ hatchling = ">=1.26.3"
 backend = { name = "pixi-build-python", version = "0.4.*" }
 
 [tool.pyrefly]
-ignore-missing-imports = ["tensorflow", "tensorflow.keras.layers", "tensorflow.keras.models", "wandb", "scipy", "scipy.ndimage"]
+python-interpreter = ".pixi/envs/default/bin/python"
+ignore-missing-imports = ["tensorflow", "tensorflow.keras.layers", "tensorflow.keras.models", "wandb"]
 
 [tool.ruff]
 line-length = 120

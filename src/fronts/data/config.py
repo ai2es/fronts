@@ -82,3 +82,68 @@ class DataConfig:
     prefetch_chunks: int = 2
     class_weights: list[float] | None = None
     front_dilation: int = 0
+
+
+@dataclasses.dataclass
+class EvalConfig:
+    """Configuration for running performance statistics evaluation.
+
+    Attributes:
+        model_path: Path to the saved .keras model checkpoint.
+        outdir: Directory to write stats_aggregate_{mask}.nc and stats_spatial_{mask}.nc.
+        front_types: Front type labels in class order (excluding background class 0).
+        mask: Restrict statistics to "land" or "ocean" grid points. None means all points.
+        front_dilation: Binary dilation iterations applied to truth labels. None uses
+            the value from the paired DataConfig.
+        coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
+            Defaults to CONUS extent.
+        gpu_device: GPU index to use. None runs on CPU.
+        time_start: Restrict evaluation to timesteps on or after this date. None means no lower bound.
+        time_end: Restrict evaluation to timesteps before this date. None means no upper bound.
+    """
+
+    model_path: str
+    outdir: str
+    coordinates: utils.BoundingBox = dataclasses.field(
+        default_factory=lambda: utils.BoundingBox(lat_min=0.25, lat_max=80.0, lon_min=130.0, lon_max=369.75)
+    )
+    front_types: list[str] = dataclasses.field(default_factory=lambda: ["CF", "WF", "SF", "OF", "DL"])
+    mask: str | None = None
+    front_dilation: int | None = None
+    gpu_device: int | None = None
+    time_start: datetime.datetime | None = None
+    time_end: datetime.datetime | None = None
+
+
+@dataclasses.dataclass
+class PredictConfig:
+    """Configuration for generating a single-timestep case study prediction plot.
+
+    Attributes:
+        model_path: Path to the saved .keras model checkpoint.
+        outdir: Directory to write the output PNG.
+        init_time: Timestep as [year, month, day, hour].
+        front_types: Front type labels in class order (excluding background class 0).
+        coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
+            Defaults to full domain extent.
+        prob_mask: Minimum probability to display; values below are masked.
+        prob_interval: Contour interval for probability levels.
+        filled_contours: Plot filled probability contours.
+        open_contours: Plot open (line) probability contours.
+        targets: Overlay ground truth fronts from the icechunk fronts store.
+        gpu_device: GPU index to use. None runs on CPU.
+    """
+
+    model_path: str
+    outdir: str
+    init_time: datetime.datetime
+    front_types: list[str] = dataclasses.field(default_factory=lambda: ["CF", "WF", "SF", "OF", "DL"])
+    coordinates: utils.BoundingBox = dataclasses.field(
+        default_factory=lambda: utils.BoundingBox(lat_min=0.25, lat_max=80.0, lon_min=130.0, lon_max=369.75)
+    )
+    prob_mask: float = 0.1
+    prob_interval: float = 0.1
+    filled_contours: bool = False
+    open_contours: bool = False
+    targets: bool = False
+    gpu_device: int | None = None
