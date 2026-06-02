@@ -52,6 +52,10 @@ cartopy = ">=0.24.0"
 matplotlib = ">=3.9.0"
 regionmask = ">=0.13.0"
 scipy = ">=1.13.0"
+arraylake = ">=1.0.3,<2"
+
+[tool.pixi.pypi-dependencies]
+fronts = { path = ".", editable = true }
 
 [tool.pixi.feature.train]
 platforms = ["linux-64"]
@@ -77,7 +81,6 @@ cartopy = ">=0.24.0"
 matplotlib = ">=3.9.0"
 
 [tool.pixi.feature.train.pypi-dependencies]
-fronts = { path = ".", editable = true }
 tensorflow = { extras = ["and-cuda"] }
 obstore = "*"
 s3fs = ">=2024.6.0"
