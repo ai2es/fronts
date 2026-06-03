@@ -128,7 +128,7 @@ def one_hot_encode_to_dataarray(da: xr.DataArray, num_classes: int = 6) -> xr.Da
     """One-hot encode a DataArray of integer class labels without loading data.
 
     Broadcasts ``da`` against a class axis so no data is materialized until
-    xbatcher extracts a patch.
+    No data is materialized until a patch is extracted.
 
     Args:
         da: Integer DataArray of shape (time, latitude, longitude).

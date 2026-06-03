@@ -700,7 +700,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wcwidth-0.7.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/wrapt-2.2.1-py312h4c3975b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.4.0-pyhc364b38_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/xbatcher-0.4.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xcb-util-0.4.1-h4f16b4b_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xcb-util-cursor-0.1.6-hb03c661_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xcb-util-image-0.4.0-hb711507_2.conda
@@ -1169,7 +1168,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wcwidth-0.7.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/wrapt-2.2.1-py312h4c3975b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.4.0-pyhc364b38_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/xbatcher-0.4.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xcb-util-0.4.1-h4f16b4b_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xcb-util-cursor-0.1.6-hb03c661_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xcb-util-image-0.4.0-hb711507_2.conda
@@ -3079,7 +3077,7 @@ packages:
 - pypi: ./
   name: fronts
   version: 0.2.0
-  sha256: c19816b0400b029dcab98cf76a754c282b23894783a3af3f3aab8439e0b39928
+  sha256: f4cc61ccb1765a38f5ca5cd768c5ab2ff4afdaa84a80e224b163edf8f3f1b1fd
   requires_dist:
   - dacite>=1.9.2,<2
   - icechunk>=2
@@ -9175,20 +9173,6 @@ packages:
   - pkg:pypi/xarray?source=hash-mapping
   size: 1017999
   timestamp: 1776122774298
-- conda: https://conda.anaconda.org/conda-forge/noarch/xbatcher-0.4.0-pyhd8ed1ab_1.conda
-  sha256: 76cb94fd46cb3c719ca4937004de4f42e7754b383972a7428ecd70485f915e37
-  md5: 2db2a88bf17f09a269c140adbf686392
-  depends:
-  - dask
-  - numpy
-  - python >=3.10
-  - xarray
-  license: Apache-2.0
-  license_family: Apache
-  purls:
-  - pkg:pypi/xbatcher?source=hash-mapping
-  size: 25704
-  timestamp: 1733112828059
 - conda: https://conda.anaconda.org/conda-forge/linux-64/xcb-util-0.4.1-h4f16b4b_2.conda
   sha256: ad8cab7e07e2af268449c2ce855cbb51f43f4664936eff679b1f3862e6e4b01d
   md5: fdc27cb255a7a2cc73b7919a968b48f0

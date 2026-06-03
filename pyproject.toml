@@ -75,7 +75,6 @@ distributed = ">=2023.3.0"
 xarray = ">=2025.07.1"
 scikit-image = ">=0.22.0"
 h5py = ">=3.11.0"
-xbatcher = ">=0.4.0,<0.5"
 gcsfs = ">=2026.2.0,<2027"
 cartopy = ">=0.24.0"
 matplotlib = ">=3.9.0"
@@ -116,7 +115,6 @@ python = ">=3.10,<3.14"
 dacite = ">=1.9.2,<2"
 pytest = ">=8"
 xarray = ">=2024"
-xbatcher = ">=0.4.0,<0.5"
 icechunk = ">=2"
 pandas = ">=2"
 numpy = ">=2,<2.1"
@@ -153,7 +151,6 @@ test = [
     "pytest-cov>=6.0.0",
     "pytest-mock>=3.14.0",
     "xarray>=2024",
-    "xbatcher>=0.4.0,<0.5",
 ]
 
 #TODO: swap wget with requests in code
@@ -183,7 +180,7 @@ backend = { name = "pixi-build-python", version = "0.4.*" }
 
 [tool.pyrefly]
 python-interpreter = ".pixi/envs/default/bin/python"
-ignore-missing-imports = ["tensorflow", "tensorflow.keras.layers", "tensorflow.keras.models", "wandb"]
+ignore-missing-imports = ["pytest", "tensorflow", "tensorflow.keras.layers", "tensorflow.keras.models", "wandb"]
 
 [tool.ruff]
 line-length = 120

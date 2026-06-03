@@ -91,7 +91,10 @@ def get_existing_variables(storage_config: config.IcechunkStorageConfig) -> list
     storage = ic.local_filesystem_storage(storage_config.store_path)
     if not ic.Repository.exists(storage):
         return []
-    return list(utils.open_readonly_icechunk_store(storage_config.store_path, storage_config.branch_name).data_vars)
+    return [
+        str(v)
+        for v in utils.open_readonly_icechunk_store(storage_config.store_path, storage_config.branch_name).data_vars
+    ]
 
 
 def write_new_variables_to_icechunk_store(

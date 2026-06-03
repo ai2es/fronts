@@ -2,7 +2,6 @@ import logging
 
 import numpy as np
 import xarray as xr
-import xbatcher
 
 logger = logging.getLogger(__name__)
 
@@ -30,31 +29,6 @@ def era5_to_dataarray(ds: xr.Dataset, variables: list[str]) -> xr.DataArray:
         .stack(channel=("level", "variable"))
         .astype(np.float32)
     )
-
-
-def collect_norm_sample_from_bgen(
-    x_bgen: xbatcher.BatchGenerator,
-    n_samples: int = 20,
-) -> np.ndarray:
-    """Collect timesteps from a BatchGenerator for adapting the normalization layer.
-
-    Iterates the generator in order, collecting up to n_samples frames. Each frame
-    covers the full spatial extent of the domain.
-
-    Args:
-        x_bgen: BatchGenerator over an ERA5 DataArray with ``time: 1`` in
-            input_dims. Each item has shape (1, latitude, longitude, channel).
-        n_samples: Maximum number of timesteps to collect.
-
-    Returns:
-        Array of shape (n_samples, latitude, longitude, n_channels).
-    """
-    frames = []
-    for batch in x_bgen:
-        frames.append(np.ascontiguousarray(np.asarray(batch).squeeze(0)))
-        if len(frames) >= n_samples:
-            break
-    return np.stack(frames)
 
 
 def compute_norm_stats(da: xr.DataArray) -> tuple[np.ndarray, np.ndarray]:

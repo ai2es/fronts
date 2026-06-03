@@ -227,7 +227,7 @@ def load_training_data(
 
     Opens both icechunk stores, deduplicates the fronts time index, aligns to
     the intersection of available timestamps, and returns lazy DataArrays ready
-    for xbatcher.
+    for batching.
 
     Args:
         data_config: DataConfig specifying store paths, branch names, and splits.

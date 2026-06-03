@@ -1,11 +1,7 @@
 import numpy as np
 import xarray as xr
-import xbatcher
 
-from fronts.data.inputs import (
-    collect_norm_sample_from_bgen,
-    era5_to_dataarray,
-)
+from fronts.data.inputs import era5_to_dataarray
 
 N_TIME = 5
 N_LAT = 32
@@ -43,18 +39,6 @@ def _make_era5_ds(
     return xr.Dataset(ds_vars)
 
 
-def _make_bgen(da: xr.DataArray) -> xbatcher.BatchGenerator:
-    return xbatcher.BatchGenerator(
-        da,
-        input_dims={
-            "time": 1,
-            "latitude": da.sizes["latitude"],
-            "longitude": da.sizes["longitude"],
-        },
-        preload_batch=False,
-    )
-
-
 class TestEra5ToDataarray:
     def test_dims(self):
         ds = _make_era5_ds()
@@ -86,26 +70,3 @@ class TestEra5ToDataarray:
                     result[:, :, :, channel],
                     ds[var].values[:, lev_idx, :, :],
                 )
-
-
-class TestCollectNormSampleFromBgen:
-    def test_shape(self, era5_da):
-        bgen = _make_bgen(era5_da)
-        n_samples = 3
-        result = collect_norm_sample_from_bgen(bgen, n_samples=n_samples)
-        assert result.shape == (n_samples, N_LAT, N_LON, N_CHANNELS)
-
-    def test_dtype(self, era5_da):
-        bgen = _make_bgen(era5_da)
-        result = collect_norm_sample_from_bgen(bgen, n_samples=2)
-        assert result.dtype == np.float32
-
-    def test_capped_at_available_timesteps(self, era5_da):
-        bgen = _make_bgen(era5_da)
-        result = collect_norm_sample_from_bgen(bgen, n_samples=N_TIME + 100)
-        assert len(result) <= N_TIME
-
-    def test_single_sample(self, era5_da):
-        bgen = _make_bgen(era5_da)
-        result = collect_norm_sample_from_bgen(bgen, n_samples=1)
-        assert result.shape == (1, N_LAT, N_LON, N_CHANNELS)
