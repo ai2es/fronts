@@ -6,6 +6,7 @@ import sys
 import icechunk as ic
 import icechunk.xarray
 import pandas as pd
+import tqdm
 import xarray as xr
 
 from fronts import utils
@@ -148,19 +149,18 @@ def write_or_append_icechunk_store(storage_config: config.IcechunkStorageConfig,
     # Write in yearly chunks to bound memory usage
     time_chunk_size = 1460  # ~1 year at 6h resolution
     times = ds.time.values
+    chunks = range(0, len(times), time_chunk_size)
 
-    for i in range(0, len(times), time_chunk_size):
-        time_slice = times[i : i + time_chunk_size]
-        ds_slice = ds.sel(time=time_slice)
+    with tqdm.tqdm(chunks, unit="year", desc="Writing icechunk") as pbar:
+        for i in pbar:
+            time_slice = times[i : i + time_chunk_size]
+            ds_slice = ds.sel(time=time_slice).drop_encoding()
 
-        session = repo.writable_session(storage_config.branch_name)
-        ds_slice = ds_slice.drop_encoding()
-
-        icechunk.xarray.to_icechunk(ds_slice, session, append_dim=append, safe_chunks=False)
-        session.commit(f"{storage_config.commit_message}, time steps {i} to {i + len(time_slice)}")
-        append = "time"  # always append after first write
-
-        logger.info(f"Committed time steps {i} to {i + len(time_slice)}")
+            pbar.set_postfix(year=str(time_slice[0])[:4], steps=f"{i}-{i + len(time_slice)}")
+            session = repo.writable_session(storage_config.branch_name)
+            icechunk.xarray.to_icechunk(ds_slice, session, append_dim=append, safe_chunks=False)
+            session.commit(f"{storage_config.commit_message}, time steps {i} to {i + len(time_slice)}")
+            append = "time"  # always append after first write
 
 
 def create_dask_client(

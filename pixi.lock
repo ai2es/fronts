@@ -3077,7 +3077,7 @@ packages:
 - pypi: ./
   name: fronts
   version: 0.2.0
-  sha256: f4cc61ccb1765a38f5ca5cd768c5ab2ff4afdaa84a80e224b163edf8f3f1b1fd
+  sha256: 79cae6d0a27d1bb553c9c21dd731d13f706c98b76563d9b78a9347de6487cd7c
   requires_dist:
   - dacite>=1.9.2,<2
   - icechunk>=2
@@ -3085,6 +3085,7 @@ packages:
   - nvidia-ml-py>=12.0.0
   - pyyaml>=6.0
   - scipy>=1.13.0
+  - tqdm>=4.67.3
   requires_python: '>=3.12,<=3.14.5'
 - conda: https://conda.anaconda.org/conda-forge/linux-64/frozenlist-1.7.0-py312h447239a_0.conda
   sha256: f4e0e6cd241bc24afb2d6d08e5d2ba170fad2475e522bdf297b7271bba268be6
