@@ -7,12 +7,14 @@ data_config:
     branch_name: "main"
     virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
   front_dilation: 1
-  variables:
-    - geopotential
-    - temperature
-    - u_component_of_wind
-    - v_component_of_wind
-    - specific_humidity
+  variables: [
+    geopotential, 
+    temperature, 
+    u_component_of_wind, 
+    v_component_of_wind, 
+    specific_humidity,
+    vertical_velocity
+    ]
 
 eval_config:
   model_path: "/ourdisk/hpc/ai2es/tman/models/_best_loss.keras"

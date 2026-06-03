@@ -301,6 +301,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.3.3-hceb46e0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
       - pypi: https://files.pythonhosted.org/packages/23/45/caa600acfab94560807a20a64b5830d2cd3c3202b7f1328644d70b7d6bd8/nvidia_ml_py-13.610.43-py3-none-any.whl
+      - pypi: ./
   linux:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
@@ -3078,7 +3079,7 @@ packages:
 - pypi: ./
   name: fronts
   version: 0.2.0
-  sha256: 173a28a002cb91fe71aa97740b4c1bcc1bab6d60657a41002511326ee0ad04bd
+  sha256: c19816b0400b029dcab98cf76a754c282b23894783a3af3f3aab8439e0b39928
   requires_dist:
   - dacite>=1.9.2,<2
   - icechunk>=2

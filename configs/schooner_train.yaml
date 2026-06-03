@@ -21,7 +21,8 @@ data_config:
     temperature, 
     u_component_of_wind, 
     v_component_of_wind, 
-    specific_humidity
+    specific_humidity,
+    vertical_velocity
     ]
 
 model_config:

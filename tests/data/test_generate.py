@@ -158,6 +158,73 @@ class TestWriteOrAppendIcechunkStore:
         assert result.sizes["time"] == len(write_ds.time) + len(second_ds.time)
 
 
+@pytest.fixture
+def new_variable_ds(time_range: pd.DatetimeIndex) -> xr.Dataset:
+    rng = np.random.default_rng(7)
+    return xr.Dataset(
+        {
+            "vertical_velocity": xr.DataArray(
+                rng.standard_normal((4, 6, 8, 8)).astype(np.float32),
+                dims=["time", "level", "latitude", "longitude"],
+                coords={
+                    "time": time_range,
+                    "level": LEVELS,
+                    "latitude": LAT,
+                    "longitude": LON,
+                },
+            )
+        }
+    )
+
+
+class TestGetExistingVariables:
+    def test_empty_for_nonexistent_store(self, storage_config):
+        assert generate.get_existing_variables(storage_config) == []
+
+    def test_returns_variable_names_after_write(self, storage_config, write_ds):
+        generate.write_or_append_icechunk_store(storage_config, write_ds)
+        result = generate.get_existing_variables(storage_config)
+        assert set(result) == set(write_ds.data_vars)
+
+    def test_returns_all_variables_for_multi_variable_store(self, storage_config, minimal_ds):
+        generate.write_or_append_icechunk_store(storage_config, minimal_ds)
+        result = generate.get_existing_variables(storage_config)
+        assert set(result) == set(minimal_ds.data_vars)
+
+
+class TestWriteNewVariablesToIcechunkStore:
+    def test_new_variable_present_after_write(self, storage_config, write_ds, new_variable_ds):
+        generate.write_or_append_icechunk_store(storage_config, write_ds)
+        generate.write_new_variables_to_icechunk_store(storage_config, new_variable_ds)
+
+        storage = ic.local_filesystem_storage(storage_config.store_path)
+        repo = ic.Repository.open(storage)
+        session = repo.readonly_session("main")
+        result = xr.open_zarr(session.store, consolidated=False)
+        assert "vertical_velocity" in result.data_vars
+
+    def test_existing_variable_preserved_after_new_write(self, storage_config, write_ds, new_variable_ds):
+        generate.write_or_append_icechunk_store(storage_config, write_ds)
+        generate.write_new_variables_to_icechunk_store(storage_config, new_variable_ds)
+
+        storage = ic.local_filesystem_storage(storage_config.store_path)
+        repo = ic.Repository.open(storage)
+        session = repo.readonly_session("main")
+        result = xr.open_zarr(session.store, consolidated=False)
+        assert "temperature" in result.data_vars
+        np.testing.assert_array_equal(result["temperature"].values, write_ds["temperature"].values)
+
+    def test_new_variable_data_roundtrip(self, storage_config, write_ds, new_variable_ds):
+        generate.write_or_append_icechunk_store(storage_config, write_ds)
+        generate.write_new_variables_to_icechunk_store(storage_config, new_variable_ds)
+
+        storage = ic.local_filesystem_storage(storage_config.store_path)
+        repo = ic.Repository.open(storage)
+        session = repo.readonly_session("main")
+        result = xr.open_zarr(session.store, consolidated=False)
+        np.testing.assert_array_equal(result["vertical_velocity"].values, new_variable_ds["vertical_velocity"].values)
+
+
 class TestYamlConfigLoading:
     def test_era5_data_config_from_yaml(self):
         with open(YAML_PATH) as f:

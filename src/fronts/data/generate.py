@@ -1,4 +1,5 @@
 import argparse
+import dataclasses
 import logging
 import sys
 
@@ -76,6 +77,50 @@ def get_local_icechunk_repository(
         logger.info(f"Creating new icechunk repository at {storage_config.store_path}")
     repo = ic.Repository.open_or_create(storage)
     return repo, append
+
+
+def get_existing_variables(storage_config: config.IcechunkStorageConfig) -> list[str]:
+    """Return the list of data variable names already present in an icechunk store.
+
+    Args:
+        storage_config: Configuration for the icechunk store.
+
+    Returns:
+        Variable names in the store, or an empty list if the store does not exist.
+    """
+    storage = ic.local_filesystem_storage(storage_config.store_path)
+    if not ic.Repository.exists(storage):
+        return []
+    return list(utils.open_readonly_icechunk_store(storage_config.store_path, storage_config.branch_name).data_vars)
+
+
+def write_new_variables_to_icechunk_store(
+    storage_config: config.IcechunkStorageConfig,
+    ds: xr.Dataset | xr.DataArray,
+) -> None:
+    """Write new variables into an existing icechunk store.
+
+    Uses zarr append mode so existing variables and dimension coordinates are
+    left untouched.  All time steps in ``ds`` must already be present in the
+    store's time coordinate.
+
+    Args:
+        storage_config: Configuration for the icechunk store.
+        ds: Dataset containing only the new variables to add.
+    """
+    ds = ds.drop_encoding()
+    storage = ic.local_filesystem_storage(storage_config.store_path)
+    repo = ic.Repository.open(storage)
+
+    logger.info(
+        f"Adding new variables {list(ds.data_vars)} to icechunk store at "
+        f"{storage_config.store_path} with dataset of shape {ds.sizes}"
+    )
+
+    session = repo.writable_session(storage_config.branch_name)
+    icechunk.xarray.to_icechunk(ds, session, mode="a", safe_chunks=False)
+    session.commit(f"{storage_config.commit_message} - added variables: {list(ds.data_vars)}")
+    logger.info(f"Committed new variables: {list(ds.data_vars)}")
 
 
 def write_or_append_icechunk_store(storage_config: config.IcechunkStorageConfig, ds: xr.Dataset | xr.DataArray) -> None:
@@ -176,10 +221,21 @@ def main():
     )
     logger.info(f"Icechunk storage config loaded: {icechunk_config}")
 
+    existing_variables = get_existing_variables(icechunk_config)
+    missing_variables = [v for v in era5_config.variables if v not in existing_variables]
+
+    if existing_variables and not missing_variables:
+        logger.info("All requested variables already present in icechunk store. Nothing to download.")
+        return
+    if missing_variables != era5_config.variables:
+        logger.info(f"Store contains: {existing_variables}. Downloading only missing: {missing_variables}")
+        era5_config = dataclasses.replace(era5_config, variables=missing_variables)
+
     logger.info("Generating ERA5 data subset...")
     era5_subset = generate_era5_data(era5_config)
     logger.info("Writing ERA5 subset to icechunk store...")
-    write_or_append_icechunk_store(icechunk_config, era5_subset)
+    write_func = write_new_variables_to_icechunk_store if existing_variables else write_or_append_icechunk_store
+    write_func(icechunk_config, era5_subset)
     logger.info("Data generation and storage complete.")
 
 
