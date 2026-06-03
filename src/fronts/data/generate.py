@@ -80,7 +80,7 @@ def get_local_icechunk_repository(
 
 
 def get_existing_variables(storage_config: config.IcechunkStorageConfig) -> list[str]:
-    """Return the list of data variable names already present in an icechunk store.
+    """Return the variable names already present in an icechunk store.
 
     Args:
         storage_config: Configuration for the icechunk store.
@@ -91,10 +91,8 @@ def get_existing_variables(storage_config: config.IcechunkStorageConfig) -> list
     storage = ic.local_filesystem_storage(storage_config.store_path)
     if not ic.Repository.exists(storage):
         return []
-    return [
-        str(v)
-        for v in utils.open_readonly_icechunk_store(storage_config.store_path, storage_config.branch_name).data_vars
-    ]
+    ds = utils.open_readonly_icechunk_store(storage_config.store_path, storage_config.branch_name)
+    return [str(k) for k in ds.data_vars]
 
 
 def write_new_variables_to_icechunk_store(
