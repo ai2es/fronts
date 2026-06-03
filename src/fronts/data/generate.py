@@ -142,7 +142,7 @@ def write_or_append_icechunk_store(storage_config: config.IcechunkStorageConfig,
 
     logger.info(
         f"{'Appending to' if append else 'Writing new'} icechunk store at "
-        f"{storage_config.store_path} with dataset of shape {ds.sizes}"
+        f"{storage_config.store_path} with variables {list(ds.data_vars)} and shape {ds.sizes}"
     )
 
     # Write in yearly chunks to bound memory usage
@@ -225,11 +225,13 @@ def main():
     existing_variables = get_existing_variables(icechunk_config)
     missing_variables = [v for v in era5_config.variables if v not in existing_variables]
 
+    logger.info(f"Variables in store:      {list(existing_variables)}")
+    logger.info(f"Variables to download:   {missing_variables}")
+
     if existing_variables and not missing_variables:
         logger.info("All requested variables already present in icechunk store. Nothing to download.")
         return
     if missing_variables != era5_config.variables:
-        logger.info(f"Store contains: {existing_variables}. Downloading only missing: {missing_variables}")
         era5_config = dataclasses.replace(era5_config, variables=missing_variables)
 
     logger.info("Generating ERA5 data subset...")
