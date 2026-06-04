@@ -92,10 +92,8 @@ def main():
 
     logger.info(f"Train timesteps: {train_era5.sizes['time']}, Val timesteps: {val_era5.sizes['time']}")
 
-    n_lat = train_era5.sizes["latitude"]
-    n_lon = train_era5.sizes["longitude"]
     model_kwargs = {
-        "input_shape": (n_lat, n_lon, model_config.n_channels),
+        "input_shape": (None, None, model_config.n_channels),
         "num_classes": model_config.n_classes,
         "levels": model_config.levels,
         "filter_num": model_config.filter_num,

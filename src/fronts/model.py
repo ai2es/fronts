@@ -69,7 +69,7 @@ class UNetBase:
         https://arxiv.org/pdf/1505.04597.pdf
     """
 
-    input_shape: tuple[int, ...]
+    input_shape: tuple[int | None, ...]
     num_classes: int
     pool_size: int | tuple[int, ...] | list[int]
     upsample_size: int | tuple[int, ...] | list[int]
@@ -98,7 +98,7 @@ class UNetBase:
             raise ValueError(
                 "Input_shape can only have 3 or 4 dimensions (2D image + 1 dimension "
                 "for channels OR a 3D image + 1 dimension for channels). Received "
-                f"shape: {np.shape(self.input_shape)}"
+                f"shape: {self.input_shape}"
             )
         if len(self.filter_num) != self.levels:
             raise ValueError(
@@ -260,9 +260,7 @@ class UNet3Plus(UNetBase):
         if self.levels < 3:
             raise ValueError(f"levels must be greater than 2. Received value: {self.levels}")
         if len(self.input_shape) > 4 or len(self.input_shape) < 3:
-            raise ValueError(
-                f"input_shape can only have 3 or 4 dimensions. Received shape: {np.shape(self.input_shape)}"
-            )
+            raise ValueError(f"input_shape can only have 3 or 4 dimensions. Received shape: {self.input_shape}")
         if len(self.filter_num) != self.levels:
             raise ValueError(
                 f"length of filter_num ({len(self.filter_num)}) does not match the number of levels ({self.levels})"
