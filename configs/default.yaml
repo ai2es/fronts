@@ -21,10 +21,10 @@ data_config:
 
 model_config:
   n_classes: 6
-  n_channels: 30         # 5 level vars × 6 pressure levels
+  n_channels: 36         # n_vars × n_pressure_levels
   levels: 4
   filter_num: [32, 64, 128, 256]
-  pool_size: [2, 2]      # dacite casts list → tuple
+  pool_size: [2, 2]
   upsample_size: [2, 2]
   deep_supervision: true
   batch_normalization: true

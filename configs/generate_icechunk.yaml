@@ -10,7 +10,7 @@ era5_config:
   chunks: {"time": 1, "level": -1, "latitude": -1, "longitude": -1}
 
 icechunk_storage_config:
-  store_path: "/ourdisk/hpc/ai2es/tman/era5/fronts_icechunk/"
+  store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/icechunk/"
   branch_name: "main"
   commit_message: "Add raw ERA5 data for 2018-2024"
 

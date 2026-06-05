@@ -102,27 +102,42 @@ def write_new_variables_to_icechunk_store(
 ) -> None:
     """Write new variables into an existing icechunk store.
 
-    Uses zarr append mode so existing variables and dimension coordinates are
-    left untouched.  All time steps in ``ds`` must already be present in the
-    store's time coordinate.
+    Opens the existing store to validate that the incoming dataset's dimensions
+    are identical, then writes a minimal Dataset containing only the new
+    variable arrays (no coordinate arrays) so existing dimension coordinates
+    are never re-written or extended.
 
     Args:
         storage_config: Configuration for the icechunk store.
         ds: Dataset containing only the new variables to add.
+
+    Raises:
+        ValueError: If the dimensions or shape of ``ds`` do not exactly match
+            those already present in the store.
     """
-    ds = ds.drop_encoding()
     storage = ic.local_filesystem_storage(storage_config.store_path)
     repo = ic.Repository.open(storage)
+
+    existing_ds = utils.open_readonly_icechunk_store(
+        storage_config.store_path,
+        storage_config.branch_name,
+        group=storage_config.group_name,
+        zarr_format=storage_config.zarr_format,
+    )
+    if dict(ds.sizes) != dict(existing_ds.sizes):
+        raise ValueError(f"Dimension mismatch: incoming {dict(ds.sizes)} != store {dict(existing_ds.sizes)}")
 
     logger.info(
         f"Adding new variables {list(ds.data_vars)} to icechunk store at "
         f"{storage_config.store_path} with dataset of shape {ds.sizes}"
     )
 
+    new_ds = xr.Dataset({name: (list(ds[name].dims), ds[name].drop_encoding().data) for name in ds.data_vars})
     session = repo.writable_session(storage_config.branch_name)
-    icechunk.xarray.to_icechunk(ds, session, mode="a", safe_chunks=False)
-    session.commit(f"{storage_config.commit_message} - added variables: {list(ds.data_vars)}")
-    logger.info(f"Committed new variables: {list(ds.data_vars)}")
+    icechunk.xarray.to_icechunk(new_ds, session, mode="a", safe_chunks=False)
+    log = f"{storage_config.commit_message} - added variables: {list(ds.data_vars)}"
+    session.commit(log)
+    logger.info(log)
 
 
 def write_or_append_icechunk_store(storage_config: config.IcechunkStorageConfig, ds: xr.Dataset | xr.DataArray) -> None:

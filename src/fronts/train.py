@@ -245,6 +245,7 @@ def load_training_data(
         zarr_format=data_config.era5_icechunk_config.zarr_format,
         virtual_chunk_local_path=data_config.era5_icechunk_config.virtual_chunk_local_path,
     )
+    logger.info(f"ERA5 store: {era5_ds}")
     logger.info("Loading fronts...")
     fronts_da = utils.open_readonly_icechunk_store(
         store_path=data_config.fronts_icechunk_config.store_path,
@@ -253,6 +254,8 @@ def load_training_data(
         zarr_format=data_config.fronts_icechunk_config.zarr_format,
         virtual_chunk_local_path=data_config.fronts_icechunk_config.virtual_chunk_local_path,
     )["identifier"]
+    logger.info(f"Fronts store: {fronts_da}")
+    era5_ds = utils.drop_duplicate_times(era5_ds)
     fronts_da = fronts_da.isel(time=~fronts_da.indexes["time"].duplicated(keep="first"))
     common_times = np.intersect1d(era5_ds.time.values, fronts_da.time.values)
     rng = np.random.default_rng(seed)
