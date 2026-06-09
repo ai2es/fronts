@@ -65,7 +65,11 @@ class DataConfig:
     Attributes:
         era5_icechunk_config: Icechunk store config for ERA5 data.
         fronts_icechunk_config: Icechunk store config for fronts data.
-        train_split: Fraction of time steps to use for training; remaining go to validation.
+        train_split: Fraction of all filtered time steps to use for training.
+        val_split: Fraction of all filtered time steps to use for validation.
+        test_split: Fraction of timesteps per meteorological season to hold out as a sequestered
+            test set (never seen during training or validation). train_split + val_split +
+            test_split should sum to 1.
         batch_size: Number of timesteps per training batch.
         class_weights: Per-class loss weights. None means equal weighting.
         front_dilation: Number of binary dilation iterations applied to each non-background
@@ -75,7 +79,9 @@ class DataConfig:
     era5_icechunk_config: IcechunkStorageConfig
     fronts_icechunk_config: IcechunkStorageConfig
     variables: list[str]
-    train_split: float = 0.8
+    train_split: float
+    val_split: float
+    test_split: float
     batch_size: int = 4
     steps_per_epoch: int | None = None
     load_chunk_steps: int | None = None

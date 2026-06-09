@@ -12,6 +12,8 @@ data_config:
     virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
   batch_size: 32
   train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
   steps_per_epoch: 30
   load_chunk_steps: 5
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -36,15 +38,15 @@ model_config:
   first_encoder_connections: true
   deep_supervision: true
   batch_normalization: true
-  activation: "gelu"
+  activation: "swish"
   output_activation: "softmax"
   modules_per_node: 2
 
 callbacks_config:
   monitor: "val_loss"
   patience: 16
-  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/vertical_velocity/"
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/increase_resolution_and_test_split/"
   
 wandb_config:
   project_name: "fronts"
-  run_name: "vertical_velocity"
+  run_name: "increase_resolution_and_test_split"

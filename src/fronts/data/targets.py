@@ -31,6 +31,38 @@ def filter_timesteps(fronts_da: xr.DataArray, rng: np.random.Generator) -> np.nd
     return has_all_types | (rng.random(len(has_all_types)) < 0.5)
 
 
+_SEASON_BY_MONTH = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 0], dtype=np.int32)
+_SEASON_NAMES = ("DJF", "MAM", "JJA", "SON")
+
+
+def seasonal_test_split(times: np.ndarray, test_fraction: float, rng: np.random.Generator) -> np.ndarray:
+    """Return boolean mask selecting ~test_fraction of timesteps per meteorological season.
+
+    Seasons: DJF (12,1,2), MAM (3,4,5), JJA (6,7,8), SON (9,10,11). For each season,
+    randomly selects ``round(n_season * test_fraction)`` indices without replacement. This
+    increases chance of coverage of all front types, sampling different seasonal synoptic regimes.
+
+    Args:
+        times: 1-D array of numpy datetime64 timestamps.
+        test_fraction: Fraction of each season's timesteps to hold out as test data.
+        rng: Seeded generator for reproducibility.
+
+    Returns:
+        Boolean array of shape ``(len(times),)``; True indicates test set membership.
+    """
+    months = times.astype("datetime64[M]").astype(int) % 12 + 1
+    seasons = _SEASON_BY_MONTH[months]
+    test_mask = np.zeros(len(times), dtype=bool)
+    for s in range(4):
+        season_indices = np.where(seasons == s)[0]
+        if len(season_indices) == 0:
+            continue
+        n_test = max(1, round(len(season_indices) * test_fraction))
+        chosen = rng.choice(season_indices, size=n_test, replace=False)
+        test_mask[chosen] = True
+    return test_mask
+
+
 def remap_fronts(da: xr.DataArray) -> xr.DataArray:
     """Map front codes to 6-class experiment labels without loading data.
 

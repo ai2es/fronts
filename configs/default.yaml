@@ -9,6 +9,8 @@ data_config:
   stride: 64
   batch_size: 4
   train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
   norm_sample_size: 500  # patches fed to Normalization.adapt()
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]  # background (class 0) suppressed
   variables: [

@@ -6,6 +6,9 @@ data_config:
     store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
     branch_name: "main"
     virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
   front_dilation: 1
   variables: [
     geopotential, 
