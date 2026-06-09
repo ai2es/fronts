@@ -119,11 +119,13 @@ xarray = ">=2024"
 icechunk = ">=2"
 pandas = ">=2"
 numpy = ">=2,<2.1"
+hypothesis = ">=6.0"
 
 [tool.pixi.feature.test.tasks]
 test = "PYTHONPATH=src python -m pytest tests/ -v"
 
 [tool.pixi.environments]
+default = { features = ["test"] }
 schooner = { features = ["train", "test", "schooner"], solve-group = "schooner" }
 linux = { features = ["train", "test"], solve-group = "linux" }
 
@@ -181,7 +183,7 @@ backend = { name = "pixi-build-python", version = "0.4.*" }
 
 [tool.pyrefly]
 python-interpreter = ".pixi/envs/default/bin/python"
-ignore-missing-imports = ["pytest", "tensorflow", "tensorflow.keras.layers", "tensorflow.keras.models", "wandb"]
+ignore-missing-imports = ["pytest", "tensorflow", "tensorflow.keras.layers", "tensorflow.keras.models", "wandb", "hypothesis"]
 
 [tool.ruff]
 line-length = 120

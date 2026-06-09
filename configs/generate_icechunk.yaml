@@ -4,7 +4,7 @@ era5_config:
   pressure_levels: [1000, 925, 850, 700, 500, 300]
   time_start: "2018-01-01T00:00:00"
   time_end: "2024-12-31T23:59:00"
-  time_resolution: "6h"
+  time_resolution: "3h"
   coordinates: [0.25, 80, 130, 369.75]
   storage_options: {"token": "anon"}
   chunks: {"time": 1, "level": -1, "latitude": -1, "longitude": -1}
