@@ -39,7 +39,7 @@ model_config:
   first_encoder_connections: true
   deep_supervision: true
   batch_normalization: true
-  activation: "swish"
+  activation: "gelu"
   output_activation: "softmax"
   modules_per_node: 2
 
