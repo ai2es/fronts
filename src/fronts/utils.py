@@ -7,6 +7,7 @@ from typing import Any, TypeVar
 import dacite
 import icechunk as ic
 import numpy as np
+import pandas as pd
 import xarray as xr
 import yaml
 from xarray.core.indexes import IndexSelResult, PandasIndex, _query_slice
@@ -175,6 +176,24 @@ def drop_duplicate_times(data: _XArray) -> _XArray:
     """
     _, unique_idx = np.unique(data["time"].values, return_index=True)
     return data.isel(time=sorted(unique_idx))
+
+
+def apply_time_resolution(times: np.ndarray, resolution: str) -> np.ndarray:
+    """Return only the elements of ``times`` that fall on the ``resolution`` grid.
+
+    A timestamp is kept when flooring it to ``resolution`` leaves it unchanged,
+    meaning its hour (and finer components) are already aligned to the interval.
+    For example, ``"6h"`` keeps 00:00, 06:00, 12:00, and 18:00 UTC only.
+
+    Args:
+        times: Array of numpy datetime64 values.
+        resolution: Pandas offset string, e.g. ``"6h"`` or ``"3h"``.
+
+    Returns:
+        Subset of ``times`` whose values are already aligned to ``resolution``.
+    """
+    idx = pd.DatetimeIndex(times)
+    return times[idx == idx.floor(resolution)]
 
 
 def open_config_yaml_as_dataclass(

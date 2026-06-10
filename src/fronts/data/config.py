@@ -74,6 +74,10 @@ class DataConfig:
         class_weights: Per-class loss weights. None means equal weighting.
         front_dilation: Number of binary dilation iterations applied to each non-background
             front class. 0 means no dilation.
+        time_resolution: Optional pandas offset string (e.g. ``"6h"``) used to subsample
+            the loaded timesteps. Only timestamps whose hour is already aligned to this
+            interval are kept (e.g. ``"6h"`` retains 00, 06, 12, 18 UTC). ``None`` keeps
+            all available timesteps.
     """
 
     era5_icechunk_config: IcechunkStorageConfig
@@ -88,6 +92,7 @@ class DataConfig:
     prefetch_chunks: int = 2
     class_weights: list[float] | None = None
     front_dilation: int = 0
+    time_resolution: str | None = None
 
 
 @dataclasses.dataclass
@@ -102,7 +107,7 @@ class EvalConfig:
         front_dilation: Binary dilation iterations applied to truth labels. None uses
             the value from the paired DataConfig.
         coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
-            Defaults to CONUS extent.
+            Defaults to full USAD extent.
         gpu_device: GPU index to use. None runs on CPU.
         time_start: Restrict evaluation to timesteps on or after this date. None means no lower bound.
         time_end: Restrict evaluation to timesteps before this date. None means no upper bound.

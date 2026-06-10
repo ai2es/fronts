@@ -18,6 +18,7 @@ data_config:
   load_chunk_steps: 5
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   variables: [
     geopotential, 
     temperature, 
@@ -45,8 +46,8 @@ model_config:
 callbacks_config:
   monitor: "val_loss"
   patience: 16
-  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/increase_resolution_and_test_split/"
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/test_split_6h/"
   
 wandb_config:
   project_name: "fronts"
-  run_name: "increase_resolution_and_test_split"
+  run_name: "test_split_6h"

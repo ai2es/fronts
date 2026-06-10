@@ -30,6 +30,7 @@ import zarr
 
 from fronts import model, utils
 from fronts.data import config, inputs, targets
+from fronts.utils import apply_time_resolution
 from fronts.layers import losses, metrics
 
 logger = logging.getLogger(__name__)
@@ -258,6 +259,9 @@ def load_training_data(
     era5_ds = utils.drop_duplicate_times(era5_ds)
     fronts_da = fronts_da.isel(time=~fronts_da.indexes["time"].duplicated(keep="first"))
     common_times = np.intersect1d(era5_ds.time.values, fronts_da.time.values)
+    if data_config.time_resolution is not None:
+        common_times = apply_time_resolution(common_times, data_config.time_resolution)
+        logger.info(f"After time_resolution={data_config.time_resolution!r} filter: {len(common_times)} steps")
     rng = np.random.default_rng(seed)
     keep = targets.filter_timesteps(fronts_da.sel(time=common_times), rng)
     common_times = common_times[keep]

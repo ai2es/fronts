@@ -1,8 +1,10 @@
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 
 from fronts.data.targets import FRONT_CLASS_MAP, filter_timesteps
+from fronts.utils import apply_time_resolution
 
 try:
     from fronts.train import make_batch_dataset
@@ -74,6 +76,49 @@ class TestFilterTimesteps:
         mask = filter_timesteps(da, np.random.default_rng(0))
         assert mask.shape == (7,)
         assert mask.dtype == bool
+
+
+class TestApplyTimeResolution:
+    def _make_times(self, freq: str, periods: int, start: str = "2020-01-01") -> np.ndarray:
+        return pd.date_range(start, periods=periods, freq=freq).values
+
+    def test_6h_from_3h_keeps_half(self):
+        times = self._make_times("3h", 8)  # 00, 03, 06, 09, 12, 15, 18, 21
+        result = apply_time_resolution(times, "6h")
+        assert len(result) == 4  # 00, 06, 12, 18
+
+    def test_6h_from_3h_correct_hours(self):
+        times = self._make_times("3h", 8)
+        result = apply_time_resolution(times, "6h")
+        hours = pd.DatetimeIndex(result).hour.tolist()
+        assert hours == [0, 6, 12, 18]
+
+    def test_already_aligned_unchanged(self):
+        times = self._make_times("6h", 4)
+        result = apply_time_resolution(times, "6h")
+        np.testing.assert_array_equal(result, times)
+
+    def test_12h_from_3h_correct_hours(self):
+        times = self._make_times("3h", 8)
+        result = apply_time_resolution(times, "12h")
+        hours = pd.DatetimeIndex(result).hour.tolist()
+        assert hours == [0, 12]
+
+    def test_empty_input(self):
+        times = np.array([], dtype="datetime64[ns]")
+        result = apply_time_resolution(times, "6h")
+        assert len(result) == 0
+
+    def test_no_aligned_timestamps(self):
+        times = pd.date_range("2020-01-01 01:00", periods=4, freq="3h").values  # 01, 04, 07, 10
+        result = apply_time_resolution(times, "6h")
+        assert len(result) == 0
+
+    def test_multi_day_span(self):
+        times = self._make_times("3h", 16)  # 2 days of 3h data
+        result = apply_time_resolution(times, "6h")
+        assert len(result) == 8
+        assert all(h in (0, 6, 12, 18) for h in pd.DatetimeIndex(result).hour)
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
