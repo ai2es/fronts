@@ -33,6 +33,8 @@ dependencies = [
     "psutil>=7.2.2",
     "nvidia-ml-py>=12.0.0",
     "pyyaml>=6.0",
+    "scipy>=1.13.0", 
+    "pcodec>=1.0.2,<2",
     "scipy>=1.13.0",
     "tqdm>=4.67.3",
 ]
@@ -54,6 +56,7 @@ matplotlib = ">=3.9.0"
 regionmask = ">=0.13.0"
 scipy = ">=1.13.0"
 arraylake = ">=1.0.3,<2"
+gcsfs = ">=2026.2.0,<2027"
 
 [tool.pixi.pypi-dependencies]
 fronts = { path = ".", editable = true }
