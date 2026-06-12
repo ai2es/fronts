@@ -24,6 +24,7 @@ import time
 from typing import Any
 
 import numpy as np
+import regionmask
 import xarray as xr
 from scipy.ndimage import maximum_filter
 from tqdm import tqdm
@@ -43,8 +44,6 @@ THRESHOLDS = np.linspace(0.01, 1.0, N_THRESHOLDS, dtype=np.float32)
 
 def _build_spatial_mask(lats: np.ndarray, lons: np.ndarray, mask: str) -> np.ndarray:
     """Return a (n_lat, n_lon) bool array — True where points are included."""
-    import regionmask
-
     land_regions = regionmask.defined_regions.natural_earth_v5_1_2.land_110
     # regionmask requires monotonically increasing lons; wrap-crossing domains produce
     # non-monotonic arrays, so sort before masking and inverse-permute columns back.

@@ -61,6 +61,25 @@ gcsfs = ">=2026.2.0,<2027"
 [tool.pixi.pypi-dependencies]
 fronts = { path = ".", editable = true }
 
+[tool.pixi.feature.data]
+platforms = ["linux-64"]
+
+[tool.pixi.feature.data.dependencies]
+pandas = ">=2.3.3,<3"
+xarray = ">=2025.07.1"
+dask = ">=2023.3.0"
+distributed = ">=2023.3.0"
+dask-jobqueue = ">=0.9.0,<0.10"
+gcsfs = ">=2026.2.0,<2027"
+icechunk = ">=2"
+
+[tool.pixi.feature.data.pypi-dependencies]
+obstore = "*"
+s3fs = ">=2024.6.0"
+
+[tool.pixi.feature.data.tasks]
+generate = "python -m fronts.data.generate --config configs/generate_icechunk.yaml"
+
 [tool.pixi.feature.train]
 platforms = ["linux-64"]
 
@@ -99,9 +118,6 @@ libc = "2.17"
 [tool.pixi.feature.schooner]
 platforms = ["linux-64"]
 
-[tool.pixi.feature.schooner.tasks]
-generate = "python -m fronts.data.generate --config configs/generate_icechunk.yaml"
-
 [tool.pixi.feature.schooner.activation]
 env = { LD_LIBRARY_PATH = "$CONDA_PREFIX/lib:$LD_LIBRARY_PATH" }
 
@@ -123,14 +139,16 @@ icechunk = ">=2"
 pandas = ">=2"
 numpy = ">=2,<2.1"
 hypothesis = ">=6.0"
+dask = ">=2023.3.0"
 
 [tool.pixi.feature.test.tasks]
 test = "PYTHONPATH=src python -m pytest tests/ -v"
 
 [tool.pixi.environments]
 default = { features = ["test"] }
-schooner = { features = ["train", "test", "schooner"], solve-group = "schooner" }
-linux = { features = ["train", "test"], solve-group = "linux" }
+data = { features = ["data", "test"], solve-group = "data" }
+schooner = { features = ["train", "data", "test", "schooner"], solve-group = "schooner" }
+linux = { features = ["train", "data", "test"], solve-group = "linux" }
 
 [dependency-groups]
 dev = [

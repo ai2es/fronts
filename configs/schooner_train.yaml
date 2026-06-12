@@ -6,6 +6,17 @@ data_config:
   era5_icechunk_config:
     store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/icechunk"
     branch_name: "main"
+    group_name: "era5"
+  # Additional gridded input sources (e.g. future satellite groups). Channels are
+  # concatenated after the ERA5 channels in the order listed; remember to bump
+  # model_config.n_channels accordingly.
+  # input_sources:
+  #   - name: "satellite"
+  #     icechunk_config:
+  #       store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/icechunk"
+  #       branch_name: "main"
+  #       group_name: "satellite"
+  #     variables: [brightness_temperature]
   fronts_icechunk_config:
     store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
     branch_name: "main"

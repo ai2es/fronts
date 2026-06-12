@@ -1,6 +1,7 @@
 era5_data_config:
   era5_uri: "/tmp/test_era5.zarr"
   variables: [temperature]
+  zarr_async_concurrency: 128
   pressure_levels: [1000, 850, 500]
   time_start: 2019-01-01T00:00:00
   time_end: 2019-01-02T00:00:00

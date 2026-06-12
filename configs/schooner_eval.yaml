@@ -2,6 +2,7 @@ data_config:
   era5_icechunk_config:
     store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/icechunk"
     branch_name: "main"
+    group_name: "era5"
   fronts_icechunk_config:
     store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
     branch_name: "main"

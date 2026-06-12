@@ -30,8 +30,8 @@ import zarr
 
 from fronts import model, utils
 from fronts.data import config, inputs, targets
-from fronts.utils import apply_time_resolution
 from fronts.layers import losses, metrics
+from fronts.utils import apply_time_resolution
 
 logger = logging.getLogger(__name__)
 
@@ -224,29 +224,44 @@ def load_training_data(
     data_config: config.DataConfig,
     seed: int = 0,
 ) -> tuple[xr.DataArray, xr.DataArray]:
-    """Load, align, and encode ERA5 and fronts data for training.
+    """Load, align, and encode gridded input sources and fronts data for training.
 
-    Opens both icechunk stores, deduplicates the fronts time index, aligns to
-    the intersection of available timestamps, and returns lazy DataArrays ready
-    for batching.
+    Opens the ERA5 store plus any additional sources in
+    ``data_config.input_sources``, deduplicates time indexes, aligns everything
+    to the intersection of available timestamps, and returns lazy DataArrays
+    ready for batching. Input channels are ordered ERA5 first, then each extra
+    source in the order listed.
 
     Args:
         data_config: DataConfig specifying store paths, branch names, and splits.
         seed: Integer seed for the RNG used when subsampling timesteps.
 
     Returns:
-        Tuple of (era5_da, front_da) with dims (time, latitude, longitude, channel)
+        Tuple of (input_da, front_da) with dims (time, latitude, longitude, channel)
         and (time, latitude, longitude, class) respectively.
     """
-    logger.info("Loading ERA5...")
-    era5_ds = utils.open_readonly_icechunk_store(
-        store_path=data_config.era5_icechunk_config.store_path,
-        branch=data_config.era5_icechunk_config.branch_name,
-        group=data_config.era5_icechunk_config.group_name,
-        zarr_format=data_config.era5_icechunk_config.zarr_format,
-        virtual_chunk_local_path=data_config.era5_icechunk_config.virtual_chunk_local_path,
-    )
-    logger.info(f"ERA5 store: {era5_ds}")
+    source_configs = [
+        config.InputSourceConfig(
+            name="era5",
+            icechunk_config=data_config.era5_icechunk_config,
+            variables=data_config.variables,
+        ),
+        *(data_config.input_sources or []),
+    ]
+
+    source_datasets: list[xr.Dataset] = []
+    for source in source_configs:
+        logger.info(f"Loading input source '{source.name}'...")
+        ds = utils.open_readonly_icechunk_store(
+            store_path=source.icechunk_config.store_path,
+            branch=source.icechunk_config.branch_name,
+            group=source.icechunk_config.group_name,
+            zarr_format=source.icechunk_config.zarr_format,
+            virtual_chunk_local_path=source.icechunk_config.virtual_chunk_local_path,
+        )
+        logger.info(f"Source '{source.name}' store: {ds}")
+        source_datasets.append(utils.drop_duplicate_times(ds))
+
     logger.info("Loading fronts...")
     fronts_da = utils.open_readonly_icechunk_store(
         store_path=data_config.fronts_icechunk_config.store_path,
@@ -256,21 +271,27 @@ def load_training_data(
         virtual_chunk_local_path=data_config.fronts_icechunk_config.virtual_chunk_local_path,
     )["identifier"]
     logger.info(f"Fronts store: {fronts_da}")
-    era5_ds = utils.drop_duplicate_times(era5_ds)
-    fronts_da = fronts_da.isel(time=~fronts_da.indexes["time"].duplicated(keep="first"))
-    common_times = np.intersect1d(era5_ds.time.values, fronts_da.time.values)
+    fronts_da = utils.drop_duplicate_times(fronts_da)
+
+    common_times = fronts_da.time.values
+    for ds in source_datasets:
+        if "time" in ds.dims:
+            common_times = np.intersect1d(common_times, ds.time.values)
     if data_config.time_resolution is not None:
         common_times = apply_time_resolution(common_times, data_config.time_resolution)
         logger.info(f"After time_resolution={data_config.time_resolution!r} filter: {len(common_times)} steps")
     rng = np.random.default_rng(seed)
     keep = targets.filter_timesteps(fronts_da.sel(time=common_times), rng)
     common_times = common_times[keep]
-    era5_ds = era5_ds.sel(time=common_times)
     fronts_da = fronts_da.sel(time=common_times)
     logger.info(f"Matched time steps: {len(common_times)}")
 
-    logger.info("Building ERA5 DataArray (lazy)...")
-    era5_da = inputs.era5_to_dataarray(era5_ds, data_config.variables)
+    logger.info("Building input DataArray (lazy)...")
+    source_das: list[xr.DataArray] = []
+    for source, source_ds in zip(source_configs, source_datasets, strict=True):
+        aligned = source_ds.sel(time=common_times) if "time" in source_ds.dims else source_ds
+        source_das.append(inputs.era5_to_dataarray(aligned, source.variables))
+    era5_da = source_das[0] if len(source_das) == 1 else xr.concat(source_das, dim="channel")
 
     logger.info("Encoding targets (lazy)...")
     front_da = targets.one_hot_encode_to_dataarray(targets.remap_fronts(fronts_da))

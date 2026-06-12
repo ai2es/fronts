@@ -18,6 +18,10 @@ class IcechunkStorageConfig:
             netcdf files, set this to the directory those files live in (e.g.
             ``/ourdisk/hpc/ai2es/tman/data/netcdf/``). The ``file://`` URL prefix is
             derived automatically. Leave None for stores with no virtual chunks.
+        write_batch_size: Number of time steps to load and commit per write when
+            writing or appending. Bounds peak memory without dask: each batch is
+            loaded eagerly, appended along time, and committed before the next
+            batch is read. None writes the whole dataset in one commit.
     """
 
     store_path: str
@@ -26,6 +30,7 @@ class IcechunkStorageConfig:
     zarr_format: int = 3
     group_name: str | None = None
     virtual_chunk_local_path: str | None = None
+    write_batch_size: int | None = None
 
 
 @dataclasses.dataclass
@@ -33,9 +38,13 @@ class ERA5DataLoaderConfig:
     """Configuration for downloading remote ERA5 data for model training and evaluation.
 
     Attributes:
-        era5_uri: URI to the ERA5 data in Zarr format.
-        variables: List of variable names to load from the ERA5 dataset.
-        pressure_levels: List of pressure levels to load for each variable.
+        era5_uri: URI to the ERA5 data in Zarr format. URIs of the form
+            ``arraylake://org/repo`` are opened via the Arraylake client.
+        variables: List of variable names (Google ARCO naming) to load from the
+            ERA5 dataset. May mix pressure-level, single-level (e.g.
+            ``mean_sea_level_pressure``), and derived variables; each is
+            classified internally.
+        pressure_levels: List of pressure levels to load for each pressure-level variable.
         time_start: Start of the time range to load.
         time_end: End of the time range to load.
         time_resolution: Temporal resolution of the data (e.g., "6h" for
@@ -45,6 +54,8 @@ class ERA5DataLoaderConfig:
         storage_options: Optional dictionary of storage options for xarray's open_zarr.
         chunks: Dictionary specifying chunk sizes after subsetting, e.g.,
             {"time": 100, "latitude": 64, "longitude": 64}.
+        zarr_async_concurrency: Maximum in-flight chunk requests per zarr store,
+            applied via ``zarr.config.set({"async.concurrency": ...})``.
     """
 
     era5_uri: str
@@ -56,6 +67,54 @@ class ERA5DataLoaderConfig:
     coordinates: utils.BoundingBox
     storage_options: dict | None
     chunks: dict[str, int]
+    zarr_async_concurrency: int
+
+
+@dataclasses.dataclass
+class SlurmConfig:
+    """Configuration for the dask-jobqueue SLURMCluster used during derivation.
+
+    Attributes:
+        queue: SLURM partition name (e.g. "ai2es").
+        cores: Total CPU cores per SLURM job.
+        processes: Dask worker processes per job.
+        memory: Memory string per job (e.g. "128GB").
+        walltime: Wall time string (e.g. "12:00:00").
+        stdout: Path template for worker stdout logs. Use ``%j`` for the SLURM
+            job ID (e.g. ``/path/to/logs/generate_%j_out.txt``).
+        stderr: Path template for worker stderr logs. Use ``%j`` for the SLURM
+            job ID (e.g. ``/path/to/logs/generate_%j_err.txt``).
+        n_jobs: Number of SLURM jobs to scale the cluster to.
+    """
+
+    queue: str
+    cores: int
+    processes: int
+    memory: str
+    walltime: str
+    stdout: str
+    stderr: str
+    n_jobs: int
+
+
+@dataclasses.dataclass
+class InputSourceConfig:
+    """Configuration for one gridded input source used during training.
+
+    Each source maps to a group within an icechunk store (e.g. ``era5``,
+    ``satellite``) whose variables are converted to input channels and
+    concatenated channel-wise with the other sources.
+
+    Attributes:
+        name: Human-readable source name used in logs (e.g. "satellite").
+        icechunk_config: Icechunk store config for the source, including the
+            group_name of the group holding its data.
+        variables: Variable names to load from the source as input channels.
+    """
+
+    name: str
+    icechunk_config: IcechunkStorageConfig
+    variables: list[str]
 
 
 @dataclasses.dataclass
@@ -65,12 +124,19 @@ class DataConfig:
     Attributes:
         era5_icechunk_config: Icechunk store config for ERA5 data.
         fronts_icechunk_config: Icechunk store config for fronts data.
+        variables: ERA5 variable names to load as input channels.
         train_split: Fraction of all filtered time steps to use for training.
         val_split: Fraction of all filtered time steps to use for validation.
         test_split: Fraction of timesteps per meteorological season to hold out as a sequestered
             test set (never seen during training or validation). train_split + val_split +
             test_split should sum to 1.
         batch_size: Number of timesteps per training batch.
+        steps_per_epoch: Number of batches per epoch passed to model.fit. None lets
+            the dataset size determine it.
+        load_chunk_steps: Number of steps' worth of samples to load per background
+            prefetch. None falls back to steps_per_epoch.
+        prefetch_chunks: Number of chunks to keep loaded in RAM ahead of the batch
+            generator.
         class_weights: Per-class loss weights. None means equal weighting.
         front_dilation: Number of binary dilation iterations applied to each non-background
             front class. 0 means no dilation.
@@ -78,6 +144,10 @@ class DataConfig:
             the loaded timesteps. Only timestamps whose hour is already aligned to this
             interval are kept (e.g. ``"6h"`` retains 00, 06, 12, 18 UTC). ``None`` keeps
             all available timesteps.
+        input_sources: Optional additional gridded input sources (e.g. satellite
+            groups). Their channels are concatenated after the ERA5 channels in
+            the order listed, and their timestamps are intersected with ERA5 and
+            fronts when aligning training data.
     """
 
     era5_icechunk_config: IcechunkStorageConfig
@@ -93,6 +163,7 @@ class DataConfig:
     class_weights: list[float] | None = None
     front_dilation: int = 0
     time_resolution: str | None = None
+    input_sources: list[InputSourceConfig] | None = None
 
 
 @dataclasses.dataclass
@@ -102,12 +173,12 @@ class EvalConfig:
     Attributes:
         model_path: Path to the saved .keras model checkpoint.
         outdir: Directory to write stats_aggregate_{mask}.nc and stats_spatial_{mask}.nc.
+        coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
+            Defaults to full USAD extent.
         front_types: Front type labels in class order (excluding background class 0).
         mask: Restrict statistics to "land" or "ocean" grid points. None means all points.
         front_dilation: Binary dilation iterations applied to truth labels. None uses
             the value from the paired DataConfig.
-        coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
-            Defaults to full USAD extent.
         gpu_device: GPU index to use. None runs on CPU.
         time_start: Restrict evaluation to timesteps on or after this date. None means no lower bound.
         time_end: Restrict evaluation to timesteps before this date. None means no upper bound.
