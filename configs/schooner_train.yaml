@@ -31,17 +31,29 @@ data_config:
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   variables: [
-    geopotential, 
-    temperature, 
-    u_component_of_wind, 
-    v_component_of_wind, 
-    specific_humidity,
-    vertical_velocity
+    "geopotential",
+    "temperature",
+    "u_component_of_wind",
+    "v_component_of_wind",
+    "specific_humidity",
+    "vertical_velocity",
+    "potential_vorticity",
+    "equivalent_potential_temperature",
+    "virtual_temperature",
+    "dewpoint_temperature",
+    "relative_humidity",
+    "potential_temperature",
+    "mean_sea_level_pressure",
+    "2m_temperature",
+    "10m_u_component_of_wind",
+    "10m_v_component_of_wind",
+    "2m_dewpoint_temperature",
+    "land_sea_mask"
     ]
 
 model_config:
   n_classes: 6
-  n_channels: 36
+  n_channels: 78
   levels: 4
   filter_num: [16, 32, 64, 128]
   pool_size: [2, 2]
@@ -57,8 +69,8 @@ model_config:
 callbacks_config:
   monitor: "val_loss"
   patience: 16
-  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/test_split_6h/"
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/derived_2007_onwards/"
   
 wandb_config:
   project_name: "fronts"
-  run_name: "test_split_6h"
+  run_name: "derived_2007_onwards"
