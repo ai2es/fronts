@@ -4,7 +4,7 @@ learning_rate: 0.0001
 
 data_config:
   era5_icechunk_config:
-    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/icechunk"
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
     branch_name: "main"
     group_name: "era5"
   # Additional gridded input sources (e.g. future satellite groups). Channels are
@@ -69,8 +69,8 @@ model_config:
 callbacks_config:
   monitor: "val_loss"
   patience: 16
-  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/derived_2007_onwards/"
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/derived_2007_2024/"
   
 wandb_config:
   project_name: "fronts"
-  run_name: "derived_2007_onwards"
+  run_name: "derived_2007_2024"
