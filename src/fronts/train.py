@@ -493,7 +493,15 @@ def main():
     logger.info(f"Train timesteps: {train_era5.sizes['time']}, Val timesteps: {val_era5.sizes['time']}")
 
     t0 = time.time()
-    norm_mean, norm_variance = inputs.compute_norm_stats(train_era5)
+    norm_cache_key_parts = (
+        run_meta["era5_snapshot_id"],
+        ",".join(str(c) for c in train_era5.channel.values),
+        ",".join(str(i) for i in train_indices),
+    )
+    with dask.config.set(scheduler="threads", num_workers=16):
+        norm_mean, norm_variance = inputs.load_or_compute_norm_stats(
+            train_era5, cfg.data_config.norm_stats_cache_dir, norm_cache_key_parts
+        )
     logger.info(f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)")
 
     with dask.config.set(scheduler="threads", num_workers=16):

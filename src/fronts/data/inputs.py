@@ -1,4 +1,8 @@
+import hashlib
 import logging
+import os
+import pathlib
+import tempfile
 
 import numpy as np
 import xarray as xr
@@ -64,23 +68,72 @@ def era5_to_dataarray(ds: xr.Dataset, variables: list[str]) -> xr.DataArray:
 
 
 def compute_norm_stats(da: xr.DataArray) -> tuple[np.ndarray, np.ndarray]:
-    """Compute per-channel mean and variance over the full DataArray lazily.
+    """Compute per-channel mean and variance over the full DataArray in one pass.
 
-    Uses xarray's dask-backed reduction so the full array is never materialized.
-    Suitable for passing directly to a Keras Normalization layer.
+    Builds both reductions as a single dask graph so each chunk is read from
+    disk once and the full array is never materialized in memory. Suitable for
+    passing directly to a Keras Normalization layer.
 
     Args:
         da: DataArray of shape (time, latitude, longitude, channel).
 
     Returns:
         Tuple of (mean, variance), each of shape (n_channels,) as float32.
+
+    Raises:
+        ValueError: If the computed statistics contain NaN values.
     """
-    spatial_dims = ["time", "latitude", "longitude"]
-    mean = da.mean(dim=spatial_dims, skipna=False).values.astype(np.float32)
-    variance = da.var(dim=spatial_dims, skipna=False).values.astype(np.float32)
+    reduction_dims = ["time", "latitude", "longitude"]
+    stats = xr.Dataset(
+        {
+            "mean": da.mean(dim=reduction_dims, skipna=False),
+            "variance": da.var(dim=reduction_dims, skipna=False),
+        }
+    ).compute()
+    mean = stats["mean"].values.astype(np.float32)
+    variance = stats["variance"].values.astype(np.float32)
     if np.isnan(mean).any() or np.isnan(variance).any():
         raise ValueError(
             "NaN in normalization statistics — ERA5 data contains missing values. "
             "Check the icechunk store for corrupted or incomplete channels."
         )
+    return mean, variance
+
+
+def load_or_compute_norm_stats(
+    da: xr.DataArray,
+    cache_dir: str | None,
+    cache_key_parts: tuple[str, ...],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load cached normalization statistics or compute and cache them.
+
+    The cache key is a SHA-256 hash of cache_key_parts, so stats are reused
+    only when every part (e.g. store snapshot ID, channel labels, training
+    time indices) matches a previous run.
+
+    Args:
+        da: DataArray of shape (time, latitude, longitude, channel).
+        cache_dir: Directory for cached stats files. None disables caching.
+        cache_key_parts: Strings that uniquely determine the statistics.
+
+    Returns:
+        Tuple of (mean, variance), each of shape (n_channels,) as float32.
+    """
+    if cache_dir is None:
+        return compute_norm_stats(da)
+
+    key = hashlib.sha256("\x1f".join(cache_key_parts).encode()).hexdigest()[:16]
+    cache_path = pathlib.Path(cache_dir) / f"norm_stats_{key}.npz"
+    if cache_path.exists():
+        cached = np.load(cache_path)
+        logger.info(f"Loaded normalization stats from cache: {cache_path}")
+        return cached["mean"], cached["variance"]
+
+    mean, variance = compute_norm_stats(da)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=cache_path.parent, suffix=".npz.tmp", delete=False) as tmp:
+        np.savez(tmp, mean=mean, variance=variance)
+        tmp_path = tmp.name
+    os.replace(tmp_path, cache_path)
+    logger.info(f"Saved normalization stats to cache: {cache_path}")
     return mean, variance

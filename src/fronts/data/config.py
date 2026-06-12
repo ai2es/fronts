@@ -148,6 +148,9 @@ class DataConfig:
             groups). Their channels are concatenated after the ERA5 channels in
             the order listed, and their timestamps are intersected with ERA5 and
             fronts when aligning training data.
+        norm_stats_cache_dir: Optional directory for caching normalization
+            statistics, keyed by store snapshot, channels, and train indices.
+            None recomputes the statistics on every run.
     """
 
     era5_icechunk_config: IcechunkStorageConfig
@@ -164,6 +167,7 @@ class DataConfig:
     front_dilation: int = 0
     time_resolution: str | None = None
     input_sources: list[InputSourceConfig] | None = None
+    norm_stats_cache_dir: str | None = None
 
 
 @dataclasses.dataclass

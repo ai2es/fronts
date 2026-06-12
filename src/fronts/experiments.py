@@ -12,6 +12,7 @@ import argparse
 import logging
 import time
 
+import dask
 import numpy as np
 import xarray as xr
 
@@ -163,7 +164,8 @@ def main():
         t_start = time.time()
         logger.info("\n=== Experiment B: Built-in normalization ===")
         t0 = time.time()
-        norm_mean, norm_variance = inputs.compute_norm_stats(train_era5)
+        with dask.config.set(scheduler="threads", num_workers=16):
+            norm_mean, norm_variance = inputs.compute_norm_stats(train_era5)
         logger.info(f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)")
 
         _set_seed(cfg.seed)

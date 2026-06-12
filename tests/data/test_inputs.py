@@ -1,7 +1,8 @@
 import numpy as np
+import pytest
 import xarray as xr
 
-from fronts.data.inputs import era5_to_dataarray
+from fronts.data.inputs import compute_norm_stats, era5_to_dataarray, load_or_compute_norm_stats
 
 N_TIME = 5
 N_LAT = 32
@@ -131,3 +132,81 @@ class TestMixedLevelToDataarray:
         ds = _make_mixed_ds()
         result = era5_to_dataarray(ds, [*_VARS, "2m_temperature", "land_sea_mask"])
         assert result.dtype == np.float32
+
+
+def _make_channel_da(seed: int = 3, with_nan: bool = False) -> xr.DataArray:
+    rng = np.random.default_rng(seed)
+    data = rng.standard_normal((N_TIME, N_LAT, N_LON, 4)).astype(np.float32)
+    if with_nan:
+        data[0, 0, 0, 1] = np.nan
+    da = xr.DataArray(
+        data,
+        dims=["time", "latitude", "longitude", "channel"],
+        coords={"time": np.arange(N_TIME), "channel": [f"ch{i}" for i in range(4)]},
+    )
+    return da.chunk({"time": 2})
+
+
+class TestComputeNormStats:
+    def test_matches_numpy(self):
+        da = _make_channel_da()
+        mean, variance = compute_norm_stats(da)
+        values = da.values
+        np.testing.assert_allclose(mean, values.mean(axis=(0, 1, 2)), rtol=1e-4, atol=1e-6)
+        np.testing.assert_allclose(variance, values.var(axis=(0, 1, 2)), rtol=1e-4, atol=1e-6)
+
+    def test_shapes_and_dtype(self):
+        da = _make_channel_da()
+        mean, variance = compute_norm_stats(da)
+        assert mean.shape == (4,)
+        assert variance.shape == (4,)
+        assert mean.dtype == np.float32
+        assert variance.dtype == np.float32
+
+    def test_non_dask_input(self):
+        da = _make_channel_da().compute()
+        mean, variance = compute_norm_stats(da)
+        np.testing.assert_allclose(mean, da.values.mean(axis=(0, 1, 2)), rtol=1e-4, atol=1e-6)
+        np.testing.assert_allclose(variance, da.values.var(axis=(0, 1, 2)), rtol=1e-4, atol=1e-6)
+
+    def test_raises_on_nan(self):
+        da = _make_channel_da(with_nan=True)
+        with pytest.raises(ValueError, match="NaN in normalization statistics"):
+            compute_norm_stats(da)
+
+
+class TestLoadOrComputeNormStats:
+    def test_no_cache_dir_matches_direct_compute(self):
+        da = _make_channel_da()
+        direct = compute_norm_stats(da)
+        cached = load_or_compute_norm_stats(da, None, ("key",))
+        np.testing.assert_array_equal(cached[0], direct[0])
+        np.testing.assert_array_equal(cached[1], direct[1])
+
+    def test_writes_cache_file(self, tmp_path):
+        da = _make_channel_da()
+        load_or_compute_norm_stats(da, str(tmp_path), ("snap", "channels", "indices"))
+        assert len(list(tmp_path.glob("norm_stats_*.npz"))) == 1
+
+    def test_cache_hit_skips_compute(self, tmp_path):
+        da = _make_channel_da()
+        key_parts = ("snap", "channels", "indices")
+        mean, variance = load_or_compute_norm_stats(da, str(tmp_path), key_parts)
+        nan_da = _make_channel_da(with_nan=True)
+        cached_mean, cached_variance = load_or_compute_norm_stats(nan_da, str(tmp_path), key_parts)
+        np.testing.assert_array_equal(cached_mean, mean)
+        np.testing.assert_array_equal(cached_variance, variance)
+
+    def test_different_keys_use_different_files(self, tmp_path):
+        da = _make_channel_da()
+        load_or_compute_norm_stats(da, str(tmp_path), ("snap-a",))
+        load_or_compute_norm_stats(da, str(tmp_path), ("snap-b",))
+        assert len(list(tmp_path.glob("norm_stats_*.npz"))) == 2
+
+    def test_creates_missing_cache_dir(self, tmp_path):
+        da = _make_channel_da()
+        cache_dir = tmp_path / "nested" / "cache"
+        mean, variance = load_or_compute_norm_stats(da, str(cache_dir), ("key",))
+        assert cache_dir.exists()
+        assert mean.shape == (4,)
+        assert variance.shape == (4,)
