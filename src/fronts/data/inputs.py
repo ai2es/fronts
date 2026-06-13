@@ -107,9 +107,9 @@ def load_or_compute_norm_stats(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Load cached normalization statistics or compute and cache them.
 
-    The cache key is a SHA-256 hash of cache_key_parts, so stats are reused
-    only when every part (e.g. store snapshot ID, channel labels, training
-    time indices) matches a previous run.
+    The cache key is a SHA-256 hash of cache_key_parts (e.g. the store snapshot
+    ID), so stats are reused only when every part matches a previous run. Cached
+    stats whose channel count no longer matches ``da`` are ignored and recomputed.
 
     Args:
         da: DataArray of shape (time, latitude, longitude, channel).
@@ -119,15 +119,26 @@ def load_or_compute_norm_stats(
     Returns:
         Tuple of (mean, variance), each of shape (n_channels,) as float32.
     """
+    snapshot_id = cache_key_parts[0]
     if cache_dir is None:
+        logger.info("Normalization cache disabled; computing stats for snapshot %s.", snapshot_id)
         return compute_norm_stats(da)
 
     key = hashlib.sha256("\x1f".join(cache_key_parts).encode()).hexdigest()[:16]
     cache_path = pathlib.Path(cache_dir) / f"norm_stats_{key}.npz"
     if cache_path.exists():
         cached = np.load(cache_path)
-        logger.info(f"Loaded normalization stats from cache: {cache_path}")
-        return cached["mean"], cached["variance"]
+        if cached["mean"].shape[0] == da.sizes["channel"]:
+            logger.info("Reusing cached normalization stats for snapshot %s from %s.", snapshot_id, cache_path)
+            return cached["mean"], cached["variance"]
+        logger.warning(
+            "Cached normalization stats for snapshot %s have %d channels but data has %d; recomputing.",
+            snapshot_id,
+            cached["mean"].shape[0],
+            da.sizes["channel"],
+        )
+    else:
+        logger.info("No cached normalization stats for snapshot %s (key %s); computing.", snapshot_id, key)
 
     mean, variance = compute_norm_stats(da)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,5 +146,5 @@ def load_or_compute_norm_stats(
         np.savez(tmp, mean=mean, variance=variance)
         tmp_path = tmp.name
     os.replace(tmp_path, cache_path)
-    logger.info(f"Saved normalization stats to cache: {cache_path}")
+    logger.info("Saved normalization stats for snapshot %s to %s.", snapshot_id, cache_path)
     return mean, variance

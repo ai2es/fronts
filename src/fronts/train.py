@@ -495,7 +495,6 @@ def main():
     t0 = time.time()
     norm_cache_key_parts = (
         run_meta["era5_snapshot_id"],
-        ",".join(str(c) for c in train_era5.channel.values),
         ",".join(str(i) for i in train_indices),
     )
     with dask.config.set(scheduler="threads", num_workers=16):

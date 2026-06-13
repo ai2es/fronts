@@ -265,6 +265,45 @@ class TestRelativeHumidityCompute:
         assert np.all(result.values <= 1.0 + 1e-6)
 
 
+class TestNonPositiveSpecificHumidity:
+    """ERA5 spectral artifacts produce q <= 0; derived variables must stay finite."""
+
+    @pytest.fixture
+    def dry_ds(self, physical_ds: xr.Dataset) -> xr.Dataset:
+        ds = physical_ds.copy(deep=True)
+        q = ds["specific_humidity"].values
+        q[0, 0, 0, 0] = 0.0
+        q[0, 0, 0, 1] = -1e-7
+        q[0, 0, 0, 2] = 1e-12
+        return ds
+
+    @pytest.mark.parametrize(
+        "variable",
+        ["dewpoint_temperature", "equivalent_potential_temperature", "relative_humidity", "virtual_temperature"],
+    )
+    def test_finite_for_zero_and_negative_humidity(self, dry_ds: xr.Dataset, variable: str):
+        result = derived.DERIVED_VARIABLE_REGISTRY[variable].compute(
+            dry_ds["temperature"], dry_ds["specific_humidity"]
+        )
+        assert np.isfinite(result.values).all()
+
+    def test_clamp_leaves_normal_values_unchanged(self, physical_ds: xr.Dataset):
+        q = physical_ds["specific_humidity"]
+        np.testing.assert_array_equal(derived._clamped_specific_humidity(q).values, q.values)
+
+    def test_dewpoint_is_very_cold_for_clamped_humidity(self, dry_ds: xr.Dataset):
+        result = derived.DERIVED_VARIABLE_REGISTRY["dewpoint_temperature"].compute(
+            dry_ds["temperature"], dry_ds["specific_humidity"]
+        )
+        assert result.values[0, 0, 0, 0] < 200.0
+
+    def test_relative_humidity_non_negative(self, dry_ds: xr.Dataset):
+        result = derived.DERIVED_VARIABLE_REGISTRY["relative_humidity"].compute(
+            dry_ds["temperature"], dry_ds["specific_humidity"]
+        )
+        assert (result.values >= 0).all()
+
+
 class TestGenerateEra5DownloadData:
     def test_excludes_derived_variable_names(self, arco_zarr: pathlib.Path):
         cfg = config.ERA5DataLoaderConfig(
