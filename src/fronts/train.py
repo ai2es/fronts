@@ -567,13 +567,14 @@ def main():
         load_chunk_steps=cfg.data_config.load_chunk_steps,
         prefetch_chunks=cfg.data_config.prefetch_chunks,
     )
-    logger.info("Pre-loading validation set into RAM...")
+    logger.info("Building streaming validation dataset (chunked, prefetched)...")
     val_ds, val_steps = make_batch_dataset(
         val_era5,
         val_front,
         n_out,
         cfg.data_config.batch_size,
-        preload=True,
+        load_chunk_steps=cfg.data_config.load_chunk_steps,
+        prefetch_chunks=cfg.data_config.prefetch_chunks,
     )
     if cfg.data_config.steps_per_epoch is not None:
         train_steps = cfg.data_config.steps_per_epoch
