@@ -5,11 +5,12 @@ One-off remediation. The original store mixed two incompatible chunkings
 stored four derived variables as float64. When ``era5_to_dataarray`` stacks the
 variables together, dask cannot find a common chunking and falls back to a
 pathological rechunk, yielding ~17 MB/s reads. It was also missing the
-``land_sea_mask`` channel the training config expects (77 channels instead of 78).
+``land_sea_mask`` channel the training config expects (77 channels instead of
+78), because the mask is stored as a coordinate rather than a data variable.
 
 This reads every variable from the existing store, casts data variables to
-float32, sources the static ``land_sea_mask`` field from the original ERA5
-source with the same spatial subsetting, applies one uniform
+float32, promotes the static ``land_sea_mask`` coordinate to a data variable so
+it becomes the 78th channel, applies one uniform
 ``(time, level, latitude, longitude)`` chunking, and overwrites the era5 group
 in place in a single commit (dask streams the chunks, so peak memory stays
 bounded). Icechunk versioning keeps the previous data reachable in the prior
@@ -34,50 +35,45 @@ import numpy as np
 import xarray as xr
 
 from fronts import utils
-from fronts.data import config, generate
+from fronts.data import config
 
 logger = logging.getLogger(__name__)
 
+_MASK_NAME = "land_sea_mask"
 
-def load_land_sea_mask(era5_config: config.ERA5DataLoaderConfig, template: xr.Dataset) -> xr.DataArray:
-    """Return the static land_sea_mask as a float32 (latitude, longitude) field.
 
-    Sources the mask from the configured ERA5 source with the same spatial
-    subsetting used to build the store, collapses any time/level dims to a
-    single static field, and aligns its spatial coordinates to ``template``.
+def extract_land_sea_mask(ds: xr.Dataset) -> xr.DataArray:
+    """Return the store's land_sea_mask coordinate as a static float32 field.
+
+    The mask is stored as a coordinate rather than a data variable, so it is
+    absent from the channel stack. This reads it from the store, collapses any
+    time/level dims to a single static field, and returns it as a data variable.
 
     Args:
-        era5_config: Generation config providing the ERA5 source and bounding box.
-        template: Existing store dataset whose latitude/longitude the mask aligns to.
+        ds: Existing store dataset containing a ``land_sea_mask`` coordinate.
 
     Returns:
-        DataArray of dims (latitude, longitude), dtype float32.
+        DataArray named ``land_sea_mask`` with dims (latitude, longitude), float32.
+
+    Raises:
+        KeyError: If the store has no ``land_sea_mask`` coordinate or variable.
     """
-    mask_config = dataclasses.replace(era5_config, variables=["land_sea_mask"])
-    ds = generate.generate_era5_download_data(mask_config)
-    lsm = ds["land_sea_mask"]
+    if _MASK_NAME not in ds.variables:
+        raise KeyError(f"'{_MASK_NAME}' not found in the store's variables or coordinates: {list(ds.variables)}")
+    lsm = ds[_MASK_NAME]
     if "time" in lsm.dims:
         lsm = lsm.isel(time=0, drop=True)
     if "level" in lsm.dims:
         lsm = lsm.isel(level=0, drop=True)
-    lsm = lsm.reindex(
-        latitude=template["latitude"],
-        longitude=template["longitude"],
-        method="nearest",
-        tolerance=1e-4,
-    )
-    if lsm.isnull().any().compute().item():
-        raise ValueError("land_sea_mask has NaNs after aligning to the store grid; check coordinate overlap.")
     return lsm.astype(np.float32)
 
 
 def rechunk_store(
     storage_config: config.IcechunkStorageConfig,
-    era5_config: config.ERA5DataLoaderConfig,
     time_chunk: int,
     num_workers: int,
 ) -> None:
-    """Cast the store's variables to float32, add land_sea_mask, and overwrite in place.
+    """Cast the store's variables to float32, promote land_sea_mask, and overwrite in place.
 
     Reads the era5 group from a snapshot-pinned read-only session while writing
     the rechunked group through a separate writable session, so source chunks
@@ -85,7 +81,6 @@ def rechunk_store(
 
     Args:
         storage_config: Storage config for the store to read from and overwrite.
-        era5_config: Generation config used to source land_sea_mask.
         time_chunk: Chunk size along the time dimension; level/lat/lon are whole.
         num_workers: Dask threads for the streaming write.
     """
@@ -97,9 +92,11 @@ def rechunk_store(
     )
     logger.info("Source store: %d variables, sizes %s", len(ds.data_vars), dict(ds.sizes))
 
+    mask = extract_land_sea_mask(ds)
     cast = {name: ds[name].astype(np.float32) for name in ds.data_vars}
-    out = xr.Dataset(cast, coords=ds.coords)
-    out["land_sea_mask"] = load_land_sea_mask(era5_config, ds)
+    coords = {name: ds.coords[name] for name in ds.coords if name != _MASK_NAME}
+    out = xr.Dataset(cast, coords=coords)
+    out[_MASK_NAME] = mask
 
     chunking = {
         "time": time_chunk,
@@ -133,9 +130,6 @@ def main():
     parser.add_argument("--num-workers", type=int, default=16, help="Dask threads for the write (default: 16)")
     args = parser.parse_args()
 
-    era5_config = utils.open_config_yaml_as_dataclass(
-        args.config, config.ERA5DataLoaderConfig, config_key="era5_config"
-    )
     storage_config = utils.open_config_yaml_as_dataclass(
         args.config, config.IcechunkStorageConfig, config_key="icechunk_storage_config"
     )
@@ -144,7 +138,7 @@ def main():
         commit_message="Rechunk ERA5 to uniform float32 (time, level, lat, lon) with land_sea_mask",
     )
 
-    rechunk_store(storage_config, era5_config, args.time_chunk, args.num_workers)
+    rechunk_store(storage_config, args.time_chunk, args.num_workers)
     logger.info("Done. Verify throughput with scripts/diagnose_read_throughput.py before training.")
 
 
