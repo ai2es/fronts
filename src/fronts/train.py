@@ -27,6 +27,7 @@ import tensorflow as tf
 import wandb
 import xarray as xr
 import zarr
+from dask.diagnostics import ProgressBar
 
 from fronts import model, utils
 from fronts.data import config, inputs, targets
@@ -34,6 +35,11 @@ from fronts.layers import losses, metrics
 from fronts.utils import apply_time_resolution
 
 logger = logging.getLogger(__name__)
+
+
+def _rss_gb() -> float:
+    """Return the current process resident set size in gigabytes."""
+    return psutil.Process().memory_info().rss / 1e9
 
 
 def make_batch_dataset(
@@ -125,11 +131,24 @@ def make_batch_dataset(
     total = inputs.sizes["time"]
 
     if preload:
-        logger.info("Pre-loading %d timesteps into RAM...", total)
+        inputs_gb = inputs.nbytes / 1e9
+        targets_gb = targets.nbytes / 1e9
+        logger.info(
+            "Pre-loading %d timesteps into RAM (inputs %.1f GB + targets %.1f GB)...",
+            total,
+            inputs_gb,
+            targets_gb,
+        )
         with dask.config.set(scheduler="threads", num_workers=16):
-            inputs = inputs.compute()
-            targets = targets.compute()
-        logger.info("Pre-load complete.")
+            t0 = time.time()
+            with ProgressBar():
+                inputs = inputs.compute()
+            logger.info("Pre-loaded inputs (%.1f GB) in %.1f s.", inputs_gb, time.time() - t0)
+            t0 = time.time()
+            with ProgressBar():
+                targets = targets.compute()
+            logger.info("Pre-loaded targets (%.1f GB) in %.1f s.", targets_gb, time.time() - t0)
+        logger.info("Pre-load complete (%.1f GB resident, process RSS %.1f GB).", inputs_gb + targets_gb, _rss_gb())
 
     effective_chunk_steps = load_chunk_steps if load_chunk_steps is not None else epoch_steps
     chunk_size = (effective_chunk_steps * batch_size) if effective_chunk_steps is not None else total
@@ -503,20 +522,11 @@ def main():
         )
     logger.info(f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)")
 
-    with dask.config.set(scheduler="threads", num_workers=16):
-        val_channel_means = val_era5.mean(dim=["latitude", "longitude"], skipna=False).compute().values
-    nan_timesteps = np.asarray(np.isnan(val_channel_means).any(axis=1))
-    if nan_timesteps.any():
-        n_total = val_era5.sizes["time"]
-        logger.warning("Dropping %d/%d val timesteps with NaN ERA5 values", int(nan_timesteps.sum()), n_total)
-        keep = ~nan_timesteps
-        val_era5 = val_era5.isel(time=keep)
-        val_front = val_front.isel(time=keep)
-
     _set_seed(cfg.seed)
 
     strategy = _get_distribution_strategy()
 
+    logger.info("Building and compiling model...")
     with strategy.scope():
         unet = model.UNet3Plus(
             input_shape=(None, None, cfg.model_config.n_channels),
@@ -536,6 +546,7 @@ def main():
             normalization_variance=norm_variance,
         ).build()
         n_out = _compile(unet, cfg.learning_rate, cfg.data_config.class_weights)
+    logger.info("Model built and compiled.")
 
     unet.summary()
 
@@ -571,6 +582,13 @@ def main():
 
     wandb_project = cfg.wandb_config.project_name if cfg.wandb_config is not None else None
     run_name = cfg.wandb_config.run_name if cfg.wandb_config is not None else None
+    logger.info(
+        "Starting training: %d epochs, %d train steps/epoch, %d val steps/epoch "
+        "(first step traces the tf.function graph and may take a minute)...",
+        cfg.epochs,
+        train_steps,
+        val_steps,
+    )
     history, elapsed = _run(
         unet,
         train_ds,
