@@ -196,7 +196,6 @@ def make_batch_dataset(
                 ).start()
             yield from _iter_chunk(chunk_x, chunk_y)
             del chunk_x, chunk_y
-            gc.collect()
 
     output_signature = _make_output_signature(n_lat, n_lon, n_channels, n_classes, n_supervision_outputs)
 
@@ -382,8 +381,11 @@ def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[fl
     n_out = len(model.outputs)
     loss_fn = losses.fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)
     hss_fn = metrics.heidke_skill_score(class_weights=class_weights)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    if tf.keras.mixed_precision.global_policy().name == "mixed_float16":
+        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+        optimizer=optimizer,
         loss=[loss_fn] * n_out,
         metrics=[[hss_fn]] * n_out,
     )
@@ -569,6 +571,9 @@ def main():
 
     _set_seed(cfg.seed)
 
+    tf.keras.mixed_precision.set_global_policy("mixed_float16")
+    logger.info("Mixed precision policy: %s", tf.keras.mixed_precision.global_policy().name)
+
     strategy = _get_distribution_strategy()
 
     logger.info("Building and compiling model...")
@@ -590,6 +595,12 @@ def main():
             normalization_mean=norm_mean,
             normalization_variance=norm_variance,
         ).build()
+        if tf.keras.mixed_precision.global_policy().name == "mixed_float16":
+            float32_outputs = [
+                tf.keras.layers.Activation("linear", dtype="float32", name=f"output_{i}_float32")(out)
+                for i, out in enumerate(unet.outputs)
+            ]
+            unet = tf.keras.Model(unet.inputs, float32_outputs, name=unet.name)
         n_out = _compile(unet, cfg.learning_rate, cfg.data_config.class_weights)
     logger.info("Model built and compiled.")
 
