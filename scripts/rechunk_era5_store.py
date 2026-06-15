@@ -19,7 +19,14 @@ snapshot, so the in-place overwrite is reversible.
 Usage (on the machine holding the store):
     pixi run python scripts/rechunk_era5_store.py \
         --config configs/generate_icechunk.yaml \
-        --time-chunk 32
+        --time-chunk 1
+
+Add ``--slurm`` to drive the write from a dask-jobqueue SLURM cluster (uses the
+``slurm_config`` block in the YAML) and expose a Dask dashboard:
+    pixi run python scripts/rechunk_era5_store.py \
+        --config configs/generate_icechunk.yaml \
+        --time-chunk 1 \
+        --slurm
 
 Afterwards, verify layout with scripts/diagnose_read_throughput.py.
 """
@@ -36,6 +43,7 @@ import xarray as xr
 
 from fronts import utils
 from fronts.data import config
+from fronts.data.generate import create_dask_client
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +80,7 @@ def rechunk_store(
     storage_config: config.IcechunkStorageConfig,
     time_chunk: int,
     num_workers: int,
+    distributed: bool = False,
 ) -> None:
     """Cast the store's variables to float32, promote land_sea_mask, and overwrite in place.
 
@@ -82,7 +91,12 @@ def rechunk_store(
     Args:
         storage_config: Storage config for the store to read from and overwrite.
         time_chunk: Chunk size along the time dimension; level/lat/lon are whole.
-        num_workers: Dask threads for the streaming write.
+        num_workers: Dask threads for the local streaming write. Ignored when
+            ``distributed`` is True, where the active distributed client drives
+            the write instead.
+        distributed: If True, write under the active dask.distributed client
+            (a SLURM cluster) rather than the local threaded scheduler. The
+            distributed session fork/merge is handled inside ``to_icechunk``.
     """
     ds = utils.open_readonly_icechunk_store(
         storage_config.store_path,
@@ -115,8 +129,11 @@ def rechunk_store(
     storage = ic.local_filesystem_storage(storage_config.store_path)
     repo = ic.Repository.open(storage)
     session = repo.writable_session(storage_config.branch_name)
-    with dask.config.set(scheduler="threads", num_workers=num_workers):
+    if distributed:
         icechunk.xarray.to_icechunk(out, session, group=storage_config.group_name, mode="w", safe_chunks=False)
+    else:
+        with dask.config.set(scheduler="threads", num_workers=num_workers):
+            icechunk.xarray.to_icechunk(out, session, group=storage_config.group_name, mode="w", safe_chunks=False)
     snapshot_id = session.commit(storage_config.commit_message)
     logger.info("Committed rechunked store in place as snapshot %s", snapshot_id)
 
@@ -127,7 +144,12 @@ def main():
     parser = argparse.ArgumentParser(description="Rechunk the ERA5 icechunk store to uniform float32 layout")
     parser.add_argument("--config", required=True, help="Path to the generation YAML config")
     parser.add_argument("--time-chunk", type=int, default=32, help="Chunk size along time (default: 32)")
-    parser.add_argument("--num-workers", type=int, default=16, help="Dask threads for the write (default: 16)")
+    parser.add_argument("--num-workers", type=int, default=16, help="Dask threads for the local write (default: 16)")
+    parser.add_argument(
+        "--slurm",
+        action="store_true",
+        help="Launch a dask-jobqueue SLURM cluster (with dashboard) to drive the write",
+    )
     args = parser.parse_args()
 
     storage_config = utils.open_config_yaml_as_dataclass(
@@ -138,7 +160,18 @@ def main():
         commit_message="Rechunk ERA5 to uniform float32 (time, level, lat, lon) with land_sea_mask",
     )
 
-    rechunk_store(storage_config, args.time_chunk, args.num_workers)
+    client = None
+    if args.slurm:
+        slurm_config = utils.open_config_yaml_as_dataclass(args.config, config.SlurmConfig, config_key="slurm_config")
+        logger.info(f"SLURM config loaded: {slurm_config}")
+        client = create_dask_client(slurm_config)
+        logger.info(f"Dask client started: {client.dashboard_link}")
+
+    try:
+        rechunk_store(storage_config, args.time_chunk, args.num_workers, distributed=args.slurm)
+    finally:
+        if client is not None:
+            client.close()
     logger.info("Done. Verify throughput with scripts/diagnose_read_throughput.py before training.")
 
 

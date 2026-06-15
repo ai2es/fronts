@@ -38,9 +38,9 @@ icechunk_storage_config:
 
 slurm_config:
   queue: "ai2es"
-  cores: 64
-  processes: 16
-  memory: "192GB"
+  cores: 128
+  processes: 32
+  memory: "288GB"
   walltime: "72:00:00"
   stdout: "/ourdisk/hpc/ai2es/tman/logs/generate_%j_out.txt"
   stderr: "/ourdisk/hpc/ai2es/tman/logs/generate_%j_err.txt"
