@@ -1,8 +1,11 @@
+import itertools
+
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
+from fronts.data.inputs import LazyTimeSource, native_positions
 from fronts.data.targets import FRONT_CLASS_MAP, filter_timesteps
 from fronts.utils import apply_time_resolution
 
@@ -119,6 +122,57 @@ class TestApplyTimeResolution:
         result = apply_time_resolution(times, "6h")
         assert len(result) == 8
         assert all(h in (0, 6, 12, 18) for h in pd.DatetimeIndex(result).hour)
+
+
+class TestNativePositions:
+    def test_identity(self):
+        times = np.arange("2020-01-01", "2020-01-06", dtype="datetime64[D]")
+        positions = native_positions(times, times)
+        np.testing.assert_array_equal(positions, np.arange(5))
+
+    def test_subset_and_order_preserved(self):
+        times = np.arange("2020-01-01", "2020-01-06", dtype="datetime64[D]")
+        wanted = times[[3, 1]]
+        positions = native_positions(times, wanted)
+        np.testing.assert_array_equal(positions, [3, 1])
+
+    def test_duplicates_keep_first(self):
+        times = np.array(["2020-01-01", "2020-01-01", "2020-01-02"], dtype="datetime64[D]")
+        positions = native_positions(times, np.array(["2020-01-02", "2020-01-01"], dtype="datetime64[D]"))
+        np.testing.assert_array_equal(positions, [2, 0])
+
+    def test_missing_time_raises(self):
+        times = np.arange("2020-01-01", "2020-01-04", dtype="datetime64[D]")
+        with pytest.raises(ValueError, match="absent"):
+            native_positions(times, np.array(["2020-06-01"], dtype="datetime64[D]"))
+
+
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestMakeBatchDatasetLazyTimeSource:
+    def test_positions_select_and_order_samples(self, era5_da, front_da):
+        # positions remap logical sample 0->native 4, 1->native 2; the loader must
+        # yield exactly those native timesteps in that order.
+        positions = np.array([4, 2])
+        ds, _ = make_batch_dataset(
+            LazyTimeSource(era5_da, positions),
+            LazyTimeSource(front_da, positions),
+            1,
+            batch_size=1,
+        )
+        loaded = [x.numpy()[0] for x, _ in itertools.islice(ds, 2)]
+        np.testing.assert_allclose(loaded[0], era5_da.isel(time=4).values)
+        np.testing.assert_allclose(loaded[1], era5_da.isel(time=2).values)
+
+    def test_multi_source_concat_on_channel(self, era5_da, front_da):
+        positions = np.arange(era5_da.sizes["time"])
+        ds, _ = make_batch_dataset(
+            [LazyTimeSource(era5_da, positions), LazyTimeSource(era5_da, positions)],
+            LazyTimeSource(front_da, positions),
+            1,
+            batch_size=1,
+        )
+        x_batch, _ = next(iter(ds))
+        assert x_batch.shape == (1, N_LAT, N_LON, 2 * N_CHANNELS)
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")

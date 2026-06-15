@@ -84,7 +84,7 @@ def main():
     model_config = cfg.model_config
     callbacks_config = cfg.callbacks_config
 
-    era5_da, front_da = load_training_data(data_config)
+    era5_da, front_da, _input_sources, _target_source = load_training_data(data_config)
 
     train_era5 = era5_da.isel(time=slice(None, data_config.train_split))
     val_era5 = era5_da.isel(time=slice(data_config.train_split, None))
