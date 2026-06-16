@@ -27,6 +27,8 @@ data_config:
   test_split: 0.1
   steps_per_epoch: 30
   load_chunk_steps: 5
+  prefetch_chunks: 2
+  load_num_workers: 4
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly

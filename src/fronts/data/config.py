@@ -137,6 +137,9 @@ class DataConfig:
             prefetch. None falls back to steps_per_epoch.
         prefetch_chunks: Number of chunks to keep loaded in RAM ahead of the batch
             generator.
+        load_num_workers: Dask threads per background chunk load. Peak host RAM
+            scales with ``prefetch_chunks * load_num_workers``; keep small to
+            bound memory.
         class_weights: Per-class loss weights. None means equal weighting.
         front_dilation: Number of binary dilation iterations applied to each non-background
             front class. 0 means no dilation.
@@ -163,6 +166,7 @@ class DataConfig:
     steps_per_epoch: int | None = None
     load_chunk_steps: int | None = None
     prefetch_chunks: int = 2
+    load_num_workers: int = 4
     class_weights: list[float] | None = None
     front_dilation: int = 0
     time_resolution: str | None = None

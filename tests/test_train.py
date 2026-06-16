@@ -163,6 +163,20 @@ class TestMakeBatchDatasetLazyTimeSource:
         np.testing.assert_allclose(loaded[0], era5_da.isel(time=4).values)
         np.testing.assert_allclose(loaded[1], era5_da.isel(time=2).values)
 
+    def test_loader_failure_propagates_instead_of_hanging(self, era5_da, front_da):
+        # A position past the array's time length makes the background loader's
+        # isel(...).compute() raise. The consumer must surface that exception
+        # rather than block forever on an empty prefetch queue.
+        bad_positions = np.array([era5_da.sizes["time"] + 100])
+        ds, _ = make_batch_dataset(
+            LazyTimeSource(era5_da, bad_positions),
+            LazyTimeSource(front_da, np.array([0])),
+            1,
+            batch_size=1,
+        )
+        with pytest.raises(Exception):
+            next(iter(ds))
+
     def test_multi_source_concat_on_channel(self, era5_da, front_da):
         positions = np.arange(era5_da.sizes["time"])
         ds, _ = make_batch_dataset(

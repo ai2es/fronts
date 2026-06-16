@@ -143,7 +143,17 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Rechunk the ERA5 icechunk store to uniform float32 layout")
     parser.add_argument("--config", required=True, help="Path to the generation YAML config")
-    parser.add_argument("--time-chunk", type=int, default=32, help="Chunk size along time (default: 32)")
+    parser.add_argument(
+        "--time-chunk",
+        type=int,
+        default=1,
+        help=(
+            "Chunk size along time (default: 1). Training gathers scattered "
+            "timesteps, so a large time chunk forces dask to copy the whole "
+            "chunk per touched timestep; keep this at 1 unless reads are "
+            "dominated by per-chunk overhead."
+        ),
+    )
     parser.add_argument("--num-workers", type=int, default=16, help="Dask threads for the local write (default: 16)")
     parser.add_argument(
         "--slurm",

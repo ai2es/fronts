@@ -52,6 +52,7 @@ def make_batch_dataset(
     epoch_steps: int | None = None,
     load_chunk_steps: int | None = None,
     prefetch_chunks: int = 2,
+    load_num_workers: int = 4,
 ) -> Any:
     """Create a batched tf.data.Dataset from ERA5 and fronts DataArrays.
 
@@ -98,6 +99,12 @@ def make_batch_dataset(
             the GPU trains on chunk N, so the GPU never waits for a new chunk
             as long as one chunk's load time is less than one chunk's train time.
             Increase if disk I/O is slower than GPU throughput.
+        load_num_workers: Dask threads per background chunk load. Peak host RAM
+            scales with ``prefetch_chunks * load_num_workers`` because each
+            in-flight load thread can hold several large store-chunk copies at
+            once; keep this small to bound memory. Distinct from the 16-worker
+            scheduler used for one-shot startup loads, which never overlap with
+            training.
 
     Returns:
         Tuple of (tf.data.Dataset, steps_per_epoch).
@@ -121,10 +128,13 @@ def make_batch_dataset(
         return pieces[0] if len(pieces) == 1 else xr.concat(pieces, dim="channel")
 
     def _load(local_idxs: np.ndarray) -> None:
-        with dask.config.set(scheduler="threads", num_workers=16):
-            cx = _select_inputs(local_idxs)
-            cy = target_source.array.isel(time=target_source.positions[local_idxs]).compute()
-        prefetch_q.put((cx, cy))
+        try:
+            with dask.config.set(scheduler="threads", num_workers=load_num_workers):
+                cx = _select_inputs(local_idxs)
+                cy = target_source.array.isel(time=target_source.positions[local_idxs]).compute()
+            prefetch_q.put((cx, cy))
+        except BaseException as exc:  # noqa: BLE001  surface loader failures to the consumer
+            prefetch_q.put(exc)
 
     def _iter_chunk(chunk_x: xr.DataArray, chunk_y: xr.DataArray):
         for pos in range(chunk_x.sizes["time"]):
@@ -185,7 +195,10 @@ def make_batch_dataset(
             ).start()
 
         for i, _chunk_start in enumerate(chunk_starts):
-            chunk_x, chunk_y = prefetch_q.get()
+            item = prefetch_q.get()
+            if isinstance(item, BaseException):
+                raise item
+            chunk_x, chunk_y = item
             next_k = i + prefetch_chunks
             if next_k < len(chunk_starts):
                 nxt = chunk_starts[next_k]
@@ -627,6 +640,7 @@ def main():
         epoch_steps=cfg.data_config.steps_per_epoch,
         load_chunk_steps=cfg.data_config.load_chunk_steps,
         prefetch_chunks=cfg.data_config.prefetch_chunks,
+        load_num_workers=cfg.data_config.load_num_workers,
     )
     logger.info("Building streaming validation dataset (chunked, prefetched)...")
     val_ds, val_steps = make_batch_dataset(
@@ -636,6 +650,7 @@ def main():
         cfg.data_config.batch_size,
         load_chunk_steps=cfg.data_config.load_chunk_steps,
         prefetch_chunks=cfg.data_config.prefetch_chunks,
+        load_num_workers=cfg.data_config.load_num_workers,
     )
     if cfg.data_config.steps_per_epoch is not None:
         train_steps = cfg.data_config.steps_per_epoch
