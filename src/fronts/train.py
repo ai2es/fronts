@@ -268,7 +268,13 @@ class WandBConfig:
 
 @dataclasses.dataclass
 class CallbacksConfig:
-    """Early-stopping and checkpoint callback configuration."""
+    """Early-stopping and checkpoint callback configuration.
+
+    ``patience`` is treated as a floor: training raises the effective early-stopping
+    patience to at least the number of epochs in one full training pass (see
+    ``utils.epochs_per_full_pass``) so the model sees every training sample before
+    training can stop.
+    """
 
     monitor: str = "val_loss"
     patience: int = 8
@@ -674,6 +680,43 @@ def main():
     if cfg.data_config.steps_per_epoch is not None:
         train_steps = cfg.data_config.steps_per_epoch
 
+    full_pass_epochs = utils.epochs_per_full_pass(len(train_indices), cfg.data_config.batch_size, train_steps)
+    effective_patience = max(cfg.callbacks_config.patience, full_pass_epochs)
+    if effective_patience != cfg.callbacks_config.patience:
+        logger.info(
+            "Raising early-stopping patience %d -> %d so one full training pass (%d epochs of "
+            "%d steps) completes without improvement before stopping.",
+            cfg.callbacks_config.patience,
+            effective_patience,
+            full_pass_epochs,
+            train_steps,
+        )
+    if cfg.epochs < full_pass_epochs:
+        logger.warning(
+            "epochs=%d is fewer than the %d epochs needed for one full training pass; "
+            "the model will not see all training data.",
+            cfg.epochs,
+            full_pass_epochs,
+        )
+
+    expected_val_steps = math.ceil(len(val_indices) / cfg.data_config.batch_size)
+    if val_steps != expected_val_steps:
+        raise ValueError(
+            f"validation_steps={val_steps} does not cover all {len(val_indices)} validation images "
+            f"(expected {expected_val_steps}); validation must see the full set every epoch."
+        )
+    passes_covered = effective_patience / full_pass_epochs if full_pass_epochs else 0.0
+    logger.info(
+        "Epoch = %d images (subset); full training pass every %d epochs; patience %d covers ~%.1f "
+        "passes; validation covers all %d images in %d steps.",
+        train_steps * cfg.data_config.batch_size,
+        full_pass_epochs,
+        effective_patience,
+        passes_covered,
+        len(val_indices),
+        val_steps,
+    )
+
     _show_input_sample("builtin-norm (raw)", train_era5)
 
     wandb_project = cfg.wandb_config.project_name if cfg.wandb_config is not None else None
@@ -693,7 +736,7 @@ def main():
         steps_per_epoch=train_steps,
         validation_steps=val_steps,
         monitor=cfg.callbacks_config.monitor,
-        patience=cfg.callbacks_config.patience,
+        patience=effective_patience,
         model_checkpoint_path=cfg.callbacks_config.model_checkpoint_path,
         wandb_project=wandb_project,
         run_name=run_name,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import subprocess
 from collections import namedtuple
 from typing import Any, TypeVar
@@ -194,6 +195,37 @@ def apply_time_resolution(times: np.ndarray, resolution: str) -> np.ndarray:
     """
     idx = pd.DatetimeIndex(times)
     return times[idx == idx.floor(resolution)]
+
+
+def epochs_per_full_pass(n_samples: int, batch_size: int, steps_per_epoch: int) -> int:
+    """Return how many subset-epochs of ``steps_per_epoch`` batches cover all samples once.
+
+    The batch pipeline repeats and reshuffles indefinitely, so running ``steps_per_epoch``
+    batches per epoch means one full pass over the data spans several epochs. A full pass is
+    ``ceil(n_samples / batch_size)`` batches, completed every
+    ``ceil(ceil(n_samples / batch_size) / steps_per_epoch)`` epochs. Used to floor the
+    early-stopping patience so the model sees every training sample before training can stop.
+
+    Args:
+        n_samples: Number of samples in the dataset.
+        batch_size: Number of samples per batch.
+        steps_per_epoch: Number of batches drawn per epoch.
+
+    Returns:
+        Epochs needed for one full pass, or 0 when ``n_samples`` is 0.
+
+    Raises:
+        ValueError: If ``n_samples`` is negative, or ``batch_size`` or ``steps_per_epoch`` is
+            less than 1.
+    """
+    if n_samples < 0:
+        raise ValueError(f"n_samples must be non-negative, got {n_samples}")
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+    if steps_per_epoch < 1:
+        raise ValueError(f"steps_per_epoch must be >= 1, got {steps_per_epoch}")
+    full_pass_steps = math.ceil(n_samples / batch_size)
+    return math.ceil(full_pass_steps / steps_per_epoch)
 
 
 def open_config_yaml_as_dataclass(

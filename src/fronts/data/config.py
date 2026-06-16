@@ -132,7 +132,10 @@ class DataConfig:
             test_split should sum to 1.
         batch_size: Number of timesteps per training batch.
         steps_per_epoch: Number of batches per epoch passed to model.fit. None lets
-            the dataset size determine it.
+            the dataset size determine it (one full pass per epoch). A smaller value
+            means each epoch covers only a subset, so a full training pass spans more
+            epochs and the effective early-stopping patience is floored accordingly
+            (see ``utils.epochs_per_full_pass``).
         load_chunk_steps: Number of steps' worth of samples to load per background
             prefetch. None falls back to steps_per_epoch.
         prefetch_chunks: Number of chunks to keep loaded in RAM ahead of the batch

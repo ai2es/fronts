@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import xarray as xr
 
 from fronts import utils
@@ -86,3 +87,35 @@ class TestUnwrapLongitude:
         ds = _make_ds(lons)
         result = utils.unwrap_longitude(ds)
         np.testing.assert_array_equal(result["longitude"].values, lons)
+
+
+class TestEpochsPerFullPass:
+    def test_paper_example(self):
+        assert utils.epochs_per_full_pass(35_200, 64, 10) == 55
+
+    def test_steps_exceed_full_pass_returns_one(self):
+        assert utils.epochs_per_full_pass(100, 4, 999) == 1
+
+    def test_full_pass_per_epoch_returns_one(self):
+        assert utils.epochs_per_full_pass(800, 4, 200) == 1
+
+    def test_exact_division(self):
+        assert utils.epochs_per_full_pass(800, 4, 50) == 4
+
+    def test_non_divisible_samples_round_up(self):
+        assert utils.epochs_per_full_pass(101, 4, 5) == 6
+
+    def test_no_samples_returns_zero(self):
+        assert utils.epochs_per_full_pass(0, 4, 10) == 0
+
+    def test_invalid_batch_size_raises(self):
+        with pytest.raises(ValueError):
+            utils.epochs_per_full_pass(100, 0, 10)
+
+    def test_invalid_steps_per_epoch_raises(self):
+        with pytest.raises(ValueError):
+            utils.epochs_per_full_pass(100, 4, 0)
+
+    def test_negative_samples_raises(self):
+        with pytest.raises(ValueError):
+            utils.epochs_per_full_pass(-1, 4, 10)
