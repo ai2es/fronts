@@ -571,7 +571,11 @@ def main():
 
     _set_seed(cfg.seed)
 
-    tf.keras.mixed_precision.set_global_policy("mixed_float16")
+    # mixed_float16 overflowed forward activations to inf/NaN with this model/loss;
+    # keep float32 until the precision is made numerically safe. Switching this back
+    # to "mixed_float16" re-enables the float32 output cast and LossScaleOptimizer
+    # paths below (both gated on the active policy).
+    tf.keras.mixed_precision.set_global_policy("float32")
     logger.info("Mixed precision policy: %s", tf.keras.mixed_precision.global_policy().name)
 
     strategy = _get_distribution_strategy()
