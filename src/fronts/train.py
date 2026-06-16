@@ -154,7 +154,7 @@ def make_batch_dataset(
                 cx = _select_inputs(local_idxs)
                 cy = _gather_time(target_source.array, target_source.positions[local_idxs])
             prefetch_q.put((cx, cy))
-        except BaseException as exc:  # noqa: BLE001  surface loader failures to the consumer
+        except BaseException as exc:
             prefetch_q.put(exc)
 
     def _iter_chunk(chunk_x: xr.DataArray, chunk_y: xr.DataArray):

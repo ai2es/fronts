@@ -189,7 +189,12 @@ class TestMakeBatchDatasetLazyTimeSource:
             1,
             batch_size=1,
         )
-        with pytest.raises(Exception):
+        import tensorflow as tf
+
+        # The loader's IndexError surfaces through tf.data's from_generator as a
+        # wrapped OpError; the point is that it raises rather than deadlocking on
+        # an empty prefetch queue.
+        with pytest.raises(tf.errors.OpError):
             next(iter(ds))
 
     def test_multi_source_concat_on_channel(self, era5_da, front_da):
