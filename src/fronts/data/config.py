@@ -140,6 +140,9 @@ class DataConfig:
         load_num_workers: Dask threads per background chunk load. Peak host RAM
             scales with ``prefetch_chunks * load_num_workers``; keep small to
             bound memory.
+        load_subblock: Maximum timesteps materialized per dask compute when
+            gathering a chunk; caps the size of a single large allocation
+            independently of ``load_chunk_steps``.
         class_weights: Per-class loss weights. None means equal weighting.
         front_dilation: Number of binary dilation iterations applied to each non-background
             front class. 0 means no dilation.
@@ -167,6 +170,7 @@ class DataConfig:
     load_chunk_steps: int | None = None
     prefetch_chunks: int = 2
     load_num_workers: int = 4
+    load_subblock: int = 32
     class_weights: list[float] | None = None
     front_dilation: int = 0
     time_resolution: str | None = None

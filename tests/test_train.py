@@ -163,6 +163,21 @@ class TestMakeBatchDatasetLazyTimeSource:
         np.testing.assert_allclose(loaded[0], era5_da.isel(time=4).values)
         np.testing.assert_allclose(loaded[1], era5_da.isel(time=2).values)
 
+    def test_subblock_gather_preserves_order_and_values(self, era5_da, front_da):
+        # load_subblock smaller than the chunk forces multi-block gathering;
+        # the concatenated result must match a single contiguous selection.
+        positions = np.array([4, 0, 3, 1, 2])
+        ds, _ = make_batch_dataset(
+            LazyTimeSource(era5_da, positions),
+            LazyTimeSource(front_da, positions),
+            1,
+            batch_size=1,
+            load_subblock=2,
+        )
+        loaded = [x.numpy()[0] for x, _ in itertools.islice(ds, len(positions))]
+        for i, native in enumerate(positions):
+            np.testing.assert_allclose(loaded[i], era5_da.isel(time=native).values)
+
     def test_loader_failure_propagates_instead_of_hanging(self, era5_da, front_da):
         # A position past the array's time length makes the background loader's
         # isel(...).compute() raise. The consumer must surface that exception

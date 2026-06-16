@@ -53,6 +53,7 @@ def make_batch_dataset(
     load_chunk_steps: int | None = None,
     prefetch_chunks: int = 2,
     load_num_workers: int = 4,
+    load_subblock: int = 32,
 ) -> Any:
     """Create a batched tf.data.Dataset from ERA5 and fronts DataArrays.
 
@@ -105,6 +106,12 @@ def make_batch_dataset(
             once; keep this small to bound memory. Distinct from the 16-worker
             scheduler used for one-shot startup loads, which never overlap with
             training.
+        load_subblock: Maximum number of timesteps materialized in a single dask
+            ``compute``. A fancy ``isel`` over a whole chunk makes dask's
+            shuffle-based vindex copy the entire gathered block at once (many
+            GiB); gathering in sub-blocks of this size caps each copy. Decoupled
+            from ``load_chunk_steps`` so a large prefetch chunk does not force a
+            large single allocation.
 
     Returns:
         Tuple of (tf.data.Dataset, steps_per_epoch).
@@ -123,15 +130,29 @@ def make_batch_dataset(
             tuple(target_spec for _ in range(n_supervision_outputs)),
         )
 
+    def _gather_time(array: xr.DataArray, native_idxs: np.ndarray) -> xr.DataArray:
+        # Gather scattered timesteps in sub-blocks of at most ``load_subblock``.
+        # A single fancy isel over the whole chunk makes dask's shuffle-based
+        # vindex collapse the gathered time axis into one output block and copy
+        # it whole, which for a full chunk is many GiB; sub-blocking caps each
+        # materialized block at ``load_subblock`` timesteps.
+        if len(native_idxs) <= load_subblock:
+            return array.isel(time=native_idxs).compute()
+        parts = [
+            array.isel(time=native_idxs[start : start + load_subblock]).compute()
+            for start in range(0, len(native_idxs), load_subblock)
+        ]
+        return xr.concat(parts, dim="time")
+
     def _select_inputs(local_idxs: np.ndarray) -> xr.DataArray:
-        pieces = [s.array.isel(time=s.positions[local_idxs]).compute() for s in input_sources]
+        pieces = [_gather_time(s.array, s.positions[local_idxs]) for s in input_sources]
         return pieces[0] if len(pieces) == 1 else xr.concat(pieces, dim="channel")
 
     def _load(local_idxs: np.ndarray) -> None:
         try:
             with dask.config.set(scheduler="threads", num_workers=load_num_workers):
                 cx = _select_inputs(local_idxs)
-                cy = target_source.array.isel(time=target_source.positions[local_idxs]).compute()
+                cy = _gather_time(target_source.array, target_source.positions[local_idxs])
             prefetch_q.put((cx, cy))
         except BaseException as exc:  # noqa: BLE001  surface loader failures to the consumer
             prefetch_q.put(exc)
@@ -623,14 +644,10 @@ def main():
 
     unet.summary()
 
-    if cfg.data_config.front_dilation > 0:
-        logger.info("Pre-computing dilated training targets into RAM...")
-        t0 = time.time()
-        with dask.config.set(scheduler="threads", num_workers=16):
-            train_target_ram = train_target_source.array.isel(time=train_target_source.positions).compute()
-        train_target_source = inputs.LazyTimeSource(train_target_ram, np.arange(train_target_ram.sizes["time"]))
-        logger.info(f"Training targets pre-computed ({time.time() - t0:.1f} s)")
-
+    # Front dilation stays lazy: it is applied per gathered chunk in the
+    # background loader (overlapped with GPU training) rather than materialized
+    # for the whole training set, which would pin ~100+ GiB of dilated targets
+    # in RAM for the entire run.
     train_ds, train_steps = make_batch_dataset(
         train_input_sources,
         train_target_source,
@@ -641,6 +658,7 @@ def main():
         load_chunk_steps=cfg.data_config.load_chunk_steps,
         prefetch_chunks=cfg.data_config.prefetch_chunks,
         load_num_workers=cfg.data_config.load_num_workers,
+        load_subblock=cfg.data_config.load_subblock,
     )
     logger.info("Building streaming validation dataset (chunked, prefetched)...")
     val_ds, val_steps = make_batch_dataset(
@@ -651,6 +669,7 @@ def main():
         load_chunk_steps=cfg.data_config.load_chunk_steps,
         prefetch_chunks=cfg.data_config.prefetch_chunks,
         load_num_workers=cfg.data_config.load_num_workers,
+        load_subblock=cfg.data_config.load_subblock,
     )
     if cfg.data_config.steps_per_epoch is not None:
         train_steps = cfg.data_config.steps_per_epoch
