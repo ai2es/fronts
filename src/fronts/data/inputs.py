@@ -63,7 +63,7 @@ def inputs_ds_to_dataarray(ds: xr.Dataset, variables: list[str]) -> xr.DataArray
 
     if not pieces:
         raise ValueError("No variables requested.")
-    result = pieces[0] if len(pieces) == 1 else xr.concat(pieces, dim="channel")
+    result = pieces[0] if len(pieces) == 1 else xr.concat(pieces, dim="channel", coords="minimal")
     return result.astype(np.float32)
 
 

@@ -229,7 +229,7 @@ class ActivationConfig(BaseConfig[tf.keras.layers.Activation | tf.keras.layers.L
         returned rather than a bare string.
         """
         if self.name in self._BUILTIN_NAMES:
-            return tf.keras.layers.Activation(self.name)
+            return tf.keras.layers.Activation(self.name, **(self.config or {}))
         return super().build()
 
 

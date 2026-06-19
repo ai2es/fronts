@@ -9,7 +9,6 @@ Metrics are logged to Weights & Biases.
 
 import argparse
 import dataclasses
-import gc
 import logging
 import os
 import random
@@ -18,13 +17,12 @@ from typing import Literal
 
 import dask
 import numpy as np
-import psutil
-import pynvml
 import tensorflow as tf
 import wandb
 import xarray as xr
 import zarr
 
+from fronts import callbacks as fronts_callbacks
 from fronts import model, utils
 from fronts.data import datasets, inputs, targets
 from fronts.layers import losses, metrics
@@ -57,27 +55,12 @@ class WandBConfig:
 
 
 @dataclasses.dataclass
-class CallbacksConfig:
-    """Early-stopping and checkpoint callback configuration.
-
-    ``patience`` is treated as a floor: training raises the effective early-stopping
-    patience to at least the number of epochs in one full training pass (see
-    ``utils.epochs_per_full_pass``) so the model sees every training sample before
-    training can stop.
-    """
-
-    monitor: str = "val_loss"
-    patience: int = 8
-    model_checkpoint_path: str | None = None
-
-
-@dataclasses.dataclass
 class TrainConfig:
     """Top-level training configuration assembling all sub-configs."""
 
     data_config: datasets.DatasetConfig
     model_config: model.ModelConfig
-    callbacks_config: CallbacksConfig
+    callbacks_config: fronts_callbacks.CallbacksConfig
     wandb_config: WandBConfig | None
     epochs: int = 50
     seed: int = 42
@@ -87,7 +70,7 @@ class TrainConfig:
 
 def load_data_into_dataloader(
     data_config: datasets.DatasetConfig,
-    split: Literal["train", "val"],
+    split: Literal["train", "val", "test"],
     seed: int = 0,
     shuffle: bool = False,
 ) -> datasets.TrainingDataset:
@@ -105,7 +88,7 @@ def load_data_into_dataloader(
 
     Args:
         data_config: DatasetConfig specifying store paths, branch names, and splits.
-        split: Type of dataset to load ("train", "val").
+        split: Type of dataset to load ("train", "val", "test").
         seed: Integer seed for the RNG used when subsampling timesteps.
         shuffle: If True, reshuffles the sample order at the end of every epoch.
 
@@ -123,10 +106,10 @@ def load_data_into_dataloader(
             chunks=None,
         )
 
-    logger.info("Loading inputs...")
+    logger.info("Loading %s inputs...", split)
     inputs_ds = _open(data_config.inputs_icechunk_config)
 
-    logger.info("Loading targets...")
+    logger.info("Loading %s targets...", split)
     targets_da = _open(data_config.targets_icechunk_config)["identifier"]
 
     # The time indexes aren't identical between the two datasets
@@ -134,7 +117,7 @@ def load_data_into_dataloader(
 
     # Subset to the time resolution; defaults to 6 hourly to match full USAD domain fronts data frequency
     common_times = apply_time_resolution(common_times, data_config.time_resolution)
-    logger.info(f"After time_resolution={data_config.time_resolution!r} filter: {len(common_times)} steps")
+    logger.info("After time_resolution=%s filter: %d steps", data_config.time_resolution, len(common_times))
 
     # Set up rng for filtering timesteps to drop ~50% of cases without all fronts in the domain
     rng = np.random.default_rng(seed)
@@ -145,14 +128,11 @@ def load_data_into_dataloader(
     targets_da_matched = targets_da.sel(time=common_times)
 
     # Get years for splitting data
-    train_mask, val_mask, _ = utils.split_by_year(
+    train_mask, val_mask, test_mask = utils.split_by_year(
         times=inputs_ds_matched.time.values, test_years=data_config.test_years, val_years=data_config.val_years
     )
-    if split == "train":
-        # Get indices based upon years selected in config
-        split_indices = sorted(np.where(train_mask)[0].tolist())
-    elif split == "val":
-        split_indices = sorted(np.where(val_mask)[0].tolist())
+    split_mask = {"train": train_mask, "val": val_mask, "test": test_mask}[split]
+    split_indices = sorted(np.where(split_mask)[0].tolist())
     inputs_ds = inputs_ds_matched.isel(time=split_indices)
     targets_da = targets_da_matched.isel(time=split_indices)
 
@@ -199,32 +179,6 @@ def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[fl
     return n_out
 
 
-class _GcCallback(tf.keras.callbacks.Callback):
-    def on_train_begin(self, logs=None):
-        pynvml.nvmlInit()
-
-    def on_train_end(self, logs=None):
-        pynvml.nvmlShutdown()
-
-    def on_epoch_end(self, epoch, logs=None):
-        gc.collect()
-        proc = psutil.Process()
-        ram_used_gib = proc.memory_info().rss / 2**30
-        ram_total_gib = psutil.virtual_memory().total / 2**30
-        logger.info("RAM: %.1f%% (%.1f / %.1f GiB)", 100 * ram_used_gib / ram_total_gib, ram_used_gib, ram_total_gib)
-        n_gpus = pynvml.nvmlDeviceGetCount()
-        for i in range(n_gpus):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            logger.info(
-                "GPU %d VRAM: %.1f%% (%.1f / %.1f GiB)",
-                i,
-                100 * mem.used / mem.total,
-                mem.used / 2**30,
-                mem.total / 2**30,
-            )
-
-
 def _run(
     model: tf.keras.Model,
     train_ds,
@@ -238,6 +192,7 @@ def _run(
     steps_per_epoch: int | None = None,
     validation_steps: int | None = None,
     run_config: dict | None = None,
+    extra_callbacks: list | None = None,
 ) -> tuple:
     if wandb_project:
         wandb.init(
@@ -251,8 +206,13 @@ def _run(
     ckpt_cls = wandb.keras.WandbModelCheckpoint if wandb_project else tf.keras.callbacks.ModelCheckpoint
     callbacks = [
         tf.keras.callbacks.EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True),
-        _GcCallback(),
+        fronts_callbacks.GcCallback(),
+        # Must run before WandbMetricsLogger: it mutates the shared `logs` dict that
+        # WandbMetricsLogger reads, collapsing per-deep-supervision-output keys into
+        # single aggregate hss/val_hss (and stripping the per-output loss keys).
+        fronts_callbacks.MetricsConsolidationCallback(),
     ]
+    callbacks.extend(extra_callbacks or [])
     if wandb_project:
         callbacks.append(wandb.keras.WandbMetricsLogger(log_freq="epoch"))
     if model_checkpoint_path:
@@ -281,6 +241,51 @@ def _run(
     if wandb_project:
         wandb.finish()
     return history, elapsed
+
+
+def _build_test_visualization_callback(
+    data_config: datasets.DatasetConfig,
+    callbacks_config: fronts_callbacks.CallbacksConfig,
+    seed: int,
+) -> fronts_callbacks.TestVisualizationCallback:
+    """Load the sequestered test split and build the periodic W&B visualization callback.
+
+    The test split is loaded read-only here purely for visualization: one active
+    (front-containing) day for the prediction map, plus a bounded random subsample for
+    the periodic performance diagram. Neither is used for fitting or model selection.
+
+    Args:
+        data_config: DatasetConfig specifying store paths and the test_years split.
+        callbacks_config: Provides test_viz_sample_size and every_n_epochs.
+        seed: Seed for the subsample RNG.
+
+    Returns:
+        A configured TestVisualizationCallback.
+    """
+    assert callbacks_config.test_viz_every_n_epochs is not None
+    logger.info("Loading test split for periodic visualization...")
+    test_dataset = load_data_into_dataloader(data_config, split="test", seed=seed)
+
+    active_idx = fronts_callbacks.select_active_test_timestep(test_dataset.target_da)
+    active_x, active_y = test_dataset.get_at_indices(np.array([active_idx]))
+    active_label = str(test_dataset.input_ds.time.values[active_idx])
+
+    subsample_idxs = fronts_callbacks.select_test_subsample(
+        test_dataset.n_samples, callbacks_config.test_viz_sample_size, seed
+    )
+    subsample_x, subsample_y = test_dataset.get_at_indices(subsample_idxs)
+
+    return fronts_callbacks.TestVisualizationCallback(
+        active_day_x=active_x[0],
+        active_day_y=active_y[0],
+        active_day_label=active_label,
+        subsample_x=subsample_x,
+        subsample_y=subsample_y,
+        lats=test_dataset.input_ds["latitude"].values,
+        lons=test_dataset.input_ds["longitude"].values,
+        front_types=list(fronts_callbacks.FRONT_TYPE_CLASS_INDEX),
+        every_n_epochs=callbacks_config.test_viz_every_n_epochs,
+    )
 
 
 def _collect_run_metadata(data_config: datasets.DatasetConfig) -> dict:
@@ -442,6 +447,11 @@ def main():
 
     wandb_project = cfg.wandb_config.project_name if cfg.wandb_config is not None else None
     run_name = cfg.wandb_config.run_name if cfg.wandb_config is not None else None
+
+    extra_callbacks = []
+    if wandb_project and cfg.callbacks_config.test_viz_every_n_epochs:
+        extra_callbacks.append(_build_test_visualization_callback(cfg.data_config, cfg.callbacks_config, cfg.seed))
+
     logger.info(
         "Starting training: %d epochs, %d train steps/epoch, %d val steps/epoch "
         "(first step traces the tf.function graph and may take a minute)...",
@@ -462,6 +472,7 @@ def main():
         wandb_project=wandb_project,
         run_name=run_name,
         run_config=run_meta,
+        extra_callbacks=extra_callbacks,
     )
 
     best_val = min(history.history.get("val_loss", [float("nan")]))

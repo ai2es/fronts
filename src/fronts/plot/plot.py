@@ -330,6 +330,255 @@ def _load_truth(fronts_ds: xr.Dataset, init_time: np.datetime64) -> xr.DataArray
     return targets.remap_fronts(fronts_ds["identifier"].sel(time=init_time))
 
 
+def _plot_front_probability_contours(
+    fig: Any,
+    ax: Any,
+    probs_masked: xr.Dataset,
+    front_types: list[str],
+    levels: np.ndarray,
+    prob_mask: float,
+    prob_int: float,
+    filled_contours: bool,
+    open_contours: bool,
+) -> None:
+    """Draw filled/open per-front-type probability contours plus a shared legend colorbar.
+
+    Args:
+        fig: Figure to attach the per-front-type colorbar axes to.
+        ax: Cartopy axes to draw the contours on.
+        probs_masked: Per-front-type probability Dataset, dims (latitude, longitude).
+        front_types: Front type keys to plot (e.g. ["CF", "WF"]).
+        levels: Contour levels, e.g. ``np.arange(0, 1 + prob_int, prob_int)``.
+        prob_mask: Probabilities at or below this value are not drawn.
+        prob_int: Spacing between contour levels.
+        filled_contours: Draw filled probability contours with a per-front-type colorbar.
+        open_contours: Draw open (line) probability contours.
+    """
+    n_colors = int(1 / prob_int) + 1
+    front_colors = [FRONT_COLORS[ft] for ft in front_types]
+
+    cbar_x_start = 0.85
+    cbar_front_labels = []
+    cbar_front_ticks = []
+
+    for front_no, ft in enumerate(front_types, start=1):
+        if ft not in probs_masked:
+            continue
+
+        if filled_contours:
+            cmap_probs = truncated_colormap(CONTOUR_CMAPS[ft], minval=0.1, n=n_colors)
+            norm_probs = colors.Normalize(vmin=0, vmax=1.01)
+            probs_masked[ft].plot.contourf(
+                ax=ax,
+                x="longitude",
+                y="latitude",
+                norm=norm_probs,
+                levels=levels,
+                cmap=cmap_probs,
+                transform=ccrs.PlateCarree(),
+                add_colorbar=False,
+            )
+            cbar_ax = fig.add_axes((cbar_x_start + (front_no * 0.015), 0.24, 0.015, 0.64))
+            cbar = plt.colorbar(
+                cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs),
+                cax=cbar_ax,
+                boundaries=levels[1:],
+            )
+            cbar.set_ticklabels([])
+            if front_no == len(front_types):
+                cbar.set_label("Probability (uncalibrated)", rotation=90)
+                tick_vals = np.around(np.arange(prob_mask, 1 + prob_int, prob_int), 2)
+                cbar.set_ticks(tick_vals.tolist())
+                cbar.set_ticklabels([str(v) for v in tick_vals])
+
+        if open_contours:
+            probs_masked[ft].plot.contour(
+                ax=ax,
+                x="longitude",
+                y="latitude",
+                levels=levels,
+                colors=front_colors[front_no - 1],
+                transform=ccrs.PlateCarree(),
+                alpha=0.75,
+                add_colorbar=False,
+            )
+
+        cbar_front_labels.append(FRONT_NAMES.get(ft, ft))
+        cbar_front_ticks.append(front_no + 0.5)
+
+    cmap_front = colors.ListedColormap(front_colors, name="from_list", N=len(front_colors))
+    norm_front = colors.Normalize(vmin=1, vmax=len(front_colors) + 1)
+    cbar_front = plt.colorbar(
+        cm.ScalarMappable(norm=norm_front, cmap=cmap_front),
+        ax=ax,
+        alpha=0.75,
+        orientation="horizontal",
+        shrink=0.5,
+        pad=0.02,
+    )
+    cbar_front.set_ticks(cbar_front_ticks)
+    cbar_front.set_ticklabels(cbar_front_labels)
+    cbar_front.set_label(r"$\bf{Front}$ $\bf{type}$")
+
+
+def plot_test_prediction(
+    lats: np.ndarray,
+    lons: np.ndarray,
+    probs_ds: xr.Dataset,
+    front_types: list[str],
+    truth_da: xr.DataArray | None = None,
+    prob_mask: float = 0.1,
+    prob_interval: float = 0.1,
+    filled_contours: bool = True,
+    open_contours: bool = True,
+    title: str = "",
+) -> Any:
+    """Build a single-timestep probability map figure from in-memory arrays.
+
+    Unlike ``plot_case_study``, this does not open any icechunk store — it plots
+    whatever prediction/truth arrays the caller already has in memory (e.g. a single
+    active test day evaluated during a training callback).
+
+    Args:
+        lats: 1-D latitude array.
+        lons: 1-D longitude array.
+        probs_ds: Per-front-type predicted probability Dataset, dims (latitude, longitude).
+        front_types: Front type keys to plot.
+        truth_da: Optional integer truth labels (0=background), dims (latitude, longitude).
+        prob_mask: Probabilities at or below this value are not drawn.
+        prob_interval: Spacing between contour levels.
+        filled_contours: Draw filled probability contours with a per-front-type colorbar.
+        open_contours: Draw open (line) probability contours.
+        title: Figure title (e.g. the timestep).
+
+    Returns:
+        The created Figure.
+    """
+    levels = np.around(np.arange(0, 1 + prob_interval, prob_interval), 2)
+    probs_masked = xr.where(probs_ds > prob_mask, probs_ds, float("nan"))
+
+    central_lon = ((float(lons.min()) + float(lons.max())) / 2) % 360
+    fig, ax = plt.subplots(
+        1,
+        1,
+        figsize=(22, 8),
+        subplot_kw={"projection": ccrs.PlateCarree(central_longitude=central_lon)},
+    )
+    plot_background(
+        extent=[float(lons.min()), float(lons.max()), float(lats.min()), float(lats.max())],
+        ax=ax,
+        linewidth=0.5,
+    )
+
+    _plot_front_probability_contours(
+        fig,
+        ax,
+        probs_masked,
+        front_types,
+        levels,
+        prob_mask,
+        prob_interval,
+        filled_contours=filled_contours,
+        open_contours=open_contours,
+    )
+
+    if truth_da is not None:
+        front_colors = [FRONT_COLORS[ft] for ft in front_types]
+        cmap_front = colors.ListedColormap(front_colors, name="from_list", N=len(front_colors))
+        norm_front = colors.Normalize(vmin=1, vmax=len(front_colors) + 1)
+        xr.where(truth_da == 0, float("nan"), truth_da).plot(
+            ax=ax,
+            x="longitude",
+            y="latitude",
+            cmap=cmap_front,
+            norm=norm_front,
+            transform=ccrs.PlateCarree(),
+            add_colorbar=False,
+        )
+        ax.set_title("Splines: NOAA fronts", loc="right")
+
+    if title:
+        ax.set_title(title, loc="left")
+
+    return fig
+
+
+def plot_performance_diagram_lite(
+    front_type: str,
+    thresholds: np.ndarray,
+    tp: np.ndarray,
+    fp: np.ndarray,
+    tn: np.ndarray,
+    fn: np.ndarray,
+    title: str = "",
+) -> Any:
+    """Build a lightweight 1-panel CSI/POD-vs-SR diagram with a CSI/HSS/POD/FAR table.
+
+    A cheaper alternative to ``plot_performance_diagrams`` for use inside a training
+    callback: no spatial CSI map, no reliability diagram, and the caller supplies
+    already-accumulated (single-neighborhood) TP/FP/TN/FN counts rather than the full
+    multi-neighborhood spatial sweep computed by ``evaluation/compute_stats.py``.
+
+    Args:
+        front_type: Front type key, used only for the title.
+        thresholds: 1-D probability thresholds, shape (T,).
+        tp: True positive counts, shape (T,).
+        fp: False positive counts, shape (T,).
+        tn: True negative counts, shape (T,).
+        fn: False negative counts, shape (T,).
+        title: Prefix added to the figure title (e.g. the region name).
+
+    Returns:
+        The created Figure.
+    """
+    pod = np.divide(tp, tp + fn, out=np.zeros_like(tp), where=(tp + fn) > 0)
+    sr = np.divide(tp, tp + fp, out=np.zeros_like(tp), where=(tp + fp) > 0)
+    csi = np.divide(tp, tp + fp + fn, out=np.zeros_like(tp), where=(tp + fp + fn) > 0)
+    hss = 2 * np.divide(
+        (tp * tn) - (fp * fn),
+        ((tp + fn) * (fn + tn)) + ((tp + fp) * (fp + tn)),
+        out=np.zeros_like(tp),
+        where=((tp + fn) * (fn + tn)) + ((tp + fp) * (fp + tn)) > 0,
+    )
+
+    sr_matrix, pod_matrix = np.meshgrid(np.linspace(0, 1, 101), np.linspace(0, 1, 101))
+    csi_matrix = 1 / ((1 / sr_matrix) + (1 / pod_matrix) - 1)
+    fb_matrix = pod_matrix * (sr_matrix**-1)
+    csi_levels = np.linspace(0, 1, 11)
+    fb_levels = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3]
+
+    max_idx = int(np.nanargmax(csi))
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 6))
+    cs = ax.contour(sr_matrix, pod_matrix, fb_matrix, fb_levels, colors="black", linewidths=0.5, linestyles="--")
+    ax.clabel(cs, fb_levels, fontsize=8)
+    csi_contour = ax.contourf(sr_matrix, pod_matrix, csi_matrix, csi_levels, cmap="Blues")
+    fig.colorbar(csi_contour, ax=ax, pad=0.02, label="Critical Success Index (CSI)")
+
+    ax.plot(sr[max_idx], pod[max_idx], color="red", marker="*", markersize=10)
+    ax.plot(sr, pod, color="red", linewidth=1)
+    ax.set_xlabel("Success Ratio (1 - FAR)")
+    ax.set_ylabel("Probability of Detection (POD)")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.grid(color="black", alpha=0.1)
+
+    far = 1 - sr[max_idx]
+    table_text = [[f"{csi[max_idx]:.3f}", f"{hss[max_idx]:.3f}", f"{pod[max_idx] * 100:.1f}", f"{far * 100:.1f}"]]
+    table_ax = fig.add_axes((0.15, -0.05, 0.7, 0.1))
+    table_ax.axis("off")
+    table_ax.table(
+        cellText=table_text,
+        colLabels=["CSI", "HSS", "POD %", "FAR %"],
+        cellLoc="center",
+        loc="center",
+    )
+
+    fig.suptitle(f"{title} {FRONT_NAMES.get(front_type, front_type)}".strip())
+    fig.tight_layout()
+    return fig
+
+
 def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.DatasetConfig) -> None:
     """Run inference and generate a single-timestep probability map.
 
@@ -345,7 +594,6 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.Datase
     init_time = np.datetime64(predict_cfg.init_time)
 
     plot_bb = predict_cfg.coordinates
-    extent = [plot_bb.lon_min, plot_bb.lon_max, plot_bb.lat_min, plot_bb.lat_max]
 
     ic_era5 = data_cfg.inputs_icechunk_config
     log.info("Opening ERA5 store …")
@@ -372,103 +620,23 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.Datase
             virtual_chunk_local_path=ic_fronts.virtual_chunk_local_path,
         )
         truth_da = _load_truth(utils.select_spatial_domain(fronts_ds, plot_bb), init_time).compute()
-        truth_da = xr.where(truth_da == 0, float("nan"), truth_da)
 
     front_types = predict_cfg.front_types
-    prob_mask = predict_cfg.prob_mask
-    prob_int = predict_cfg.prob_interval
-    levels = np.around(np.arange(0, 1 + prob_int, prob_int), 2)
-    n_colors = int(1 / prob_int) + 1
+    lats = era5_ds["latitude"].values
+    lons = era5_ds["longitude"].values
 
-    front_colors = [FRONT_COLORS[ft] for ft in front_types]
-    cmap_front = colors.ListedColormap(front_colors, name="from_list", N=len(front_colors))
-    norm_front = colors.Normalize(vmin=1, vmax=len(front_colors) + 1)
-
-    probs_masked = xr.where(probs_ds > prob_mask, probs_ds, float("nan"))
-
-    central_lon = ((extent[0] + extent[1]) / 2) % 360
-    fig, ax = plt.subplots(
-        1,
-        1,
-        figsize=(22, 8),
-        subplot_kw={"projection": ccrs.PlateCarree(central_longitude=central_lon)},
+    fig = plot_test_prediction(
+        lats=lats,
+        lons=lons,
+        probs_ds=probs_ds,
+        front_types=front_types,
+        truth_da=truth_da,
+        prob_mask=predict_cfg.prob_mask,
+        prob_interval=predict_cfg.prob_interval,
+        filled_contours=predict_cfg.filled_contours,
+        open_contours=predict_cfg.open_contours,
+        title=f"ERA5 {init_time}z",
     )
-    plot_background(extent, ax=ax, linewidth=0.5)
-
-    cbar_x_start = 0.85
-    cbar_front_labels = []
-    cbar_front_ticks = []
-
-    for front_no, ft in enumerate(front_types, start=1):
-        if ft not in probs_masked:
-            continue
-
-        if predict_cfg.filled_contours:
-            cmap_probs = truncated_colormap(CONTOUR_CMAPS[ft], minval=0.1, n=n_colors)
-            norm_probs = colors.Normalize(vmin=0, vmax=1.01)
-            probs_masked[ft].plot.contourf(
-                ax=ax,
-                x="longitude",
-                y="latitude",
-                norm=norm_probs,
-                levels=levels,
-                cmap=cmap_probs,
-                transform=ccrs.PlateCarree(),
-                add_colorbar=False,
-            )
-            cbar_ax = fig.add_axes((cbar_x_start + (front_no * 0.015), 0.24, 0.015, 0.64))
-            cbar = plt.colorbar(
-                cm.ScalarMappable(norm=norm_probs, cmap=cmap_probs),
-                cax=cbar_ax,
-                boundaries=levels[1:],
-            )
-            cbar.set_ticklabels([])
-            if front_no == len(front_types):
-                cbar.set_label("Probability (uncalibrated)", rotation=90)
-                tick_vals = np.around(np.arange(prob_mask, 1 + prob_int, prob_int), 2)
-                cbar.set_ticks(tick_vals.tolist())
-                cbar.set_ticklabels([str(v) for v in tick_vals])
-
-        if predict_cfg.open_contours:
-            probs_masked[ft].plot.contour(
-                ax=ax,
-                x="longitude",
-                y="latitude",
-                levels=levels,
-                colors=front_colors[front_no - 1],
-                transform=ccrs.PlateCarree(),
-                alpha=0.75,
-                add_colorbar=False,
-            )
-
-        cbar_front_labels.append(FRONT_NAMES.get(ft, ft))
-        cbar_front_ticks.append(front_no + 0.5)
-
-    if predict_cfg.targets and truth_da is not None:
-        truth_da.plot(
-            ax=ax,
-            x="longitude",
-            y="latitude",
-            cmap=cmap_front,
-            norm=norm_front,
-            transform=ccrs.PlateCarree(),
-            add_colorbar=False,
-        )
-        ax.set_title("Splines: NOAA fronts", loc="right")
-
-    cbar_front = plt.colorbar(
-        cm.ScalarMappable(norm=norm_front, cmap=cmap_front),
-        ax=ax,
-        alpha=0.75,
-        orientation="horizontal",
-        shrink=0.5,
-        pad=0.02,
-    )
-    cbar_front.set_ticks(cbar_front_ticks)
-    cbar_front.set_ticklabels(cbar_front_labels)
-    cbar_front.set_label(r"$\bf{Front}$ $\bf{type}$")
-
-    ax.set_title(f"ERA5 {init_time}z", loc="left")
 
     os.makedirs(predict_cfg.outdir, exist_ok=True)
     ts = predict_cfg.init_time.strftime("%Y%m%d%H")
@@ -476,8 +644,8 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.Datase
         predict_cfg.outdir,
         f"prediction_{ts}.png",
     )
-    plt.savefig(outfile, bbox_inches="tight", dpi=500)
-    plt.close()
+    fig.savefig(outfile, bbox_inches="tight", dpi=500)
+    plt.close(fig)
     print(f"Saved: {outfile}")
 
 

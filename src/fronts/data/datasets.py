@@ -112,13 +112,15 @@ class TrainingDataset(tf.keras.utils.PyDataset):
         if self.shuffle:
             self._order = self._rng.permutation(self._total)
 
-    def __getitem__(self, idx: int) -> tuple[np.ndarray, np.ndarray]:
-        """Returns the (input, target) batch at ``idx``."""
-        local_idxs = self._order[idx * self.batch_size : (idx + 1) * self.batch_size]
+    def get_at_indices(self, idxs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Returns the (input, target) arrays at arbitrary global time indices.
 
-        # Subset batch using isel
-        x_xarray = self.input_ds.isel(time=local_idxs)
-        y_da = self.target_da.isel(time=local_idxs)
+        Unlike ``__getitem__``, ``idxs`` need not be batch-sized or in ``_order``'s
+        epoch sequence — used by callers that need specific timesteps directly (e.g. a
+        test-set visualization callback selecting one active day or a random subsample).
+        """
+        x_xarray = self.input_ds.isel(time=idxs)
+        y_da = self.target_da.isel(time=idxs)
 
         # Convert inputs to a DataArray of shape (time, latitude, longitude, channel) and load into memory as float32.
         x = inputs.inputs_ds_to_dataarray(x_xarray, self.data_config.variables).values
@@ -133,3 +135,8 @@ class TrainingDataset(tf.keras.utils.PyDataset):
         # target across any deep-supervision outputs, not the dataset.
         y = y_da.values
         return x, y
+
+    def __getitem__(self, idx: int) -> tuple[np.ndarray, np.ndarray]:
+        """Returns the (input, target) batch at ``idx``."""
+        local_idxs = self._order[idx * self.batch_size : (idx + 1) * self.batch_size]
+        return self.get_at_indices(local_idxs)
