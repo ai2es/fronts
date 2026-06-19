@@ -45,7 +45,7 @@ def inputs_ds_to_dataarray(ds: xr.Dataset, variables: list[str]) -> xr.DataArray
         )
         labels = [f"{var}_{int(level)}" for level, var in stacked.indexes["channel"]]
         stacked = stacked.reset_index("channel").drop_vars(["level", "variable"]).assign_coords(channel=labels)
-        pieces.append(stacked)
+        pieces.append(stacked.reset_coords(drop=True))
     if single_vars:
         broadcast = {}
         for var in single_vars:
@@ -59,7 +59,7 @@ def inputs_ds_to_dataarray(ds: xr.Dataset, variables: list[str]) -> xr.DataArray
                 da = da.expand_dims(time=ds["time"])
             broadcast[var] = da
         single = xr.Dataset(broadcast).to_array(dim="channel").transpose("time", "latitude", "longitude", "channel")
-        pieces.append(single)
+        pieces.append(single.reset_coords(drop=True))
 
     if not pieces:
         raise ValueError("No variables requested.")
