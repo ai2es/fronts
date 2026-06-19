@@ -22,7 +22,7 @@ import argparse
 import logging
 
 from fronts import utils
-from fronts.data import config, derived, generate
+from fronts.data import derived, generate
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +45,10 @@ def main():
         parser.error(f"Unknown derived variables: {unknown}. Choices: {sorted(derived.DERIVED_VARIABLE_REGISTRY)}")
 
     era5_config = utils.open_config_yaml_as_dataclass(
-        args.config, config.ERA5DataLoaderConfig, config_key="era5_config"
+        args.config, generate.ERA5DataLoaderConfig, config_key="era5_config"
     )
     icechunk_config = utils.open_config_yaml_as_dataclass(
-        args.config, config.IcechunkStorageConfig, config_key="icechunk_storage_config"
+        args.config, utils.IcechunkStorageConfig, config_key="icechunk_storage_config"
     )
 
     logger.info("Rewriting %s in %s", args.variables, icechunk_config.store_path)

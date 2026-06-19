@@ -13,7 +13,8 @@ import yaml
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from fronts.data import config, derived, generate
+from fronts import utils
+from fronts.data import derived, generate
 from fronts.utils import BoundingBox
 
 ERA5_VARS = [
@@ -63,8 +64,8 @@ def era5_zarr(tmp_path: pathlib.Path, minimal_ds: xr.Dataset) -> pathlib.Path:
 
 
 @pytest.fixture
-def era5_config(era5_zarr: pathlib.Path) -> config.ERA5DataLoaderConfig:
-    return config.ERA5DataLoaderConfig(
+def era5_config(era5_zarr: pathlib.Path) -> generate.ERA5DataLoaderConfig:
+    return generate.ERA5DataLoaderConfig(
         era5_uri=str(era5_zarr),
         variables=ERA5_VARS,
         pressure_levels=LEVELS,
@@ -79,8 +80,8 @@ def era5_config(era5_zarr: pathlib.Path) -> config.ERA5DataLoaderConfig:
 
 
 @pytest.fixture
-def storage_config(tmp_path: pathlib.Path) -> config.IcechunkStorageConfig:
-    return config.IcechunkStorageConfig(
+def storage_config(tmp_path: pathlib.Path) -> utils.IcechunkStorageConfig:
+    return utils.IcechunkStorageConfig(
         store_path=str(tmp_path / "icechunk_store"),
         branch_name="main",
     )
@@ -106,7 +107,7 @@ def write_ds(time_range: pd.DatetimeIndex) -> xr.Dataset:
 
 
 @pytest.fixture
-def populated_store(storage_config: config.IcechunkStorageConfig, write_ds: xr.Dataset) -> config.IcechunkStorageConfig:
+def populated_store(storage_config: utils.IcechunkStorageConfig, write_ds: xr.Dataset) -> utils.IcechunkStorageConfig:
     generate.write_or_append_icechunk_store(storage_config, write_ds)
     return storage_config
 
@@ -275,8 +276,8 @@ class TestInspectStore:
 
 
 class TestDetermineWriteStrategy:
-    def _base_config(self, era5_zarr) -> config.ERA5DataLoaderConfig:
-        return config.ERA5DataLoaderConfig(
+    def _base_config(self, era5_zarr) -> generate.ERA5DataLoaderConfig:
+        return generate.ERA5DataLoaderConfig(
             era5_uri=str(era5_zarr),
             variables=list(ERA5_VARS),
             pressure_levels=list(LEVELS),
@@ -424,8 +425,8 @@ class TestAttributePreservation:
 
 
 class TestTimeResolution:
-    def _config(self, era5_zarr: pathlib.Path, resolution: str) -> config.ERA5DataLoaderConfig:
-        return config.ERA5DataLoaderConfig(
+    def _config(self, era5_zarr: pathlib.Path, resolution: str) -> generate.ERA5DataLoaderConfig:
+        return generate.ERA5DataLoaderConfig(
             era5_uri=str(era5_zarr),
             variables=list(ERA5_VARS),
             pressure_levels=list(LEVELS),
@@ -494,7 +495,7 @@ class TestYamlConfigLoading:
             raw = yaml.safe_load(f)
 
         result = dacite.from_dict(
-            data_class=config.ERA5DataLoaderConfig,
+            data_class=generate.ERA5DataLoaderConfig,
             data=raw["era5_data_config"],
             config=dacite.Config(
                 type_hooks={BoundingBox: lambda x: BoundingBox(*x)},
@@ -517,7 +518,7 @@ class TestYamlConfigLoading:
         import dacite
 
         result = dacite.from_dict(
-            data_class=config.IcechunkStorageConfig,
+            data_class=utils.IcechunkStorageConfig,
             data=raw["icechunk_storage_config"],
             config=dacite.Config(cast=[tuple, datetime], check_types=False),
         )
@@ -526,7 +527,7 @@ class TestYamlConfigLoading:
         assert result.commit_message == "test commit"
 
 
-_BASE_CONFIG = config.ERA5DataLoaderConfig(
+_BASE_CONFIG = generate.ERA5DataLoaderConfig(
     era5_uri="/dev/null",
     variables=list(ERA5_VARS),
     pressure_levels=list(LEVELS),
@@ -581,8 +582,8 @@ def _prop_ds(times: pd.DatetimeIndex, var_names: list[str]) -> xr.Dataset:
     )
 
 
-def _prop_storage(tmp_dir: str) -> config.IcechunkStorageConfig:
-    return config.IcechunkStorageConfig(store_path=str(pathlib.Path(tmp_dir) / "store"), branch_name="main")
+def _prop_storage(tmp_dir: str) -> utils.IcechunkStorageConfig:
+    return utils.IcechunkStorageConfig(store_path=str(pathlib.Path(tmp_dir) / "store"), branch_name="main")
 
 
 class TestPropertyBasedStrategy:
@@ -789,8 +790,8 @@ class TestPropertyBasedIO:
 
 
 class TestGroupAndSingleLevel:
-    def _grouped_storage(self, tmp_path: pathlib.Path) -> config.IcechunkStorageConfig:
-        return config.IcechunkStorageConfig(
+    def _grouped_storage(self, tmp_path: pathlib.Path) -> utils.IcechunkStorageConfig:
+        return utils.IcechunkStorageConfig(
             store_path=str(tmp_path / "grouped_store"),
             branch_name="main",
             group_name="era5",
@@ -898,7 +899,7 @@ class TestSingleLevelDownload:
 
 class TestTwoPhaseExecute:
     def test_raw_then_derived_committed_separately(self, tmp_path, era5_zarr, era5_config):
-        sc = config.IcechunkStorageConfig(
+        sc = utils.IcechunkStorageConfig(
             store_path=str(tmp_path / "two_phase_store"),
             branch_name="main",
             group_name="era5",
@@ -920,7 +921,7 @@ class TestTwoPhaseExecute:
         assert len(commits) >= 3  # repo init + raw commit + derived commit
 
     def test_derived_values_match_direct_computation(self, tmp_path, era5_zarr, era5_config):
-        sc = config.IcechunkStorageConfig(
+        sc = utils.IcechunkStorageConfig(
             store_path=str(tmp_path / "two_phase_values"),
             branch_name="main",
             group_name="era5",
@@ -945,7 +946,7 @@ class TestDerivationChunks:
         assert chunks["longitude"] == -1
 
     def test_two_phase_execute_with_no_configured_chunks(self, tmp_path, era5_config):
-        sc = config.IcechunkStorageConfig(
+        sc = utils.IcechunkStorageConfig(
             store_path=str(tmp_path / "no_chunks_store"),
             branch_name="main",
             group_name="era5",
@@ -996,7 +997,7 @@ class TestStaticSingleLevelVariables:
         assert "time" not in result.dims
 
     def test_execute_adds_missing_static_variable(self, tmp_path, static_zarr, era5_config, minimal_ds):
-        sc = config.IcechunkStorageConfig(
+        sc = utils.IcechunkStorageConfig(
             store_path=str(tmp_path / "static_missing_store"),
             branch_name="main",
             group_name="era5",
@@ -1026,7 +1027,7 @@ class TestStaticSingleLevelVariables:
                 )
             }
         )
-        sc = config.IcechunkStorageConfig(
+        sc = utils.IcechunkStorageConfig(
             store_path=str(tmp_path / "static_batched_store"),
             branch_name="main",
             group_name="era5",

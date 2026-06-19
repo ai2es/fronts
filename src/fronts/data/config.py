@@ -5,72 +5,6 @@ from fronts import utils
 
 
 @dataclasses.dataclass
-class IcechunkStorageConfig:
-    """Configuration for storing generated data in an Icechunk repository.
-
-    Attributes:
-        store_path: Path to the Icechunk store.
-        branch_name: Name of the branch to write to.
-        commit_message: Message for the commit.
-        zarr_format: Zarr format version to use when writing the store. Default is 3.
-        group_name: Optional group name within the zarr store. Default is None.
-        virtual_chunk_local_path: If the store contains virtual chunks referencing local
-            netcdf files, set this to the directory those files live in (e.g.
-            ``/ourdisk/hpc/ai2es/tman/data/netcdf/``). The ``file://`` URL prefix is
-            derived automatically. Leave None for stores with no virtual chunks.
-        write_batch_size: Number of time steps to load and commit per write when
-            writing or appending. Bounds peak memory without dask: each batch is
-            loaded eagerly, appended along time, and committed before the next
-            batch is read. None writes the whole dataset in one commit.
-    """
-
-    store_path: str
-    branch_name: str
-    commit_message: str = "add data"
-    zarr_format: int = 3
-    group_name: str | None = None
-    virtual_chunk_local_path: str | None = None
-    write_batch_size: int | None = None
-
-
-@dataclasses.dataclass
-class ERA5DataLoaderConfig:
-    """Configuration for downloading remote ERA5 data for model training and evaluation.
-
-    Attributes:
-        era5_uri: URI to the ERA5 data in Zarr format. URIs of the form
-            ``arraylake://org/repo`` are opened via the Arraylake client.
-        variables: List of variable names (Google ARCO naming) to load from the
-            ERA5 dataset. May mix pressure-level, single-level (e.g.
-            ``mean_sea_level_pressure``), and derived variables; each is
-            classified internally.
-        pressure_levels: List of pressure levels to load for each pressure-level variable.
-        time_start: Start of the time range to load.
-        time_end: End of the time range to load.
-        time_resolution: Temporal resolution of the data (e.g., "6h" for
-            6-hourly data).
-        coordinates: Spatial bounding box to subset the data in order
-            latitude min, latitude max, longitude min, longitude max.
-        storage_options: Optional dictionary of storage options for xarray's open_zarr.
-        chunks: Dictionary specifying chunk sizes after subsetting, e.g.,
-            {"time": 100, "latitude": 64, "longitude": 64}.
-        zarr_async_concurrency: Maximum in-flight chunk requests per zarr store,
-            applied via ``zarr.config.set({"async.concurrency": ...})``.
-    """
-
-    era5_uri: str
-    variables: list[str]
-    pressure_levels: list[int]
-    time_start: datetime.datetime
-    time_end: datetime.datetime
-    time_resolution: str
-    coordinates: utils.BoundingBox
-    storage_options: dict | None
-    chunks: dict[str, int]
-    zarr_async_concurrency: int
-
-
-@dataclasses.dataclass
 class SlurmConfig:
     """Configuration for the dask-jobqueue SLURMCluster used during derivation.
 
@@ -98,90 +32,6 @@ class SlurmConfig:
 
 
 @dataclasses.dataclass
-class InputSourceConfig:
-    """Configuration for one gridded input source used during training.
-
-    Each source maps to a group within an icechunk store (e.g. ``era5``,
-    ``satellite``) whose variables are converted to input channels and
-    concatenated channel-wise with the other sources.
-
-    Attributes:
-        name: Human-readable source name used in logs (e.g. "satellite").
-        icechunk_config: Icechunk store config for the source, including the
-            group_name of the group holding its data.
-        variables: Variable names to load from the source as input channels.
-    """
-
-    name: str
-    icechunk_config: IcechunkStorageConfig
-    variables: list[str]
-
-
-@dataclasses.dataclass
-class DataConfig:
-    """Configuration for loading and splitting ERA5 and fronts data.
-
-    Attributes:
-        era5_icechunk_config: Icechunk store config for ERA5 data.
-        fronts_icechunk_config: Icechunk store config for fronts data.
-        variables: ERA5 variable names to load as input channels.
-        train_split: Fraction of all filtered time steps to use for training.
-        val_split: Fraction of all filtered time steps to use for validation.
-        test_split: Fraction of timesteps per meteorological season to hold out as a sequestered
-            test set (never seen during training or validation). train_split + val_split +
-            test_split should sum to 1.
-        batch_size: Number of timesteps per training batch.
-        steps_per_epoch: Number of batches per epoch passed to model.fit. None lets
-            the dataset size determine it (one full pass per epoch). A smaller value
-            means each epoch covers only a subset, so a full training pass spans more
-            epochs and the effective early-stopping patience is floored accordingly
-            (see ``utils.epochs_per_full_pass``).
-        load_chunk_steps: Number of steps' worth of samples to load per background
-            prefetch. None falls back to steps_per_epoch.
-        prefetch_chunks: Number of chunks to keep loaded in RAM ahead of the batch
-            generator.
-        load_num_workers: Dask threads per background chunk load. Peak host RAM
-            scales with ``prefetch_chunks * load_num_workers``; keep small to
-            bound memory.
-        load_subblock: Maximum timesteps materialized per dask compute when
-            gathering a chunk; caps the size of a single large allocation
-            independently of ``load_chunk_steps``.
-        class_weights: Per-class loss weights. None means equal weighting.
-        front_dilation: Number of binary dilation iterations applied to each non-background
-            front class. 0 means no dilation.
-        time_resolution: Optional pandas offset string (e.g. ``"6h"``) used to subsample
-            the loaded timesteps. Only timestamps whose hour is already aligned to this
-            interval are kept (e.g. ``"6h"`` retains 00, 06, 12, 18 UTC). ``None`` keeps
-            all available timesteps.
-        input_sources: Optional additional gridded input sources (e.g. satellite
-            groups). Their channels are concatenated after the ERA5 channels in
-            the order listed, and their timestamps are intersected with ERA5 and
-            fronts when aligning training data.
-        norm_stats_cache_dir: Optional directory for caching normalization
-            statistics, keyed by store snapshot, channels, and train indices.
-            None recomputes the statistics on every run.
-    """
-
-    era5_icechunk_config: IcechunkStorageConfig
-    fronts_icechunk_config: IcechunkStorageConfig
-    variables: list[str]
-    train_split: float
-    val_split: float
-    test_split: float
-    batch_size: int = 4
-    steps_per_epoch: int | None = None
-    load_chunk_steps: int | None = None
-    prefetch_chunks: int = 2
-    load_num_workers: int = 4
-    load_subblock: int = 32
-    class_weights: list[float] | None = None
-    front_dilation: int = 0
-    time_resolution: str | None = None
-    input_sources: list[InputSourceConfig] | None = None
-    norm_stats_cache_dir: str | None = None
-
-
-@dataclasses.dataclass
 class EvalConfig:
     """Configuration for running performance statistics evaluation.
 
@@ -193,7 +43,7 @@ class EvalConfig:
         front_types: Front type labels in class order (excluding background class 0).
         mask: Restrict statistics to "land" or "ocean" grid points. None means all points.
         front_dilation: Binary dilation iterations applied to truth labels. None uses
-            the value from the paired DataConfig.
+            the value from the paired DatasetConfig.
         gpu_device: GPU index to use. None runs on CPU.
         time_start: Restrict evaluation to timesteps on or after this date. None means no lower bound.
         time_end: Restrict evaluation to timesteps before this date. None means no upper bound.

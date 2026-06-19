@@ -1,4 +1,3 @@
-import dataclasses
 import hashlib
 import logging
 import os
@@ -11,53 +10,7 @@ import xarray as xr
 logger = logging.getLogger(__name__)
 
 
-@dataclasses.dataclass
-class LazyTimeSource:
-    """A lazy DataArray on its native store time axis plus a logical-to-native index map.
-
-    Selecting samples with a single ``array.isel(time=positions[local_idxs])``
-    keeps exactly one positional take in the dask graph. A chain of takes (e.g.
-    deduplicate, then split, then per-chunk) instead collapses the time axis into
-    a single chunk and forces the full axis to be materialized before subsetting,
-    which exhausts memory on large inputs.
-
-    Attributes:
-        array: DataArray whose time axis is the raw store axis (no prior take).
-        positions: Integer array mapping each logical sample index to its absolute
-            position in ``array``'s time axis.
-    """
-
-    array: xr.DataArray
-    positions: np.ndarray
-
-
-def native_positions(native_times: np.ndarray, wanted_times: np.ndarray) -> np.ndarray:
-    """Map each timestamp in ``wanted_times`` to its first index in ``native_times``.
-
-    Mirrors the keep-first semantics of ``utils.drop_duplicate_times`` so the
-    returned positions index into the raw, pre-deduplicated store time axis.
-
-    Args:
-        native_times: Datetime64 values of the store's native time axis; may
-            contain duplicates.
-        wanted_times: Datetime64 values to locate; all must be present.
-
-    Returns:
-        Integer array of the same length as ``wanted_times`` indexing into
-        ``native_times``.
-
-    Raises:
-        ValueError: If any requested time is absent from ``native_times``.
-    """
-    unique_times, first_idx = np.unique(native_times, return_index=True)
-    insert_at = np.searchsorted(unique_times, wanted_times)
-    insert_at = np.clip(insert_at, 0, len(unique_times) - 1)
-    if not np.array_equal(unique_times[insert_at], wanted_times):
-        raise ValueError("Some requested times are absent from the native time axis.")
-    return first_idx[insert_at]
-
-
-def era5_to_dataarray(ds: xr.Dataset, variables: list[str]) -> xr.DataArray:
+def inputs_ds_to_dataarray(ds: xr.Dataset, variables: list[str]) -> xr.DataArray:
     """Convert a gridded input Dataset to a lazy 4D DataArray without materializing data.
 
     Uses xarray's to_array and stack so no data is loaded from disk until

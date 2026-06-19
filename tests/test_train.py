@@ -1,16 +1,14 @@
-import itertools
-
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
-from fronts.data.inputs import LazyTimeSource, native_positions
 from fronts.data.targets import FRONT_CLASS_MAP, filter_timesteps
 from fronts.utils import apply_time_resolution
 
 try:
-    from fronts.train import make_batch_dataset
+    from fronts.data.datasets import TrainingDataset
+    from fronts.data.inputs import inputs_ds_to_dataarray
 
     _TF_AVAILABLE = True
 except ImportError:
@@ -35,7 +33,6 @@ def _make_fronts(time_codes: list[list[int]], lat: int = 4, lon: int = 8) -> xr.
 N_TIME = 5
 N_LAT = 32
 N_LON = 64
-N_CHANNELS = 30
 N_CLASSES = 6
 
 
@@ -124,121 +121,76 @@ class TestApplyTimeResolution:
         assert all(h in (0, 6, 12, 18) for h in pd.DatetimeIndex(result).hour)
 
 
-class TestNativePositions:
-    def test_identity(self):
-        times = np.arange("2020-01-01", "2020-01-06", dtype="datetime64[D]")
-        positions = native_positions(times, times)
-        np.testing.assert_array_equal(positions, np.arange(5))
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestTrainingDatasetGather:
+    def test_select_and_order_samples(self, era5_ds, front_da, data_config):
+        # A non-contiguous time selection must yield exactly those timesteps in order.
+        sub_era5 = era5_ds.isel(time=[4, 2])
+        sub_front = front_da.isel(time=[4, 2])
+        ds = TrainingDataset(sub_era5, sub_front, data_config, batch_size=1)
+        x0, _ = ds[0]
+        x1, _ = ds[1]
+        expected = inputs_ds_to_dataarray(era5_ds, data_config.variables).values
+        np.testing.assert_allclose(x0[0], expected[4])
+        np.testing.assert_allclose(x1[0], expected[2])
 
-    def test_subset_and_order_preserved(self):
-        times = np.arange("2020-01-01", "2020-01-06", dtype="datetime64[D]")
-        wanted = times[[3, 1]]
-        positions = native_positions(times, wanted)
-        np.testing.assert_array_equal(positions, [3, 1])
+    def test_gather_preserves_order_and_values(self, era5_ds, front_da, data_config):
+        order = [4, 0, 3, 1, 2]
+        sub_era5 = era5_ds.isel(time=order)
+        sub_front = front_da.isel(time=order)
+        ds = TrainingDataset(sub_era5, sub_front, data_config, batch_size=1)
+        expected = inputs_ds_to_dataarray(era5_ds, data_config.variables).values
+        for i, native in enumerate(order):
+            x, _ = ds[i]
+            np.testing.assert_allclose(x[0], expected[native])
 
-    def test_duplicates_keep_first(self):
-        times = np.array(["2020-01-01", "2020-01-01", "2020-01-02"], dtype="datetime64[D]")
-        positions = native_positions(times, np.array(["2020-01-02", "2020-01-01"], dtype="datetime64[D]"))
-        np.testing.assert_array_equal(positions, [2, 0])
-
-    def test_missing_time_raises(self):
-        times = np.arange("2020-01-01", "2020-01-04", dtype="datetime64[D]")
-        with pytest.raises(ValueError, match="absent"):
-            native_positions(times, np.array(["2020-06-01"], dtype="datetime64[D]"))
+    def test_input_target_length_mismatch_raises(self, era5_ds, front_da, data_config):
+        with pytest.raises(ValueError, match="differ"):
+            TrainingDataset(
+                era5_ds.isel(time=[0, 1]),
+                front_da.isel(time=[0]),
+                data_config,
+                batch_size=1,
+            )
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
-class TestMakeBatchDatasetLazyTimeSource:
-    def test_positions_select_and_order_samples(self, era5_da, front_da):
-        # positions remap logical sample 0->native 4, 1->native 2; the loader must
-        # yield exactly those native timesteps in that order.
-        positions = np.array([4, 2])
-        ds, _ = make_batch_dataset(
-            LazyTimeSource(era5_da, positions),
-            LazyTimeSource(front_da, positions),
-            1,
-            batch_size=1,
-        )
-        loaded = [x.numpy()[0] for x, _ in itertools.islice(ds, 2)]
-        np.testing.assert_allclose(loaded[0], era5_da.isel(time=4).values)
-        np.testing.assert_allclose(loaded[1], era5_da.isel(time=2).values)
+class TestTrainingDataset:
+    def _make_ds(self, era5_ds, front_da, data_config, batch_size=2, **kwargs):
+        return TrainingDataset(era5_ds, front_da, data_config, batch_size=batch_size, **kwargs)
 
-    def test_subblock_gather_preserves_order_and_values(self, era5_da, front_da):
-        # load_subblock smaller than the chunk forces multi-block gathering;
-        # the concatenated result must match a single contiguous selection.
-        positions = np.array([4, 0, 3, 1, 2])
-        ds, _ = make_batch_dataset(
-            LazyTimeSource(era5_da, positions),
-            LazyTimeSource(front_da, positions),
-            1,
-            batch_size=1,
-            load_subblock=2,
-        )
-        loaded = [x.numpy()[0] for x, _ in itertools.islice(ds, len(positions))]
-        for i, native in enumerate(positions):
-            np.testing.assert_allclose(loaded[i], era5_da.isel(time=native).values)
-
-    def test_loader_failure_propagates_instead_of_hanging(self, era5_da, front_da):
-        # A position past the array's time length makes the background loader's
-        # isel(...).compute() raise. The consumer must surface that exception
-        # rather than block forever on an empty prefetch queue.
-        bad_positions = np.array([era5_da.sizes["time"] + 100])
-        ds, _ = make_batch_dataset(
-            LazyTimeSource(era5_da, bad_positions),
-            LazyTimeSource(front_da, np.array([0])),
-            1,
-            batch_size=1,
-        )
-        import tensorflow as tf
-
-        # The loader's IndexError surfaces through tf.data's from_generator as a
-        # wrapped OpError; the point is that it raises rather than deadlocking on
-        # an empty prefetch queue.
-        with pytest.raises(tf.errors.OpError):
-            next(iter(ds))
-
-    def test_multi_source_concat_on_channel(self, era5_da, front_da):
-        positions = np.arange(era5_da.sizes["time"])
-        ds, _ = make_batch_dataset(
-            [LazyTimeSource(era5_da, positions), LazyTimeSource(era5_da, positions)],
-            LazyTimeSource(front_da, positions),
-            1,
-            batch_size=1,
-        )
-        x_batch, _ = next(iter(ds))
-        assert x_batch.shape == (1, N_LAT, N_LON, 2 * N_CHANNELS)
-
-
-@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
-class TestMakeBatchDataset:
-    def test_input_batch_shape(self, era5_da, front_da):
+    def test_input_batch_shape(self, era5_ds, front_da, data_config):
         batch_size = 2
-        ds, _ = make_batch_dataset(era5_da, front_da, 1, batch_size)
-        x_batch, _ = next(iter(ds))
-        assert x_batch.shape == (batch_size, N_LAT, N_LON, N_CHANNELS)
+        ds = self._make_ds(era5_ds, front_da, data_config, batch_size=batch_size)
+        x_batch, _ = ds[0]
+        assert x_batch.shape == (batch_size, N_LAT, N_LON, len(data_config.variables))
 
-    def test_target_batch_shape(self, era5_da, front_da):
+    def test_target_batch_shape(self, era5_ds, front_da, data_config):
         batch_size = 2
-        ds, _ = make_batch_dataset(era5_da, front_da, 1, batch_size)
-        _, y_batch = next(iter(ds))
-        assert y_batch[0].shape == (batch_size, N_LAT, N_LON, N_CLASSES)
+        ds = self._make_ds(era5_ds, front_da, data_config, batch_size=batch_size)
+        _, y_batch = ds[0]
+        assert y_batch.shape == (batch_size, N_LAT, N_LON, N_CLASSES)
 
-    def test_n_supervision_outputs(self, era5_da, front_da):
-        for n_out in [1, 3, 5]:
-            ds, _ = make_batch_dataset(era5_da, front_da, n_out, batch_size=2)
-            _, y_batch = next(iter(ds))
-            assert len(y_batch) == n_out
-
-    def test_covers_all_timesteps(self, era5_da, front_da):
+    def test_covers_all_timesteps(self, era5_ds, front_da, data_config):
         batch_size = 2
-        ds, _ = make_batch_dataset(era5_da, front_da, 1, batch_size)
-        total_samples = sum(x.shape[0] for x, _ in ds)
+        ds = self._make_ds(era5_ds, front_da, data_config, batch_size=batch_size)
+        total_samples = sum(ds[i][0].shape[0] for i in range(len(ds)))
         assert total_samples == N_TIME
 
-    def test_dtypes_are_float32(self, era5_da, front_da):
-        import tensorflow as tf
+    def test_dtypes_are_float32(self, era5_ds, front_da, data_config):
+        ds = self._make_ds(era5_ds, front_da, data_config, batch_size=2)
+        x_batch, y_batch = ds[0]
+        assert x_batch.dtype == np.float32
+        assert y_batch.dtype == np.float32
 
-        ds, _ = make_batch_dataset(era5_da, front_da, 1, batch_size=2)
-        x_batch, y_batch = next(iter(ds))
-        assert x_batch.dtype == tf.float32
-        assert y_batch[0].dtype == tf.float32
+    def test_shuffle_reshuffles_on_epoch_end(self, era5_ds, front_da, data_config):
+        ds = self._make_ds(era5_ds, front_da, data_config, batch_size=1, shuffle=True, seed=0)
+        order_before = ds._order.copy()
+        ds.on_epoch_end()
+        assert not np.array_equal(order_before, ds._order)
+
+    def test_no_shuffle_preserves_order(self, era5_ds, front_da, data_config):
+        ds = self._make_ds(era5_ds, front_da, data_config, batch_size=1, shuffle=False)
+        np.testing.assert_array_equal(ds._order, np.arange(N_TIME))
+        ds.on_epoch_end()
+        np.testing.assert_array_equal(ds._order, np.arange(N_TIME))

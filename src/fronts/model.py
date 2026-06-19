@@ -9,6 +9,30 @@ from tensorflow.keras.models import Model
 from fronts.layers import modules
 
 
+class SharedTargetModel(Model):
+    """A Model that trains multiple outputs against one shared target.
+
+    Deep supervision gives this model one output per decoder level, all
+    predicting the same front segmentation map. Keras 3 requires ``y`` to
+    structurally match the (list-valued) ``y_pred`` for loss/metric
+    computation, so this overrides the two hooks responsible for that
+    matching to broadcast a single target across every output instead of
+    requiring the caller to replicate it ahead of time.
+    """
+
+    def compute_loss(self, x=None, y=None, y_pred=None, sample_weight=None, training=True):
+        """Broadcasts a single target across all outputs before delegating to the default loss computation."""
+        if isinstance(y_pred, (list, tuple)):
+            y = [y] * len(y_pred)
+        return super().compute_loss(x=x, y=y, y_pred=y_pred, sample_weight=sample_weight, training=training)
+
+    def compute_metrics(self, x=None, y=None, y_pred=None, sample_weight=None):
+        """Broadcasts a single target across all outputs before delegating to the default metrics computation."""
+        if isinstance(y_pred, (list, tuple)):
+            y = [y] * len(y_pred)
+        return super().compute_metrics(x=x, y=y, y_pred=y_pred, sample_weight=sample_weight)
+
+
 @dataclasses.dataclass
 class ModelConfig:
     """Hyperparameter configuration for building a UNet3Plus model."""
@@ -486,7 +510,7 @@ class UNet3Plus(UNetBase):
                     **aggregated_kwargs,
                 )
 
-        output_model = Model(
+        output_model = SharedTargetModel(
             inputs=tensors["input"],
             outputs=tensors_with_supervision[::-1],
             name=f"unet_3plus_{ndims}D",

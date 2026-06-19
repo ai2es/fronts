@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from fronts.data.targets import dilate_fronts, one_hot_encode_to_dataarray, seasonal_test_split
+from fronts.data.targets import dilate_fronts, one_hot_encode_to_dataarray
 
 N_TIME = 5
 N_LAT = 80
@@ -100,60 +100,3 @@ class TestDilateFronts:
             + front_class[center_lat, center_lon + 1]
         )
         assert neighbor_count >= 4
-
-
-def _make_times(start: str = "2018-01-01", periods: int = 400, freq_hours: int = 24) -> np.ndarray:
-    """Return a datetime64 array at regular hourly intervals spanning multiple seasons."""
-    base = np.datetime64(start, "h")
-    return base + np.arange(periods) * np.timedelta64(freq_hours, "h")
-
-
-class TestSeasonalTestSplit:
-    @pytest.fixture
-    def times(self) -> np.ndarray:
-        return _make_times(periods=400)
-
-    def test_fraction_per_season_approximate(self, times):
-        rng = np.random.default_rng(0)
-        mask = seasonal_test_split(times, 0.1, rng)
-        months = times.astype("datetime64[M]").astype(int) % 12 + 1
-        season_map = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 0], dtype=np.int32)
-        seasons = season_map[months]
-        for s in range(4):
-            season_idx = np.where(seasons == s)[0]
-            if len(season_idx) == 0:
-                continue
-            expected = round(len(season_idx) * 0.1)
-            actual = int(mask[season_idx].sum())
-            assert abs(actual - expected) <= 1
-
-    def test_no_overlap(self, times):
-        rng = np.random.default_rng(0)
-        mask = seasonal_test_split(times, 0.1, rng)
-        assert not (mask & ~mask).any()
-        assert (mask | ~mask).all()
-
-    def test_all_seasons_represented(self, times):
-        rng = np.random.default_rng(0)
-        mask = seasonal_test_split(times, 0.1, rng)
-        months = times[mask].astype("datetime64[M]").astype(int) % 12 + 1
-        season_map = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 0], dtype=np.int32)
-        seasons_present = set(season_map[months].tolist())
-        assert seasons_present == {0, 1, 2, 3}
-
-    def test_deterministic_with_same_seed(self, times):
-        mask_a = seasonal_test_split(times, 0.1, np.random.default_rng(7))
-        mask_b = seasonal_test_split(times, 0.1, np.random.default_rng(7))
-        np.testing.assert_array_equal(mask_a, mask_b)
-
-    def test_different_seeds_differ(self, times):
-        mask_a = seasonal_test_split(times, 0.1, np.random.default_rng(1))
-        mask_b = seasonal_test_split(times, 0.1, np.random.default_rng(2))
-        assert not np.array_equal(mask_a, mask_b)
-
-    def test_empty_season_handled(self):
-        times = _make_times(start="2020-06-01", periods=92)
-        rng = np.random.default_rng(0)
-        mask = seasonal_test_split(times, 0.1, rng)
-        assert mask.shape == (92,)
-        assert mask.any()

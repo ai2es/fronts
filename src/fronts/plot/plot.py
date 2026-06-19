@@ -29,7 +29,7 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import FixedLocator
 
 from fronts import utils
-from fronts.data import config, inputs, targets
+from fronts.data import config, datasets, inputs, targets
 from fronts.plot.utils import plot_background, truncated_colormap
 
 log = logging.getLogger(__name__)
@@ -298,7 +298,7 @@ def _load_prediction(
     Args:
         model: Loaded Keras model with baked-in normalization.
         era5_ds: ERA5 Dataset from icechunk store.
-        variables: ERA5 variable names to pass to ``era5_to_dataarray``.
+        variables: ERA5 variable names to pass to ``inputs_ds_to_dataarray``.
         front_types: Front type labels to include in the output Dataset.
         init_time: Target timestep as a numpy datetime64.
 
@@ -306,7 +306,7 @@ def _load_prediction(
         Dataset with one variable per front type, dims (latitude, longitude).
     """
     era5_t = era5_ds.sel(time=[init_time])
-    x_np = inputs.era5_to_dataarray(era5_t, variables).values[0].astype(np.float32)
+    x_np = inputs.inputs_ds_to_dataarray(era5_t, variables).values[0].astype(np.float32)
 
     pred = model(x_np[np.newaxis], training=False)
     if isinstance(pred, (list, tuple)):
@@ -330,7 +330,7 @@ def _load_truth(fronts_ds: xr.Dataset, init_time: np.datetime64) -> xr.DataArray
     return targets.remap_fronts(fronts_ds["identifier"].sel(time=init_time))
 
 
-def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: config.DataConfig) -> None:
+def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.DatasetConfig) -> None:
     """Run inference and generate a single-timestep probability map.
 
     Args:
@@ -347,7 +347,7 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: config.DataConf
     plot_bb = predict_cfg.coordinates
     extent = [plot_bb.lon_min, plot_bb.lon_max, plot_bb.lat_min, plot_bb.lat_max]
 
-    ic_era5 = data_cfg.era5_icechunk_config
+    ic_era5 = data_cfg.inputs_icechunk_config
     log.info("Opening ERA5 store …")
     era5_ds = utils.open_readonly_icechunk_store(
         ic_era5.store_path,
@@ -362,7 +362,7 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: config.DataConf
 
     truth_da = None
     if predict_cfg.targets:
-        ic_fronts = data_cfg.fronts_icechunk_config
+        ic_fronts = data_cfg.targets_icechunk_config
         log.info("Opening fronts store …")
         fronts_ds = utils.open_readonly_icechunk_store(
             ic_fronts.store_path,
@@ -535,8 +535,8 @@ def main() -> None:
                 utils.BoundingBox: lambda d: utils.BoundingBox(*d),
             },
         )
-        data_cfg: config.DataConfig = utils.open_config_yaml_as_dataclass(
-            args.config_path, config.DataConfig, config_key="data_config"
+        data_cfg: datasets.DatasetConfig = utils.open_config_yaml_as_dataclass(
+            args.config_path, datasets.DatasetConfig, config_key="data_config"
         )
         plot_case_study(predict_cfg, data_cfg)
 

@@ -1,11 +1,13 @@
 import argparse
 import dataclasses
+import datetime
 import logging
 import sys
 
 import dask_jobqueue  # type: ignore
 import icechunk as ic
 import icechunk.xarray
+import numpy as np
 import pandas as pd
 import xarray as xr
 import zarr
@@ -23,6 +25,43 @@ handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+
+
+@dataclasses.dataclass
+class ERA5DataLoaderConfig:
+    """Configuration for downloading remote ERA5 data for model training and evaluation.
+
+    Attributes:
+        era5_uri: URI to the ERA5 data in Zarr format. URIs of the form
+            ``arraylake://org/repo`` are opened via the Arraylake client.
+        variables: List of variable names (Google ARCO naming) to load from the
+            ERA5 dataset. May mix pressure-level, single-level (e.g.
+            ``mean_sea_level_pressure``), and derived variables; each is
+            classified internally.
+        pressure_levels: List of pressure levels to load for each pressure-level variable.
+        time_start: Start of the time range to load.
+        time_end: End of the time range to load.
+        time_resolution: Temporal resolution of the data (e.g., "6h" for
+            6-hourly data).
+        coordinates: Spatial bounding box to subset the data in order
+            latitude min, latitude max, longitude min, longitude max.
+        storage_options: Optional dictionary of storage options for xarray's open_zarr.
+        chunks: Dictionary specifying chunk sizes after subsetting, e.g.,
+            {"time": 100, "latitude": 64, "longitude": 64}.
+        zarr_async_concurrency: Maximum in-flight chunk requests per zarr store,
+            applied via ``zarr.config.set({"async.concurrency": ...})``.
+    """
+
+    era5_uri: str
+    variables: list[str]
+    pressure_levels: list[int]
+    time_start: datetime.datetime
+    time_end: datetime.datetime
+    time_resolution: str
+    coordinates: utils.BoundingBox
+    storage_options: dict | None
+    chunks: dict[str, int]
+    zarr_async_concurrency: int
 
 
 @dataclasses.dataclass
@@ -70,8 +109,8 @@ class WriteStrategy:
 
     def execute(
         self,
-        era5_config: config.ERA5DataLoaderConfig,
-        icechunk_config: config.IcechunkStorageConfig,
+        era5_config: ERA5DataLoaderConfig,
+        icechunk_config: utils.IcechunkStorageConfig,
     ) -> None:
         """Generate and write the ERA5 data described by this strategy.
 
@@ -135,7 +174,7 @@ class WriteStrategy:
                     write_derived_variables(era5_config, icechunk_config, derived_vars)
 
 
-def _available_variables(era5_config: config.ERA5DataLoaderConfig, ds: xr.Dataset | None = None) -> set[str]:
+def _available_variables(era5_config: ERA5DataLoaderConfig, ds: xr.Dataset | None = None) -> set[str]:
     """Return the variable names the configured source can provide directly.
 
     Args:
@@ -150,14 +189,12 @@ def _available_variables(era5_config: config.ERA5DataLoaderConfig, ds: xr.Datase
     return {str(k) for k in ds.data_vars}
 
 
-def _classify_missing(
-    era5_config: config.ERA5DataLoaderConfig, missing_variables: list[str]
-) -> tuple[list[str], list[str]]:
+def _classify_missing(era5_config: ERA5DataLoaderConfig, missing_variables: list[str]) -> tuple[list[str], list[str]]:
     """Split missing variables into directly downloadable (any level type) and derived."""
     return derived.classify_variables(missing_variables, _available_variables(era5_config))
 
 
-def _open_source_dataset(era5_config: config.ERA5DataLoaderConfig) -> xr.Dataset:
+def _open_source_dataset(era5_config: ERA5DataLoaderConfig) -> xr.Dataset:
     """Open a non-arraylake zarr source lazily without dask."""
     open_kwargs: dict = {"chunks": None}
     if era5_config.storage_options:
@@ -165,7 +202,7 @@ def _open_source_dataset(era5_config: config.ERA5DataLoaderConfig) -> xr.Dataset
     return xr.open_zarr(era5_config.era5_uri, **open_kwargs)
 
 
-def generate_era5_download_data(era5_config: config.ERA5DataLoaderConfig) -> xr.Dataset:
+def generate_era5_download_data(era5_config: ERA5DataLoaderConfig) -> xr.Dataset:
     """Open the ERA5 source and subset to the variables that must be downloaded.
 
     This deliberately excludes derived-variable computation: the returned dataset
@@ -235,7 +272,7 @@ def generate_era5_derived_data(derived_vars: list[str], source_ds: xr.Dataset) -
     return ds_derived
 
 
-def generate_era5_data(era5_config: config.ERA5DataLoaderConfig) -> xr.Dataset:
+def generate_era5_data(era5_config: ERA5DataLoaderConfig) -> xr.Dataset:
     """Generate the full requested ERA5 dataset, combining downloaded and derived variables.
 
     Args:
@@ -268,8 +305,8 @@ def _derivation_chunks(ds: xr.Dataset) -> dict[str, int]:
 
 
 def write_derived_variables(
-    era5_config: config.ERA5DataLoaderConfig,
-    icechunk_config: config.IcechunkStorageConfig,
+    era5_config: ERA5DataLoaderConfig,
+    icechunk_config: utils.IcechunkStorageConfig,
     derived_vars: list[str],
 ) -> None:
     """Compute derived variables from the local store and write them as new variables.
@@ -293,7 +330,7 @@ def write_derived_variables(
     write_new_variables_to_icechunk_store(icechunk_config, ds_derived)
 
 
-def inspect_store(storage_config: config.IcechunkStorageConfig) -> StoreContents | None:
+def inspect_store(storage_config: utils.IcechunkStorageConfig) -> StoreContents | None:
     """Return a snapshot of the variables, times, levels, and spatial extent in the store.
 
     Args:
@@ -331,7 +368,7 @@ def inspect_store(storage_config: config.IcechunkStorageConfig) -> StoreContents
 
 
 def determine_write_strategy(
-    era5_config: config.ERA5DataLoaderConfig,
+    era5_config: ERA5DataLoaderConfig,
     store_contents: StoreContents | None,
 ) -> WriteStrategy:
     """Determine what needs to be written or appended to the icechunk store.
@@ -362,7 +399,8 @@ def determine_write_strategy(
         )
     else:
         missing_variables = [v for v in era5_config.variables if v not in store_contents.variables]
-        missing_times = requested_times[~requested_times.isin(store_contents.times)]
+        is_present = np.asarray(requested_times.isin(store_contents.times))
+        missing_times = requested_times[~is_present]
 
         if len(missing_variables) > 0 and len(missing_times) > 0:
             error_reason = (
@@ -388,7 +426,7 @@ def determine_write_strategy(
 
 
 def write_new_variables_to_icechunk_store(
-    storage_config: config.IcechunkStorageConfig,
+    storage_config: utils.IcechunkStorageConfig,
     ds: xr.Dataset | xr.DataArray,
 ) -> None:
     """Write new variables into an existing icechunk store.
@@ -439,7 +477,7 @@ def write_new_variables_to_icechunk_store(
 
 
 def write_or_append_icechunk_store(
-    storage_config: config.IcechunkStorageConfig, ds: xr.Dataset | xr.DataArray, dry_run: bool = False
+    storage_config: utils.IcechunkStorageConfig, ds: xr.Dataset | xr.DataArray, dry_run: bool = False
 ) -> None:
     """Write or append an xarray Dataset to an icechunk store.
 
@@ -552,14 +590,14 @@ def main():
 
     era5_config = utils.open_config_yaml_as_dataclass(
         args.config,
-        config.ERA5DataLoaderConfig,
+        ERA5DataLoaderConfig,
         config_key="era5_config",
         type_hooks=bounding_box_type_hook,
     )
     logger.info(f"ERA5 data config loaded: {era5_config}")
 
     icechunk_config = utils.open_config_yaml_as_dataclass(
-        args.config, config.IcechunkStorageConfig, config_key="icechunk_storage_config"
+        args.config, utils.IcechunkStorageConfig, config_key="icechunk_storage_config"
     )
     logger.info(f"Icechunk storage config loaded: {icechunk_config}")
 

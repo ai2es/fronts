@@ -5,7 +5,7 @@ Run on the machine where the store is colocated:
     pixi run python scripts/diagnose_read_throughput.py
 
 Prints per-variable dtype/chunking/compression, then times reads at the raw
-store level and through ``era5_to_dataarray`` so the bottleneck (chunk layout,
+store level and through ``inputs_ds_to_dataarray`` so the bottleneck (chunk layout,
 dtype, or the stack/transpose graph) can be localized.
 """
 
@@ -22,7 +22,7 @@ def _fmt_bytes(n: float) -> str:
 def main() -> None:
     """Print store layout and time reads to localize the throughput bottleneck."""
     cfg = utils.open_config_yaml_as_dataclass("configs/schooner_train.yaml", train.TrainConfig)
-    era5_cfg = cfg.data_config.era5_icechunk_config
+    era5_cfg = cfg.data_config.inputs_icechunk_config
 
     ds = utils.open_readonly_icechunk_store(
         store_path=era5_cfg.store_path,
@@ -53,8 +53,8 @@ def main() -> None:
         dt = time.time() - t0
         print(f"  {k:3d} steps: {_fmt_bytes(nbytes)} in {dt:6.1f} s -> {nbytes / 1e6 / max(dt, 1e-9):7.1f} MB/s")
 
-    print("\n=== Full-stack read timing (era5_to_dataarray) ===")
-    da = inputs.era5_to_dataarray(ds, cfg.data_config.variables)
+    print("\n=== Full-stack read timing (inputs_ds_to_dataarray) ===")
+    da = inputs.inputs_ds_to_dataarray(ds, cfg.data_config.variables)
     print(f"  assembled dtype={da.dtype} shape={da.shape} chunks={da.chunks}")
     for k in (1, 10, 50):
         sub = da.isel(time=slice(0, k))

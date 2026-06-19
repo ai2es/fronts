@@ -30,7 +30,7 @@ from scipy.ndimage import maximum_filter
 from tqdm import tqdm
 
 from fronts import utils
-from fronts.data import config, inputs, targets
+from fronts.data import config, datasets, inputs, targets
 
 log = logging.getLogger(__name__)
 
@@ -344,8 +344,8 @@ def main() -> None:
             datetime.datetime: lambda d: datetime.datetime.fromisoformat(str(d)),
         },
     )
-    data_cfg: config.DataConfig = utils.open_config_yaml_as_dataclass(
-        args.config_path, config.DataConfig, config_key="data_config"
+    data_cfg: datasets.DatasetConfig = utils.open_config_yaml_as_dataclass(
+        args.config_path, datasets.DatasetConfig, config_key="data_config"
     )
 
     eval_cfg = dataclasses.replace(
@@ -361,8 +361,8 @@ def main() -> None:
     model = tf.keras.models.load_model(eval_cfg.model_path, compile=False)
     log.info("Model loaded. Output count: %d.", len(model.outputs))
 
-    ic_era5 = data_cfg.era5_icechunk_config
-    ic_fronts = data_cfg.fronts_icechunk_config
+    ic_era5 = data_cfg.inputs_icechunk_config
+    ic_fronts = data_cfg.targets_icechunk_config
 
     log.info("Opening ERA5 icechunk store …")
     era5_ds = utils.open_readonly_icechunk_store(
@@ -385,7 +385,7 @@ def main() -> None:
     era5_ds = utils.select_spatial_domain(era5_ds, bb)
     fronts_ds = utils.select_spatial_domain(fronts_ds, bb)
 
-    era5_da = inputs.era5_to_dataarray(era5_ds, data_cfg.variables)
+    era5_da = inputs.inputs_ds_to_dataarray(era5_ds, data_cfg.variables)
     fronts_remapped = targets.remap_fronts(fronts_ds["identifier"])
     targets_da = utils.drop_duplicate_times(targets.one_hot_encode_to_dataarray(fronts_remapped))
 

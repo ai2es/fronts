@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from fronts.data import config, derived, generate
+from fronts.data import derived, generate
 from fronts.utils import BoundingBox
 
 _LEVELS = [1000, 850, 500]
@@ -282,9 +282,7 @@ class TestNonPositiveSpecificHumidity:
         ["dewpoint_temperature", "equivalent_potential_temperature", "relative_humidity", "virtual_temperature"],
     )
     def test_finite_for_zero_and_negative_humidity(self, dry_ds: xr.Dataset, variable: str):
-        result = derived.DERIVED_VARIABLE_REGISTRY[variable].compute(
-            dry_ds["temperature"], dry_ds["specific_humidity"]
-        )
+        result = derived.DERIVED_VARIABLE_REGISTRY[variable].compute(dry_ds["temperature"], dry_ds["specific_humidity"])
         assert np.isfinite(result.values).all()
 
     def test_clamp_leaves_normal_values_unchanged(self, physical_ds: xr.Dataset):
@@ -306,7 +304,7 @@ class TestNonPositiveSpecificHumidity:
 
 class TestGenerateEra5DownloadData:
     def test_excludes_derived_variable_names(self, arco_zarr: pathlib.Path):
-        cfg = config.ERA5DataLoaderConfig(
+        cfg = generate.ERA5DataLoaderConfig(
             era5_uri=str(arco_zarr),
             variables=["wind_speed"],
             pressure_levels=_LEVELS,
@@ -324,7 +322,7 @@ class TestGenerateEra5DownloadData:
         assert "v_component_of_wind" in ds.data_vars
 
     def test_direct_and_derived_mix(self, arco_zarr: pathlib.Path):
-        cfg = config.ERA5DataLoaderConfig(
+        cfg = generate.ERA5DataLoaderConfig(
             era5_uri=str(arco_zarr),
             variables=["temperature", "wind_speed"],
             pressure_levels=_LEVELS,
@@ -361,7 +359,7 @@ class TestGenerateEra5DerivedData:
 
 class TestGenerateEra5DataWithDerived:
     def test_derived_variable_in_output(self, arco_zarr: pathlib.Path):
-        cfg = config.ERA5DataLoaderConfig(
+        cfg = generate.ERA5DataLoaderConfig(
             era5_uri=str(arco_zarr),
             variables=["temperature", "wind_speed"],
             pressure_levels=_LEVELS,
@@ -378,7 +376,7 @@ class TestGenerateEra5DataWithDerived:
         assert "temperature" in ds.data_vars
 
     def test_intermediate_inputs_dropped(self, arco_zarr: pathlib.Path):
-        cfg = config.ERA5DataLoaderConfig(
+        cfg = generate.ERA5DataLoaderConfig(
             era5_uri=str(arco_zarr),
             variables=["wind_speed"],
             pressure_levels=_LEVELS,
@@ -396,7 +394,7 @@ class TestGenerateEra5DataWithDerived:
         assert "v_component_of_wind" not in ds.data_vars
 
     def test_unknown_variable_raises(self, arco_zarr: pathlib.Path):
-        cfg = config.ERA5DataLoaderConfig(
+        cfg = generate.ERA5DataLoaderConfig(
             era5_uri=str(arco_zarr),
             variables=["nonexistent_variable"],
             pressure_levels=_LEVELS,
@@ -412,7 +410,7 @@ class TestGenerateEra5DataWithDerived:
             generate.generate_era5_data(cfg)
 
     def test_explicit_input_also_stored(self, arco_zarr: pathlib.Path):
-        cfg = config.ERA5DataLoaderConfig(
+        cfg = generate.ERA5DataLoaderConfig(
             era5_uri=str(arco_zarr),
             variables=["u_component_of_wind", "v_component_of_wind", "wind_speed"],
             pressure_levels=_LEVELS,
@@ -430,7 +428,7 @@ class TestGenerateEra5DataWithDerived:
         assert "wind_speed" in ds.data_vars
 
     def test_equals_download_plus_derived(self, arco_zarr: pathlib.Path):
-        cfg = config.ERA5DataLoaderConfig(
+        cfg = generate.ERA5DataLoaderConfig(
             era5_uri=str(arco_zarr),
             variables=["temperature", "wind_speed"],
             pressure_levels=_LEVELS,

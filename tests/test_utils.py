@@ -119,3 +119,64 @@ class TestEpochsPerFullPass:
     def test_negative_samples_raises(self):
         with pytest.raises(ValueError):
             utils.epochs_per_full_pass(-1, 4, 10)
+
+
+def _make_times(start: str = "2018-01-01", periods: int = 400, freq_hours: int = 24) -> np.ndarray:
+    """Return a datetime64 array at regular hourly intervals spanning multiple seasons."""
+    base = np.datetime64(start, "h")
+    return base + np.arange(periods) * np.timedelta64(freq_hours, "h")
+
+
+class TestSplitByYear:
+    @pytest.fixture
+    def times(self) -> np.ndarray:
+        return _make_times(start="2017-01-01", periods=1460, freq_hours=6)
+
+    def test_timesteps_assigned_by_year(self, times):
+        train_mask, val_mask, test_mask = utils.split_by_year(times, test_years=[2019], val_years=[2018])
+        years = times.astype("datetime64[Y]").astype(int) + 1970
+        np.testing.assert_array_equal(test_mask, years == 2019)
+        np.testing.assert_array_equal(val_mask, years == 2018)
+        np.testing.assert_array_equal(train_mask, ~np.isin(years, [2018, 2019]))
+
+    def test_masks_mutually_exclusive_and_exhaustive(self, times):
+        train_mask, val_mask, test_mask = utils.split_by_year(times, test_years=[2019], val_years=[2018])
+        stacked = np.stack([train_mask, val_mask, test_mask])
+        assert (stacked.sum(axis=0) == 1).all()
+
+    def test_train_is_complement_of_test_and_val(self, times):
+        train_mask, val_mask, test_mask = utils.split_by_year(times, test_years=[2019], val_years=[2018])
+        np.testing.assert_array_equal(train_mask, ~(val_mask | test_mask))
+
+    def test_overlapping_years_raises(self, times):
+        with pytest.raises(ValueError):
+            utils.split_by_year(times, test_years=[2018], val_years=[2018])
+
+    def test_empty_years_puts_everything_in_train(self, times):
+        train_mask, val_mask, test_mask = utils.split_by_year(times, test_years=[], val_years=[])
+        assert train_mask.all()
+        assert not val_mask.any()
+        assert not test_mask.any()
+
+    def test_year_boundary_handled_correctly(self):
+        times = np.array(["2018-12-31T18:00", "2019-01-01T00:00"], dtype="datetime64[h]")
+        train_mask, val_mask, test_mask = utils.split_by_year(times, test_years=[2019], val_years=[2018])
+        np.testing.assert_array_equal(val_mask, [True, False])
+        np.testing.assert_array_equal(test_mask, [False, True])
+        np.testing.assert_array_equal(train_mask, [False, False])
+
+
+class TestSlurmCpuCount:
+    def test_uses_slurm_cpus_per_task_when_set(self, monkeypatch):
+        monkeypatch.setenv("SLURM_CPUS_PER_TASK", "8")
+        assert utils.slurm_cpu_count() == 8
+
+    def test_falls_back_to_cpu_count_outside_slurm(self, monkeypatch):
+        monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
+        monkeypatch.setattr("os.cpu_count", lambda: 12)
+        assert utils.slurm_cpu_count() == 12
+
+    def test_falls_back_to_one_when_cpu_count_unknown(self, monkeypatch):
+        monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
+        monkeypatch.setattr("os.cpu_count", lambda: None)
+        assert utils.slurm_cpu_count() == 1

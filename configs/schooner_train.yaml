@@ -3,32 +3,18 @@ seed: 42
 learning_rate: 0.0001
 
 data_config:
-  era5_icechunk_config:
+  inputs_icechunk_config:
     store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
     branch_name: "main"
     group_name: "era5"
-  # Additional gridded input sources (e.g. future satellite groups). Channels are
-  # concatenated after the ERA5 channels in the order listed; remember to bump
-  # model_config.n_channels accordingly.
-  # input_sources:
-  #   - name: "satellite"
-  #     icechunk_config:
-  #       store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/icechunk"
-  #       branch_name: "main"
-  #       group_name: "satellite"
-  #     variables: [brightness_temperature]
-  fronts_icechunk_config:
+  targets_icechunk_config:
     store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
     branch_name: "main"
     virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
-  batch_size: 32
-  train_split: 0.8
-  val_split: 0.1
-  test_split: 0.1
-  steps_per_epoch: 30
-  load_chunk_steps: 5
-  prefetch_chunks: 2
-  load_num_workers: 4
+  batch_size: 8
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 32
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
