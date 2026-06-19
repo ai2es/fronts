@@ -119,10 +119,13 @@ def load_data_into_dataloader(
     common_times = apply_time_resolution(common_times, data_config.time_resolution)
     logger.info("After time_resolution=%s filter: %d steps", data_config.time_resolution, len(common_times))
 
-    # Set up rng for filtering timesteps to drop ~50% of cases without all fronts in the domain
-    rng = np.random.default_rng(seed)
-    keep = targets.filter_timesteps(targets_da.sel(time=common_times), rng)
-    common_times = common_times[keep]
+    # Class-balancing subsample (drop ~50% of cases without all fronts in the domain) applies
+    # to train/val, which both feed model selection; test must stay untouched for honest,
+    # unbiased evaluation (see _build_test_visualization_callback).
+    if split != "test":
+        rng = np.random.default_rng(seed)
+        keep = targets.filter_timesteps(targets_da.sel(time=common_times), rng)
+        common_times = common_times[keep]
     logger.info(f"Matched time steps: {len(common_times)}")
     inputs_ds_matched = inputs_ds.sel(time=common_times)
     targets_da_matched = targets_da.sel(time=common_times)
