@@ -49,7 +49,12 @@ def inputs_ds_to_dataarray(ds: xr.Dataset, variables: list[str]) -> xr.DataArray
     if single_vars:
         broadcast = {}
         for var in single_vars:
-            da = ds[var]
+            # Strip any self-referential coordinate (e.g. when `var` is itself a Dataset
+            # coordinate, not a plain data variable): xr.Dataset() silently demotes a
+            # variable carrying a same-named coordinate to Dataset.coords when merged
+            # alongside other data variables, which then drops it entirely from to_array().
+            # This is for land_sea_mask primarily
+            da = ds[var].reset_coords(drop=True)
             if "time" not in da.dims:
                 if "time" not in ds.coords:
                     raise ValueError(
