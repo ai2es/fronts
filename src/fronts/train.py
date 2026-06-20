@@ -50,6 +50,10 @@ def _get_distribution_strategy() -> tf.distribute.Strategy:
 class WandBConfig:
     """W&B project and run naming configuration."""
 
+    # Passed straight to wandb.keras.WandbMetricsLogger(log_freq=...): "epoch" logs once per
+    # epoch, "batch" logs every batch, or an int N logs every N batches. With long epochs
+    # (thousands of steps), "epoch" can leave W&B silent for a very long time.
+    log_freq: str | int
     project_name: str = "fronts"
     run_name: str | None = None
 
@@ -192,6 +196,7 @@ def _run(
     model_checkpoint_path: str | None = None,
     wandb_project: str | None = None,
     run_name: str | None = None,
+    wandb_log_freq: str | int = "epoch",
     steps_per_epoch: int | None = None,
     validation_steps: int | None = None,
     run_config: dict | None = None,
@@ -217,7 +222,7 @@ def _run(
     ]
     callbacks.extend(extra_callbacks or [])
     if wandb_project:
-        callbacks.append(wandb.keras.WandbMetricsLogger(log_freq="epoch"))
+        callbacks.append(wandb.keras.WandbMetricsLogger(log_freq=wandb_log_freq))
     if model_checkpoint_path:
         callbacks.append(
             ckpt_cls(
@@ -268,6 +273,7 @@ def _build_test_visualization_callback(
     assert callbacks_config.test_viz_every_n_epochs is not None
     logger.info("Loading test split for periodic visualization...")
     test_dataset = load_data_into_dataloader(data_config, split="test", seed=seed)
+    logger.info("Test split loaded: %d timesteps available for visualization.", test_dataset.n_samples)
 
     active_idx = fronts_callbacks.select_active_test_timestep(test_dataset.target_da)
     active_x, active_y = test_dataset.get_at_indices(np.array([active_idx]))
@@ -453,7 +459,16 @@ def main():
 
     extra_callbacks = []
     if wandb_project and cfg.callbacks_config.test_viz_every_n_epochs:
-        extra_callbacks.append(_build_test_visualization_callback(cfg.data_config, cfg.callbacks_config, cfg.seed))
+        try:
+            extra_callbacks.append(
+                _build_test_visualization_callback(cfg.data_config, cfg.callbacks_config, cfg.seed)
+            )
+        except ValueError:
+            logger.warning(
+                "Skipping periodic test-set visualization: could not build the callback "
+                "(see preceding error). Training will continue without it.",
+                exc_info=True,
+            )
 
     logger.info(
         "Starting training: %d epochs, %d train steps/epoch, %d val steps/epoch "
@@ -474,6 +489,7 @@ def main():
         model_checkpoint_path=cfg.callbacks_config.model_checkpoint_path,
         wandb_project=wandb_project,
         run_name=run_name,
+        wandb_log_freq=cfg.wandb_config.log_freq if cfg.wandb_config is not None else "epoch",
         run_config=run_meta,
         extra_callbacks=extra_callbacks,
     )
