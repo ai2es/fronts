@@ -36,13 +36,12 @@ data_config:
     "10m_u_component_of_wind",
     "10m_v_component_of_wind",
     "2m_dewpoint_temperature",
-    "land_sea_mask"
     ]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
 
 model_config:
   n_classes: 6
-  n_channels: 78
+  n_channels: 77
   levels: 4
   filter_num: [16, 32, 64, 128]
   pool_size: [2, 2]
