@@ -4,11 +4,13 @@ import pytest
 import xarray as xr
 
 from fronts.data.targets import FRONT_CLASS_MAP, filter_timesteps
-from fronts.utils import apply_time_resolution
+from fronts.utils import IcechunkStorageConfig, apply_time_resolution
 
 try:
-    from fronts.data.datasets import TrainingDataset
+    from fronts.data.datasets import DatasetConfig, TrainingDataset
+    from fronts.data.generate import write_or_append_icechunk_store
     from fronts.data.inputs import inputs_ds_to_dataarray
+    from fronts.train import load_data_into_dataloader
 
     _TF_AVAILABLE = True
 except ImportError:
@@ -194,3 +196,44 @@ class TestTrainingDataset:
         np.testing.assert_array_equal(ds._order, np.arange(N_TIME))
         ds.on_epoch_end()
         np.testing.assert_array_equal(ds._order, np.arange(N_TIME))
+
+
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestLoadDataIntoDataloaderLongitude:
+    """A wrap-crossing bounding box (lon_max > 360, e.g. configs/generate_icechunk.yaml's
+
+    130-369.75) leaves the longitude coordinate non-monotonic on disk, e.g.
+    [330, 350, 0, 20]. xarray's pcolormesh (used by TestVisualizationCallback's
+    truth-overlay plot) raises ValueError on such a coordinate, so
+    load_data_into_dataloader must return data with longitude unwrapped.
+    """
+
+    _TIMES = pd.date_range("2020-01-01", periods=4, freq="6h")
+    _LAT = np.array([10.0, 20.0, 30.0, 40.0])
+    _LON_WRAP = np.array([330.0, 350.0, 0.0, 20.0])  # physical domain 330 -> 380
+
+    def _write_store(self, tmp_path, name: str, var_name: str) -> IcechunkStorageConfig:
+        storage_config = IcechunkStorageConfig(store_path=str(tmp_path / name), branch_name="main")
+        ds = xr.Dataset(
+            {
+                var_name: xr.DataArray(
+                    np.zeros((len(self._TIMES), len(self._LAT), len(self._LON_WRAP)), dtype=np.float32),
+                    dims=["time", "latitude", "longitude"],
+                    coords={"time": self._TIMES, "latitude": self._LAT, "longitude": self._LON_WRAP},
+                )
+            }
+        )
+        write_or_append_icechunk_store(storage_config, ds)
+        return storage_config
+
+    def test_longitude_is_monotonic_after_loading(self, tmp_path):
+        data_config = DatasetConfig(
+            inputs_icechunk_config=self._write_store(tmp_path, "inputs", "temperature"),
+            targets_icechunk_config=self._write_store(tmp_path, "targets", "identifier"),
+            variables=["temperature"],
+            test_years=[2020],
+            val_years=[],
+        )
+        test_dataset = load_data_into_dataloader(data_config, split="test", seed=0)
+        lons = test_dataset.input_ds["longitude"].values
+        assert np.all(np.diff(lons) >= 0), f"longitude not monotonic: {lons}"

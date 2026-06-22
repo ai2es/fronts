@@ -105,7 +105,7 @@ def load_data_into_dataloader(
     """
 
     def _open(icechunk_config: utils.IcechunkStorageConfig) -> xr.Dataset:
-        return utils.open_readonly_icechunk_store(
+        ds = utils.open_readonly_icechunk_store(
             store_path=icechunk_config.store_path,
             branch=icechunk_config.branch_name,
             group=icechunk_config.group_name,
@@ -113,6 +113,10 @@ def load_data_into_dataloader(
             virtual_chunk_local_path=icechunk_config.virtual_chunk_local_path,
             chunks=None,
         )
+        # A wrap-crossing bounding box (lon_max > 360) leaves longitude non-monotonic
+        # on disk (e.g. [130, ..., 359.75, 0, ..., 9.75]); downstream plotting
+        # (TestVisualizationCallback) and region masking assume it's monotonic.
+        return utils.unwrap_longitude(ds)
 
     logger.info("Loading %s inputs...", split)
     inputs_ds = _open(data_config.inputs_icechunk_config)
