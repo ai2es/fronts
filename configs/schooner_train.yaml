@@ -11,7 +11,7 @@ data_config:
     store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
     branch_name: "main"
     virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
-  batch_size: 64
+  batch_size: 48
   test_years: [2019]
   val_years: [2018]
   max_queue_size: 48
