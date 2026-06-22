@@ -58,7 +58,7 @@ callbacks_config:
   monitor: "val_loss"
   patience: 16
   model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year/"
-  test_viz_every_n_epochs: 10  # log a test-set prediction map + performance diagrams to W&B every N epochs; null disables
+  test_viz_every_n_epochs: 1  # log a test-set prediction map + performance diagrams to W&B every N epochs; null disables
   test_viz_sample_size: 200  # number of (seeded, random) test timesteps used for the periodic performance diagram
 
 wandb_config:

@@ -77,6 +77,7 @@ def load_data_into_dataloader(
     split: Literal["train", "val", "test"],
     seed: int = 0,
     shuffle: bool = False,
+    workers: int = 1,
 ) -> datasets.TrainingDataset:
     """Load, align, and encode ERA5 input and fronts data for training.
 
@@ -95,6 +96,9 @@ def load_data_into_dataloader(
         split: Type of dataset to load ("train", "val", "test").
         seed: Integer seed for the RNG used when subsampling timesteps.
         shuffle: If True, reshuffles the sample order at the end of every epoch.
+        workers: Number of ``PyDataset`` prefetch threads. 1 (the ``PyDataset``
+            default) fetches each batch synchronously on the main thread, serializing
+            every batch's icechunk read with the GPU training step.
 
     Returns:
         TrainingDataset yielding batches of (input, target) pairs for training.
@@ -150,6 +154,8 @@ def load_data_into_dataloader(
         seed=seed,
         batch_size=data_config.batch_size,
         shuffle=shuffle,
+        workers=workers,
+        max_queue_size=data_config.max_queue_size,
     )
 
 
@@ -350,8 +356,10 @@ def main():
     cpu_count = utils.slurm_cpu_count()
     zarr.config.update({"threading.max_workers": cpu_count})
 
-    train_dataset = load_data_into_dataloader(cfg.data_config, split="train", seed=cfg.seed, shuffle=cfg.shuffle)
-    val_dataset = load_data_into_dataloader(cfg.data_config, split="val", seed=cfg.seed)
+    train_dataset = load_data_into_dataloader(
+        cfg.data_config, split="train", seed=cfg.seed, shuffle=cfg.shuffle, workers=cpu_count
+    )
+    val_dataset = load_data_into_dataloader(cfg.data_config, split="val", seed=cfg.seed, workers=cpu_count)
 
     logger.info(f"Total batches in training set: {len(train_dataset)}")
     logger.info(f"Total batches in validation set: {len(val_dataset)}")
