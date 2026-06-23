@@ -1,6 +1,7 @@
 epochs: 5000
 seed: 42
 learning_rate: 0.0001
+shuffle: true
 
 data_config:
   inputs_icechunk_config:

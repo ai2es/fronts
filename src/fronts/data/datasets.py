@@ -77,7 +77,6 @@ class TrainingDataset(tf.keras.utils.PyDataset):
         target_da: xr.DataArray,
         data_config: DatasetConfig,
         batch_size: int,
-        shuffle: bool = False,
         seed: int = 0,
         **kwargs,
     ):
@@ -90,9 +89,7 @@ class TrainingDataset(tf.keras.utils.PyDataset):
         self.target_da = target_da.copy()
         self.data_config = data_config
         self.batch_size = batch_size
-        self.shuffle = shuffle
         self._rng = np.random.default_rng(seed)
-        self._order = self._rng.permutation(self._total) if shuffle else np.arange(self._total)
 
     @property
     def _total(self) -> int:
@@ -106,11 +103,6 @@ class TrainingDataset(tf.keras.utils.PyDataset):
     def __len__(self) -> int:
         """Returns the number of batches per epoch."""
         return math.ceil(self._total / self.batch_size)
-
-    def on_epoch_end(self) -> None:
-        """Reshuffles the sample order for the next epoch, if shuffling is enabled."""
-        if self.shuffle:
-            self._order = self._rng.permutation(self._total)
 
     def get_at_indices(self, idxs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Returns the (input, target) arrays at arbitrary global time indices.
