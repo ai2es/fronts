@@ -141,6 +141,61 @@ class TestVisualizationCallbackPredict:
             )
 
 
+class TestVisualizationCallbackOnEpochEnd:
+    """on_epoch_end must not pass an explicit `step` to wandb.log.
+
+    WandbMetricsLogger's step is the cumulative training batch count, not the epoch
+    number, so a `step=epoch` call is always behind the run's current step and gets
+    silently dropped by wandb (see callbacks.py:on_epoch_end).
+    """
+
+    def _make_callback(self, monkeypatch, every_n_epochs: int) -> "fc.TestVisualizationCallback":
+        # CF is class index 1, so 2 channels is the minimum needed to exercise the
+        # class-index slicing in on_epoch_end.
+        inputs = fc.tf.keras.Input(shape=(2, 2, 2))
+        model = fc.tf.keras.Model(inputs, inputs)  # identity
+        cb = fc.TestVisualizationCallback(
+            active_day_x=np.zeros((2, 2, 2), dtype=np.float32),
+            active_day_y=np.zeros((2, 2, 2), dtype=np.float32),
+            active_day_label="active day",
+            subsample_x=np.zeros((3, 2, 2, 2), dtype=np.float32),
+            subsample_y=np.zeros((3, 2, 2, 2), dtype=np.float32),
+            lats=np.array([0.0, 1.0]),
+            lons=np.array([0.0, 1.0]),
+            front_types=["CF"],
+            predict_batch_size=2,
+            every_n_epochs=every_n_epochs,
+        )
+        cb.set_model(model)
+        # Plotting (cartopy map + table figure) is unrelated to the wandb step bug and
+        # would otherwise drag in real map rendering; substitute cheap bare figures.
+        monkeypatch.setattr(fc.plot_module, "plot_test_prediction", lambda **_: fc.plot_module.plt.figure())
+        monkeypatch.setattr(fc.plot_module, "plot_performance_diagram_lite", lambda **_: fc.plot_module.plt.figure())
+        return cb
+
+    def test_logs_one_payload_with_no_explicit_step(self, monkeypatch):
+        cb = self._make_callback(monkeypatch, every_n_epochs=1)
+        calls = []
+        monkeypatch.setattr(fc.wandb, "log", lambda payload, **kwargs: calls.append((payload, kwargs)))
+
+        cb.on_epoch_end(epoch=0)
+
+        assert len(calls) == 1
+        payload, kwargs = calls[0]
+        assert "step" not in kwargs
+        assert "test/prediction" in payload
+        assert any(k.startswith("test/performance_diagram/") for k in payload)
+
+    def test_skips_logging_outside_cadence(self, monkeypatch):
+        cb = self._make_callback(monkeypatch, every_n_epochs=10)
+        calls = []
+        monkeypatch.setattr(fc.wandb, "log", lambda payload, **kwargs: calls.append((payload, kwargs)))
+
+        cb.on_epoch_end(epoch=0)
+
+        assert calls == []
+
+
 class TestAccumulateLiteStats:
     def test_matches_hand_computed_counts(self):
         # (time=1, lat=2, lon=2, n_fronts=1)

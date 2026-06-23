@@ -305,7 +305,12 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
             truth_da=truth_da,
             title=self.active_day_label,
         )
-        wandb.log({"test/prediction": wandb.Image(pred_fig)}, step=epoch)
+        # WandbMetricsLogger tracks the run's step as the cumulative training batch count
+        # (regardless of its log_freq), which is always ahead of `epoch` by the time training
+        # has run a handful of batches; logging with `step=epoch` is always behind the run's
+        # current step and gets silently dropped. Logging everything from this call in one
+        # `wandb.log` with no explicit `step` instead lands on the run's actual current step.
+        payload = {"test/prediction": wandb.Image(pred_fig)}
         plot_module.plt.close(pred_fig)
 
         pred_subsample = self._predict(self.subsample_x)[:, :, :, class_indices]
@@ -326,5 +331,7 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
                     fn=fn[fi],
                     title=region_name,
                 )
-                wandb.log({f"test/performance_diagram/{region_name}/{ft}": wandb.Image(fig)}, step=epoch)
+                payload[f"test/performance_diagram/{region_name}/{ft}"] = wandb.Image(fig)
                 plot_module.plt.close(fig)
+
+        wandb.log(payload)
