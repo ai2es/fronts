@@ -58,11 +58,11 @@ model_config:
 callbacks_config:
   monitor: "val_loss"
   patience: 3
-  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year_larger_batches/"
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year_larger_batches_shuffle/"
   test_viz_every_n_epochs: 1  # log a test-set prediction map + performance diagrams to W&B every N epochs; null disables
   test_viz_sample_size: 200  # number of (seeded, random) test timesteps used for the periodic performance diagram
 
 wandb_config:
   project_name: "fronts"
-  run_name: "PyDataset_2007_2024_by_year_larger_batches"
+  run_name: "PyDataset_2007_2024_by_year_larger_batches_shuffle"
   log_freq: 10 # log to W&B every 10 batches instead of waiting for each epoch to finish
