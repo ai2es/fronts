@@ -255,6 +255,7 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
         lats: 1-D latitude array matching the spatial dims above.
         lons: 1-D longitude array matching the spatial dims above.
         front_types: Front type labels to evaluate, in class order.
+        predict_batch_size: Batch size used to chunk ``subsample_x`` inference.
         every_n_epochs: Visualization cadence in epochs.
     """
 
@@ -266,6 +267,7 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
     lats: np.ndarray
     lons: np.ndarray
     front_types: list[str]
+    predict_batch_size: int
     every_n_epochs: int = 10
 
     def __post_init__(self) -> None:
@@ -273,8 +275,10 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
         super().__init__()
 
     def _predict(self, x: np.ndarray) -> np.ndarray:
-        """Run the model's finest-resolution (first) output on a batch of inputs."""
-        pred = self.model(x, training=False)
+        """Run the model's finest-resolution (first) output, chunked by ``predict_batch_size``."""
+        # An unbatched call on the full subsample (e.g. 200 timesteps) allocates one huge
+        # activation buffer on top of training's already-resident GPU memory and reliably OOMs.
+        pred = self.model.predict(x, batch_size=self.predict_batch_size, verbose=0)
         if isinstance(pred, (list, tuple)):
             pred = pred[0]
         return np.asarray(pred)

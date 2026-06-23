@@ -96,6 +96,51 @@ class TestRegionMask:
         np.testing.assert_array_equal(mask, expected)
 
 
+class TestVisualizationCallbackPredict:
+    """_predict must chunk by predict_batch_size rather than calling the model on the
+
+    full array at once: a single unbatched call on e.g. 200 full-resolution test
+    timesteps allocates one huge activation buffer on top of training's already
+    resident GPU memory and reliably OOMs (see callbacks.py:on_epoch_end).
+    """
+
+    def _make_callback(self, n_samples: int, predict_batch_size: int) -> "fc.TestVisualizationCallback":
+        inputs = fc.tf.keras.Input(shape=(2, 2, 1))
+        model = fc.tf.keras.Model(inputs, inputs)  # identity: output == input
+        cb = fc.TestVisualizationCallback(
+            active_day_x=np.zeros((2, 2, 1), dtype=np.float32),
+            active_day_y=np.zeros((2, 2, 1), dtype=np.float32),
+            active_day_label="active day",
+            subsample_x=np.arange(n_samples * 4, dtype=np.float32).reshape(n_samples, 2, 2, 1),
+            subsample_y=np.zeros((n_samples, 2, 2, 1), dtype=np.float32),
+            lats=np.array([0.0, 1.0]),
+            lons=np.array([0.0, 1.0]),
+            front_types=["CF"],
+            predict_batch_size=predict_batch_size,
+        )
+        cb.set_model(model)
+        return cb
+
+    def test_chunked_prediction_matches_unbatched_input(self):
+        # 5 samples with batch_size=2 forces a ragged last chunk (2, 2, 1 samples).
+        cb = self._make_callback(n_samples=5, predict_batch_size=2)
+        result = cb._predict(cb.subsample_x)
+        np.testing.assert_allclose(result, cb.subsample_x)
+
+    def test_predict_batch_size_field_is_required(self):
+        with pytest.raises(TypeError):
+            fc.TestVisualizationCallback(
+                active_day_x=np.zeros((2, 2, 1), dtype=np.float32),
+                active_day_y=np.zeros((2, 2, 1), dtype=np.float32),
+                active_day_label="active day",
+                subsample_x=np.zeros((1, 2, 2, 1), dtype=np.float32),
+                subsample_y=np.zeros((1, 2, 2, 1), dtype=np.float32),
+                lats=np.array([0.0, 1.0]),
+                lons=np.array([0.0, 1.0]),
+                front_types=["CF"],
+            )
+
+
 class TestAccumulateLiteStats:
     def test_matches_hand_computed_counts(self):
         # (time=1, lat=2, lon=2, n_fronts=1)

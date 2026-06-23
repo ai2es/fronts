@@ -303,6 +303,7 @@ def _build_test_visualization_callback(
         lats=test_dataset.input_ds["latitude"].values,
         lons=test_dataset.input_ds["longitude"].values,
         front_types=list(fronts_callbacks.FRONT_TYPE_CLASS_INDEX),
+        predict_batch_size=data_config.batch_size,
         every_n_epochs=callbacks_config.test_viz_every_n_epochs,
     )
 
