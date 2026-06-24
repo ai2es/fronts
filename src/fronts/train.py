@@ -203,6 +203,7 @@ def _run(
     epochs: int,
     monitor: str,
     patience: int,
+    shuffle: bool,
     model_checkpoint_path: str | None = None,
     wandb_project: str | None = None,
     run_name: str | None = None,
@@ -250,6 +251,7 @@ def _run(
         steps_per_epoch=steps_per_epoch,
         validation_steps=validation_steps,
         callbacks=callbacks,
+        shuffle=shuffle,
     )
     elapsed = time.time() - t0
     if model_checkpoint_path:
@@ -473,9 +475,7 @@ def main():
     extra_callbacks = []
     if wandb_project and cfg.callbacks_config.test_viz_every_n_epochs:
         try:
-            extra_callbacks.append(
-                _build_test_visualization_callback(cfg.data_config, cfg.callbacks_config, cfg.seed)
-            )
+            extra_callbacks.append(_build_test_visualization_callback(cfg.data_config, cfg.callbacks_config, cfg.seed))
         except ValueError:
             logger.warning(
                 "Skipping periodic test-set visualization: could not build the callback "
@@ -495,6 +495,7 @@ def main():
         train_dataset,
         val_dataset,
         epochs=cfg.epochs,
+        shuffle=cfg.shuffle,
         steps_per_epoch=train_steps,
         validation_steps=val_steps,
         monitor=cfg.callbacks_config.monitor,
