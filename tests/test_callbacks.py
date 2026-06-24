@@ -97,11 +97,11 @@ class TestRegionMask:
 
 
 class TestVisualizationCallbackPredict:
-    """_predict must chunk by predict_batch_size rather than calling the model on the
+    """Tests the viz for predictions in callbacks.
 
-    full array at once: a single unbatched call on e.g. 200 full-resolution test
-    timesteps allocates one huge activation buffer on top of training's already
-    resident GPU memory and reliably OOMs (see callbacks.py:on_epoch_end).
+    CallbackPredict must chunk by predict_batch_size rather than calling the model on the full array at once:
+    a single unbatched call on e.g. 200 full-resolution test timesteps allocates one huge activation buffer on top
+    of training's already resident GPU memory and reliably OOMs (see callbacks.py:on_epoch_end).
     """
 
     def _make_callback(self, n_samples: int, predict_batch_size: int) -> "fc.TestVisualizationCallback":
@@ -142,11 +142,11 @@ class TestVisualizationCallbackPredict:
 
 
 class TestVisualizationCallbackOnEpochEnd:
-    """on_epoch_end must not pass an explicit `step` to wandb.log.
+    """On_epoch_end must not pass an explicit `step` to wandb.log: WandbMetricsLogger's.
 
-    WandbMetricsLogger's step is the cumulative training batch count, not the epoch
-    number, so a `step=epoch` call is always behind the run's current step and gets
-    silently dropped by wandb (see callbacks.py:on_epoch_end).
+    Step is the cumulative training batch count, not the epoch number, so a `step=epoch`
+    call is always behind the run's current step and gets silently dropped by wandb
+    (see callbacks.py:on_epoch_end).
     """
 
     def _make_callback(self, monkeypatch, every_n_epochs: int) -> "fc.TestVisualizationCallback":
