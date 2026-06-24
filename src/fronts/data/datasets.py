@@ -4,9 +4,12 @@ import math
 import numpy as np
 import tensorflow as tf
 import xarray as xr
-
+import time
 from fronts import utils
 from fronts.data import inputs, targets
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -139,4 +142,9 @@ class TrainingDataset(tf.keras.utils.PyDataset):
     def __getitem__(self, idx: int) -> tuple[np.ndarray, np.ndarray]:
         """Returns the (input, target) batch at ``idx``."""
         local_idxs = self._order[idx * self.batch_size : (idx + 1) * self.batch_size]
-        return self.get_at_indices(local_idxs)
+        t0 = time.time()
+        result = self.get_at_indices(local_idxs)
+        elapsed = time.time() - t0
+        if elapsed > 30:
+            logger.warning(f"Slow batch {idx}: {elapsed:.1f}s")
+        return result

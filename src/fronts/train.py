@@ -363,10 +363,12 @@ def main():
     cpu_count = utils.slurm_cpu_count()
     zarr.config.update({"threading.max_workers": cpu_count})
 
+    # Limit the number of workers to avoid overwhelming the store
+    data_workers = min(cpu_count, 8)
     train_dataset = load_data_into_dataloader(
-        cfg.data_config, split="train", seed=cfg.seed, shuffle=cfg.shuffle, workers=cpu_count
+        cfg.data_config, split="train", seed=cfg.seed, shuffle=cfg.shuffle, workers=data_workers
     )
-    val_dataset = load_data_into_dataloader(cfg.data_config, split="val", seed=cfg.seed, workers=cpu_count)
+    val_dataset = load_data_into_dataloader(cfg.data_config, split="val", seed=cfg.seed, workers=data_workers)
 
     logger.info(f"Total batches in training set: {len(train_dataset)}")
     logger.info(f"Total batches in validation set: {len(val_dataset)}")
