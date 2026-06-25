@@ -364,7 +364,7 @@ def main():
     zarr.config.update({"threading.max_workers": cpu_count})
 
     # Limit the number of workers to avoid overwhelming the store
-    data_workers = min(cpu_count, 8)
+    data_workers = min(cpu_count, 16)
     train_dataset = load_data_into_dataloader(
         cfg.data_config, split="train", seed=cfg.seed, shuffle=cfg.shuffle, workers=data_workers
     )
