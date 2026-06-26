@@ -31,6 +31,7 @@ from tqdm import tqdm
 
 from fronts import utils
 from fronts.data import config, datasets, inputs, targets
+from fronts.model import SharedTargetModel
 
 log = logging.getLogger(__name__)
 
@@ -358,7 +359,9 @@ def main() -> None:
 
     utils.configure_gpu(eval_cfg.gpu_device)
     log.info("Loading model from %s …", eval_cfg.model_path)
-    model = tf.keras.models.load_model(eval_cfg.model_path, compile=False)
+    model = tf.keras.models.load_model(
+        eval_cfg.model_path, compile=False, custom_objects={"SharedTargetModel": SharedTargetModel}
+    )
     log.info("Model loaded. Output count: %d.", len(model.outputs))
 
     ic_era5 = data_cfg.inputs_icechunk_config

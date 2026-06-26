@@ -30,6 +30,7 @@ from matplotlib.ticker import FixedLocator
 
 from fronts import utils
 from fronts.data import config, datasets, inputs, targets
+from fronts.model import SharedTargetModel
 from fronts.plot.utils import plot_background, truncated_colormap
 
 log = logging.getLogger(__name__)
@@ -589,7 +590,9 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.Datase
     utils.configure_gpu(predict_cfg.gpu_device)
 
     log.info("Loading model from %s …", predict_cfg.model_path)
-    model = tf.keras.models.load_model(predict_cfg.model_path, compile=False)
+    model = tf.keras.models.load_model(
+        predict_cfg.model_path, compile=False, custom_objects={"SharedTargetModel": SharedTargetModel}
+    )
 
     init_time = np.datetime64(predict_cfg.init_time)
 
