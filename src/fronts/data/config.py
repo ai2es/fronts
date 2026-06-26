@@ -32,37 +32,6 @@ class SlurmConfig:
 
 
 @dataclasses.dataclass
-class EvalConfig:
-    """Configuration for running performance statistics evaluation.
-
-    Attributes:
-        model_path: Path to the saved .keras model checkpoint.
-        outdir: Directory to write stats_aggregate_{mask}.nc and stats_spatial_{mask}.nc.
-        coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
-            Defaults to full USAD extent.
-        front_types: Front type labels in class order (excluding background class 0).
-        mask: Restrict statistics to "land" or "ocean" grid points. None means all points.
-        front_dilation: Binary dilation iterations applied to truth labels. None uses
-            the value from the paired DatasetConfig.
-        gpu_device: GPU index to use. None runs on CPU.
-        time_start: Restrict evaluation to timesteps on or after this date. None means no lower bound.
-        time_end: Restrict evaluation to timesteps before this date. None means no upper bound.
-    """
-
-    model_path: str
-    outdir: str
-    coordinates: utils.BoundingBox = dataclasses.field(
-        default_factory=lambda: utils.BoundingBox(lat_min=0.25, lat_max=80.0, lon_min=130.0, lon_max=369.75)
-    )
-    front_types: list[str] = dataclasses.field(default_factory=lambda: ["CF", "WF", "SF", "OF", "DL"])
-    mask: str | None = None
-    front_dilation: int | None = None
-    gpu_device: int | None = None
-    time_start: datetime.datetime | None = None
-    time_end: datetime.datetime | None = None
-
-
-@dataclasses.dataclass
 class PredictConfig:
     """Configuration for generating a single-timestep case study prediction plot.
 
