@@ -1,3 +1,5 @@
+run_name: PyDataset_2007_2024_by_year_larger_batches_shuffle
+
 data_config:
   inputs_icechunk_config:
     store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
@@ -37,8 +39,8 @@ data_config:
   num_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 eval_config:
-  model_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year_larger_batches_shuffle/_best_loss.keras"
-  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/PyDataset_2007_2024_by_year_larger_batches_shuffle/"
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}/"
   coordinates: [0.25, 80.0, 130.0, 369.75]  # [lat_min, lat_max, lon_min, lon_max]
   front_types: [CF, WF, SF, OF, DL]
   front_dilation: 1  # match training dilation
@@ -46,8 +48,8 @@ eval_config:
   time_end: "2024-12-31T18:00:00"
 
 predict_config:
-  model_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year_larger_batches_shuffle/_best_loss.keras"
-  outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/PyDataset_2007_2024_by_year_larger_batches_shuffle/"
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/${run_name}/"
   init_time: "2024-03-15T06:00:00"
   front_types: [CF, WF, SF, OF, DL]
   coordinates: [0.25, 80.0, 130.0, 369.75]

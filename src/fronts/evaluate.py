@@ -265,46 +265,19 @@ def compute_stats(
     return spatial_ds, aggregate_ds
 
 
-def main() -> None:
-    """Parse arguments, load configs, and run stats computation."""
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    parser = argparse.ArgumentParser(description="Compute performance statistics from icechunk stores.")
-    parser.add_argument("--config_path", type=str, required=True, help="Path to training config YAML.")
-    parser.add_argument(
-        "--mask",
-        type=str,
-        default=None,
-        choices=["land", "ocean"],
-        help="Restrict stats to land or ocean grid points.",
-    )
-    parser.add_argument("--outdir", type=str, default=None, help="Override output directory from eval_config.")
-    args = parser.parse_args()
+def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
+    """Run stats computation from pre-loaded config objects.
 
-    eval_cfg: EvalConfig = utils.open_config_yaml_as_dataclass(
-        args.config_path,
-        EvalConfig,
-        config_key="eval_config",
-        type_hooks={
-            utils.BoundingBox: lambda d: utils.BoundingBox(*d),
-            datetime.datetime: lambda d: datetime.datetime.fromisoformat(str(d)),
-        },
-    )
-    data_cfg: datasets.DatasetConfig = utils.open_config_yaml_as_dataclass(
-        args.config_path, datasets.DatasetConfig, config_key="data_config"
-    )
-
-    eval_cfg = dataclasses.replace(
-        eval_cfg,
-        mask=args.mask if args.mask is not None else eval_cfg.mask,
-        outdir=args.outdir if args.outdir is not None else eval_cfg.outdir,
-    )
-
+    Args:
+        eval_cfg: Evaluation configuration specifying model path, output directory, etc.
+        data_cfg: Dataset configuration specifying icechunk store paths and variables.
+    """
     utils.configure_gpu(eval_cfg.gpu_device)
     log.info("Loading model from %s …", eval_cfg.model_path)
-    model = tf.keras.models.load_model(
+    keras_model = tf.keras.models.load_model(
         eval_cfg.model_path, compile=False, custom_objects={"SharedTargetModel": SharedTargetModel}
     )
-    log.info("Model loaded. Output count: %d.", len(model.outputs))
+    log.info("Model loaded. Output count: %d.", len(keras_model.outputs))
 
     ic_era5 = data_cfg.inputs_icechunk_config
     ic_fronts = data_cfg.targets_icechunk_config
@@ -355,7 +328,7 @@ def main() -> None:
 
     log.info("Computing statistics …")
     spatial_ds, aggregate_ds = compute_stats(
-        model=model,
+        model=keras_model,
         era5_da=era5_da,
         targets_da=targets_da,
         front_types=eval_cfg.front_types,
@@ -374,6 +347,32 @@ def main() -> None:
     aggregate_ds.astype("float32").to_netcdf(aggregate_path)
     log.info("Spatial stats   → %s", spatial_path)
     log.info("Aggregate stats → %s", aggregate_path)
+
+
+def main() -> None:
+    """Parse arguments, load configs, and run stats computation."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    parser = argparse.ArgumentParser(description="Compute performance statistics from icechunk stores.")
+    parser.add_argument("--config_path", type=str, required=True, help="Path to training config YAML.")
+    parser.add_argument(
+        "--mask",
+        type=str,
+        default=None,
+        choices=["land", "ocean"],
+        help="Restrict stats to land or ocean grid points.",
+    )
+    parser.add_argument("--outdir", type=str, default=None, help="Override output directory from eval_config.")
+    args = parser.parse_args()
+
+    yaml_data = utils.load_yaml(args.config_path)
+    eval_cfg: EvalConfig = utils.parse_config_section(yaml_data, EvalConfig, "eval_config", utils.YAML_TYPE_HOOKS)
+    data_cfg: datasets.DatasetConfig = utils.parse_config_section(yaml_data, datasets.DatasetConfig, "data_config")
+    eval_cfg = dataclasses.replace(
+        eval_cfg,
+        mask=args.mask if args.mask is not None else eval_cfg.mask,
+        outdir=args.outdir if args.outdir is not None else eval_cfg.outdir,
+    )
+    run(eval_cfg, data_cfg)
 
 
 if __name__ == "__main__":

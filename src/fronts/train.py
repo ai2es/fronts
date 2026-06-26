@@ -59,12 +59,8 @@ class WandBConfig:
 
 @dataclasses.dataclass
 class TrainConfig:
-    """Top-level training configuration assembling all sub-configs."""
+    """Training-specific hyperparameters."""
 
-    data_config: datasets.DatasetConfig
-    model_config: model.ModelConfig
-    callbacks_config: fronts_callbacks.CallbacksConfig
-    wandb_config: WandBConfig | None
     epochs: int = 50
     seed: int = 42
     learning_rate: float = 1e-4
@@ -347,21 +343,28 @@ def _collect_run_metadata(data_config: datasets.DatasetConfig) -> dict:
     return meta
 
 
-def main():
-    """Entry point: load config, build dataset and model, run training."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    parser = argparse.ArgumentParser(description="Train UNet3Plus on ERA5 using NOAA fronts data")
-    parser.add_argument("--config", type=str, required=True, help="Path to YAML training config")
-    args = parser.parse_args()
+def train(
+    data_cfg: datasets.DatasetConfig,
+    model_cfg: model.ModelConfig,
+    callbacks_cfg: fronts_callbacks.CallbacksConfig,
+    wandb_cfg: WandBConfig | None,
+    train_cfg: TrainConfig,
+) -> None:
+    """Run the full training pipeline from pre-loaded config objects.
 
-    cfg = utils.open_config_yaml_as_dataclass(args.config, TrainConfig)
-
-    run_meta = _collect_run_metadata(cfg.data_config)
+    Args:
+        data_cfg: Dataset configuration specifying store paths and splits.
+        model_cfg: Model architecture hyperparameters.
+        callbacks_cfg: Early-stopping, checkpoint, and visualization callback config.
+        wandb_cfg: W&B logging config, or None to disable W&B.
+        train_cfg: Training hyperparameters (epochs, seed, learning rate, shuffle).
+    """
+    run_meta = _collect_run_metadata(data_cfg)
     for key, value in run_meta.items():
         logger.info("run_meta %s=%s", key, value)
 
-    train_dataset = load_data_into_dataloader(cfg.data_config, split="train", seed=cfg.seed, shuffle=cfg.shuffle)
-    val_dataset = load_data_into_dataloader(cfg.data_config, split="val", seed=cfg.seed)
+    train_dataset = load_data_into_dataloader(data_cfg, split="train", seed=train_cfg.seed, shuffle=train_cfg.shuffle)
+    val_dataset = load_data_into_dataloader(data_cfg, split="val", seed=train_cfg.seed)
 
     logger.info(f"Total batches in training set: {len(train_dataset)}")
     logger.info(f"Total batches in validation set: {len(val_dataset)}")
@@ -371,25 +374,25 @@ def main():
     # cache key without needing to serialize the (large) list of selected time indices.
     norm_cache_key_parts = (
         run_meta["era5_snapshot_id"],
-        "test_years=" + ",".join(str(y) for y in cfg.data_config.test_years),
-        "val_years=" + ",".join(str(y) for y in cfg.data_config.val_years),
-        f"time_resolution={cfg.data_config.time_resolution}",
-        f"seed={cfg.seed}",
+        "test_years=" + ",".join(str(y) for y in data_cfg.test_years),
+        "val_years=" + ",".join(str(y) for y in data_cfg.val_years),
+        f"time_resolution={data_cfg.time_resolution}",
+        f"seed={train_cfg.seed}",
     )
     # Re-chunk (metadata-only) the train split's already-small, already-sliced input
     # Dataset so the variable-stacking and mean/variance reduction build a dask graph
     # instead of materializing the whole split eagerly.
-    train_inputs_da = inputs.inputs_ds_to_dataarray(train_dataset.input_ds.chunk("auto"), cfg.data_config.variables)
+    train_inputs_da = inputs.inputs_ds_to_dataarray(train_dataset.input_ds.chunk("auto"), data_cfg.variables)
 
     # Get the number of cpus allocated in the SLURM job
     cpu_count = utils.slurm_cpu_count()
     with dask.config.set(scheduler="threads", num_workers=cpu_count):
         norm_mean, norm_variance = inputs.load_or_compute_norm_stats(
-            train_inputs_da, cfg.data_config.norm_stats_cache_dir, norm_cache_key_parts
+            train_inputs_da, data_cfg.norm_stats_cache_dir, norm_cache_key_parts
         )
     logger.info(f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)")
 
-    _set_seed(cfg.seed)
+    _set_seed(train_cfg.seed)
 
     # mixed_float16 overflowed forward activations to inf/NaN with this model/loss;
     # keep float32 until the precision is made numerically safe. Switching this back
@@ -403,19 +406,19 @@ def main():
     logger.info("Building and compiling model...")
     with strategy.scope():
         unet = model.UNet3Plus(
-            input_shape=(None, None, cfg.model_config.n_channels),
-            num_classes=cfg.model_config.n_classes,
-            levels=cfg.model_config.levels,
-            filter_num=cfg.model_config.filter_num,
-            pool_size=cfg.model_config.pool_size,
-            upsample_size=cfg.model_config.upsample_size,
-            kernel_size=cfg.model_config.kernel_size,
-            first_encoder_connections=cfg.model_config.first_encoder_connections,
-            deep_supervision=cfg.model_config.deep_supervision,
-            batch_normalization=cfg.model_config.batch_normalization,
-            activation=cfg.model_config.activation,
-            output_activation=cfg.model_config.output_activation,
-            modules_per_node=cfg.model_config.modules_per_node,
+            input_shape=(None, None, model_cfg.n_channels),
+            num_classes=model_cfg.n_classes,
+            levels=model_cfg.levels,
+            filter_num=model_cfg.filter_num,
+            pool_size=model_cfg.pool_size,
+            upsample_size=model_cfg.upsample_size,
+            kernel_size=model_cfg.kernel_size,
+            first_encoder_connections=model_cfg.first_encoder_connections,
+            deep_supervision=model_cfg.deep_supervision,
+            batch_normalization=model_cfg.batch_normalization,
+            activation=model_cfg.activation,
+            output_activation=model_cfg.output_activation,
+            modules_per_node=model_cfg.modules_per_node,
             normalization_mean=norm_mean,
             normalization_variance=norm_variance,
         ).build()
@@ -425,7 +428,7 @@ def main():
                 for i, out in enumerate(unet.outputs)
             ]
             unet = model.SharedTargetModel(unet.inputs, float32_outputs, name=unet.name)
-        _compile(unet, cfg.learning_rate, cfg.data_config.class_weights)
+        _compile(unet, train_cfg.learning_rate, data_cfg.class_weights)
     logger.info("Model built and compiled.")
 
     unet.summary()
@@ -433,22 +436,22 @@ def main():
     train_steps = len(train_dataset)
     val_steps = len(val_dataset)
 
-    full_pass_epochs = utils.epochs_per_full_pass(train_dataset.n_samples, cfg.data_config.batch_size, train_steps)
-    effective_patience = max(cfg.callbacks_config.patience, full_pass_epochs)
-    if effective_patience != cfg.callbacks_config.patience:
+    full_pass_epochs = utils.epochs_per_full_pass(train_dataset.n_samples, data_cfg.batch_size, train_steps)
+    effective_patience = max(callbacks_cfg.patience, full_pass_epochs)
+    if effective_patience != callbacks_cfg.patience:
         logger.info(
             "Raising early-stopping patience %d -> %d so one full training pass (%d epochs of "
             "%d steps) completes without improvement before stopping.",
-            cfg.callbacks_config.patience,
+            callbacks_cfg.patience,
             effective_patience,
             full_pass_epochs,
             train_steps,
         )
-    if cfg.epochs < full_pass_epochs:
+    if train_cfg.epochs < full_pass_epochs:
         logger.warning(
             "epochs=%d is fewer than the %d epochs needed for one full training pass; "
             "the model will not see all training data.",
-            cfg.epochs,
+            train_cfg.epochs,
             full_pass_epochs,
         )
 
@@ -456,7 +459,7 @@ def main():
     logger.info(
         "Epoch = %d images (subset); full training pass every %d epochs; patience %d covers ~%.1f "
         "passes; validation covers all %d images in %d steps.",
-        train_steps * cfg.data_config.batch_size,
+        train_steps * data_cfg.batch_size,
         full_pass_epochs,
         effective_patience,
         passes_covered,
@@ -467,13 +470,13 @@ def main():
     x_sample, _ = train_dataset[0]
     _show_input_sample("builtin-norm (raw)", x_sample)
 
-    wandb_project = cfg.wandb_config.project_name if cfg.wandb_config is not None else None
-    run_name = cfg.wandb_config.run_name if cfg.wandb_config is not None else None
+    wandb_project = wandb_cfg.project_name if wandb_cfg is not None else None
+    run_name = wandb_cfg.run_name if wandb_cfg is not None else None
 
     extra_callbacks = []
-    if wandb_project and cfg.callbacks_config.test_viz_every_n_epochs:
+    if wandb_project and callbacks_cfg.test_viz_every_n_epochs:
         try:
-            extra_callbacks.append(_build_test_visualization_callback(cfg.data_config, cfg.callbacks_config, cfg.seed))
+            extra_callbacks.append(_build_test_visualization_callback(data_cfg, callbacks_cfg, train_cfg.seed))
         except ValueError:
             logger.warning(
                 "Skipping periodic test-set visualization: could not build the callback "
@@ -484,7 +487,7 @@ def main():
     logger.info(
         "Starting training: %d epochs, %d train steps/epoch, %d val steps/epoch "
         "(first step traces the tf.function graph and may take a minute)...",
-        cfg.epochs,
+        train_cfg.epochs,
         train_steps,
         val_steps,
     )
@@ -492,22 +495,40 @@ def main():
         unet,
         train_dataset,
         val_dataset,
-        epochs=cfg.epochs,
-        shuffle=cfg.shuffle,
+        epochs=train_cfg.epochs,
+        shuffle=train_cfg.shuffle,
         steps_per_epoch=train_steps,
         validation_steps=val_steps,
-        monitor=cfg.callbacks_config.monitor,
+        monitor=callbacks_cfg.monitor,
         patience=effective_patience,
-        model_checkpoint_path=cfg.callbacks_config.model_checkpoint_path,
+        model_checkpoint_path=callbacks_cfg.model_checkpoint_path,
         wandb_project=wandb_project,
         run_name=run_name,
-        wandb_log_freq=cfg.wandb_config.log_freq if cfg.wandb_config is not None else "epoch",
+        wandb_log_freq=wandb_cfg.log_freq if wandb_cfg is not None else "epoch",
         run_config=run_meta,
         extra_callbacks=extra_callbacks,
     )
 
     best_val = min(history.history.get("val_loss", [float("nan")]))
     logger.info(f"\nBest val_loss: {best_val:.4f}  |  Training time: {elapsed:.1f} s")
+
+
+def main():
+    """Entry point: load config, build dataset and model, run training."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    parser = argparse.ArgumentParser(description="Train UNet3Plus on ERA5 using NOAA fronts data")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML training config")
+    args = parser.parse_args()
+
+    yaml_data = utils.load_yaml(args.config)
+    data_cfg = utils.parse_config_section(yaml_data, datasets.DatasetConfig, "data_config")
+    model_cfg = utils.parse_config_section(yaml_data, model.ModelConfig, "model_config")
+    callbacks_cfg = utils.parse_config_section(yaml_data, fronts_callbacks.CallbacksConfig, "callbacks_config")
+    wandb_cfg = (
+        utils.parse_config_section(yaml_data, WandBConfig, "wandb_config") if "wandb_config" in yaml_data else None
+    )
+    train_cfg = utils.parse_config_section(yaml_data, TrainConfig, "train_config")
+    train(data_cfg, model_cfg, callbacks_cfg, wandb_cfg, train_cfg)
 
 
 if __name__ == "__main__":

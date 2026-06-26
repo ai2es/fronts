@@ -586,13 +586,11 @@ def main():
     )
     args = parser.parse_args()
 
-    bounding_box_type_hook = {utils.BoundingBox: lambda d: utils.BoundingBox(*d)}
-
     era5_config = utils.open_config_yaml_as_dataclass(
         args.config,
         ERA5DataLoaderConfig,
         config_key="era5_config",
-        type_hooks=bounding_box_type_hook,
+        type_hooks=utils.YAML_TYPE_HOOKS,
     )
     logger.info(f"ERA5 data config loaded: {era5_config}")
 

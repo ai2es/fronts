@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import math
 import os
 import subprocess
 from collections import namedtuple
+from string import Template
 from typing import Any, TypeVar
 
 import dacite
@@ -250,7 +252,7 @@ def split_by_year(
     """
     if set(test_years) & set(val_years):
         raise ValueError(f"test_years and val_years overlap: {set(test_years) & set(val_years)}")
-    years = pd.DatetimeIndex(times).year
+    years = pd.DatetimeIndex(times).year.to_numpy()
     test_mask = np.zeros(len(times), dtype=bool)
     val_mask = np.zeros(len(times), dtype=bool)
     if test_years:
@@ -308,6 +310,70 @@ def epochs_per_full_pass(n_samples: int, batch_size: int, steps_per_epoch: int) 
     return math.ceil(full_pass_steps / steps_per_epoch)
 
 
+YAML_TYPE_HOOKS: dict = {
+    BoundingBox: lambda d: BoundingBox(*d),
+    datetime.datetime: lambda d: datetime.datetime.fromisoformat(str(d)),
+}
+
+
+def _interpolate_yaml_vars(obj: Any, variables: dict[str, str]) -> Any:
+    """Recursively substitute ``${key}`` placeholders in YAML string values.
+
+    Top-level scalar keys in the YAML act as the variable namespace. Unrecognized
+    placeholders are left unchanged (``Template.safe_substitute`` semantics).
+    """
+    if isinstance(obj, str):
+        return Template(obj).safe_substitute(variables)
+    if isinstance(obj, dict):
+        return {k: _interpolate_yaml_vars(v, variables) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_interpolate_yaml_vars(v, variables) for v in obj]
+    return obj
+
+
+def load_yaml(path: str) -> dict:
+    """Load and interpolate a YAML config file into a plain dict.
+
+    Top-level scalar keys (e.g. ``run_name: foo``) are available as ``${run_name}``
+    placeholders in any string value throughout the file.
+
+    Args:
+        path: Path to the YAML config file.
+
+    Returns:
+        Fully interpolated dict from the YAML file.
+    """
+    with open(path) as f:
+        config_yaml = yaml.safe_load(f)
+    variables = {k: str(v) for k, v in config_yaml.items() if isinstance(v, (str, int, float))}
+    return _interpolate_yaml_vars(config_yaml, variables)
+
+
+def parse_config_section(
+    yaml_data: dict,
+    config_class: type[T],
+    config_key: str | None = None,
+    type_hooks: dict | None = None,
+) -> T:
+    """Parse a section of a pre-loaded YAML dict into a dataclass instance.
+
+    Args:
+        yaml_data: Pre-loaded and interpolated YAML dict (from ``load_yaml``).
+        config_class: The dataclass to parse the section into.
+        config_key: Key of the sub-dict to parse. None parses the root.
+        type_hooks: Optional dictionary of type conversion functions.
+
+    Returns:
+        An instance of the specified dataclass.
+    """
+    section = yaml_data[config_key] if config_key else yaml_data
+    return dacite.from_dict(
+        data_class=config_class,
+        data=section,
+        config=dacite.Config(check_types=False, type_hooks=type_hooks or {}),
+    )
+
+
 def open_config_yaml_as_dataclass(
     path: str,
     config_class: type[T],
@@ -315,6 +381,9 @@ def open_config_yaml_as_dataclass(
     type_hooks: dict | None = None,
 ) -> T:
     """Open a YAML config file and parse it into a dataclass instance.
+
+    Top-level scalar keys (e.g. ``run_name: foo``) are available as ``${run_name}``
+    placeholders in any string value throughout the file.
 
     Args:
         path: Path to the YAML config file.
@@ -325,19 +394,7 @@ def open_config_yaml_as_dataclass(
     Returns:
         An instance of the specified dataclass.
     """
-    # Open the YAML file and load it as a dictionary
-    with open(path) as f:
-        config_yaml = yaml.safe_load(f)
-
-    # If a specific key is provided, extract that sub-dictionary for dataclass parsing
-    if config_key:
-        config_yaml = config_yaml[config_key]
-
-    return dacite.from_dict(
-        data_class=config_class,
-        data=config_yaml,
-        config=dacite.Config(check_types=False, type_hooks=type_hooks or {}),
-    )
+    return parse_config_section(load_yaml(path), config_class, config_key, type_hooks)
 
 
 def get_git_commit() -> str:
