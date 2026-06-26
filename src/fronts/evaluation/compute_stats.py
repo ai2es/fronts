@@ -154,7 +154,7 @@ def compute_stats(
     n_nbhd = len(NEIGHBORHOODS_KM)
     n_lat, n_lon = len(lats), len(lons)
 
-    lat_res_km = float(np.diff(lats).mean()) * np.pi * 6371.0 / 180.0
+    lat_res_km = float(np.abs(np.diff(lats)).mean()) * np.pi * 6371.0 / 180.0
     nbhd_step_km = float(np.unique(np.diff(NEIGHBORHOODS_KM)).item())
     lat_pixels_per_step = round(nbhd_step_km / lat_res_km)
     lon_pixels_per_lat = np.round(nbhd_step_km / (lat_res_km * np.cos(np.deg2rad(lats)))).astype(int)
