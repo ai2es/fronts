@@ -348,9 +348,9 @@ def main() -> None:
     parser.add_argument("--outdir", type=str, default=None, help="Override output directory from eval_config.")
     args = parser.parse_args()
 
-    eval_cfg: config.EvalConfig = utils.open_config_yaml_as_dataclass(
+    eval_cfg: EvalConfig = utils.open_config_yaml_as_dataclass(
         args.config_path,
-        config.EvalConfig,
+        EvalConfig,
         config_key="eval_config",
         type_hooks={
             utils.BoundingBox: lambda d: utils.BoundingBox(*d),
