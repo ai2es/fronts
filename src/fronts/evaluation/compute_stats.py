@@ -35,6 +35,8 @@ from fronts.model import SharedTargetModel
 
 log = logging.getLogger(__name__)
 
+# Note that FRONT_TYPE_CLASS_INDEX is not the number from the fronts data, but the index
+# in the one-hot encoded array (0=background, 1=CF, 2=WF, 3=SF, 4=OF, 5=DL)
 FRONT_TYPE_CLASS_INDEX: dict[str, int] = {"CF": 1, "WF": 2, "SF": 3, "OF": 4, "DL": 5}
 NEIGHBORHOODS_KM = np.array([50, 100, 150, 200, 250])
 EXPAND_ITERS_PER_STEP = 2
