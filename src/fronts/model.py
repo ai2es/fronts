@@ -9,7 +9,7 @@ from tensorflow.keras.models import Model
 from fronts.layers import modules
 
 
-@tf.keras.saving.register_keras_serializable(package="fronts")
+@tf.keras.utils.register_keras_serializable(package="fronts")
 class SharedTargetModel(Model):
     """A Model that trains multiple outputs against one shared target.
 
