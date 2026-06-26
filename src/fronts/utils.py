@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import yaml
+import zarr
 from xarray.core.indexes import IndexSelResult, PandasIndex, _query_slice
 from xarray.core.indexing import _expand_slice
 
@@ -462,3 +463,26 @@ def configure_gpu(gpu_device: int | None) -> None:
         raise IndexError(f"gpu_device={gpu_device} is out of range — {len(gpus)} GPU(s) available.")
     tf.config.set_visible_devices(gpus[gpu_device], "GPU")
     tf.config.experimental.set_memory_growth(gpus[gpu_device], True)
+
+
+def limit_workers_for_slurm(max_workers: int = 16) -> int:
+    """Determine the number of workers to use for parallelism in a SLURM job.
+
+    This method reads the number of CPUs allocated to the current SLURM job and returns a worker count
+    that is the minimum of the allocated CPUs and a specified maximum. This helps to avoid overwhelming
+    the data store when loading data and computing normalization stats.
+
+    Args:
+        max_workers: The maximum number of workers to use. Default is 16.
+
+    Returns:
+        The number of workers to use for parallelism, limited by the allocated CPUs and the specified maximum.
+    """
+    # We use slurm to run this; this captures the number of CPUs allocated to the job and configures dask to use them
+    # for parallelism when loading data and computing normalization stats.
+    cpu_count = slurm_cpu_count()
+    zarr.config.update({"threading.max_workers": cpu_count})
+
+    # Limit the number of workers to avoid overwhelming the store
+    data_workers = min(cpu_count, max_workers)
+    return data_workers

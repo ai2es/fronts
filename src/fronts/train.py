@@ -20,7 +20,6 @@ import numpy as np
 import tensorflow as tf
 import wandb
 import xarray as xr
-import zarr
 
 from fronts import callbacks as fronts_callbacks
 from fronts import model, utils
@@ -151,6 +150,9 @@ def load_data_into_dataloader(
     inputs_ds = inputs_ds_matched.isel(time=split_indices)
     targets_da = targets_da_matched.isel(time=split_indices)
 
+    # Get the number of threads to use for PyDataset prefetching from max_pydataset_workers in the DatasetConfig,
+    # which is set to 16 by default. This allows for parallel loading of batches without overwhelming ourdisk I/O.
+    data_workers = utils.limit_workers_for_slurm(max_workers=data_config.max_pydataset_workers)
     return datasets.TrainingDataset(
         input_ds=inputs_ds,
         target_da=targets_da,
@@ -158,7 +160,7 @@ def load_data_into_dataloader(
         seed=seed,
         batch_size=data_config.batch_size,
         shuffle=shuffle,
-        workers=workers,
+        workers=data_workers,
         max_queue_size=data_config.max_queue_size,
     )
 
@@ -358,17 +360,8 @@ def main():
     for key, value in run_meta.items():
         logger.info("run_meta %s=%s", key, value)
 
-    # We use slurm to run this; this captures the number of CPUs allocated to the job and configures dask to use them
-    # for parallelism when loading data and computing normalization stats.
-    cpu_count = utils.slurm_cpu_count()
-    zarr.config.update({"threading.max_workers": cpu_count})
-
-    # Limit the number of workers to avoid overwhelming the store
-    data_workers = min(cpu_count, 16)
-    train_dataset = load_data_into_dataloader(
-        cfg.data_config, split="train", seed=cfg.seed, shuffle=cfg.shuffle, workers=data_workers
-    )
-    val_dataset = load_data_into_dataloader(cfg.data_config, split="val", seed=cfg.seed, workers=data_workers)
+    train_dataset = load_data_into_dataloader(cfg.data_config, split="train", seed=cfg.seed, shuffle=cfg.shuffle)
+    val_dataset = load_data_into_dataloader(cfg.data_config, split="val", seed=cfg.seed)
 
     logger.info(f"Total batches in training set: {len(train_dataset)}")
     logger.info(f"Total batches in validation set: {len(val_dataset)}")
@@ -387,6 +380,9 @@ def main():
     # Dataset so the variable-stacking and mean/variance reduction build a dask graph
     # instead of materializing the whole split eagerly.
     train_inputs_da = inputs.inputs_ds_to_dataarray(train_dataset.input_ds.chunk("auto"), cfg.data_config.variables)
+
+    # Get the number of cpus allocated in the SLURM job
+    cpu_count = utils.slurm_cpu_count()
     with dask.config.set(scheduler="threads", num_workers=cpu_count):
         norm_mean, norm_variance = inputs.load_or_compute_norm_stats(
             train_inputs_da, cfg.data_config.norm_stats_cache_dir, norm_cache_key_parts
