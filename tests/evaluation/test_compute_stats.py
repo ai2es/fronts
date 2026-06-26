@@ -1,20 +1,33 @@
-"""Tests for fronts.evaluation.compute_stats._accumulate_timestep and helpers."""
+"""Tests for fronts.evaluation.compute_stats helpers and end-to-end stats computation."""
 
 import numpy as np
 import pytest
 import xarray as xr
 
 from fronts.evaluation.compute_stats import (
+    NEIGHBORHOODS_KM,
     N_THRESHOLDS,
     THRESHOLDS,
-    _EXPAND_SIZE,
-    _accumulate_timestep,
     _expand_all_neighborhoods,
     compute_stats,
 )
 
+_NBH_STEP_KM = float(np.unique(np.diff(NEIGHBORHOODS_KM)).item())
+_LAT_RES_KM = 0.25 * np.pi * 6371.0 / 180.0
+_LAT_PIXELS = round(_NBH_STEP_KM / _LAT_RES_KM)
+
 N_NBHD = 5
 RNG = np.random.default_rng(42)
+
+
+def _lon_pixels(lats: np.ndarray) -> np.ndarray:
+    return np.round(_NBH_STEP_KM / (_LAT_RES_KM * np.cos(np.deg2rad(lats)))).astype(int)
+
+
+@pytest.fixture()
+def tiny_lats():
+    """6-row latitude array spanning 30-50N, matching tiny_grid."""
+    return np.linspace(30.0, 50.0, 6, dtype=np.float32)
 
 
 @pytest.fixture()
@@ -25,200 +38,60 @@ def tiny_grid():
     return n_lat, n_lon, n_fronts, weights
 
 
-@pytest.fixture()
-def small_thresholds():
-    """Three evenly-spaced thresholds for fast hand-verifiable tests."""
-    return np.array([0.25, 0.5, 0.75], dtype=np.float32)
-
-
 class TestExpandAllNeighborhoods:
-    def test_shape(self, tiny_grid):
+    def test_shape(self, tiny_grid, tiny_lats):
         n_lat, n_lon, n_fronts, _ = tiny_grid
         truth = np.zeros((n_lat, n_lon, n_fronts), dtype=bool)
         truth[3, 4, 0] = True
-        result = _expand_all_neighborhoods(truth, n_nbhd=N_NBHD, expand_size=_EXPAND_SIZE)
+        result = _expand_all_neighborhoods(
+            truth, n_nbhd=N_NBHD, lat_pixels_per_step=_LAT_PIXELS, lon_pixels_per_lat=_lon_pixels(tiny_lats)
+        )
         assert result.shape == (N_NBHD, n_lat, n_lon, n_fronts)
 
-    def test_monotone_expansion(self, tiny_grid):
+    def test_monotone_expansion(self, tiny_grid, tiny_lats):
         """Each successive neighbourhood must be a superset of the previous."""
         n_lat, n_lon, n_fronts, _ = tiny_grid
         truth = np.zeros((n_lat, n_lon, n_fronts), dtype=bool)
         truth[3, 4, 0] = True
-        stack = _expand_all_neighborhoods(truth, n_nbhd=N_NBHD, expand_size=_EXPAND_SIZE)
+        stack = _expand_all_neighborhoods(
+            truth, n_nbhd=N_NBHD, lat_pixels_per_step=_LAT_PIXELS, lon_pixels_per_lat=_lon_pixels(tiny_lats)
+        )
         for ni in range(1, N_NBHD):
             assert np.all(stack[ni] >= stack[ni - 1]), f"Neighbourhood {ni} not superset of {ni - 1}"
 
-    def test_original_truth_included(self, tiny_grid):
+    def test_original_truth_included(self, tiny_grid, tiny_lats):
         """Every true pixel in the input must appear in all expanded masks."""
         n_lat, n_lon, n_fronts, _ = tiny_grid
         truth = np.zeros((n_lat, n_lon, n_fronts), dtype=bool)
         truth[1, 2, 1] = True
-        stack = _expand_all_neighborhoods(truth, n_nbhd=N_NBHD, expand_size=_EXPAND_SIZE)
+        stack = _expand_all_neighborhoods(
+            truth, n_nbhd=N_NBHD, lat_pixels_per_step=_LAT_PIXELS, lon_pixels_per_lat=_lon_pixels(tiny_lats)
+        )
         for ni in range(N_NBHD):
             assert stack[ni, 1, 2, 1], f"Original pixel missing at neighbourhood {ni}"
 
-    def test_all_false_stays_false(self, tiny_grid):
+    def test_all_false_stays_false(self, tiny_grid, tiny_lats):
         n_lat, n_lon, n_fronts, _ = tiny_grid
         truth = np.zeros((n_lat, n_lon, n_fronts), dtype=bool)
-        stack = _expand_all_neighborhoods(truth, n_nbhd=N_NBHD, expand_size=_EXPAND_SIZE)
+        stack = _expand_all_neighborhoods(
+            truth, n_nbhd=N_NBHD, lat_pixels_per_step=_LAT_PIXELS, lon_pixels_per_lat=_lon_pixels(tiny_lats)
+        )
         assert not stack.any()
 
 
-class TestAccumulateZeroPredictions:
-    """All predictions are 0: no pixel exceeds any threshold > 0."""
-
-    def test_no_tp_fp(self, tiny_grid, small_thresholds):
-        n_lat, n_lon, n_fronts, weights = tiny_grid
-        pred = np.zeros((n_lat, n_lon, n_fronts), dtype=np.float32)
-        truth = RNG.integers(0, 2, (n_lat, n_lon, n_fronts)).astype(bool)
-
-        tp_sp, fp_sp, _tn_sp, _fn_sp, tp_ag, fp_ag, _tn_ag, _fn_ag = _accumulate_timestep(
-            pred, truth, weights, small_thresholds, N_NBHD, _EXPAND_SIZE
-        )
-        assert np.all(tp_sp == 0), "Expected zero TP with zero predictions"
-        assert np.all(fp_sp == 0), "Expected zero FP with zero predictions"
-        assert np.all(tp_ag == 0)
-        assert np.all(fp_ag == 0)
-
-    def test_fn_equals_weighted_truth(self, tiny_grid, small_thresholds):
-        """FN should equal the weighted count of true pixels at every threshold."""
-        n_lat, n_lon, n_fronts, weights = tiny_grid
-        pred = np.zeros((n_lat, n_lon, n_fronts), dtype=np.float32)
-        truth = np.zeros((n_lat, n_lon, n_fronts), dtype=bool)
-        truth[1, 2, 0] = True
-        truth[3, 5, 1] = True
-
-        *_, fn_ag = _accumulate_timestep(pred, truth, weights, small_thresholds, N_NBHD, _EXPAND_SIZE)
-        # fn_ag has shape (n_fronts, 1, T); should be n_true_pixels at every threshold
-        expected_fn = np.array([1.0, 1.0], dtype=np.float32)  # one true pixel per front
-        assert np.allclose(fn_ag[:, 0, :], expected_fn[:, np.newaxis])
-
-
-class TestAccumulatePerfectPredictions:
-    """Pred=1 exactly where truth=1, pred=0 elsewhere."""
-
-    def test_no_fp(self, tiny_grid, small_thresholds):
-        n_lat, n_lon, n_fronts, weights = tiny_grid
-        truth = np.zeros((n_lat, n_lon, n_fronts), dtype=bool)
-        truth[2, 3, 0] = True
-        truth[4, 6, 1] = True
-        pred = truth.astype(np.float32)
-
-        _tp_sp, fp_sp, *_rest, fp_ag, _tn_ag, _fn_ag = _accumulate_timestep(
-            pred, truth, weights, small_thresholds, N_NBHD, _EXPAND_SIZE
-        )
-        # Predicted positives are inside expanded truth for any neighbourhood, so FP = 0.
-        assert np.all(fp_ag == 0), "Expected zero FP for perfect predictions"
-        assert np.all(fp_sp == 0)
-
-    def test_no_fn(self, tiny_grid, small_thresholds):
-        n_lat, n_lon, n_fronts, weights = tiny_grid
-        truth = np.zeros((n_lat, n_lon, n_fronts), dtype=bool)
-        truth[2, 3, 0] = True
-        pred = truth.astype(np.float32)
-
-        *_, fn_ag = _accumulate_timestep(pred, truth, weights, small_thresholds, N_NBHD, _EXPAND_SIZE)
-        # All thresholds <= 1.0; pred=1 exceeds every threshold, so FN = 0.
-        assert np.all(fn_ag == 0), "Expected zero FN for perfect predictions"
-
-
-class TestAccumulateKnownValues:
-    """2x2 grid, 1 front type, uniform weights=1, 1 neighbourhood."""
-
-    def _run(self, pred_vals, truth_vals, thresholds):
-        n_lat, n_lon, n_fronts = 2, 2, 1
-        pred = np.array(pred_vals, dtype=np.float32).reshape(n_lat, n_lon, n_fronts)
-        truth = np.array(truth_vals, dtype=bool).reshape(n_lat, n_lon, n_fronts)
-        weights = np.ones((n_lat, n_lon), dtype=np.float32)
-        return _accumulate_timestep(pred, truth, weights, thresholds, n_nbhd=1, expand_size=3)
-
-    def test_tn_count(self, small_thresholds):
-        # pred all 0, truth all False -> everything is TN
-        _tp_sp, _fp_sp, _tn_sp, _fn_sp, tp_ag, fp_ag, tn_ag, fn_ag = self._run(
-            [0, 0, 0, 0], [False, False, False, False], small_thresholds
-        )
-        n_pixels = 4
-        assert np.allclose(tn_ag[0, 0, :], n_pixels)  # all 4 pixels TN at every threshold
-        assert np.all(tp_ag == 0)
-        assert np.all(fp_ag == 0)
-        assert np.all(fn_ag == 0)
-
-    def test_threshold_splits(self, small_thresholds):
-        # pred = [0.6, 0.6, 0.6, 0.6], truth = all False
-        # threshold 0.25: all above -> all FP=4, TN=0
-        # threshold 0.75: none above -> all TN=4, FP=0
-        _tp_sp, _fp_sp, _tn_sp, _fn_sp, tp_ag, fp_ag, tn_ag, fn_ag = self._run(
-            [0.6, 0.6, 0.6, 0.6], [False, False, False, False], small_thresholds
-        )
-        assert fp_ag[0, 0, 0] == pytest.approx(4.0)  # threshold 0.25: all above
-        assert tn_ag[0, 0, 0] == pytest.approx(0.0)
-        assert fp_ag[0, 0, 2] == pytest.approx(0.0)  # threshold 0.75: none above
-        assert tn_ag[0, 0, 2] == pytest.approx(4.0)
-        assert np.all(tp_ag == 0)
-        assert np.all(fn_ag == 0)
-
-    def test_consistency(self, small_thresholds):
-        """TP + FP + TN + FN == weighted pixel count at every threshold/neighbourhood."""
-        pred = RNG.random((2, 2, 1)).astype(np.float32)
-        truth = RNG.integers(0, 2, (2, 2, 1)).astype(bool)
-        weights = np.ones((2, 2), dtype=np.float32)
-        _tp_sp, _fp_sp, _tn_sp, _fn_sp, tp_ag, fp_ag, tn_ag, fn_ag = _accumulate_timestep(
-            pred, truth, weights, small_thresholds, n_nbhd=1, expand_size=3
-        )
-        total = tp_ag + fp_ag + tn_ag + fn_ag  # (1, 1, T) after broadcasting
-        # Total weighted pixels = 4 (2x2 grid, uniform weight 1)
-        assert np.allclose(total, 4.0, atol=1e-5)
-
-
-class TestAccumulateSpatialMask:
-    def test_masked_pixels_contribute_nothing(self, small_thresholds):
-        n_lat, n_lon, n_fronts = 4, 4, 1
-        pred = np.ones((n_lat, n_lon, n_fronts), dtype=np.float32)
-        truth = np.ones((n_lat, n_lon, n_fronts), dtype=bool)
-        weights = np.zeros((n_lat, n_lon), dtype=np.float32)  # mask out everything
-        _tp_sp, _fp_sp, _tn_sp, _fn_sp, tp_ag, fp_ag, tn_ag, fn_ag = _accumulate_timestep(
-            pred, truth, weights, small_thresholds, N_NBHD, _EXPAND_SIZE
-        )
-        for arr in (tp_ag, fp_ag, tn_ag, fn_ag):
-            assert np.all(arr == 0), "Fully masked grid should produce zero stats"
-
-
-class TestNeighbourhoodExpansion:
-    def test_tp_nondecreasing_with_neighbourhood(self):
-        """TP can only grow as the neighbourhood radius increases."""
-        n_lat, n_lon, n_fronts = 9, 9, 1
-        weights = np.ones((n_lat, n_lon), dtype=np.float32)
-
-        # Single truth pixel in the centre; prediction at the same pixel.
-        truth = np.zeros((n_lat, n_lon, n_fronts), dtype=bool)
-        truth[4, 4, 0] = True
-        pred = np.zeros((n_lat, n_lon, n_fronts), dtype=np.float32)
-        pred[4, 4, 0] = 0.6
-
-        thresholds = np.array([0.5], dtype=np.float32)
-        *_, tp_ag, _fp_ag, _tn_ag, _fn_ag = _accumulate_timestep(
-            pred, truth, weights, thresholds, n_nbhd=N_NBHD, expand_size=_EXPAND_SIZE
-        )
-        for ni in range(1, N_NBHD):
-            assert tp_ag[0, ni, 0] >= tp_ag[0, ni - 1, 0], f"TP decreased from neighbourhood {ni - 1} to {ni}"
-
-
-class TestOutputShapes:
-    def test_shapes(self, tiny_grid):
-        n_lat, n_lon, n_fronts, weights = tiny_grid
-        pred = RNG.random((n_lat, n_lon, n_fronts)).astype(np.float32)
-        truth = pred > 0.5
-        tp_sp, fp_sp, tn_sp, fn_sp, tp_ag, fp_ag, tn_ag, fn_ag = _accumulate_timestep(
-            pred, truth, weights, THRESHOLDS, N_NBHD, _EXPAND_SIZE
-        )
-        assert tp_sp.shape == (n_fronts, n_lat, n_lon, N_NBHD, N_THRESHOLDS)
-        assert fp_sp.shape == (n_fronts, n_lat, n_lon, N_NBHD, N_THRESHOLDS)
-        assert tn_sp.shape == (n_fronts, n_lat, n_lon, 1, N_THRESHOLDS)
-        assert fn_sp.shape == (n_fronts, n_lat, n_lon, 1, N_THRESHOLDS)
-        assert tp_ag.shape == (n_fronts, N_NBHD, N_THRESHOLDS)
-        assert fp_ag.shape == (n_fronts, N_NBHD, N_THRESHOLDS)
-        assert tn_ag.shape == (n_fronts, 1, N_THRESHOLDS)
-        assert fn_ag.shape == (n_fronts, 1, N_THRESHOLDS)
+def _make_compute_stats_inputs(n_lat, n_lon, n_times, n_classes, lats, lons):
+    times = np.arange(n_times)
+    era5_da = xr.DataArray(
+        RNG.random((n_times, n_lat, n_lon, 2)).astype(np.float32),
+        dims=["time", "latitude", "longitude", "channel"],
+        coords={"time": times, "latitude": lats, "longitude": lons},
+    )
+    targets_da = xr.DataArray(
+        np.zeros((n_times, n_lat, n_lon, n_classes), dtype=np.float32),
+        dims=["time", "latitude", "longitude", "class"],
+        coords={"time": times, "latitude": lats, "longitude": lons},
+    )
+    return era5_da, targets_da
 
 
 class TestComputeStatsShapes:
@@ -242,11 +115,12 @@ class TestComputeStatsShapes:
             coords={"time": times, "latitude": lats, "longitude": lons},
         )
 
-        def fixed_model(x, training=False):
-            return np.full((x.shape[0], n_lat, n_lon, n_classes), 0.4, dtype=np.float32)
+        class _FixedModel:
+            def predict(self, dataset):
+                return np.full((n_times, n_lat, n_lon, n_classes), 0.4, dtype=np.float32)
 
         spatial_ds, aggregate_ds = compute_stats(
-            model=fixed_model,
+            model=_FixedModel(),
             era5_da=era5_da,
             targets_da=targets_da,
             front_types=front_types,
@@ -266,27 +140,17 @@ class TestComputeStatsShapes:
 
     def test_nonnegative_outputs(self):
         """All stats values must be non-negative."""
-        n_lat, n_lon, n_times, n_ch, n_classes = 4, 4, 2, 2, 6
+        n_lat, n_lon, n_times, n_classes = 4, 4, 2, 6
         lats = np.linspace(20.0, 40.0, n_lat, dtype=np.float32)
         lons = np.linspace(100.0, 120.0, n_lon, dtype=np.float32)
-        times = np.arange(n_times)
+        era5_da, targets_da = _make_compute_stats_inputs(n_lat, n_lon, n_times, n_classes, lats, lons)
 
-        era5_da = xr.DataArray(
-            RNG.random((n_times, n_lat, n_lon, n_ch)).astype(np.float32),
-            dims=["time", "latitude", "longitude", "channel"],
-            coords={"time": times, "latitude": lats, "longitude": lons},
-        )
-        targets_da = xr.DataArray(
-            np.zeros((n_times, n_lat, n_lon, n_classes), dtype=np.float32),
-            dims=["time", "latitude", "longitude", "class"],
-            coords={"time": times, "latitude": lats, "longitude": lons},
-        )
-
-        def zero_model(x, training=False):
-            return np.zeros((x.shape[0], n_lat, n_lon, n_classes), dtype=np.float32)
+        class _ZeroModel:
+            def predict(self, dataset):
+                return np.zeros((n_times, n_lat, n_lon, n_classes), dtype=np.float32)
 
         _, aggregate_ds = compute_stats(
-            model=zero_model,
+            model=_ZeroModel(),
             era5_da=era5_da,
             targets_da=targets_da,
             front_types=["CF"],
@@ -296,3 +160,67 @@ class TestComputeStatsShapes:
         )
         for var in aggregate_ds.data_vars:
             assert np.all(aggregate_ds[var].values >= 0), f"{var} contains negative values"
+
+    def test_zero_predictions_no_tp_fp(self):
+        """Zero predictions must produce zero TP and FP at every threshold."""
+        n_lat, n_lon, n_times, n_classes = 4, 4, 2, 6
+        lats = np.linspace(20.0, 40.0, n_lat, dtype=np.float32)
+        lons = np.linspace(100.0, 120.0, n_lon, dtype=np.float32)
+        era5_da, targets_da = _make_compute_stats_inputs(n_lat, n_lon, n_times, n_classes, lats, lons)
+
+        class _ZeroModel:
+            def predict(self, dataset):
+                return np.zeros((n_times, n_lat, n_lon, n_classes), dtype=np.float32)
+
+        _, aggregate_ds = compute_stats(
+            model=_ZeroModel(),
+            era5_da=era5_da,
+            targets_da=targets_da,
+            front_types=["CF"],
+            lats=lats,
+            lons=lons,
+            spatial_mask=None,
+        )
+        assert np.all(aggregate_ds["tp_CF"].values == 0)
+        assert np.all(aggregate_ds["fp_CF"].values == 0)
+
+    def test_tp_nondecreasing_with_neighbourhood(self):
+        """TP can only grow as the neighbourhood radius increases."""
+        n_lat, n_lon, n_times, n_classes = 9, 9, 1, 6
+        lats = np.linspace(30.0, 50.0, n_lat, dtype=np.float32)
+        lons = np.linspace(200.0, 240.0, n_lon, dtype=np.float32)
+        times = np.arange(n_times)
+
+        targets_np = np.zeros((n_times, n_lat, n_lon, n_classes), dtype=np.float32)
+        targets_np[0, 4, 4, 1] = 1.0  # single CF pixel at centre
+        era5_da = xr.DataArray(
+            RNG.random((n_times, n_lat, n_lon, 2)).astype(np.float32),
+            dims=["time", "latitude", "longitude", "channel"],
+            coords={"time": times, "latitude": lats, "longitude": lons},
+        )
+        targets_da = xr.DataArray(
+            targets_np,
+            dims=["time", "latitude", "longitude", "class"],
+            coords={"time": times, "latitude": lats, "longitude": lons},
+        )
+
+        pred_np = np.zeros((n_times, n_lat, n_lon, n_classes), dtype=np.float32)
+        pred_np[0, 4, 4, 1] = 0.6  # predict at truth pixel
+
+        class _PointModel:
+            def predict(self, dataset):
+                return pred_np
+
+        _, aggregate_ds = compute_stats(
+            model=_PointModel(),
+            era5_da=era5_da,
+            targets_da=targets_da,
+            front_types=["CF"],
+            lats=lats,
+            lons=lons,
+            spatial_mask=None,
+        )
+        tp = aggregate_ds["tp_CF"].values  # (N_NBHD, N_THRESHOLDS)
+        threshold_idx = np.searchsorted(THRESHOLDS, 0.5)
+        for ni in range(1, N_NBHD):
+            assert tp[ni, threshold_idx] >= tp[ni - 1, threshold_idx], f"TP decreased at neighbourhood {ni}"

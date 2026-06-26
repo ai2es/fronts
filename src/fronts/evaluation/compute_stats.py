@@ -26,7 +26,7 @@ import numpy as np
 import regionmask
 import tensorflow as tf
 import xarray as xr
-from scipy.ndimage import maximum_filter
+from scipy.ndimage import maximum_filter1d
 from tqdm import tqdm
 
 from fronts import utils
@@ -39,8 +39,6 @@ log = logging.getLogger(__name__)
 # in the one-hot encoded array (0=background, 1=CF, 2=WF, 3=SF, 4=OF, 5=DL)
 FRONT_TYPE_CLASS_INDEX: dict[str, int] = {"CF": 1, "WF": 2, "SF": 3, "OF": 4, "DL": 5}
 NEIGHBORHOODS_KM = np.array([50, 100, 150, 200, 250])
-EXPAND_ITERS_PER_STEP = 2
-_EXPAND_SIZE = 2 * EXPAND_ITERS_PER_STEP + 1
 N_THRESHOLDS = 100
 THRESHOLDS = np.linspace(0.01, 1.0, N_THRESHOLDS, dtype=np.float32)
 
@@ -93,14 +91,19 @@ def _build_spatial_mask(lats: np.ndarray, lons: np.ndarray, mask: str) -> np.nda
 def _expand_all_neighborhoods(
     truth_fronts: np.ndarray,
     n_nbhd: int,
-    expand_size: int,
+    lat_pixels_per_step: int,
+    lon_pixels_per_lat: np.ndarray,
 ) -> np.ndarray:
     """Return cumulative maximum-filter expansions for all neighbourhood radii.
+
+    Two 1-D passes per step: uniform lat expansion then per-latitude lon expansion,
+    which correctly represents a fixed km radius across all latitudes.
 
     Args:
         truth_fronts: Boolean truth labels of shape (lat, lon, n_fronts).
         n_nbhd: Number of neighbourhood radii.
-        expand_size: Size of the square maximum-filter kernel per expansion step.
+        lat_pixels_per_step: Pixel radius in the latitude direction, uniform for all rows.
+        lon_pixels_per_lat: Per-row pixel radius in the longitude direction, shape (n_lat,).
 
     Returns:
         Array of shape (n_nbhd, lat, lon, n_fronts) where slice [ni] is the result
@@ -109,84 +112,15 @@ def _expand_all_neighborhoods(
     n_lat, n_lon, n_fronts = truth_fronts.shape
     expanded_stack = np.empty((n_nbhd, n_lat, n_lon, n_fronts), dtype=bool)
     expanded = truth_fronts.copy()
+    unique_lon_px = np.unique(lon_pixels_per_lat)
     for ni in range(n_nbhd):
-        expanded = maximum_filter(expanded.astype(np.uint8), size=(expand_size, expand_size, 1)).astype(bool)
+        inter = maximum_filter1d(expanded.astype(np.uint8), size=2 * lat_pixels_per_step + 1, axis=0)
+        for lon_px in unique_lon_px:
+            rows = np.where(lon_pixels_per_lat == lon_px)[0]
+            inter[rows] = maximum_filter1d(inter[rows], size=2 * int(lon_px) + 1, axis=1)
+        expanded = inter.astype(bool)
         expanded_stack[ni] = expanded
     return expanded_stack
-
-
-def _accumulate_timestep(
-    pred_fronts: np.ndarray,
-    truth_fronts: np.ndarray,
-    weights: np.ndarray,
-    thresholds: np.ndarray,
-    n_nbhd: int,
-    expand_size: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Compute weighted TP/FP/TN/FN deltas for one timestep.
-
-    Args:
-        pred_fronts: Predicted probabilities of shape (lat, lon, n_fronts).
-        truth_fronts: Binary truth labels of shape (lat, lon, n_fronts).
-        weights: Per-pixel weights of shape (lat, lon), e.g. cosine latitude weights
-            with an optional land/ocean mask applied.
-        thresholds: 1-D array of probability thresholds, shape (T,).
-        n_nbhd: Number of neighbourhood radii.
-        expand_size: Kernel size for each cumulative neighbourhood expansion step.
-
-    Returns:
-        8-tuple ``(tp_sp, fp_sp, tn_sp, fn_sp, tp_ag, fp_ag, tn_ag, fn_ag)``.
-        Spatial shapes — tp/fp: ``(n_fronts, lat, lon, n_nbhd, T)``;
-                         tn/fn: ``(n_fronts, lat, lon, 1, T)`` (identical across
-                         neighbourhoods; the caller's ``+=`` broadcasts over n_nbhd).
-        Aggregate shapes — tp/fp: ``(n_fronts, n_nbhd, T)``;
-                           tn/fn: ``(n_fronts, 1, T)`` (broadcasts over n_nbhd).
-    """
-    n_lat, n_lon, n_fronts = pred_fronts.shape
-    n_thresh = len(thresholds)
-
-    # Front-first layout (n_fronts, lat, lon) throughout avoids repeated moveaxis copies.
-    pred_f = pred_fronts.transpose(2, 0, 1)  # (F, lat, lon)
-    truth_f = truth_fronts.transpose(2, 0, 1)  # (F, lat, lon)
-
-    # Threshold comparison computed once and reused across all neighbourhoods.
-    above = pred_f[:, :, :, np.newaxis] >= thresholds  # (F, lat, lon, T) bool
-    below = ~above
-
-    w = weights[np.newaxis, :, :, np.newaxis]  # (1, lat, lon, 1)
-    truth_4d = truth_f[:, :, :, np.newaxis]  # (F, lat, lon, 1)
-
-    # TN/FN are neighbourhood-independent; bool * float32 promotes automatically.
-    tn_weighted = (below & ~truth_4d) * w  # (F, lat, lon, T) float32
-    fn_weighted = (below & truth_4d) * w
-    tn_sp = tn_weighted[:, :, :, np.newaxis, :]  # (F, lat, lon, 1, T)
-    fn_sp = fn_weighted[:, :, :, np.newaxis, :]
-    tn_ag = tn_weighted.sum(axis=(1, 2))[:, np.newaxis, :]  # (F, 1, T)
-    fn_ag = fn_weighted.sum(axis=(1, 2))[:, np.newaxis, :]
-
-    # Precompute all neighbourhood expansions: (n_nbhd, lat, lon, F) → (F, n_nbhd, lat, lon).
-    expanded_stack = _expand_all_neighborhoods(truth_fronts, n_nbhd, expand_size)
-    exp_f = expanded_stack.transpose(3, 0, 1, 2)  # (F, n_nbhd, lat, lon)
-
-    # Aggregate TP/FP via batched matmul — avoids materialising (F, n_nbhd, lat, lon, T) float32.
-    # Flatten spatial dims: above → (F, lat*lon, T); exp → (F, n_nbhd, lat*lon).
-    above_flat = above.reshape(n_fronts, n_lat * n_lon, n_thresh).astype(np.float32)
-    w_flat = weights.ravel()  # (lat*lon,)
-    exp_flat = exp_f.reshape(n_fronts, n_nbhd, n_lat * n_lon)
-    exp_weighted = exp_flat * w_flat  # (F, n_nbhd, lat*lon) float32
-    tp_ag = np.matmul(exp_weighted, above_flat)  # (F, n_nbhd, T)
-    not_exp_weighted = (~exp_flat) * w_flat
-    fp_ag = np.matmul(not_exp_weighted, above_flat)
-
-    # Spatial TP/FP: per-pixel accumulation; one neighbourhood at a time to bound peak memory.
-    tp_sp = np.empty((n_fronts, n_lat, n_lon, n_nbhd, n_thresh), dtype=np.float32)
-    fp_sp = np.empty_like(tp_sp)
-    for ni in range(n_nbhd):
-        exp_ni = exp_f[:, ni, :, :, np.newaxis]  # (F, lat, lon, 1)
-        tp_sp[:, :, :, ni, :] = (above & exp_ni) * w  # (F, lat, lon, T)
-        fp_sp[:, :, :, ni, :] = (above & ~exp_ni) * w
-
-    return tp_sp, fp_sp, tn_sp, fn_sp, tp_ag, fp_ag, tn_ag, fn_ag
 
 
 def compute_stats(
@@ -220,18 +154,25 @@ def compute_stats(
     n_nbhd = len(NEIGHBORHOODS_KM)
     n_lat, n_lon = len(lats), len(lons)
 
+    lat_res_km = float(np.diff(lats).mean()) * np.pi * 6371.0 / 180.0
+    nbhd_step_km = float(np.unique(np.diff(NEIGHBORHOODS_KM)).item())
+    lat_pixels_per_step = round(nbhd_step_km / lat_res_km)
+    lon_pixels_per_lat = np.round(nbhd_step_km / (lat_res_km * np.cos(np.deg2rad(lats)))).astype(int)
+    log.info(
+        "Grid resolution %.2f km → lat_pixels_per_step=%d, lon range=[%d, %d]",
+        lat_res_km,
+        lat_pixels_per_step,
+        lon_pixels_per_lat.min(),
+        lon_pixels_per_lat.max(),
+    )
     lat_weights = np.cos(np.deg2rad(lats))[:, np.newaxis] * np.ones((1, n_lon), dtype=np.float32)
     if spatial_mask is not None:
         lat_weights = lat_weights * spatial_mask.astype(np.float32)
 
-    tp_sp = np.zeros((n_fronts, n_lat, n_lon, n_nbhd, N_THRESHOLDS), dtype=np.float32)
-    fp_sp = np.zeros_like(tp_sp)
-    tn_sp = np.zeros_like(tp_sp)
-    fn_sp = np.zeros_like(tp_sp)
-    tp_ag = np.zeros((n_fronts, n_nbhd, N_THRESHOLDS), dtype=np.float32)
-    fp_ag = np.zeros_like(tp_ag)
-    tn_ag = np.zeros_like(tp_ag)
-    fn_ag = np.zeros_like(tp_ag)
+    spatial_shape = (n_fronts, n_lat, n_lon, n_nbhd, N_THRESHOLDS)
+    aggregate_shape = (n_fronts, n_nbhd, N_THRESHOLDS)
+    spatial = {k: np.zeros(spatial_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
+    aggregate = {k: np.zeros(aggregate_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
 
     n_times = era5_da.sizes["time"]
     class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
@@ -276,63 +217,53 @@ def compute_stats(
         np.logical_and(_bool_buf, ~truth_4d, out=_bool_buf)
         np.multiply(_bool_buf, w_4d, out=_float_buf)
         for ni in range(n_nbhd):
-            tn_sp[:, :, :, ni, :] += _float_buf
-        tn_ag += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
+            spatial["tn"][:, :, :, ni, :] += _float_buf
+        aggregate["tn"] += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
 
         # FN: ~above & truth, weighted.
         np.logical_not(_above, out=_bool_buf)
         np.logical_and(_bool_buf, truth_4d, out=_bool_buf)
         np.multiply(_bool_buf, w_4d, out=_float_buf)
         for ni in range(n_nbhd):
-            fn_sp[:, :, :, ni, :] += _float_buf
-        fn_ag += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
+            spatial["fn"][:, :, :, ni, :] += _float_buf
+        aggregate["fn"] += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
 
-        expanded = truth_fronts.copy()
-        for ni in range(n_nbhd):
-            expanded = maximum_filter(expanded.astype(np.uint8), size=(_EXPAND_SIZE, _EXPAND_SIZE, 1)).astype(bool)
-            _expanded[ni] = expanded
+        _expanded[:] = _expand_all_neighborhoods(truth_fronts, n_nbhd, lat_pixels_per_step, lon_pixels_per_lat)
         exp_f = _expanded.transpose(3, 0, 1, 2)  # (F, n_nbhd, lat, lon)
 
         _above_f32[:] = _above
         above_flat = _above_f32.reshape(n_fronts, n_lat * n_lon, N_THRESHOLDS)
         exp_flat = exp_f.reshape(n_fronts, n_nbhd, n_lat * n_lon)
-        tp_ag += np.matmul(exp_flat * w_flat, above_flat)
-        fp_ag += np.matmul((~exp_flat) * w_flat, above_flat)
+        aggregate["tp"] += np.matmul(exp_flat * w_flat, above_flat)
+        aggregate["fp"] += np.matmul((~exp_flat) * w_flat, above_flat)
 
         for ni in range(n_nbhd):
             exp_ni = exp_f[:, ni, :, :, np.newaxis]  # (F, lat, lon, 1) — tiny view
             np.logical_and(_above, exp_ni, out=_bool_buf)
             np.multiply(_bool_buf, w_4d, out=_float_buf)
-            tp_sp[:, :, :, ni, :] += _float_buf
+            spatial["tp"][:, :, :, ni, :] += _float_buf
             np.logical_and(_above, ~exp_ni, out=_bool_buf)
             np.multiply(_bool_buf, w_4d, out=_float_buf)
-            fp_sp[:, :, :, ni, :] += _float_buf
+            spatial["fp"][:, :, :, ni, :] += _float_buf
 
-    spatial_ds = xr.Dataset(
-        coords={
-            "latitude": lats,
-            "longitude": lons,
-            "neighborhood": NEIGHBORHOODS_KM,
-            "threshold": THRESHOLDS,
-        }
-    )
-    aggregate_ds = xr.Dataset(
-        coords={
-            "neighborhood": NEIGHBORHOODS_KM,
-            "threshold": THRESHOLDS,
-        }
-    )
     dims_sp = ("latitude", "longitude", "neighborhood", "threshold")
     dims_ag = ("neighborhood", "threshold")
-    for fi, ft in enumerate(front_types):
-        spatial_ds[f"tp_spatial_{ft}"] = (dims_sp, tp_sp[fi])
-        spatial_ds[f"fp_spatial_{ft}"] = (dims_sp, fp_sp[fi])
-        spatial_ds[f"tn_spatial_{ft}"] = (dims_sp, tn_sp[fi])
-        spatial_ds[f"fn_spatial_{ft}"] = (dims_sp, fn_sp[fi])
-        aggregate_ds[f"tp_{ft}"] = (dims_ag, tp_ag[fi])
-        aggregate_ds[f"fp_{ft}"] = (dims_ag, fp_ag[fi])
-        aggregate_ds[f"tn_{ft}"] = (dims_ag, tn_ag[fi])
-        aggregate_ds[f"fn_{ft}"] = (dims_ag, fn_ag[fi])
+    spatial_ds = xr.Dataset(
+        coords={"latitude": lats, "longitude": lons, "neighborhood": NEIGHBORHOODS_KM, "threshold": THRESHOLDS},
+        data_vars={
+            f"{k}_spatial_{ft}": (dims_sp, spatial[k][fi])
+            for fi, ft in enumerate(front_types)
+            for k in ("tp", "fp", "tn", "fn")
+        },
+    )
+    aggregate_ds = xr.Dataset(
+        coords={"neighborhood": NEIGHBORHOODS_KM, "threshold": THRESHOLDS},
+        data_vars={
+            f"{k}_{ft}": (dims_ag, aggregate[k][fi])
+            for fi, ft in enumerate(front_types)
+            for k in ("tp", "fp", "tn", "fn")
+        },
+    )
 
     return spatial_ds, aggregate_ds
 
