@@ -200,7 +200,7 @@ class TestTrainingDataset:
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
 class TestLoadDataIntoDataloaderLongitude:
-    """A wrap-crossing bounding box (lon_max > 360, e.g. configs/generate_icechunk.yaml's
+    """A wrap-crossing bounding box (lon_max > 360, e.g. configs/generate_icechunk.yaml's.
 
     130-369.75) leaves the longitude coordinate non-monotonic on disk, e.g.
     [330, 350, 0, 20]. xarray's pcolormesh (used by TestVisualizationCallback's
