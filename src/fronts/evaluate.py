@@ -179,8 +179,7 @@ def compute_stats(
 
     log.info("Running model.predict() over %d timesteps …", n_times)
 
-    data_workers = utils.limit_workers_for_slurm(max_workers=16)
-    eval_dataset = datasets.EvalDataset(era5_da, batch_size=batch_size, workers=data_workers)
+    eval_dataset = datasets.EvalDataset(era5_da, batch_size=batch_size, workers=0)
     all_preds = model.predict(eval_dataset)
     if isinstance(all_preds, (list, tuple)):
         all_preds = all_preds[0]
@@ -194,10 +193,16 @@ def compute_stats(
     w_4d = lat_weights[np.newaxis, :, :, np.newaxis]
     w_flat = lat_weights.ravel()
 
+    log.info("Loading targets into memory in batches …")
+    targets_np = np.concatenate(
+        [targets_da.isel(time=slice(i, i + batch_size)).values for i in range(0, n_times, batch_size)],
+        axis=0,
+    )
+
     log.info("Accumulating statistics …")
     for t in tqdm(range(n_times), unit="timestep"):
         pred_np = all_preds[t]
-        y_np = targets_da.isel(time=t).values
+        y_np = targets_np[t]
 
         pred_fronts = pred_np[:, :, class_indices]  # (lat, lon, F)
         truth_fronts = y_np[:, :, class_indices] > 0.5  # (lat, lon, F) bool
