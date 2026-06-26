@@ -34,6 +34,7 @@ data_config:
     "2m_dewpoint_temperature",
     ]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  num_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 eval_config:
   model_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year_larger_batches_shuffle/_best_loss.keras"
