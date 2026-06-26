@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from fronts.evaluation.compute_stats import (
+from fronts.evaluate import (
     NEIGHBORHOODS_KM,
     N_THRESHOLDS,
     THRESHOLDS,
