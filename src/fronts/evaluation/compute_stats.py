@@ -235,7 +235,9 @@ def compute_stats(
     class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
 
     log.info("Running model.predict() over %d timesteps …", n_times)
-    eval_dataset = EvalDataset(era5_da, batch_size=batch_size)
+
+    data_workers = utils.limit_workers_for_slurm(max_workers=16)
+    eval_dataset = datasets.EvalDataset(era5_da, batch_size=batch_size, workers=data_workers)
     all_preds = model.predict(eval_dataset)
     if isinstance(all_preds, (list, tuple)):
         all_preds = all_preds[0]
