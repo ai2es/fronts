@@ -1,13 +1,14 @@
 import dataclasses
+import logging
 import math
+import time
 
 import numpy as np
 import tensorflow as tf
 import xarray as xr
-import time
+
 from fronts import utils
 from fronts.data import inputs, targets
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -148,3 +149,30 @@ class TrainingDataset(tf.keras.utils.PyDataset):
         if elapsed > 30:
             logger.warning(f"Slow batch {idx}: {elapsed:.1f}s")
         return result
+
+
+class EvalDataset(tf.keras.utils.PyDataset):
+    """Yields ERA5 input batches for model.predict() during evaluation.
+
+    Each ``__getitem__`` lazily reads one batch from the zarr-backed DataArray via
+    ``isel(time=slice(...))``, matching the access pattern of ``TrainingDataset``.
+
+    Attributes:
+        era5_da: ERA5 inputs DataArray of shape (time, latitude, longitude, channel).
+        batch_size: Number of timesteps per batch.
+    """
+
+    def __init__(self, era5_da: xr.DataArray, batch_size: int, **kwargs):
+        super().__init__(**kwargs)
+        self._era5_da = era5_da
+        self._batch_size = batch_size
+        self._n_times = era5_da.sizes["time"]
+
+    def __len__(self) -> int:
+        """Returns the number of batches per epoch."""
+        return math.ceil(self._n_times / self._batch_size)
+
+    def __getitem__(self, idx: int) -> np.ndarray:
+        """Returns the (input, target) batch at ``idx``."""
+        slc = slice(idx * self._batch_size, (idx + 1) * self._batch_size)
+        return self._era5_da.isel(time=slc).values.astype(np.float32)

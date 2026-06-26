@@ -20,17 +20,18 @@ import dataclasses
 import datetime
 import logging
 import os
-import time
 from typing import Any
 
 import numpy as np
 import regionmask
+import tensorflow as tf
 import xarray as xr
 from scipy.ndimage import maximum_filter
 from tqdm import tqdm
 
 from fronts import utils
 from fronts.data import config, datasets, inputs, targets
+from fronts.data.datasets import EvalDataset
 from fronts.model import SharedTargetModel
 
 log = logging.getLogger(__name__)
@@ -164,8 +165,9 @@ def compute_stats(
     lats: np.ndarray,
     lons: np.ndarray,
     spatial_mask: np.ndarray | None,
+    batch_size: int = 32,
 ) -> tuple[xr.Dataset, xr.Dataset]:
-    """Iterate timesteps, run inference, and accumulate TP/FP/TN/FN.
+    """Run inference then accumulate TP/FP/TN/FN over all timesteps.
 
     Args:
         model: Loaded Keras model with baked-in normalization.
@@ -175,6 +177,7 @@ def compute_stats(
         lats: 1-D latitude array.
         lons: 1-D longitude array.
         spatial_mask: Boolean (n_lat, n_lon) mask — True for included points. None = all.
+        batch_size: Batch size for model.predict().
 
     Returns:
         Tuple of (spatial_ds, aggregate_ds) xr.Datasets with TP/FP/TN/FN variables.
@@ -201,13 +204,16 @@ def compute_stats(
     n_times = era5_da.sizes["time"]
     class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
 
-    log.info("Loading ERA5 and targets into memory …")
-    era5_np = era5_da.values.astype(np.float32)  # (time, lat, lon, channel)
-    targets_np = targets_da.values.astype(np.float32)  # (time, lat, lon, class)
+    log.info("Running model.predict() over %d timesteps …", n_times)
+    eval_dataset = EvalDataset(era5_da, batch_size=batch_size)
+    all_preds = model.predict(eval_dataset)
+    if isinstance(all_preds, (list, tuple)):
+        all_preds = all_preds[0]
+    # (n_times, lat, lon, n_classes)
 
-    # Pre-allocate all large work buffers once to eliminate per-timestep page faults.
-    # Each fresh np.empty/astype on a >100 MB array triggers OS page faults (~5 µs/page)
-    # that dominate runtime when called every iteration.
+    log.info("Loading targets into memory …")
+    targets_np = targets_da.values  # float32 from one_hot_encode_to_dataarray
+
     _above = np.empty((n_fronts, n_lat, n_lon, N_THRESHOLDS), dtype=bool)
     _bool_buf = np.empty_like(_above)
     _float_buf = np.empty((n_fronts, n_lat, n_lon, N_THRESHOLDS), dtype=np.float32)
@@ -216,18 +222,10 @@ def compute_stats(
     w_4d = lat_weights[np.newaxis, :, :, np.newaxis]
     w_flat = lat_weights.ravel()
 
+    log.info("Accumulating statistics …")
     for t in tqdm(range(n_times), unit="timestep"):
-        t0 = time.perf_counter()
-
-        x_np = era5_np[t]
+        pred_np = all_preds[t]
         y_np = targets_np[t]
-        t_load = time.perf_counter()
-
-        pred = model(x_np[np.newaxis], training=False)
-        if isinstance(pred, (list, tuple)):
-            pred = pred[0]
-        pred_np = (pred.numpy() if hasattr(pred, "numpy") else np.asarray(pred))[0].astype(np.float32)
-        t_infer = time.perf_counter()
 
         pred_fronts = pred_np[:, :, class_indices]  # (lat, lon, F)
         truth_fronts = y_np[:, :, class_indices] > 0.5  # (lat, lon, F) bool
@@ -235,7 +233,6 @@ def compute_stats(
         pred_f = pred_fronts.transpose(2, 0, 1)  # (F, lat, lon)
         truth_f = truth_fronts.transpose(2, 0, 1)  # (F, lat, lon)
 
-        # Threshold comparison written into pre-allocated buffer — no allocation.
         np.greater_equal(pred_f[:, :, :, np.newaxis], THRESHOLDS, out=_above)
 
         truth_4d = truth_f[:, :, :, np.newaxis]  # (F, lat, lon, 1) — tiny view
@@ -256,21 +253,18 @@ def compute_stats(
             fn_sp[:, :, :, ni, :] += _float_buf
         fn_ag += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
 
-        # Precompute neighbourhood expansions into pre-allocated buffer.
         expanded = truth_fronts.copy()
         for ni in range(n_nbhd):
             expanded = maximum_filter(expanded.astype(np.uint8), size=(_EXPAND_SIZE, _EXPAND_SIZE, 1)).astype(bool)
             _expanded[ni] = expanded
         exp_f = _expanded.transpose(3, 0, 1, 2)  # (F, n_nbhd, lat, lon)
 
-        # Float32 copy of _above for matmul — written into pre-allocated buffer.
         _above_f32[:] = _above
         above_flat = _above_f32.reshape(n_fronts, n_lat * n_lon, N_THRESHOLDS)
         exp_flat = exp_f.reshape(n_fronts, n_nbhd, n_lat * n_lon)
         tp_ag += np.matmul(exp_flat * w_flat, above_flat)
         fp_ag += np.matmul((~exp_flat) * w_flat, above_flat)
 
-        # Spatial TP/FP: per-neighbourhood in-place accumulation.
         for ni in range(n_nbhd):
             exp_ni = exp_f[:, ni, :, :, np.newaxis]  # (F, lat, lon, 1) — tiny view
             np.logical_and(_above, exp_ni, out=_bool_buf)
@@ -279,18 +273,6 @@ def compute_stats(
             np.logical_and(_above, ~exp_ni, out=_bool_buf)
             np.multiply(_bool_buf, w_4d, out=_float_buf)
             fp_sp[:, :, :, ni, :] += _float_buf
-
-        t_stats = time.perf_counter()
-
-        if t < 3:
-            log.info(
-                "t=%d: load=%.3fs  infer=%.3fs  stats=%.3fs  total=%.3fs",
-                t,
-                t_load - t0,
-                t_infer - t_load,
-                t_stats - t_infer,
-                t_stats - t0,
-            )
 
     spatial_ds = xr.Dataset(
         coords={
@@ -355,8 +337,6 @@ def main() -> None:
         outdir=args.outdir if args.outdir is not None else eval_cfg.outdir,
     )
 
-    import tensorflow as tf
-
     utils.configure_gpu(eval_cfg.gpu_device)
     log.info("Loading model from %s …", eval_cfg.model_path)
     model = tf.keras.models.load_model(
@@ -420,6 +400,7 @@ def main() -> None:
         lats=lats,
         lons=lons,
         spatial_mask=spatial_mask,
+        batch_size=data_cfg.batch_size,
     )
 
     os.makedirs(eval_cfg.outdir, exist_ok=True)
