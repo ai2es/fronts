@@ -38,6 +38,8 @@ class DatasetConfig:
             None recomputes the statistics on every run.
         max_queue_size: Maximum number of prefetched batches kept in RAM ahead of the
             training loop (passed to ``tf.keras.utils.PyDataset(max_queue_size=...)``).
+        max_pydataset_workers: Maximum number of threads used by ``tf.keras.utils.PyDataset`` to
+            load batches in parallel. None uses the number of CPUs allocated to the job.
     """
 
     inputs_icechunk_config: utils.IcechunkStorageConfig
@@ -51,6 +53,7 @@ class DatasetConfig:
     time_resolution: str = "6h"
     norm_stats_cache_dir: str | None = None
     max_queue_size: int = 4
+    max_pydataset_workers: int = 16
 
 
 class TrainingDataset(tf.keras.utils.PyDataset):
