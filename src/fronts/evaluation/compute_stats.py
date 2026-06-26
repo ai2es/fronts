@@ -30,8 +30,7 @@ from scipy.ndimage import maximum_filter
 from tqdm import tqdm
 
 from fronts import utils
-from fronts.data import config, datasets, inputs, targets
-from fronts.data.datasets import EvalDataset
+from fronts.data import datasets, inputs, targets
 from fronts.model import SharedTargetModel
 
 log = logging.getLogger(__name__)
