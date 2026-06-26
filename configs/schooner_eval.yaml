@@ -38,7 +38,7 @@ data_config:
 
 eval_config:
   model_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year_larger_batches_shuffle/_best_loss.keras"
-  outdir: "/ourdisk/hpc/ai2es/tman/models/stats"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/PyDataset_2007_2024_by_year_larger_batches_shuffle/"
   coordinates: [0.25, 80.0, 130.0, 369.75]  # [lat_min, lat_max, lon_min, lon_max]
   front_types: [CF, WF, SF, OF, DL]
   front_dilation: 1  # match training dilation
@@ -47,7 +47,7 @@ eval_config:
 
 predict_config:
   model_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year_larger_batches_shuffle/_best_loss.keras"
-  outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/PyDataset_2007_2024_by_year_larger_batches_shuffle/"
   init_time: "2024-03-15T06:00:00"
   front_types: [CF, WF, SF, OF, DL]
   coordinates: [0.25, 80.0, 130.0, 369.75]
