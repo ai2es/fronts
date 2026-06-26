@@ -1,23 +1,39 @@
 data_config:
   inputs_icechunk_config:
-    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/icechunk"
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
     branch_name: "main"
     group_name: "era5"
   targets_icechunk_config:
     store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
     branch_name: "main"
     virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 32
   test_years: [2019]
   val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   variables: [
-    geopotential, 
-    temperature, 
-    u_component_of_wind, 
-    v_component_of_wind, 
-    specific_humidity,
-    vertical_velocity
+    "geopotential",
+    "temperature",
+    "u_component_of_wind",
+    "v_component_of_wind",
+    "specific_humidity",
+    "vertical_velocity",
+    "potential_vorticity",
+    "equivalent_potential_temperature",
+    "virtual_temperature",
+    "dewpoint_temperature",
+    "relative_humidity",
+    "potential_temperature",
+    "mean_sea_level_pressure",
+    "2m_temperature",
+    "10m_u_component_of_wind",
+    "10m_v_component_of_wind",
+    "2m_dewpoint_temperature",
     ]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
 
 eval_config:
   model_path: "/ourdisk/hpc/ai2es/tman/models/PyDataset_2007_2024_by_year_larger_batches_shuffle/_best_loss.keras"
