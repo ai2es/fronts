@@ -186,9 +186,6 @@ def compute_stats(
         all_preds = all_preds[0]
     # (n_times, lat, lon, n_classes)
 
-    log.info("Loading targets into memory …")
-    targets_np = targets_da.values  # float32 from one_hot_encode_to_dataarray
-
     _above = np.empty((n_fronts, n_lat, n_lon, N_THRESHOLDS), dtype=bool)
     _bool_buf = np.empty_like(_above)
     _float_buf = np.empty((n_fronts, n_lat, n_lon, N_THRESHOLDS), dtype=np.float32)
@@ -200,7 +197,7 @@ def compute_stats(
     log.info("Accumulating statistics …")
     for t in tqdm(range(n_times), unit="timestep"):
         pred_np = all_preds[t]
-        y_np = targets_np[t]
+        y_np = targets_da.isel(time=t).values
 
         pred_fronts = pred_np[:, :, class_indices]  # (lat, lon, F)
         truth_fronts = y_np[:, :, class_indices] > 0.5  # (lat, lon, F) bool
