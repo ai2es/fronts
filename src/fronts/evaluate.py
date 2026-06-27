@@ -194,16 +194,10 @@ def compute_stats(
     w_4d = lat_weights[np.newaxis, :, :, np.newaxis]
     w_flat = lat_weights.ravel()
 
-    log.info("Loading targets into memory in batches …")
-    targets_np = np.concatenate(
-        [targets_da.isel(time=slice(i, i + batch_size)).values for i in range(0, n_times, batch_size)],
-        axis=0,
-    )
-
     log.info("Accumulating statistics …")
     for t in tqdm(range(n_times), unit="timestep"):
         pred_np = all_preds[t]
-        y_np = targets_np[t]
+        y_np = targets_da.isel(time=t).values
 
         pred_fronts = pred_np[:, :, class_indices]  # (lat, lon, F)
         truth_fronts = y_np[:, :, class_indices] > 0.5  # (lat, lon, F) bool
@@ -304,6 +298,7 @@ def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
         group=ic_fronts.group_name,
         zarr_format=ic_fronts.zarr_format,
         virtual_chunk_local_path=ic_fronts.virtual_chunk_local_path,
+        chunks=None,
     )
 
     bb = eval_cfg.coordinates
