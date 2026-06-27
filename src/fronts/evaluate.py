@@ -8,11 +8,11 @@ Outputs two NetCDF files compatible with the ``performance-diagrams`` subcommand
 ``src/fronts/plot/plot.py``.
 
 Usage:
-    pixi run -e schooner python src/fronts/evaluation/compute_stats.py \
-        --config_path configs/schooner_train.yaml --mask land
+    pixi run -e schooner python src/fronts/evaluate.py \
+        --config_path configs/schooner_eval.yaml --mask land
 
-    pixi run -e schooner python src/fronts/evaluation/compute_stats.py \
-        --config_path configs/schooner_train.yaml --mask ocean --outdir ~/models/fronts/stats
+    pixi run -e schooner python src/fronts/evaluate.py \
+        --config_path configs/schooner_eval.yaml --mask ocean --outdir ~/models/fronts/stats
 """
 
 import argparse
@@ -26,6 +26,7 @@ import numpy as np
 import regionmask
 import tensorflow as tf
 import xarray as xr
+import zarr
 from scipy.ndimage import maximum_filter1d
 from tqdm import tqdm
 
@@ -277,6 +278,7 @@ def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
         eval_cfg: Evaluation configuration specifying model path, output directory, etc.
         data_cfg: Dataset configuration specifying icechunk store paths and variables.
     """
+    zarr.config.set({"async.concurrency": 32})
     utils.configure_gpu(eval_cfg.gpu_device)
     log.info("Loading model from %s …", eval_cfg.model_path)
     keras_model = tf.keras.models.load_model(
