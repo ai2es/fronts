@@ -4,7 +4,7 @@ Iterates over all aligned ERA5/fronts timesteps in the icechunk stores, runs mod
 inference, and accumulates statistics over 5 neighbourhood radii (50-250 km) and
 100 probability thresholds (0.01-1.0) with optional land/ocean masking.
 
-Outputs two NetCDF files compatible with the ``performance-diagrams`` subcommand of
+Outputs three NetCDF files compatible with the ``performance-diagrams`` subcommand of
 ``src/fronts/plot/plot.py``.
 
 Usage:
@@ -26,12 +26,12 @@ import numpy as np
 import regionmask
 import tensorflow as tf
 import xarray as xr
-import zarr
 from scipy.ndimage import maximum_filter1d
 from tqdm import tqdm
 
 from fronts import utils
-from fronts.data import datasets, inputs, targets
+from fronts.data import datasets
+from fronts.layers import losses, metrics
 from fronts.model import SharedTargetModel
 
 log = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class EvalConfig:
 
     Attributes:
         model_path: Path to the saved .keras model checkpoint.
-        outdir: Directory to write stats_aggregate_{mask}.nc and stats_spatial_{mask}.nc.
+        outdir: Directory to write stats_spatial_{mask}.nc, stats_aggregate_{mask}.nc, and stats_derived_{mask}.nc.
         coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
             Defaults to full USAD extent.
         front_types: Front type labels in class order (excluding background class 0).
@@ -124,32 +124,86 @@ def _expand_all_neighborhoods(
     return expanded_stack
 
 
+def compute_derived_stats(
+    aggregate_ds: xr.Dataset,
+    spatial_ds: xr.Dataset,
+    front_types: list[str],
+) -> xr.Dataset:
+    """Derive POD, SR, CSI, FB, HSS, and reliability metrics from raw TP/FP/TN/FN datasets.
+
+    Args:
+        aggregate_ds: Per-front-type TP/FP/TN/FN with dims (neighborhood, threshold).
+        spatial_ds: Per-front-type spatial TP/FP/TN/FN with dims (lat, lon, neighborhood, threshold).
+        front_types: Front type labels in class order excluding background.
+
+    Returns:
+        xr.Dataset with derived metric variables per front type.
+    """
+    data_vars: dict = {}
+    for ft in front_types:
+        tp = aggregate_ds[f"tp_{ft}"]
+        fp = aggregate_ds[f"fp_{ft}"]
+        fn = aggregate_ds[f"fn_{ft}"]
+        tn = aggregate_ds[f"tn_{ft}"]
+
+        data_vars[f"pod_{ft}"] = xr.where((tp + fn) > 0, tp / (tp + fn), 0.0).astype(np.float32)
+        data_vars[f"sr_{ft}"] = xr.where((tp + fp) > 0, tp / (tp + fp), 0.0).astype(np.float32)
+        data_vars[f"csi_{ft}"] = xr.where((tp + fp + fn) > 0, tp / (tp + fp + fn), 0.0).astype(np.float32)
+        data_vars[f"fb_{ft}"] = xr.where((tp + fn) > 0, (tp + fp) / (tp + fn), 0.0).astype(np.float32)
+
+        hss_denom = (tp + fn) * (fn + tn) + (tp + fp) * (fp + tn)
+        data_vars[f"hss_{ft}"] = xr.where(hss_denom > 0, 2 * (tp * tn - fp * fn) / hss_denom, 0.0).astype(np.float32)
+
+        tp_diff = abs(tp.diff("threshold")).rename({"threshold": "threshold_diff"})
+        fp_diff = abs(fp.diff("threshold")).rename({"threshold": "threshold_diff"})
+        denom_rf = tp_diff + fp_diff
+        data_vars[f"obs_rel_freq_{ft}"] = xr.where(denom_rf > 0, tp_diff / denom_rf, 0.0).astype(np.float32)
+
+        total_0 = (tp + fp + tn + fn).isel(neighborhood=0, threshold=0)
+        data_vars[f"rel_forecast_frac_{ft}"] = xr.where(
+            total_0 > 0, 100 * (tp + fp).isel(neighborhood=0) / total_0, 0.0
+        ).astype(np.float32)
+
+        tp_sp = spatial_ds[f"tp_spatial_{ft}"]
+        fp_sp = spatial_ds[f"fp_spatial_{ft}"]
+        fn_sp = spatial_ds[f"fn_spatial_{ft}"]
+        sp_denom = tp_sp + fp_sp + fn_sp
+        data_vars[f"spatial_csi_{ft}"] = xr.where(sp_denom > 0, tp_sp / sp_denom, 0.0).astype(np.float32)
+
+    return xr.Dataset(data_vars)
+
+
 def compute_stats(
     model: Any,
-    era5_da: xr.DataArray,
-    targets_da: xr.DataArray,
+    input_ds: xr.Dataset,
+    target_da: xr.DataArray,
+    data_config: datasets.DatasetConfig,
     front_types: list[str],
     lats: np.ndarray,
     lons: np.ndarray,
     spatial_mask: np.ndarray | None,
     batch_size: int = 32,
-) -> tuple[xr.Dataset, xr.Dataset]:
+    class_weights: list[float] | None = None,
+) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """Run inference then accumulate TP/FP/TN/FN over all timesteps.
 
     Args:
-        model: Loaded Keras model with baked-in normalization.
-        era5_da: ERA5 inputs of shape (time, lat, lon, channel).
-        targets_da: One-hot truth labels of shape (time, lat, lon, class).
+        model: Loaded Keras model with baked-in normalization, callable as model(x, training=False).
+        input_ds: ERA5 input Dataset with dims (time, latitude, longitude) per variable.
+        target_da: Raw integer front-code DataArray with dims (time, latitude, longitude).
+        data_config: DatasetConfig providing variables list and front_dilation.
         front_types: Front type labels in class order excluding background (class 0).
         lats: 1-D latitude array.
         lons: 1-D longitude array.
         spatial_mask: Boolean (n_lat, n_lon) mask — True for included points. None = all.
-        batch_size: Batch size for model.predict().
+        batch_size: Batch size for inference.
+        class_weights: Per-class loss weights passed to the FSS loss and HSS metric.
 
     Returns:
-        Tuple of (spatial_ds, aggregate_ds) xr.Datasets with TP/FP/TN/FN variables.
+        Tuple of (spatial_ds, aggregate_ds, derived_ds) xr.Datasets.
         spatial_ds variables have dims (latitude, longitude, neighborhood, threshold).
         aggregate_ds variables have dims (neighborhood, threshold).
+        derived_ds contains POD, SR, CSI, FB, HSS, reliability, and spatial CSI.
     """
     n_fronts = len(front_types)
     n_nbhd = len(NEIGHBORHOODS_KM)
@@ -175,16 +229,42 @@ def compute_stats(
     spatial = {k: np.zeros(spatial_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
     aggregate = {k: np.zeros(aggregate_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
 
-    n_times = era5_da.sizes["time"]
+    n_times = input_ds.sizes["time"]
     class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
 
-    log.info("Running model.predict() over %d timesteps …", n_times)
+    loss_fn = losses.fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)
+    hss_fn = metrics.heidke_skill_score(class_weights=class_weights)
 
-    eval_dataset = datasets.EvalDataset(era5_da, batch_size=batch_size, workers=0)
-    all_preds = model.predict(eval_dataset)
-    if isinstance(all_preds, (list, tuple)):
-        all_preds = all_preds[0]
-    # (n_times, lat, lon, n_classes)
+    @tf.function
+    def eval_step(x: tf.Tensor, y: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+        preds = model(x, training=False)
+        if isinstance(preds, (list, tuple)):
+            preds = preds[0]
+        return preds, loss_fn(y, preds), hss_fn(y, preds)
+
+    eval_dataset = datasets.FrontsPyDataset(
+        input_ds=input_ds,
+        target_da=target_da,
+        data_config=data_config,
+        batch_size=batch_size,
+        shuffle=False,
+        workers=0,
+    )
+    all_preds_list: list[np.ndarray] = []
+    all_targets_list: list[np.ndarray] = []
+    total_loss, total_hss = 0.0, 0.0
+    log.info("Running eval_step over %d timesteps …", n_times)
+    for i in tqdm(range(len(eval_dataset)), unit="batch"):
+        x_batch, y_batch = eval_dataset[i]
+        pred_batch, batch_loss, batch_hss = eval_step(tf.constant(x_batch), tf.constant(y_batch))
+        all_preds_list.append(pred_batch.numpy())
+        all_targets_list.append(y_batch)
+        total_loss += float(tf.reduce_mean(batch_loss))
+        total_hss += float(batch_hss)
+    n_batches = len(eval_dataset)
+    all_preds = np.concatenate(all_preds_list, axis=0)
+    all_targets = np.concatenate(all_targets_list, axis=0)
+    log.info("Eval — loss: %.4f | HSS: %.4f", total_loss / n_batches, total_hss / n_batches)
 
     _above = np.empty((n_fronts, n_lat, n_lon, N_THRESHOLDS), dtype=bool)
     _bool_buf = np.empty_like(_above)
@@ -197,7 +277,7 @@ def compute_stats(
     log.info("Accumulating statistics …")
     for t in tqdm(range(n_times), unit="timestep"):
         pred_np = all_preds[t]
-        y_np = targets_da.isel(time=t).values
+        y_np = all_targets[t]
 
         pred_fronts = pred_np[:, :, class_indices]  # (lat, lon, F)
         truth_fronts = y_np[:, :, class_indices] > 0.5  # (lat, lon, F) bool
@@ -261,8 +341,9 @@ def compute_stats(
             for k in ("tp", "fp", "tn", "fn")
         },
     )
+    derived_ds = compute_derived_stats(aggregate_ds, spatial_ds, front_types)
 
-    return spatial_ds, aggregate_ds
+    return spatial_ds, aggregate_ds, derived_ds
 
 
 def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
@@ -272,7 +353,6 @@ def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
         eval_cfg: Evaluation configuration specifying model path, output directory, etc.
         data_cfg: Dataset configuration specifying icechunk store paths and variables.
     """
-    zarr.config.set({"async.concurrency": 32})
     utils.configure_gpu(eval_cfg.gpu_device)
     log.info("Loading model from %s …", eval_cfg.model_path)
     keras_model = tf.keras.models.load_model(
@@ -290,6 +370,7 @@ def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
         group=ic_era5.group_name,
         zarr_format=ic_era5.zarr_format,
         virtual_chunk_local_path=ic_era5.virtual_chunk_local_path,
+        chunks=None,
     )
     log.info("Opening fronts icechunk store …")
     fronts_ds = utils.open_readonly_icechunk_store(
@@ -305,50 +386,52 @@ def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
     era5_ds = utils.select_spatial_domain(era5_ds, bb)
     fronts_ds = utils.select_spatial_domain(fronts_ds, bb)
 
-    era5_da = inputs.inputs_ds_to_dataarray(era5_ds, data_cfg.variables)
-    fronts_remapped = targets.remap_fronts(fronts_ds["identifier"])
-    targets_da = utils.drop_duplicate_times(targets.one_hot_encode_to_dataarray(fronts_remapped))
+    fronts_raw = utils.drop_duplicate_times(fronts_ds["identifier"])
 
-    dilation = eval_cfg.front_dilation if eval_cfg.front_dilation is not None else data_cfg.front_dilation
-    if dilation > 0:
-        log.info("Applying front dilation: %d iterations …", dilation)
-        targets_da = targets.dilate_fronts(targets_da, dilation)
-
-    common_times = np.intersect1d(era5_da["time"].values, targets_da["time"].values)
+    era5_times = era5_ds["time"].values
+    common_times = np.intersect1d(era5_times, fronts_raw["time"].values)
     if eval_cfg.time_start:
         common_times = common_times[common_times >= np.datetime64(eval_cfg.time_start)]
     if eval_cfg.time_end:
         common_times = common_times[common_times < np.datetime64(eval_cfg.time_end)]
     log.info("Common timesteps: %d", len(common_times))
-    era5_da = era5_da.sel(time=common_times)
-    targets_da = targets_da.sel(time=common_times)
+    era5_ds = era5_ds.sel(time=common_times)
+    fronts_raw = fronts_raw.sel(time=common_times)
 
-    lats = era5_da["latitude"].values
-    lons = era5_da["longitude"].values
+    dilation = eval_cfg.front_dilation if eval_cfg.front_dilation is not None else data_cfg.front_dilation
+    effective_data_cfg = dataclasses.replace(data_cfg, front_dilation=dilation)
+
+    lats = era5_ds["latitude"].values
+    lons = era5_ds["longitude"].values
 
     spatial_mask = _build_spatial_mask(lats, lons, eval_cfg.mask) if eval_cfg.mask else None
 
     log.info("Computing statistics …")
-    spatial_ds, aggregate_ds = compute_stats(
+    spatial_ds, aggregate_ds, derived_ds = compute_stats(
         model=keras_model,
-        era5_da=era5_da,
-        targets_da=targets_da,
+        input_ds=era5_ds,
+        target_da=fronts_raw,
+        data_config=effective_data_cfg,
         front_types=eval_cfg.front_types,
         lats=lats,
         lons=lons,
         spatial_mask=spatial_mask,
         batch_size=data_cfg.batch_size,
+        class_weights=data_cfg.class_weights,
     )
 
     os.makedirs(eval_cfg.outdir, exist_ok=True)
     mask_suffix = f"_{eval_cfg.mask}" if eval_cfg.mask else ""
     spatial_path = os.path.join(eval_cfg.outdir, f"stats_spatial{mask_suffix}.nc")
     aggregate_path = os.path.join(eval_cfg.outdir, f"stats_aggregate{mask_suffix}.nc")
+    derived_path = os.path.join(eval_cfg.outdir, f"stats_derived{mask_suffix}.nc")
 
-    spatial_ds.astype("float32").to_netcdf(spatial_path)
-    aggregate_ds.astype("float32").to_netcdf(aggregate_path)
+    spatial_ds.to_netcdf(spatial_path)
+    aggregate_ds.to_netcdf(aggregate_path)
+    derived_ds.to_netcdf(derived_path)
     log.info("Spatial stats   → %s", spatial_path)
     log.info("Aggregate stats → %s", aggregate_path)
+    log.info("Derived stats   → %s", derived_path)
 
 
 def main() -> None:

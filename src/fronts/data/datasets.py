@@ -56,12 +56,12 @@ class DatasetConfig:
     max_pydataset_workers: int = 16
 
 
-class TrainingDataset(tf.keras.utils.PyDataset):
-    """Batches a split's ERA5/fronts DataArrays for training via the PyDataset interface.
+class FrontsPyDataset(tf.keras.utils.PyDataset):
+    """Batches a split's ERA5/fronts DataArrays for training or evaluation via the PyDataset interface.
 
     Each ``__getitem__`` call gathers exactly one batch's timesteps with a single
-    ``isel(time=idxs)`` take. ``input_ds``/``target_ds`` must already be sliced
-    to this split (e.g. ``input_da.isel(time=train_indices)``) and backed by non-dask
+    ``isel(time=idxs)`` take. ``input_ds``/``target_da`` must already be sliced
+    to this split (e.g. ``input_ds.isel(time=train_indices)``) and backed by non-dask
     (``chunks=None``) arrays so each take reads directly through the zarr store rather
     than building a dask graph; concurrency across batches comes entirely from
     ``tf.keras.utils.PyDataset``'s own thread pool (``workers``/``max_queue_size``
@@ -72,8 +72,8 @@ class TrainingDataset(tf.keras.utils.PyDataset):
     across any deep-supervision outputs, not the dataset.
 
     Attributes:
-        input_ds: This split's input DataArray, shape (time, latitude, longitude, channel).
-        target_ds: This split's target DataArray, shape (time, latitude, longitude, class).
+        input_ds: This split's input Dataset, shape (time, latitude, longitude) per variable.
+        target_da: This split's raw integer front-code DataArray, shape (time, latitude, longitude).
         batch_size: Number of timesteps per batch.
         shuffle: If True, reshuffles the sample order at the end of every epoch.
     """
@@ -152,30 +152,3 @@ class TrainingDataset(tf.keras.utils.PyDataset):
         if elapsed > 30:
             logger.warning(f"Slow batch {idx}: {elapsed:.1f}s")
         return result
-
-
-class EvalDataset(tf.keras.utils.PyDataset):
-    """Yields ERA5 input batches for model.predict() during evaluation.
-
-    Each ``__getitem__`` lazily reads one batch from the zarr-backed DataArray via
-    ``isel(time=slice(...))``, matching the access pattern of ``TrainingDataset``.
-
-    Attributes:
-        era5_da: ERA5 inputs DataArray of shape (time, latitude, longitude, channel).
-        batch_size: Number of timesteps per batch.
-    """
-
-    def __init__(self, era5_da: xr.DataArray, batch_size: int, **kwargs):
-        super().__init__(**kwargs)
-        self._era5_da = era5_da
-        self._batch_size = batch_size
-        self._n_times = era5_da.sizes["time"]
-
-    def __len__(self) -> int:
-        """Returns the number of batches per epoch."""
-        return math.ceil(self._n_times / self._batch_size)
-
-    def __getitem__(self, idx: int) -> np.ndarray:
-        """Returns the (input, target) batch at ``idx``."""
-        slc = slice(idx * self._batch_size, (idx + 1) * self._batch_size)
-        return self._era5_da.isel(time=slc).values.astype(np.float32)

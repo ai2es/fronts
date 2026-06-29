@@ -7,7 +7,7 @@ from fronts.data.targets import FRONT_CLASS_MAP, filter_timesteps
 from fronts.utils import IcechunkStorageConfig, apply_time_resolution
 
 try:
-    from fronts.data.datasets import DatasetConfig, TrainingDataset
+    from fronts.data.datasets import DatasetConfig, FrontsPyDataset
     from fronts.data.generate import write_or_append_icechunk_store
     from fronts.data.inputs import inputs_ds_to_dataarray
     from fronts.train import load_data_into_dataloader
@@ -124,12 +124,12 @@ class TestApplyTimeResolution:
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
-class TestTrainingDatasetGather:
+class TestFrontsPyDatasetGather:
     def test_select_and_order_samples(self, era5_ds, front_da, data_config):
         # A non-contiguous time selection must yield exactly those timesteps in order.
         sub_era5 = era5_ds.isel(time=[4, 2])
         sub_front = front_da.isel(time=[4, 2])
-        ds = TrainingDataset(sub_era5, sub_front, data_config, batch_size=1)
+        ds = FrontsPyDataset(sub_era5, sub_front, data_config, batch_size=1)
         x0, _ = ds[0]
         x1, _ = ds[1]
         expected = inputs_ds_to_dataarray(era5_ds, data_config.variables).values
@@ -140,7 +140,7 @@ class TestTrainingDatasetGather:
         order = [4, 0, 3, 1, 2]
         sub_era5 = era5_ds.isel(time=order)
         sub_front = front_da.isel(time=order)
-        ds = TrainingDataset(sub_era5, sub_front, data_config, batch_size=1)
+        ds = FrontsPyDataset(sub_era5, sub_front, data_config, batch_size=1)
         expected = inputs_ds_to_dataarray(era5_ds, data_config.variables).values
         for i, native in enumerate(order):
             x, _ = ds[i]
@@ -148,7 +148,7 @@ class TestTrainingDatasetGather:
 
     def test_input_target_length_mismatch_raises(self, era5_ds, front_da, data_config):
         with pytest.raises(ValueError, match="differ"):
-            TrainingDataset(
+            FrontsPyDataset(
                 era5_ds.isel(time=[0, 1]),
                 front_da.isel(time=[0]),
                 data_config,
@@ -157,9 +157,9 @@ class TestTrainingDatasetGather:
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
-class TestTrainingDataset:
+class TestFrontsPyDataset:
     def _make_ds(self, era5_ds, front_da, data_config, batch_size=2, **kwargs):
-        return TrainingDataset(era5_ds, front_da, data_config, batch_size=batch_size, **kwargs)
+        return FrontsPyDataset(era5_ds, front_da, data_config, batch_size=batch_size, **kwargs)
 
     def test_input_batch_shape(self, era5_ds, front_da, data_config):
         batch_size = 2

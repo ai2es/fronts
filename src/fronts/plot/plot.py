@@ -10,7 +10,7 @@ Usage:
         --config_path configs/schooner_train.yaml
 
     pixi run -e schooner python src/fronts/plot/plot.py performance-diagrams \
-        --stats_dir ~/models/fronts/stats --mask land
+        --config_path configs/schooner_eval.yaml --mask land
 """
 
 import argparse
@@ -28,7 +28,7 @@ from matplotlib import cm, colors
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import FixedLocator
 
-from fronts import utils
+from fronts import evaluate, utils
 from fronts.data import config, datasets, inputs, targets
 from fronts.model import SharedTargetModel
 from fronts.plot.utils import plot_background, truncated_colormap
@@ -94,19 +94,26 @@ _DOMAIN_LAYOUT: dict[str, _LayoutConfig] = {
 }
 
 
-def _parse_front_types(aggregate_ds: xr.Dataset) -> list[str]:
-    """Infer front type labels from variable names (tp_{FT})."""
-    return [
-        v[3:]
-        for v in aggregate_ds.data_vars
-        if isinstance(v, str) and v.startswith("tp_") and not v.startswith("tp_spatial_")
-    ]
+def _parse_front_types(derived_ds: xr.Dataset) -> list[str]:
+    """Infer front type labels from variable names (pod_{FT}) in derived stats."""
+    return [v[4:] for v in derived_ds.data_vars if isinstance(v, str) and v.startswith("pod_")]
+
+
+def _normalize_wrapping_longitudes(da: xr.DataArray, lon_min: float) -> xr.DataArray:
+    """Remap longitudes that wrapped below lon_min back above 360.
+
+    ERA5 stores longitude in [0, 360), so a domain starting at lon_min > 0 may
+    have values near 0 that belong past 360 (e.g. 0-9.75 -> 360-369.75).
+    After remapping, sortby("longitude") yields a monotonically increasing axis
+    as required by xarray's pcolormesh.
+    """
+    lon_vals = da.longitude.values
+    return da.assign_coords(longitude=np.where(lon_vals < lon_min, lon_vals + 360, lon_vals))
 
 
 def plot_performance_diagrams(
     front_type: str,
-    aggregate_ds: xr.Dataset,
-    spatial_ds: xr.Dataset,
+    derived_ds: xr.Dataset,
     mask: str | None,
     coordinates: utils.BoundingBox,
     map_neighborhood: int,
@@ -117,8 +124,7 @@ def plot_performance_diagrams(
 
     Args:
         front_type: Front type key (e.g. "CF").
-        aggregate_ds: Aggregated stats Dataset with dims (neighborhood, threshold).
-        spatial_ds: Spatial stats Dataset with dims (lat, lon, neighborhood, threshold).
+        derived_ds: Pre-computed derived metrics Dataset from evaluate.compute_derived_stats.
         mask: "land", "ocean", or None — used only for the figure title and filename.
         coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
         map_neighborhood: Neighbourhood radius (km) for the spatial CSI map panel.
@@ -128,15 +134,16 @@ def plot_performance_diagrams(
     layout_key = "full" if (coordinates.lon_max - coordinates.lon_min) > 150 else "conus"
     layout = _DOMAIN_LAYOUT[layout_key]
 
-    thresholds = aggregate_ds["threshold"].values  # (100,)
+    thresholds = derived_ds.coords["threshold"].values  # (100,)
 
-    a = aggregate_ds[f"tp_{front_type}"].values  # (neighborhood, threshold)
-    b = aggregate_ds[f"fp_{front_type}"].values
-    c = aggregate_ds[f"fn_{front_type}"].values
-    d = aggregate_ds[f"tn_{front_type}"].values
-
-    pod = np.divide(a, a + c, out=np.zeros_like(a), where=(a + c) > 0)
-    sr = np.divide(a, a + b, out=np.zeros_like(a), where=(a + b) > 0)
+    pod = derived_ds[f"pod_{front_type}"].values  # (neighborhood, threshold)
+    sr = derived_ds[f"sr_{front_type}"].values
+    csi_all = derived_ds[f"csi_{front_type}"].values
+    hss_all = derived_ds[f"hss_{front_type}"].values
+    observed_relative_frequency = derived_ds[f"obs_rel_freq_{front_type}"].values  # (neighborhood, threshold-1)
+    relative_forecast_fraction = derived_ds[f"rel_forecast_frac_{front_type}"].values  # (threshold,)
+    spatial_csi = derived_ds[f"spatial_csi_{front_type}"]  # (lat, lon, neighborhood, threshold)
+    spatial_csi_map = spatial_csi.max("threshold")
 
     sr_matrix, pod_matrix = np.meshgrid(np.linspace(0, 1, 101), np.linspace(0, 1, 101))
     csi_matrix = 1 / ((1 / sr_matrix) + (1 / pod_matrix) - 1)
@@ -145,23 +152,6 @@ def plot_performance_diagrams(
     fb_levels = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3]
     axis_ticks = np.arange(0, 1.01, 0.1)
     axis_ticklabels = np.arange(0, 100.1, 10).astype(int)
-
-    num_forecasts = (a + b)[0, :]
-    total_pixels_approx = (a + b + c + d)[0, 0]
-    if total_pixels_approx > 0:
-        relative_forecast_fraction = 100 * num_forecasts / total_pixels_approx
-    else:
-        relative_forecast_fraction = num_forecasts * 0
-
-    tp_diff = np.abs(np.diff(a, axis=-1))
-    fp_diff = np.abs(np.diff(b, axis=-1))
-    denom = tp_diff + fp_diff
-    observed_relative_frequency = np.divide(tp_diff, denom, out=np.zeros_like(tp_diff), where=denom > 0)
-
-    tp_sp = spatial_ds[f"tp_spatial_{front_type}"]
-    fp_sp = spatial_ds[f"fp_spatial_{front_type}"]
-    fn_sp = spatial_ds[f"fn_spatial_{front_type}"]
-    spatial_csi_map = (tp_sp / (tp_sp + fp_sp + fn_sp)).max("threshold")
 
     fig, axs = plt.subplots(1, 2, figsize=(15, 6))
     ax0, ax1 = axs
@@ -182,15 +172,8 @@ def plot_performance_diagrams(
     cell_text = []
 
     for boundary, color in enumerate(boundary_colors):
-        csi = np.power((1 / sr[boundary]) + (1 / pod[boundary]) - 1, -1)
-        hss = (
-            2
-            * ((a[boundary] * d[boundary]) - (b[boundary] * c[boundary]))
-            / (
-                ((a[boundary] + c[boundary]) * (c[boundary] + d[boundary]))
-                + ((a[boundary] + b[boundary]) * (b[boundary] + d[boundary]))
-            )
-        )
+        csi = csi_all[boundary]
+        hss = hss_all[boundary]
 
         max_csi = np.nanmax(csi)
         max_idx = np.where(csi == max_csi)[0]
@@ -254,7 +237,9 @@ def plot_performance_diagrams(
     )
 
     norm_probs = colors.Normalize(vmin=0.1, vmax=1)
-    xr.where(spatial_csi_map >= 0.1, spatial_csi_map, float("nan")).sel(neighborhood=map_neighborhood).plot(
+    csi_plot = xr.where(spatial_csi_map >= 0.1, spatial_csi_map, float("nan")).sel(neighborhood=map_neighborhood)
+    csi_plot = _normalize_wrapping_longitudes(csi_plot, coordinates.lon_min)
+    csi_plot.sortby("latitude").sortby("longitude").plot(
         ax=spatial_axis,
         x="longitude",
         y="latitude",
@@ -662,12 +647,7 @@ def main() -> None:
     cs.add_argument("--config_path", type=str, required=True, help="Path to config YAML.")
 
     pd = subparsers.add_parser("performance-diagrams", help="4-panel performance diagram per front type.")
-    pd.add_argument(
-        "--stats_dir",
-        type=str,
-        required=True,
-        help="Directory containing stats_aggregate_{mask}.nc and stats_spatial_{mask}.nc.",
-    )
+    pd.add_argument("--config_path", type=str, required=True, help="Path to config YAML.")
     pd.add_argument(
         "--mask",
         type=str,
@@ -686,13 +666,13 @@ def main() -> None:
         "--coordinates",
         type=float,
         nargs=4,
-        default=[0.25, 80.0, 130.0, 369.75],
+        default=None,
         metavar=("LAT_MIN", "LAT_MAX", "LON_MIN", "LON_MAX"),
-        help="Spatial bounding box as lat_min lat_max lon_min lon_max.",
+        help="Spatial bounding box (overrides config).",
     )
     pd.add_argument("--map_neighborhood", type=int, default=250, help="Neighbourhood (km) for spatial CSI map.")
     pd.add_argument("--output_type", type=str, default="png", help="Image format (png, pdf, etc.).")
-    pd.add_argument("--outdir", type=str, default=None, help="Output directory (defaults to --stats_dir).")
+    pd.add_argument("--outdir", type=str, default=None, help="Output directory (defaults to eval_config.outdir).")
 
     args = parser.parse_args()
 
@@ -712,24 +692,29 @@ def main() -> None:
         plot_case_study(predict_cfg, data_cfg)
 
     elif args.command == "performance-diagrams":
-        mask_suffix = f"_{args.mask}" if args.mask else ""
-        aggregate_ds = xr.open_dataset(os.path.join(args.stats_dir, f"stats_aggregate{mask_suffix}.nc"))
-        spatial_ds = xr.open_dataset(os.path.join(args.stats_dir, f"stats_spatial{mask_suffix}.nc"))
+        yaml_data = utils.load_yaml(args.config_path)
+        eval_cfg: evaluate.EvalConfig = utils.parse_config_section(
+            yaml_data, evaluate.EvalConfig, "eval_config", utils.YAML_TYPE_HOOKS
+        )
+        mask = args.mask if args.mask is not None else eval_cfg.mask
+        stats_dir = args.outdir or eval_cfg.outdir
+        coordinates = utils.BoundingBox(*args.coordinates) if args.coordinates else eval_cfg.coordinates
 
-        front_types = args.front_types or _parse_front_types(aggregate_ds)
-        outdir = args.outdir or args.stats_dir
+        mask_suffix = f"_{mask}" if mask else ""
+        derived_ds = xr.open_dataset(os.path.join(stats_dir, f"stats_derived{mask_suffix}.nc"))
+
+        front_types = args.front_types or eval_cfg.front_types or _parse_front_types(derived_ds)
 
         for ft in front_types:
             print(f"Plotting {ft} …")
             plot_performance_diagrams(
                 front_type=ft,
-                aggregate_ds=aggregate_ds,
-                spatial_ds=spatial_ds,
-                mask=args.mask,
-                coordinates=utils.BoundingBox(*args.coordinates),
+                derived_ds=derived_ds,
+                mask=mask,
+                coordinates=coordinates,
                 map_neighborhood=args.map_neighborhood,
                 output_type=args.output_type,
-                outdir=outdir,
+                outdir=stats_dir,
             )
 
 

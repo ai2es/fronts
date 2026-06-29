@@ -73,7 +73,7 @@ def load_data_into_dataloader(
     seed: int = 0,
     shuffle: bool = False,
     workers: int = 1,
-) -> datasets.TrainingDataset:
+) -> datasets.FrontsPyDataset:
     """Load, align, and encode ERA5 input and fronts data for training.
 
     Opens the ERA5 and fronts icechunk stores once each with ``chunks=None`` so
@@ -96,7 +96,7 @@ def load_data_into_dataloader(
             every batch's icechunk read with the GPU training step.
 
     Returns:
-        TrainingDataset yielding batches of (input, target) pairs for training.
+        FrontsPyDataset yielding batches of (input, target) pairs for training.
     """
 
     def _open(icechunk_config: utils.IcechunkStorageConfig) -> xr.Dataset:
@@ -143,13 +143,20 @@ def load_data_into_dataloader(
     )
     split_mask = {"train": train_mask, "val": val_mask, "test": test_mask}[split]
     split_indices = sorted(np.where(split_mask)[0].tolist())
+    logger.info("Split indices: %d timesteps for %s", len(split_indices), split)
     inputs_ds = inputs_ds_matched.isel(time=split_indices)
     targets_da = targets_da_matched.isel(time=split_indices)
-
+    logger.info(
+        "%s split: %d timesteps, %d inputs, %d targets",
+        split,
+        len(split_indices),
+        len(inputs_ds.time),
+        len(targets_da.time),
+    )
     # Get the number of threads to use for PyDataset prefetching from max_pydataset_workers in the DatasetConfig,
     # which is set to 16 by default. This allows for parallel loading of batches without overwhelming ourdisk I/O.
     data_workers = utils.limit_workers_for_slurm(max_workers=data_config.max_pydataset_workers)
-    return datasets.TrainingDataset(
+    return datasets.FrontsPyDataset(
         input_ds=inputs_ds,
         target_da=targets_da,
         data_config=data_config,
