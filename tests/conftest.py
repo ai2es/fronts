@@ -1,9 +1,19 @@
+import os
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 import xarray as xr
 
 from fronts import utils
 from fronts.data import datasets
+
+# coverage run -m pytest prepends CWD to sys.path before pytest initializes,
+# which makes local artifact directories (e.g. wandb/) shadow installed packages.
+# Remove the project root here, before any test modules are collected.
+_ROOT = str(Path(__file__).parent.parent.resolve())
+sys.path[:] = [p for p in sys.path if os.path.abspath(p) != _ROOT]
 
 _N_TIME = 5
 _N_LAT = 32

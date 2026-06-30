@@ -140,6 +140,14 @@ pandas = ">=2"
 numpy = ">=2,<2.1"
 hypothesis = ">=6.0"
 dask = ">=2023.3.0"
+cartopy = ">=0.24.0"
+matplotlib = ">=3.9.0"
+arraylake = ">=1.0.3,<2"
+dask-jobqueue = ">=0.9.0,<0.10"
+h5py = ">=3.11.0"
+
+[tool.pixi.feature.test.pypi-dependencies]
+tensorflow = ">=2.16"
 
 [tool.pixi.feature.test.tasks]
 test = "PYTHONPATH=src python -m pytest tests/ -v"
@@ -175,13 +183,25 @@ test = [
     "pytest-cov>=6.0.0",
     "pytest-mock>=3.14.0",
     "xarray>=2024",
+    "tensorflow>=2.16",
+    "cartopy>=0.24.0",
+    "arraylake>=1.0.3",
+    "dask-jobqueue>=0.9.0",
+    "hypothesis>=6.0",
+    "matplotlib>=3.9.0",
+    "numpy>=2,<2.1",
 ]
 
 #TODO: swap wget with requests in code
 data = ["cdsapi", "wget"]
 train = ["zarr>=3.1.5,<4", "icechunk>=2"]
 
-[build-system] 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+
+[build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
