@@ -203,8 +203,8 @@ def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[fl
 
 def _run(
     model: tf.keras.Model,
-    train_ds,
-    val_ds,
+    train_data,  # TODO: type hint this and val as FrontsPyDataset, but that requires importing datasets here, which causes a circular import
+    val_data,
     epochs: int,
     monitor: str,
     patience: int,
@@ -250,8 +250,8 @@ def _run(
         )
     t0 = time.time()
     history = model.fit(
-        train_ds,
-        validation_data=val_ds,
+        train_data,
+        validation_data=val_data,
         epochs=epochs,
         steps_per_epoch=steps_per_epoch,
         validation_steps=validation_steps,
