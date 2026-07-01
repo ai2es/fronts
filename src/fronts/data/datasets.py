@@ -86,9 +86,10 @@ class FrontsPyDataset(tf.keras.utils.PyDataset):
         batch_size: int,
         shuffle: bool = False,
         seed: int = 0,
-        **kwargs,
+        workers: int = 1,
+        max_queue_size: int = 10,
     ):
-        super().__init__(**kwargs)
+        super().__init__(workers=workers, max_queue_size=max_queue_size)
         if input_ds.sizes["time"] != target_da.sizes["time"]:
             raise ValueError(
                 f"Input and target time lengths differ: {input_ds.sizes['time']} vs {target_da.sizes['time']}"

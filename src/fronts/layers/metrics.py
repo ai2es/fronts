@@ -1,9 +1,13 @@
 """Custom metrics for U-Net models: BSS, CSI, FSS, HSS, and POD."""
 
+from collections.abc import Callable
+
 import tensorflow as tf
 
 
-def brier_skill_score(class_weights: list[int | float] | None = None):
+def brier_skill_score(
+    class_weights: list[int | float] | None = None,
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Brier skill score (BSS).
 
     Args:
@@ -11,7 +15,7 @@ def brier_skill_score(class_weights: list[int | float] | None = None):
     """
 
     @tf.function
-    def bss(y_true, y_pred):
+    def bss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute BSS for a batch.
 
         Args:
@@ -38,7 +42,7 @@ def critical_success_index(
     threshold: float | None = None,
     window_size: tuple[int, ...] | list[int] | None = None,
     class_weights: list[int | float] | None = None,
-):
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Critical success index (CSI).
 
     Args:
@@ -50,7 +54,7 @@ def critical_success_index(
     """
 
     @tf.function
-    def csi(y_true, y_pred):
+    def csi(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute CSI for a batch.
 
         Args:
@@ -102,7 +106,7 @@ def fractions_skill_score(
     alpha: int | float = 1.0,
     beta: int | float = 0.5,
     class_weights: list[int | float] | None = None,
-):
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Fractions skill score (FSS) metric.
 
     Args:
@@ -126,11 +130,10 @@ def fractions_skill_score(
 
     pool = getattr(tf.keras.layers, f"AveragePooling{len(mask_size)}D")(**pool_args)
 
-    if class_weights is not None:
-        class_weights = tf.cast(class_weights, tf.float32)
+    cw: tf.Tensor | None = tf.cast(class_weights, tf.float32) if class_weights is not None else None
 
     @tf.function
-    def fss(y_true, y_pred):
+    def fss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute FSS for a batch.
 
         Args:
@@ -140,9 +143,9 @@ def fractions_skill_score(
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
 
-        if class_weights is not None:
-            y_true *= class_weights
-            y_pred *= class_weights
+        if cw is not None:
+            y_true *= cw
+            y_pred *= cw
 
         # discretize model predictions and labels
         y_true = tf.math.sigmoid(alpha * (y_true - beta))
@@ -152,10 +155,10 @@ def fractions_skill_score(
         M_n = pool(y_pred)  # model forecast fractions (Eq. 3 in RL2008)
 
         MSE_n = tf.reduce_mean(
-            tf.square(O_n * class_weights - M_n * class_weights)
+            tf.square(O_n * cw - M_n * cw)
         )  # MSE for model forecast fractions (Eq. 5 in RL2008)
-        MSE_ref = tf.reduce_mean(tf.square(O_n * class_weights)) + tf.reduce_mean(
-            tf.square(M_n * class_weights)
+        MSE_ref = tf.reduce_mean(tf.square(O_n * cw)) + tf.reduce_mean(
+            tf.square(M_n * cw)
         )  # reference forecast (Eq. 7 in RL2008)
 
         FSS = 1 - MSE_n / (MSE_ref + 1e-10)  # fractions skill score (Eq. 6 in RL2008)
@@ -169,7 +172,7 @@ def heidke_skill_score(
     threshold: float | None = None,
     window_size: tuple[int, ...] | list[int] | None = None,
     class_weights: list[int | float] | None = None,
-):
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Heidke Skill Score (HSS).
 
     Args:
@@ -181,7 +184,7 @@ def heidke_skill_score(
     """
 
     @tf.function
-    def hss(y_true, y_pred):
+    def hss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute HSS for a batch.
 
         Args:
@@ -230,7 +233,7 @@ def probability_of_detection(
     threshold: float | None = None,
     window_size: tuple[int, ...] | list[int] | None = None,
     class_weights: list[int | float] | None = None,
-):
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Probability of Detection (POD).
 
     Args:
@@ -242,7 +245,7 @@ def probability_of_detection(
     """
 
     @tf.function
-    def pod(y_true, y_pred):
+    def pod(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute POD for a batch.
 
         Args:

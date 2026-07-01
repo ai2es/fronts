@@ -20,7 +20,6 @@ import dataclasses
 import datetime
 import logging
 import os
-from typing import Any
 
 import numpy as np
 import regionmask
@@ -174,7 +173,7 @@ def compute_derived_stats(
 
 
 def compute_stats(
-    model: Any,
+    model: tf.keras.Model,
     input_ds: xr.Dataset,
     target_da: xr.DataArray,
     data_config: datasets.DatasetConfig,

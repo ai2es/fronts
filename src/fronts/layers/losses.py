@@ -1,5 +1,7 @@
 """Custom loss functions for U-Net models: BSS, CSI, FSS, and POD."""
 
+from collections.abc import Callable
+
 import tensorflow as tf
 
 
@@ -7,7 +9,7 @@ def brier_skill_score(
     alpha: int | float = 1.0,
     beta: int | float = 0.5,
     class_weights: list[int | float] | None = None,
-):
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Brier skill score (BSS) loss function.
 
     Args:
@@ -16,11 +18,10 @@ def brier_skill_score(
         beta: Controls some behaviors of the sigmoid discretization function. Default and recommended value is 0.5.
         class_weights: Weights to apply to each class. Length must equal the number of classes in y_pred and y_true.
     """
-    if class_weights is not None:
-        class_weights = tf.cast(class_weights, tf.float32)
+    cw: tf.Tensor | None = tf.cast(class_weights, tf.float32) if class_weights is not None else None
 
     @tf.function
-    def bss_loss(y_true, y_pred):
+    def bss_loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute BSS loss for a batch.
 
         Args:
@@ -36,8 +37,8 @@ def brier_skill_score(
 
         losses = tf.math.square(tf.subtract(y_true, y_pred))
 
-        if class_weights is not None:
-            losses *= class_weights
+        if cw is not None:
+            losses *= cw
 
         spatial_axes = list(range(1, len(losses.shape)))
         return tf.reduce_mean(losses, axis=spatial_axes)
@@ -49,7 +50,7 @@ def critical_success_index(
     alpha: int | float = 1.0,
     beta: int | float = 0.5,
     class_weights: list[int | float] | None = None,
-):
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Critical Success Index (CSI) loss function.
 
     Args:
@@ -58,11 +59,10 @@ def critical_success_index(
         beta: Controls some behaviors of the sigmoid discretization function. Default and recommended value is 0.5.
         class_weights: Weights to apply to each class. Length must equal the number of classes in y_pred and y_true.
     """
-    if class_weights is not None:
-        class_weights = tf.cast(class_weights, tf.float32)
+    cw: tf.Tensor | None = tf.cast(class_weights, tf.float32) if class_weights is not None else None
 
     @tf.function
-    def csi_loss(y_true, y_pred):
+    def csi_loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute CSI loss for a batch.
 
         Args:
@@ -87,10 +87,10 @@ def critical_success_index(
         false_negatives = tf.math.reduce_sum(y_pred_neg * y_true, axis=sum_over_axes)
         false_positives = tf.math.reduce_sum(y_pred * y_true_neg, axis=sum_over_axes)
 
-        if class_weights is not None:
-            true_positives *= class_weights
-            false_positives *= class_weights
-            false_negatives *= class_weights
+        if cw is not None:
+            true_positives *= cw
+            false_positives *= cw
+            false_negatives *= cw
 
         csi = tf.math.divide(
             tf.math.reduce_sum(true_positives),
@@ -109,7 +109,7 @@ def fractions_skill_score(
     alpha: int | float = 1.0,
     beta: int | float = 0.5,
     class_weights: list[int | float] | None = None,
-):
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Fractions skill score loss function (returns 1 - FSS).
 
     Args:
@@ -134,11 +134,10 @@ def fractions_skill_score(
 
     pool = getattr(tf.keras.layers, f"AveragePooling{len(mask_size)}D")(**pool_args)
 
-    if class_weights is not None:
-        class_weights = tf.cast(class_weights, tf.float32)
+    cw: tf.Tensor | None = tf.cast(class_weights, tf.float32) if class_weights is not None else None
 
     @tf.function
-    def fss_loss(y_true, y_pred):
+    def fss_loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute FSS loss for a batch.
 
         Args:
@@ -148,9 +147,9 @@ def fractions_skill_score(
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
 
-        if class_weights is not None:
-            y_true *= class_weights
-            y_pred *= class_weights
+        if cw is not None:
+            y_true *= cw
+            y_pred *= cw
 
         # discretize model predictions and labels
         y_true = tf.math.sigmoid(alpha * (y_true - beta))
@@ -173,7 +172,9 @@ def fractions_skill_score(
     return fss_loss
 
 
-def probability_of_detection(class_weights: list[int | float] | None = None):
+def probability_of_detection(
+    class_weights: list[int | float] | None = None,
+) -> Callable[[tf.Tensor, tf.Tensor], tf.Tensor]:
     """Probability of Detection (POD) as a loss function (returns miss rate = 1 - POD).
 
     Intended only for permutation studies; do not use to train models.
@@ -183,7 +184,7 @@ def probability_of_detection(class_weights: list[int | float] | None = None):
     """
 
     @tf.function
-    def pod_loss(y_true, y_pred):
+    def pod_loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         """Compute POD loss for a batch.
 
         Args:

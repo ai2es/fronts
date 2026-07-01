@@ -106,15 +106,15 @@ class MetricsConsolidationCallback(tf.keras.callbacks.Callback):
 class GcCallback(tf.keras.callbacks.Callback):
     """Forces garbage collection and logs RAM/GPU VRAM usage at the end of every epoch."""
 
-    def on_train_begin(self, logs=None):
+    def on_train_begin(self, logs: dict | None = None) -> None:
         """Initializes NVML for the GPU memory queries used in on_epoch_end."""
         pynvml.nvmlInit()
 
-    def on_train_end(self, logs=None):
+    def on_train_end(self, logs: dict | None = None) -> None:
         """Shuts down NVML."""
         pynvml.nvmlShutdown()
 
-    def on_epoch_end(self, epoch, logs=None):
+    def on_epoch_end(self, epoch: int, logs: dict | None = None) -> None:
         """Collects garbage and logs current RAM/GPU VRAM usage."""
         gc.collect()
         proc = psutil.Process()

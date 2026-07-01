@@ -542,7 +542,7 @@ def write_or_append_icechunk_store(
         del ds_batch
 
 
-def create_dask_client(slurm_config: config.SlurmConfig, scheduler_options: dict | None = None):
+def create_dask_client(slurm_config: config.SlurmConfig, scheduler_options: dict | None = None) -> Client:
     """Create a Dask client backed by a SLURM cluster.
 
     Args:
@@ -573,7 +573,7 @@ def create_dask_client(slurm_config: config.SlurmConfig, scheduler_options: dict
     return Client(slurm_cluster)
 
 
-def main():
+def main() -> None:
     """Entry point for generating ERA5 icechunk data from config."""
     parser = argparse.ArgumentParser(description="Generate ERA5 data and store in icechunk")
     parser.add_argument("--config", type=str, default=None, help="Path to YAML data generation config")

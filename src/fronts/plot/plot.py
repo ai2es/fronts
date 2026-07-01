@@ -17,9 +17,11 @@ import argparse
 import datetime
 import logging
 import os
-from typing import Any, TypedDict
+from typing import TypedDict
 
 import cartopy.crs as ccrs
+import matplotlib.axes
+import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
@@ -65,7 +67,7 @@ FRONT_TYPE_CLASS_INDEX: dict[str, int] = {"CF": 1, "WF": 2, "SF": 3, "OF": 4, "D
 class _LayoutConfig(TypedDict):
     table_axis_extent: tuple[float, float, float, float]
     table_scale: tuple[float, float]
-    table_title_kwargs: dict[str, Any]
+    table_title_kwargs: dict[str, float | int]
     spatial_axis_extent: tuple[float, float, float, float]
     cbar_kwargs: dict[str, str | float | int]
     spatial_plot_xlabels: list[int]
@@ -198,7 +200,7 @@ def plot_performance_diagrams(
         ax1.plot(thresholds[:-1], observed_relative_frequency[boundary], color=color, linewidth=1)
 
     ax0.set_xticklabels(axis_ticklabels[::-1])
-    ax0.set_xlabel("False Alarm Rate (FAR; %)")
+    ax0.set_xlabel("Success Ratio (1-FAR; %)")
     ax0.set_ylabel("Probability of Detection (POD; %)")
     ax0.set_title(r"$\bf{a)}$ $\bf{CSI}$ $\bf{diagram}$")
     ax1.set_xticklabels(axis_ticklabels)
@@ -215,7 +217,7 @@ def plot_performance_diagrams(
         ax.set_ylim(0, 1)
 
     table_axis = plt.axes(layout["table_axis_extent"])
-    table_axis.set_title(r"$\bf{c)}$ $\bf{Data}$ $\bf{table}$", **layout["table_title_kwargs"])
+    table_axis.set_title(r"$\bf{c)}$ $\bf{Data}$ $\bf{table}$", **layout["table_title_kwargs"])  # pyrefly: ignore[bad-argument-type]
     table_axis.axis("off")
     stats_table = table_axis.table(
         cellText=cell_text,
@@ -273,7 +275,7 @@ def plot_performance_diagrams(
 
 
 def _load_prediction(
-    model: Any,
+    model: tf.keras.Model,
     era5_ds: xr.Dataset,
     variables: list[str],
     front_types: list[str],
@@ -317,8 +319,8 @@ def _load_truth(fronts_ds: xr.Dataset, init_time: np.datetime64) -> xr.DataArray
 
 
 def _plot_front_probability_contours(
-    fig: Any,
-    ax: Any,
+    fig: matplotlib.figure.Figure,
+    ax: matplotlib.axes.Axes,
     probs_masked: xr.Dataset,
     front_types: list[str],
     levels: np.ndarray,
@@ -418,7 +420,7 @@ def plot_test_prediction(
     filled_contours: bool = True,
     open_contours: bool = True,
     title: str = "",
-) -> Any:
+) -> matplotlib.figure.Figure:
     """Build a single-timestep probability map figure from in-memory arrays.
 
     Unlike ``plot_case_study``, this does not open any icechunk store — it plots
@@ -497,7 +499,7 @@ def plot_performance_diagram_lite(
     tn: np.ndarray,
     fn: np.ndarray,
     title: str = "",
-) -> Any:
+) -> matplotlib.figure.Figure:
     """Build a lightweight 1-panel CSI/POD-vs-SR diagram with a CSI/HSS/POD/FAR table.
 
     A cheaper alternative to ``plot_performance_diagrams`` for use inside a training

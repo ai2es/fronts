@@ -21,17 +21,28 @@ class SharedTargetModel(Model):
     requiring the caller to replicate it ahead of time.
     """
 
-    def compute_loss(self, x=None, y=None, y_pred=None, sample_weight=None, training=True):
+    def compute_loss(
+        self,
+        x: tf.Tensor | None = None,
+        y: tf.Tensor | list[tf.Tensor] | None = None,
+        y_pred: tf.Tensor | list[tf.Tensor] | None = None,
+        sample_weight: tf.Tensor | None = None,
+        training: bool = True,
+    ) -> tf.Tensor:
         """Broadcasts a single target across all outputs before delegating to the default loss computation."""
-        if isinstance(y_pred, (list, tuple)):
-            y = [y] * len(y_pred)
-        return super().compute_loss(x=x, y=y, y_pred=y_pred, sample_weight=sample_weight, training=training)
+        y_in = [y] * len(y_pred) if isinstance(y_pred, (list, tuple)) else y
+        return super().compute_loss(x=x, y=y_in, y_pred=y_pred, sample_weight=sample_weight, training=training)
 
-    def compute_metrics(self, x=None, y=None, y_pred=None, sample_weight=None):
+    def compute_metrics(
+        self,
+        x: tf.Tensor | None = None,
+        y: tf.Tensor | list[tf.Tensor] | None = None,
+        y_pred: tf.Tensor | list[tf.Tensor] | None = None,
+        sample_weight: tf.Tensor | None = None,
+    ) -> dict[str, tf.Tensor]:
         """Broadcasts a single target across all outputs before delegating to the default metrics computation."""
-        if isinstance(y_pred, (list, tuple)):
-            y = [y] * len(y_pred)
-        return super().compute_metrics(x=x, y=y, y_pred=y_pred, sample_weight=sample_weight)
+        y_in = [y] * len(y_pred) if isinstance(y_pred, (list, tuple)) else y
+        return super().compute_metrics(x=x, y=y_in, y_pred=y_pred, sample_weight=sample_weight)
 
 
 @dataclasses.dataclass
@@ -117,7 +128,7 @@ class UNetBase:
     kernel_constraint: str | None = None
     bias_constraint: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate model configuration after dataclass initialization."""
         if self.levels not in [3, 4]:
             raise ValueError(
@@ -278,7 +289,7 @@ class UNet3Plus(UNetBase):
     normalization_mean: np.ndarray | None = None
     normalization_variance: np.ndarray | None = None
 
-    def build(self):
+    def build(self) -> tf.keras.Model:
         """Builds and returns the U-Net 3+ Keras model."""
         ndims = len(self.input_shape) - 1
 

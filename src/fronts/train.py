@@ -203,8 +203,8 @@ def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[fl
 
 def _run(
     model: tf.keras.Model,
-    train_data,  # TODO: type hint this and val as FrontsPyDataset, but that requires importing datasets here, which causes a circular import
-    val_data,
+    train_data: datasets.FrontsPyDataset,
+    val_data: datasets.FrontsPyDataset,
     epochs: int,
     monitor: str,
     patience: int,
@@ -215,9 +215,9 @@ def _run(
     wandb_log_freq: str | int = "epoch",
     steps_per_epoch: int | None = None,
     validation_steps: int | None = None,
-    run_config: dict | None = None,
-    extra_callbacks: list | None = None,
-) -> tuple:
+    run_config: dict[str, str] | None = None,
+    extra_callbacks: list[tf.keras.callbacks.Callback] | None = None,
+) -> tuple[tf.keras.callbacks.History, float]:
     if wandb_project:
         wandb.init(
             project=wandb_project,
@@ -315,7 +315,7 @@ def _build_test_visualization_callback(
     )
 
 
-def _collect_run_metadata(data_config: datasets.DatasetConfig) -> dict:
+def _collect_run_metadata(data_config: datasets.DatasetConfig) -> dict[str, str]:
     """Collect provenance metadata for logging: git commit, icechunk snapshots, SLURM vars.
 
     Args:
@@ -520,7 +520,7 @@ def train(
     logger.info(f"\nBest val_loss: {best_val:.4f}  |  Training time: {elapsed:.1f} s")
 
 
-def main():
+def main() -> None:
     """Entry point: load config, build dataset and model, run training."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Train UNet3Plus on ERA5 using NOAA fronts data")
