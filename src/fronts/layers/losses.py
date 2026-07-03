@@ -135,6 +135,7 @@ def fractions_skill_score(
     pool = getattr(tf.keras.layers, f"AveragePooling{len(mask_size)}D")(**pool_args)
 
     cw: tf.Tensor | None = tf.cast(class_weights, tf.float32) if class_weights is not None else None
+    relative_cw: tf.Tensor | None = (cw / tf.reduce_sum(cw)) if cw is not None else None
 
     @tf.function
     def fss_loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
@@ -147,10 +148,6 @@ def fractions_skill_score(
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
 
-        if cw is not None:
-            y_true *= cw
-            y_pred *= cw
-
         # discretize model predictions and labels
         y_true = tf.math.sigmoid(alpha * (y_true - beta))
         y_pred = tf.math.sigmoid(alpha * (y_pred - beta))
@@ -159,11 +156,18 @@ def fractions_skill_score(
         M_n = pool(y_pred)  # model forecast fractions (Eq. 3 in RL2008)
 
         # Reduce over spatial + class axes; keep batch dim so Keras can aggregate across replicas.
+        # Class weights applied after pooling so sigmoid targets remain correct for zero-weight classes.
         spatial_axes = list(range(1, len(O_n.shape)))
-        MSE_n = tf.reduce_mean(tf.square(O_n - M_n), axis=spatial_axes)  # (batch,)
-        MSE_ref = tf.reduce_mean(tf.square(O_n), axis=spatial_axes) + tf.reduce_mean(
-            tf.square(M_n), axis=spatial_axes
-        )  # (batch,)
+        if relative_cw is not None:
+            MSE_n = tf.reduce_mean(tf.square(O_n - M_n) * relative_cw, axis=spatial_axes)
+            MSE_ref = tf.reduce_mean(tf.square(O_n) * relative_cw, axis=spatial_axes) + tf.reduce_mean(
+                tf.square(M_n) * relative_cw, axis=spatial_axes
+            )
+        else:
+            MSE_n = tf.reduce_mean(tf.square(O_n - M_n), axis=spatial_axes)
+            MSE_ref = tf.reduce_mean(tf.square(O_n), axis=spatial_axes) + tf.reduce_mean(
+                tf.square(M_n), axis=spatial_axes
+            )
 
         FSS = 1 - tf.math.divide_no_nan(MSE_n, MSE_ref)  # fractions skill score (Eq. 6 in RL2008)
 

@@ -131,6 +131,7 @@ def fractions_skill_score(
     pool = getattr(tf.keras.layers, f"AveragePooling{len(mask_size)}D")(**pool_args)
 
     cw: tf.Tensor | None = tf.cast(class_weights, tf.float32) if class_weights is not None else None
+    relative_cw: tf.Tensor | None = (cw / tf.reduce_sum(cw)) if cw is not None else None
 
     @tf.function
     def fss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
@@ -143,10 +144,6 @@ def fractions_skill_score(
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
 
-        if cw is not None:
-            y_true *= cw
-            y_pred *= cw
-
         # discretize model predictions and labels
         y_true = tf.math.sigmoid(alpha * (y_true - beta))
         y_pred = tf.math.sigmoid(alpha * (y_pred - beta))
@@ -154,14 +151,17 @@ def fractions_skill_score(
         O_n = pool(y_true)  # observed fractions (Eq. 2 in RL2008)
         M_n = pool(y_pred)  # model forecast fractions (Eq. 3 in RL2008)
 
-        MSE_n = tf.reduce_mean(
-            tf.square(O_n * cw - M_n * cw)
-        )  # MSE for model forecast fractions (Eq. 5 in RL2008)
-        MSE_ref = tf.reduce_mean(tf.square(O_n * cw)) + tf.reduce_mean(
-            tf.square(M_n * cw)
-        )  # reference forecast (Eq. 7 in RL2008)
+        # Class weights applied after pooling so sigmoid targets remain correct for zero-weight classes.
+        if relative_cw is not None:
+            MSE_n = tf.reduce_mean(tf.square(O_n - M_n) * relative_cw)  # (Eq. 5 in RL2008)
+            MSE_ref = tf.reduce_mean(tf.square(O_n) * relative_cw) + tf.reduce_mean(
+                tf.square(M_n) * relative_cw
+            )  # (Eq. 7 in RL2008)
+        else:
+            MSE_n = tf.reduce_mean(tf.square(O_n - M_n))  # (Eq. 5 in RL2008)
+            MSE_ref = tf.reduce_mean(tf.square(O_n)) + tf.reduce_mean(tf.square(M_n))  # (Eq. 7 in RL2008)
 
-        FSS = 1 - MSE_n / (MSE_ref + 1e-10)  # fractions skill score (Eq. 6 in RL2008)
+        FSS = 1 - tf.math.divide_no_nan(MSE_n, MSE_ref)  # fractions skill score (Eq. 6 in RL2008)
 
         return FSS
 

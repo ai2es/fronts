@@ -1,10 +1,12 @@
-"""Tests for custom metrics: HSS and supporting helpers."""
+"""Tests for custom metrics: HSS, FSS, and supporting helpers."""
 
 import numpy as np
 import pytest
 
 tf = pytest.importorskip("tensorflow")
-heidke_skill_score = pytest.importorskip("fronts.layers.metrics").heidke_skill_score
+_metrics = pytest.importorskip("fronts.layers.metrics")
+heidke_skill_score = _metrics.heidke_skill_score
+fractions_skill_score = _metrics.fractions_skill_score
 
 N_BATCH = 2
 N_H = 8
@@ -154,3 +156,52 @@ class TestHeidkeSkillScoreClassWeights:
         score_no_weights = heidke_skill_score(threshold=0.5)(y_true, y_pred).numpy()
         score_equal_weights = heidke_skill_score(threshold=0.5, class_weights=[1.0] * N_CLASSES)(y_true, y_pred).numpy()
         assert score_no_weights == pytest.approx(score_equal_weights, abs=1e-5)
+
+
+class TestFSSMetricPerfectPrediction:
+    def test_perfect_prediction_is_one(self):
+        y = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
+        y[..., 1] = 1.0
+        score = fractions_skill_score(mask_size=(3, 3))(y, y).numpy()
+        assert score == pytest.approx(1.0, abs=1e-5)
+
+    def test_perfect_prediction_with_weights_is_one(self):
+        y = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
+        y[..., 1] = 1.0
+        score = fractions_skill_score(mask_size=(3, 3), class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0])(y, y).numpy()
+        assert score == pytest.approx(1.0, abs=1e-5)
+
+    def test_all_background_perfect_prediction_is_one_with_weights(self):
+        y = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
+        y[..., 0] = 1.0
+        score = fractions_skill_score(mask_size=(3, 3), class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0])(y, y).numpy()
+        assert score == pytest.approx(1.0, abs=1e-5)
+
+
+class TestFSSMetricWrongPrediction:
+    def test_completely_wrong_cf_prediction_penalised(self):
+        """CF truth but background prediction should produce FSS < 1."""
+        y_true = np.zeros((N_BATCH, N_H, N_W, N_CLASSES), dtype=np.float32)
+        y_true[..., 1] = 1.0
+        y_pred = np.zeros((N_BATCH, N_H, N_W, N_CLASSES), dtype=np.float32)
+        y_pred[..., 0] = 1.0
+
+        class_weights = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+        score = fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)(y_true, y_pred).numpy()
+        assert score < 0.95, f"Expected low FSS for completely wrong prediction, got {score:.4f}"
+
+    def test_fss_increases_as_predictions_improve(self):
+        y_true = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
+        y_true[..., 1] = 1.0
+
+        class_weights = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+        fss = fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)
+
+        scores = []
+        for p in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            y_pred = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
+            y_pred[..., 0] = 1.0 - p
+            y_pred[..., 1] = p
+            scores.append(float(fss(y_true, y_pred).numpy()))
+
+        assert scores == sorted(scores), f"FSS should increase monotonically as CF probability increases: {scores}"

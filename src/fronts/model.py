@@ -45,6 +45,46 @@ class SharedTargetModel(Model):
         return super().compute_metrics(x=x, y=y_in, y_pred=y_pred, sample_weight=sample_weight)
 
 
+@tf.keras.utils.register_keras_serializable(package="fronts")
+class TemperatureScaledModel(tf.keras.Model):
+    """Wraps a logit-output model with a fixed temperature scalar T.
+
+    Applies softmax(logits / T) to each output tensor.  T < 1 sharpens the
+    distribution (more confident); T > 1 flattens it.  The output list
+    preserves the same structure as the wrapped model so existing inference
+    paths (e.g. ``pred[0]``) work without modification.
+
+    References:
+        Guo et al. (2017): https://arxiv.org/abs/1706.04599
+    """
+
+    def __init__(self, logit_model: tf.keras.Model, temperature: float = 1.0, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.logit_model = logit_model
+        self.temperature = float(temperature)
+
+    def call(self, x: tf.Tensor, training: bool = False) -> list[tf.Tensor]:
+        """Run the logit model and apply temperature-scaled softmax."""
+        logits = self.logit_model(x, training=training)
+        if isinstance(logits, (list, tuple)):
+            return [tf.nn.softmax(logit / self.temperature) for logit in logits]
+        return tf.nn.softmax(logits / self.temperature)
+
+    def get_config(self) -> dict[str, Any]:
+        """Return serialisable config including the wrapped logit model."""
+        return {
+            "logit_model": tf.keras.layers.serialize(self.logit_model),
+            "temperature": self.temperature,
+            "name": self.name,
+        }
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> "TemperatureScaledModel":
+        """Reconstruct from serialised config."""
+        logit_model = tf.keras.layers.deserialize(config.pop("logit_model"))
+        return cls(logit_model=logit_model, **config)
+
+
 @dataclasses.dataclass
 class ModelConfig:
     """Hyperparameter configuration for building a UNet3Plus model."""
