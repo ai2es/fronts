@@ -72,7 +72,6 @@ def load_data_into_dataloader(
     split: Literal["train", "val", "test"],
     seed: int = 0,
     shuffle: bool = False,
-    workers: int = 1,
 ) -> datasets.FrontsPyDataset:
     """Load, align, and encode ERA5 input and fronts data for training.
 
