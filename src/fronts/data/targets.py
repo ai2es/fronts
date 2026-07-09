@@ -2,8 +2,8 @@ import numpy as np
 import xarray as xr
 
 # Original front codes → experiment class indices
-# 0 = no front (background), 1-4 kept as-is, 15 (dryline) → 5, all others → 0
-FRONT_CLASS_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 15: 5}
+# 0 = no front (background), 1-4 kept as-is, 16 (dryline) → 5, all others → 0
+FRONT_CLASS_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 16: 5}
 
 
 def filter_timesteps(fronts_da: xr.DataArray, rng: np.random.Generator) -> np.ndarray:
