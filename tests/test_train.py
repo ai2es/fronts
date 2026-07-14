@@ -7,10 +7,12 @@ from fronts.data.targets import FRONT_CLASS_MAP, filter_timesteps
 from fronts.utils import IcechunkStorageConfig, apply_time_resolution
 
 try:
+    import tensorflow as tf
+
     from fronts.data.datasets import DatasetConfig, FrontsPyDataset
     from fronts.data.generate import write_or_append_icechunk_store
     from fronts.data.inputs import inputs_ds_to_dataarray
-    from fronts.train import load_data_into_dataloader
+    from fronts.train import _build_monitor_callback, load_data_into_dataloader
 
     _TF_AVAILABLE = True
 except ImportError:
@@ -121,6 +123,40 @@ class TestApplyTimeResolution:
         result = apply_time_resolution(times, "6h")
         assert len(result) == 8
         assert all(h in (0, 6, 12, 18) for h in pd.DatetimeIndex(result).hour)
+
+
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestBuildMonitorCallback:
+    def test_both_decay_params_set_returns_reduce_lr_on_plateau(self):
+        callback = _build_monitor_callback(
+            monitor="val_loss", patience=5, learning_rate_decay_factor=0.2, learning_rate_minimum=1e-6
+        )
+        assert isinstance(callback, tf.keras.callbacks.ReduceLROnPlateau)
+        assert callback.monitor == "val_loss"
+        assert callback.factor == 0.2
+        assert callback.patience == 5
+        assert callback.min_lr == 1e-6
+
+    def test_only_decay_factor_set_returns_early_stopping(self):
+        callback = _build_monitor_callback(
+            monitor="val_loss", patience=5, learning_rate_decay_factor=0.2, learning_rate_minimum=None
+        )
+        assert isinstance(callback, tf.keras.callbacks.EarlyStopping)
+
+    def test_only_decay_minimum_set_returns_early_stopping(self):
+        callback = _build_monitor_callback(
+            monitor="val_loss", patience=5, learning_rate_decay_factor=None, learning_rate_minimum=1e-6
+        )
+        assert isinstance(callback, tf.keras.callbacks.EarlyStopping)
+
+    def test_neither_set_returns_early_stopping(self):
+        callback = _build_monitor_callback(
+            monitor="val_loss", patience=5, learning_rate_decay_factor=None, learning_rate_minimum=None
+        )
+        assert isinstance(callback, tf.keras.callbacks.EarlyStopping)
+        assert callback.monitor == "val_loss"
+        assert callback.patience == 5
+        assert callback.restore_best_weights is True
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")

@@ -200,6 +200,36 @@ def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[fl
     return n_out
 
 
+def _build_monitor_callback(
+    monitor: str,
+    patience: int,
+    learning_rate_decay_factor: float | None,
+    learning_rate_minimum: float | None,
+) -> tf.keras.callbacks.Callback:
+    """Builds a ReduceLROnPlateau callback if both LR-decay params are set, else EarlyStopping.
+
+    Args:
+        monitor: Metric name to monitor.
+        patience: Number of epochs with no improvement before acting.
+        learning_rate_decay_factor: Factor to multiply the learning rate by on plateau, or
+            None to use EarlyStopping instead.
+        learning_rate_minimum: Lower bound on the learning rate when decaying, or None to
+            use EarlyStopping instead.
+
+    Returns:
+        A ReduceLROnPlateau callback if both LR-decay params are provided, otherwise an
+        EarlyStopping callback.
+    """
+    if learning_rate_decay_factor is not None and learning_rate_minimum is not None:
+        return tf.keras.callbacks.ReduceLROnPlateau(
+            monitor=monitor,
+            factor=learning_rate_decay_factor,
+            patience=patience,
+            min_lr=learning_rate_minimum,
+        )
+    return tf.keras.callbacks.EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True)
+
+
 def _run(
     model: tf.keras.Model,
     train_data: datasets.FrontsPyDataset,
@@ -208,6 +238,8 @@ def _run(
     monitor: str,
     patience: int,
     shuffle: bool,
+    learning_rate_decay_factor: float | None = None,
+    learning_rate_minimum: float | None = None,
     model_checkpoint_path: str | None = None,
     wandb_project: str | None = None,
     run_name: str | None = None,
@@ -228,7 +260,7 @@ def _run(
     # Use the W&B Keras callback if logging to W&B, otherwise the standard ModelCheckpoint.
     ckpt_cls = wandb.keras.WandbModelCheckpoint if wandb_project else tf.keras.callbacks.ModelCheckpoint
     callbacks = [
-        tf.keras.callbacks.EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True),
+        _build_monitor_callback(monitor, patience, learning_rate_decay_factor, learning_rate_minimum),
         fronts_callbacks.GcCallback(),
         # Must run before WandbMetricsLogger: it mutates the shared `logs` dict that
         # WandbMetricsLogger reads, collapsing per-deep-supervision-output keys into
@@ -507,6 +539,8 @@ def train(
         validation_steps=val_steps,
         monitor=callbacks_cfg.monitor,
         patience=effective_patience,
+        learning_rate_decay_factor=callbacks_cfg.learning_rate_decay_factor,
+        learning_rate_minimum=callbacks_cfg.learning_rate_minimum,
         model_checkpoint_path=callbacks_cfg.model_checkpoint_path,
         wandb_project=wandb_project,
         run_name=run_name,

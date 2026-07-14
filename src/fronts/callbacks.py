@@ -55,10 +55,27 @@ class CallbacksConfig:
     logs an active-day prediction map and per-office-region performance diagrams to W&B
     from a bounded, seeded random subsample of the (otherwise untouched) sequestered
     test split; None disables this. ``test_viz_sample_size`` bounds that subsample's size.
+
+    Attributes:
+        monitor: Metric name to monitor for early stopping.
+        patience: Number of epochs with no improvement after which training will be stopped
+            or the learning rate will be decayed (if ``learning_rate_decay_factor`` is set).
+        learning_rate_decay_factor: Optional factor to multiply the current learning rate by
+            when early stopping is triggered. None disables learning-rate decay.
+        learning_rate_minimum: Optional lower bound on the learning rate when decaying.
+            None disables learning-rate decay.
+        model_checkpoint_path: Optional path to save the best model weights to. None disables
+            checkpointing.
+        test_viz_every_n_epochs: Optional cadence in epochs for logging test-set visualizations.
+            None disables test-set visualization.
+        test_viz_sample_size: Maximum number of timesteps to subsample from the test split
+            for the performance diagram. Ignored if ``test_viz_every_n_epochs`` is None.
     """
 
     monitor: str = "val_loss"
     patience: int = 8
+    learning_rate_decay_factor: float | None = None
+    learning_rate_minimum: float | None = None
     model_checkpoint_path: str | None = None
     test_viz_every_n_epochs: int | None = 10
     test_viz_sample_size: int = 200
