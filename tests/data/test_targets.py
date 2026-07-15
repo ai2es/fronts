@@ -100,3 +100,32 @@ class TestDilateFronts:
             + front_class[center_lat, center_lon + 1]
         )
         assert neighbor_count >= 4
+
+
+def _two_adjacent_fronts_da() -> xr.DataArray:
+    data = np.zeros((1, 8, 8, N_CLASSES), dtype=np.float32)
+    data[0, :, 2, 1] = 1.0
+    data[0, :, 4, 3] = 1.0
+    data[0, :, :, 0] = 1.0 - data[0, :, :, 1:].any(axis=-1)
+    return _make_one_hot_da(data)
+
+
+class TestDilateFrontsOverlap:
+    def test_dilated_targets_stay_one_hot(self):
+        result = dilate_fronts(_two_adjacent_fronts_da(), dilation=1).values
+        class_sums = result.sum(axis=-1)
+        np.testing.assert_array_equal(class_sums, np.ones_like(class_sums))
+
+    def test_original_labels_not_overwritten(self):
+        data = np.zeros((1, 8, 8, N_CLASSES), dtype=np.float32)
+        data[0, :, 2, 1] = 1.0
+        data[0, :, 3, 3] = 1.0
+        data[0, :, :, 0] = 1.0 - data[0, :, :, 1:].any(axis=-1)
+        result = dilate_fronts(_make_one_hot_da(data), dilation=1).values
+        np.testing.assert_array_equal(result[0, :, 3, 3], np.ones(8))
+        np.testing.assert_array_equal(result[0, :, 3, 1], np.zeros(8))
+
+    def test_equidistant_collision_resolves_to_lower_class(self):
+        result = dilate_fronts(_two_adjacent_fronts_da(), dilation=1).values
+        np.testing.assert_array_equal(result[0, :, 3, 1], np.ones(8))
+        np.testing.assert_array_equal(result[0, :, 3, 3], np.zeros(8))

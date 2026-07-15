@@ -1,10 +1,11 @@
-run_name: PyDataset_loss_bugfix_calibration
+run_name: no_weight_in_loss_dilation_fix
 
 train_config:
   epochs: 5000
   seed: 42
   learning_rate: 0.0001
   shuffle: true
+  loss_class_weights: null  # null supervises all classes incl. background in the FSS loss, matching the AIES FrontFinder model
 
 data_config:
   inputs_icechunk_config:

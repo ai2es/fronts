@@ -123,3 +123,27 @@ class TestFSSLossClassWeights:
             f"CF-only weights should produce >= loss vs equal weights when only CF differs: "
             f"cf_only={loss_cf_only:.4f}, equal={loss_equal_weights:.4f}"
         )
+
+
+class TestFSSLossBackgroundSupervision:
+    def test_unweighted_loss_penalises_background_errors(self):
+        """With class_weights=None the background channel is supervised, anchoring softmax mass.
+
+        The reference FrontFinder model trained with no loss class weights; a background-only error
+        must register in the unweighted loss but vanish under [0, 1, 1, 1, 1, 1] weights.
+        """
+        y_true = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
+        y_true[..., 0] = 1.0
+
+        y_pred = np.zeros_like(y_true)
+        y_pred[..., 0] = 0.5
+
+        loss_unweighted = float(fractions_skill_score(mask_size=(3, 3))(y_true, y_pred).numpy().mean())
+        loss_bg_zeroed = float(
+            fractions_skill_score(mask_size=(3, 3), class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0])(
+                y_true, y_pred
+            ).numpy().mean()
+        )
+
+        assert loss_unweighted > 0.0
+        assert loss_bg_zeroed == pytest.approx(0.0, abs=1e-5)

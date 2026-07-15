@@ -59,8 +59,17 @@ class WandBConfig:
 
 @dataclasses.dataclass
 class TrainConfig:
-    """Training-specific hyperparameters."""
+    """Training-specific hyperparameters.
 
+    Attributes:
+        loss_class_weights: Class weights applied inside the FSS loss, or None to supervise all
+            classes (including background) equally. The reference FrontFinder model trained with
+            None — zero-weighting background in the loss leaves ~95% of pixels unsupervised and
+            lets predicted probabilities drift toward uniform. Metrics use
+            ``data_config.class_weights`` independently of this value.
+    """
+
+    loss_class_weights: list[float] | None
     epochs: int = 50
     seed: int = 42
     learning_rate: float = 1e-4
@@ -185,10 +194,15 @@ def _show_input_sample(label: str, inputs: np.ndarray | xr.DataArray, n_show: in
         logger.info(f"  {i:<10} {ch.mean():>10.3f} {ch.std():>10.3f} {ch.min():>10.3f} {ch.max():>10.3f}")
 
 
-def _compile(model: tf.keras.Model, learning_rate: float, class_weights: list[float] | None) -> int:
+def _compile(
+    model: tf.keras.Model,
+    learning_rate: float,
+    metric_class_weights: list[float] | None,
+    loss_class_weights: list[float] | None,
+) -> int:
     n_out = len(model.outputs)
-    loss_fn = losses.fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)
-    hss_fn = metrics.heidke_skill_score(class_weights=class_weights)
+    loss_fn = losses.fractions_skill_score(mask_size=(3, 3), class_weights=loss_class_weights)
+    hss_fn = metrics.heidke_skill_score(class_weights=metric_class_weights)
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     if tf.keras.mixed_precision.global_policy().name == "mixed_float16":
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
@@ -466,7 +480,12 @@ def train(
                 for i, out in enumerate(unet.outputs)
             ]
             unet = model.SharedTargetModel(unet.inputs, float32_outputs, name=unet.name)
-        _compile(unet, train_cfg.learning_rate, data_cfg.class_weights)
+        _compile(
+            unet,
+            train_cfg.learning_rate,
+            metric_class_weights=data_cfg.class_weights,
+            loss_class_weights=train_cfg.loss_class_weights,
+        )
     logger.info("Model built and compiled.")
 
     unet.summary()

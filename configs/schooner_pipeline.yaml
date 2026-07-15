@@ -1,4 +1,4 @@
-run_name: PyDataset_2007_2024_by_year_larger_batches_shuffle
+run_name: no_weight_in_loss_dilation_fix
 
 data_config:
   inputs_icechunk_config:
@@ -81,6 +81,7 @@ train_config:
   seed: 42
   learning_rate: 0.0001
   shuffle: true
+  loss_class_weights: null  # null supervises all classes incl. background in the FSS loss, matching the AIES FrontFinder model
 
 model_config:
   n_classes: 6

@@ -180,3 +180,34 @@ class TestSlurmCpuCount:
         monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
         monkeypatch.setattr("os.cpu_count", lambda: None)
         assert utils.slurm_cpu_count() == 1
+
+
+class TestParseConfigSectionFloatCoercion:
+    def test_yaml_scientific_notation_string_coerces_to_float(self):
+        """PyYAML parses 1e-6 (no decimal point) as a string; float fields must still come out numeric."""
+        import dataclasses
+
+        from fronts import utils
+
+        @dataclasses.dataclass
+        class DecayConfig:
+            learning_rate_minimum: float | None = None
+            learning_rate_decay_factor: float | None = None
+
+        yaml_data = {"callbacks": {"learning_rate_minimum": "1e-6", "learning_rate_decay_factor": 0.2}}
+        cfg = utils.parse_config_section(yaml_data, DecayConfig, "callbacks")
+        assert cfg.learning_rate_minimum == pytest.approx(1e-6)
+        assert isinstance(cfg.learning_rate_minimum, float)
+        assert cfg.learning_rate_decay_factor == pytest.approx(0.2)
+
+    def test_none_values_pass_through(self):
+        import dataclasses
+
+        from fronts import utils
+
+        @dataclasses.dataclass
+        class DecayConfig:
+            learning_rate_minimum: float | None = None
+
+        cfg = utils.parse_config_section({"callbacks": {"learning_rate_minimum": None}}, DecayConfig, "callbacks")
+        assert cfg.learning_rate_minimum is None

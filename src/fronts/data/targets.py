@@ -83,20 +83,31 @@ def _binary_dilate_2d(mask: np.ndarray, iterations: int) -> np.ndarray:
 def _dilate_one_timestep(arr: np.ndarray, dilation: int) -> np.ndarray:
     """Apply binary dilation to each non-background class for a single spatial snapshot.
 
+    Classes grow one ring per iteration and may only claim pixels no class holds yet, so
+    the output stays one-hot: original labels are never overwritten, a collision pixel
+    goes to the class whose original front is nearest, and equidistant ties resolve to
+    the lowest class index.
+
     Args:
-        arr: Float32 array of shape (latitude, longitude, class).
+        arr: One-hot float32 array of shape (latitude, longitude, class).
         dilation: Number of binary dilation iterations.
 
     Returns:
-        Float32 array of shape (latitude, longitude, class) with dilated front classes
-        and recomputed background.
+        One-hot float32 array of shape (latitude, longitude, class) with dilated front
+        classes and recomputed background.
     """
     n_classes = arr.shape[-1]
+    grown = [arr[..., cls].astype(bool) for cls in range(1, n_classes)]
+    claimed = np.logical_or.reduce(grown)
+    for _ in range(dilation):
+        for cls_idx, mask in enumerate(grown):
+            ring = _binary_dilate_2d(mask, 1) & ~claimed
+            grown[cls_idx] = mask | ring
+            claimed |= ring
     result = np.zeros_like(arr)
-    for cls in range(1, n_classes):
-        dilated = _binary_dilate_2d(arr[..., cls].astype(bool), dilation)
-        result[..., cls] = dilated.astype(np.float32)
-    result[..., 0] = (1.0 - result[..., 1:].any(axis=-1)).astype(np.float32)
+    for cls_idx, mask in enumerate(grown):
+        result[..., cls_idx + 1] = mask.astype(np.float32)
+    result[..., 0] = (~claimed).astype(np.float32)
     return result
 
 

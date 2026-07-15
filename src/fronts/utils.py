@@ -361,7 +361,9 @@ def parse_config_section(
         yaml_data: Pre-loaded and interpolated YAML dict (from ``load_yaml``).
         config_class: The dataclass to parse the section into.
         config_key: Key of the sub-dict to parse. None parses the root.
-        type_hooks: Optional dictionary of type conversion functions.
+        type_hooks: Optional dictionary of type conversion functions. Float fields are always
+            coerced with ``float()`` because PyYAML parses scientific notation without a decimal
+            point (e.g. ``1e-6``) as a string.
 
     Returns:
         An instance of the specified dataclass.
@@ -370,7 +372,7 @@ def parse_config_section(
     return dacite.from_dict(
         data_class=config_class,
         data=section,
-        config=dacite.Config(check_types=False, type_hooks=type_hooks or {}),
+        config=dacite.Config(check_types=False, type_hooks={float: float, **(type_hooks or {})}),
     )
 
 

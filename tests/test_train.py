@@ -273,3 +273,32 @@ class TestLoadDataIntoDataloaderLongitude:
         test_dataset = load_data_into_dataloader(data_config, split="test", seed=0)
         lons = test_dataset.input_ds["longitude"].values
         assert np.all(np.diff(lons) >= 0), f"longitude not monotonic: {lons}"
+
+
+class TestTrainConfigLossClassWeights:
+    @pytest.fixture
+    def train_config_cls(self):
+        return pytest.importorskip("fronts.train").TrainConfig
+
+    def test_null_yaml_value_parses_to_none(self, train_config_cls):
+        from fronts import utils
+
+        yaml_data = {"train_config": {"loss_class_weights": None, "epochs": 1}}
+        cfg = utils.parse_config_section(yaml_data, train_config_cls, "train_config")
+        assert cfg.loss_class_weights is None
+
+    def test_explicit_weights_parse_to_list(self, train_config_cls):
+        from fronts import utils
+
+        weights = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        yaml_data = {"train_config": {"loss_class_weights": weights, "epochs": 1}}
+        cfg = utils.parse_config_section(yaml_data, train_config_cls, "train_config")
+        assert cfg.loss_class_weights == weights
+
+    def test_schooner_configs_parse(self, train_config_cls):
+        from fronts import utils
+
+        for path in ["configs/schooner_train.yaml", "configs/schooner_pipeline.yaml"]:
+            yaml_data = utils.load_yaml(path)
+            cfg = utils.parse_config_section(yaml_data, train_config_cls, "train_config")
+            assert cfg.loss_class_weights is None
