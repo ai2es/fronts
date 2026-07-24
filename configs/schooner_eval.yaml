@@ -1,4 +1,4 @@
-run_name: brier_conus_3d_comparison
+run_name: brier_3d_full_domain_pretrained_conus
 
 data_config:
   inputs_icechunk_config:
@@ -36,7 +36,6 @@ data_config:
 eval_config:
   model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
   outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}/"
-  coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]; CONUS box, matches training
   front_types: [CF, WF, SF, OF, DL]
   front_dilation: 1  # match training dilation
   time_start: "2024-01-01T00:00:00"
@@ -47,6 +46,5 @@ predict_config:
   outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/${run_name}/"
   init_time: "2024-03-15T06:00:00"
   front_types: [CF, WF, SF, OF, DL]
-  coordinates: [25.0, 56.75, 228.0, 299.75]  # CONUS box, matches training
   filled_contours: true
   targets: true
