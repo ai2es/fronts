@@ -62,11 +62,28 @@ class TrainConfig:
     """Training-specific hyperparameters.
 
     Attributes:
-        loss_class_weights: Class weights applied inside the FSS loss, or None to supervise all
+        loss_class_weights: Class weights applied inside the training loss, or None to supervise all
             classes (including background) equally. The reference FrontFinder model trained with
             None — zero-weighting background in the loss leaves ~95% of pixels unsupervised and
             lets predicted probabilities drift toward uniform. Metrics use
             ``data_config.class_weights`` independently of this value.
+        gradient_clip_norm: Per-gradient L2-norm clip passed to the Adam optimizer, or None to
+            leave gradients unclipped. Caps the damage a single outlier batch can do — one
+            unclipped spike can wipe learned features and knock training into a worse basin
+            it never escapes.
+        loss_name: Which training loss to compile with. "fractions_skill_score" uses a
+            fixed pixel-neighborhood mask (see ``fss_mask_size``); "neighborhood_brier_score"
+            uses a physical-distance tolerance instead (see ``nbs_tolerance_km`` and related
+            fields) and does not require label dilation to express positional slack.
+        fss_mask_size: ``mask_size`` passed to ``losses.fractions_skill_score``. Only used
+            when ``loss_name == "fractions_skill_score"``.
+        nbs_tolerance_km: ``tolerance_km`` passed to ``losses.neighborhood_brier_score``.
+            Only used when ``loss_name == "neighborhood_brier_score"``.
+        nbs_periodic_lon: ``periodic_lon`` passed to ``losses.neighborhood_brier_score``.
+            Only used when ``loss_name == "neighborhood_brier_score"``.
+        nbs_lat_dependent_pool: ``lat_dependent_pool`` passed to
+            ``losses.neighborhood_brier_score``. Only used when
+            ``loss_name == "neighborhood_brier_score"``.
     """
 
     loss_class_weights: list[float] | None
@@ -74,6 +91,12 @@ class TrainConfig:
     seed: int = 42
     learning_rate: float = 1e-4
     shuffle: bool = False
+    gradient_clip_norm: float | None = None
+    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score"] = "neighborhood_brier_score"
+    fss_mask_size: tuple[int, ...] = (3, 3)
+    nbs_tolerance_km: float = 25.0
+    nbs_periodic_lon: bool = False
+    nbs_lat_dependent_pool: bool = False
 
 
 def load_data_into_dataloader(
@@ -81,6 +104,7 @@ def load_data_into_dataloader(
     split: Literal["train", "val", "test"],
     seed: int = 0,
     shuffle: bool = False,
+    drop_remainder: bool = False,
 ) -> datasets.FrontsPyDataset:
     """Load, align, and encode ERA5 input and fronts data for training.
 
@@ -99,6 +123,9 @@ def load_data_into_dataloader(
         split: Type of dataset to load ("train", "val", "test").
         seed: Integer seed for the RNG used when subsampling timesteps.
         shuffle: If True, reshuffles the sample order at the end of every epoch.
+        drop_remainder: If True, drop the final under-sized batch each epoch so every
+            batch has exactly ``data_config.batch_size`` samples — see
+            ``datasets.FrontsPyDataset`` for why this matters under multi-GPU training.
         workers: Number of ``PyDataset`` prefetch threads. 1 (the ``PyDataset``
             default) fetches each batch synchronously on the main thread, serializing
             every batch's icechunk read with the GPU training step.
@@ -126,6 +153,11 @@ def load_data_into_dataloader(
 
     logger.info("Loading %s targets...", split)
     targets_da = _open(data_config.targets_icechunk_config)["identifier"]
+
+    if data_config.coordinates is not None:
+        logger.info("Restricting to spatial domain: %s", data_config.coordinates)
+        inputs_ds = utils.select_spatial_domain(inputs_ds, data_config.coordinates)
+        targets_da = utils.select_spatial_domain(targets_da, data_config.coordinates)
 
     # The time indexes aren't identical between the two datasets
     common_times = np.intersect1d(targets_da.time.values, inputs_ds.time.values)
@@ -173,6 +205,7 @@ def load_data_into_dataloader(
         shuffle=shuffle,
         workers=data_workers,
         max_queue_size=data_config.max_queue_size,
+        drop_remainder=drop_remainder,
     )
 
 
@@ -194,54 +227,194 @@ def _show_input_sample(label: str, inputs: np.ndarray | xr.DataArray, n_show: in
         logger.info(f"  {i:<10} {ch.mean():>10.3f} {ch.std():>10.3f} {ch.min():>10.3f} {ch.max():>10.3f}")
 
 
+def _build_loss(
+    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score"],
+    loss_class_weights: list[float] | None,
+    latitudes: np.ndarray,
+    fss_mask_size: tuple[int, ...],
+    nbs_tolerance_km: float,
+    nbs_periodic_lon: bool,
+    nbs_lat_dependent_pool: bool,
+):
+    """Build the configured training loss.
+
+    Args:
+        loss_name: "fractions_skill_score" or "neighborhood_brier_score" — see
+            ``TrainConfig`` for what each option means.
+        loss_class_weights: Per-class loss weights, or None to supervise all classes equally.
+        latitudes: 1-D grid latitudes. Only used by "neighborhood_brier_score".
+        fss_mask_size: Pooling mask size. Only used by "fractions_skill_score".
+        nbs_tolerance_km: Positional tolerance in km. Only used by "neighborhood_brier_score".
+        nbs_periodic_lon: Whether longitude wraps. Only used by "neighborhood_brier_score".
+        nbs_lat_dependent_pool: Whether to use latitude-dependent pooling. Only used by
+            "neighborhood_brier_score".
+
+    Returns:
+        A callable loss function suitable for ``model.compile(loss=...)``.
+
+    Raises:
+        ValueError: If ``loss_name`` is not a recognized loss.
+    """
+    if loss_name == "fractions_skill_score":
+        return losses.fractions_skill_score(mask_size=fss_mask_size, class_weights=loss_class_weights)
+    if loss_name == "neighborhood_brier_score":
+        return losses.neighborhood_brier_score(
+            latitudes=latitudes,
+            tolerance_km=nbs_tolerance_km,
+            class_weights=loss_class_weights,
+            periodic_lon=nbs_periodic_lon,
+            lat_dependent_pool=nbs_lat_dependent_pool,
+        )
+    raise ValueError(
+        f"Unrecognized loss_name {loss_name!r}; expected 'fractions_skill_score' or 'neighborhood_brier_score'."
+    )
+
+
+def _load_pretrained_weights(
+    unet: tf.keras.Model,
+    pretrained_weights_path: str,
+    normalization_stat_a: np.ndarray,
+    normalization_stat_b: np.ndarray,
+) -> None:
+    """Warm-start unet's weights from a prior checkpoint, keeping this run's normalization stats.
+
+    Mismatched layers are skipped rather than raising, so a checkpoint whose supervision heads differ
+    in shape or count (e.g. a different `levels`) still transfers its shared encoder/decoder weights.
+    The `input_normalization` layer is then reset to `normalization_stat_a`/`normalization_stat_b` —
+    the stats already computed for this run's domain in `train()` — since the checkpoint's own
+    normalization weights reflect its own (possibly different) training domain.
+
+    Args:
+        unet: Freshly built model to load weights into, in place.
+        pretrained_weights_path: Path to a saved ``.keras`` checkpoint.
+        normalization_stat_a: This run's normalization stat A (mean or min), as passed to
+            ``model.UNet3Plus``.
+        normalization_stat_b: This run's normalization stat B (variance or max).
+    """
+    logger.info("Warm-starting model weights from %s", pretrained_weights_path)
+    unet.load_weights(pretrained_weights_path, skip_mismatch=True)
+    norm_layer = unet.get_layer("input_normalization")
+    if isinstance(norm_layer, tf.keras.layers.Normalization):
+        norm_layer.mean.assign(normalization_stat_a)
+        norm_layer.variance.assign(normalization_stat_b)
+    elif isinstance(norm_layer, tf.keras.layers.Rescaling):
+        channel_range = normalization_stat_b - normalization_stat_a
+        scale = 1.0 / np.where(channel_range == 0, 1.0, channel_range)
+        norm_layer.scale = scale.astype(np.float32)
+        norm_layer.offset = (-normalization_stat_a * scale).astype(np.float32)
+    logger.info("Reset input_normalization to this run's domain-specific stats.")
+
+
+def _freeze_layers(unet: tf.keras.Model, freeze_layer_prefixes: list[str]) -> None:
+    """Set layer.trainable = False for every layer whose name starts with any given prefix.
+
+    Args:
+        unet: Model whose layers will be frozen in place.
+        freeze_layer_prefixes: Layer name prefixes to match via ``layer.name.startswith(prefix)``.
+    """
+    frozen = 0
+    for layer in unet.layers:
+        if any(layer.name.startswith(prefix) for prefix in freeze_layer_prefixes):
+            layer.trainable = False
+            frozen += 1
+    logger.info("Froze %d/%d layers matching prefixes %s", frozen, len(unet.layers), freeze_layer_prefixes)
+
+
 def _compile(
     model: tf.keras.Model,
     learning_rate: float,
     metric_class_weights: list[float] | None,
-    loss_class_weights: list[float] | None,
+    train_cfg: "TrainConfig",
+    latitudes: np.ndarray,
+    gradient_clip_norm: float | None = None,
 ) -> int:
     n_out = len(model.outputs)
-    loss_fn = losses.fractions_skill_score(mask_size=(3, 3), class_weights=loss_class_weights)
+    loss_fn = _build_loss(
+        loss_name=train_cfg.loss_name,
+        loss_class_weights=train_cfg.loss_class_weights,
+        latitudes=latitudes,
+        fss_mask_size=train_cfg.fss_mask_size,
+        nbs_tolerance_km=train_cfg.nbs_tolerance_km,
+        nbs_periodic_lon=train_cfg.nbs_periodic_lon,
+        nbs_lat_dependent_pool=train_cfg.nbs_lat_dependent_pool,
+    )
     hss_fn = metrics.heidke_skill_score(class_weights=metric_class_weights)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    hss_hard_fn = tf.keras.metrics.MeanMetricWrapper(
+        fn=metrics.heidke_skill_score(class_weights=metric_class_weights, threshold=0.5),
+        name="hss_hard",
+    )
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=gradient_clip_norm)
     if tf.keras.mixed_precision.global_policy().name == "mixed_float16":
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     model.compile(
         optimizer=optimizer,
         loss=loss_fn,
-        metrics=[[hss_fn]] * n_out,
+        metrics=[[hss_fn, hss_hard_fn]] * n_out,
     )
     return n_out
 
 
-def _build_monitor_callback(
+def _build_monitor_callbacks(
     monitor: str,
     patience: int,
     learning_rate_decay_factor: float | None,
     learning_rate_minimum: float | None,
-) -> tf.keras.callbacks.Callback:
-    """Builds a ReduceLROnPlateau callback if both LR-decay params are set, else EarlyStopping.
+    min_delta: float = 0.0,
+    early_stopping_patience: int | None = None,
+) -> list[tf.keras.callbacks.Callback]:
+    """Builds the plateau-monitoring callbacks: LR decay, early stopping, or both.
+
+    With both LR-decay params set, a ReduceLROnPlateau (patience=``patience``) is
+    returned, plus an EarlyStopping when ``early_stopping_patience`` is also set —
+    the stopping patience should exceed the decay patience by a few multiples so
+    LR reductions get a chance to rescue a plateau before the run ends. Without
+    the LR-decay params, a single EarlyStopping with ``patience`` is returned.
 
     Args:
         monitor: Metric name to monitor.
-        patience: Number of epochs with no improvement before acting.
-        learning_rate_decay_factor: Factor to multiply the learning rate by on plateau, or
-            None to use EarlyStopping instead.
-        learning_rate_minimum: Lower bound on the learning rate when decaying, or None to
-            use EarlyStopping instead.
+        patience: Number of epochs with no improvement before decaying the learning
+            rate (or, when LR decay is disabled, before stopping).
+        learning_rate_decay_factor: Factor to multiply the current learning rate by
+            on plateau, or None to disable LR decay.
+        learning_rate_minimum: Lower bound on the learning rate when decaying, or
+            None to disable LR decay.
+        min_delta: Smallest monitored-value change that counts as an improvement. Must be
+            explicit rather than Keras's default: ReduceLROnPlateau defaults to an ABSOLUTE
+            1e-4, which dwarfs real improvements when the loss itself is only ~1e-3 (as the
+            neighborhood Brier loss is), decaying the learning rate to its floor within a
+            dozen epochs and silently freezing training.
+        early_stopping_patience: Number of epochs with no improvement before ending the
+            run when LR decay is active. None disables stopping in that mode, in which
+            case the run continues until ``epochs`` or the job walltime.
 
     Returns:
-        A ReduceLROnPlateau callback if both LR-decay params are provided, otherwise an
-        EarlyStopping callback.
+        List of one or two callbacks.
     """
     if learning_rate_decay_factor is not None and learning_rate_minimum is not None:
-        return tf.keras.callbacks.ReduceLROnPlateau(
-            monitor=monitor,
-            factor=learning_rate_decay_factor,
-            patience=patience,
-            min_lr=learning_rate_minimum,
+        monitor_callbacks: list[tf.keras.callbacks.Callback] = [
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor=monitor,
+                factor=learning_rate_decay_factor,
+                patience=patience,
+                min_lr=learning_rate_minimum,
+                min_delta=min_delta,
+            )
+        ]
+        if early_stopping_patience is not None:
+            monitor_callbacks.append(
+                tf.keras.callbacks.EarlyStopping(
+                    monitor=monitor,
+                    patience=early_stopping_patience,
+                    restore_best_weights=True,
+                    min_delta=min_delta,
+                )
+            )
+        return monitor_callbacks
+    return [
+        tf.keras.callbacks.EarlyStopping(
+            monitor=monitor, patience=patience, restore_best_weights=True, min_delta=min_delta
         )
-    return tf.keras.callbacks.EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True)
+    ]
 
 
 def _run(
@@ -254,6 +427,8 @@ def _run(
     shuffle: bool,
     learning_rate_decay_factor: float | None = None,
     learning_rate_minimum: float | None = None,
+    monitor_min_delta: float = 0.0,
+    early_stopping_patience: int | None = None,
     model_checkpoint_path: str | None = None,
     wandb_project: str | None = None,
     run_name: str | None = None,
@@ -274,7 +449,14 @@ def _run(
     # Use the W&B Keras callback if logging to W&B, otherwise the standard ModelCheckpoint.
     ckpt_cls = wandb.keras.WandbModelCheckpoint if wandb_project else tf.keras.callbacks.ModelCheckpoint
     callbacks = [
-        _build_monitor_callback(monitor, patience, learning_rate_decay_factor, learning_rate_minimum),
+        *_build_monitor_callbacks(
+            monitor,
+            patience,
+            learning_rate_decay_factor,
+            learning_rate_minimum,
+            min_delta=monitor_min_delta,
+            early_stopping_patience=early_stopping_patience,
+        ),
         fronts_callbacks.GcCallback(),
         # Must run before WandbMetricsLogger: it mutates the shared `logs` dict that
         # WandbMetricsLogger reads, collapsing per-deep-supervision-output keys into
@@ -415,7 +597,9 @@ def train(
     for key, value in run_meta.items():
         logger.info("run_meta %s=%s", key, value)
 
-    train_dataset = load_data_into_dataloader(data_cfg, split="train", seed=train_cfg.seed, shuffle=train_cfg.shuffle)
+    train_dataset = load_data_into_dataloader(
+        data_cfg, split="train", seed=train_cfg.seed, shuffle=train_cfg.shuffle, drop_remainder=True
+    )
     val_dataset = load_data_into_dataloader(data_cfg, split="val", seed=train_cfg.seed)
 
     logger.info(f"Total batches in training set: {len(train_dataset)}")
@@ -431,16 +615,22 @@ def train(
         f"time_resolution={data_cfg.time_resolution}",
         f"seed={train_cfg.seed}",
     )
+    # Volume-mode stats have a different shape ((level, variable) vs (channel,)), so give
+    # them their own cache key; the extra part is omitted for 2D runs to keep existing
+    # cache files valid.
+    if data_cfg.volume_inputs:
+        norm_cache_key_parts += ("volume_inputs=True",)
     # Re-chunk (metadata-only) the train split's already-small, already-sliced input
-    # Dataset so the variable-stacking and mean/variance reduction build a dask graph
+    # Dataset so the variable-stacking and min/max reduction build a dask graph
     # instead of materializing the whole split eagerly.
-    train_inputs_da = inputs.inputs_ds_to_dataarray(train_dataset.input_ds.chunk("auto"), data_cfg.variables)
+    stack_inputs = inputs.inputs_ds_to_volume_dataarray if data_cfg.volume_inputs else inputs.inputs_ds_to_dataarray
+    train_inputs_da = stack_inputs(train_dataset.input_ds.chunk("auto"), data_cfg.variables)
 
     # Get the number of cpus allocated in the SLURM job
     cpu_count = utils.slurm_cpu_count()
     with dask.config.set(scheduler="threads", num_workers=cpu_count):
-        norm_mean, norm_variance = inputs.load_or_compute_norm_stats(
-            train_inputs_da, data_cfg.norm_stats_cache_dir, norm_cache_key_parts
+        norm_stat_a, norm_stat_b = inputs.load_or_compute_norm_stats(
+            train_inputs_da, data_cfg.norm_stats_cache_dir, norm_cache_key_parts, method=data_cfg.normalization_method
         )
     logger.info(f"Normalization stats computed over full training set  ({time.time() - t0:.1f} s)")
 
@@ -455,25 +645,37 @@ def train(
 
     strategy = _get_distribution_strategy()
 
+    if data_cfg.volume_inputs:
+        input_shape = (None, None, *train_inputs_da.shape[3:])
+    else:
+        input_shape = (None, None, model_cfg.n_channels)
+    logger.info("Model input shape: %s", input_shape)
+
     logger.info("Building and compiling model...")
     with strategy.scope():
         unet = model.UNet3Plus(
-            input_shape=(None, None, model_cfg.n_channels),
+            input_shape=input_shape,
             num_classes=model_cfg.n_classes,
             levels=model_cfg.levels,
             filter_num=model_cfg.filter_num,
             pool_size=model_cfg.pool_size,
             upsample_size=model_cfg.upsample_size,
             kernel_size=model_cfg.kernel_size,
+            squeeze_axes=model_cfg.squeeze_axes,
             first_encoder_connections=model_cfg.first_encoder_connections,
             deep_supervision=model_cfg.deep_supervision,
             batch_normalization=model_cfg.batch_normalization,
             activation=model_cfg.activation,
             output_activation=model_cfg.output_activation,
             modules_per_node=model_cfg.modules_per_node,
-            normalization_mean=norm_mean,
-            normalization_variance=norm_variance,
+            normalization_method=data_cfg.normalization_method,
+            normalization_stat_a=norm_stat_a,
+            normalization_stat_b=norm_stat_b,
         ).build()
+        if model_cfg.pretrained_weights_path is not None:
+            _load_pretrained_weights(unet, model_cfg.pretrained_weights_path, norm_stat_a, norm_stat_b)
+        if model_cfg.freeze_layer_prefixes is not None:
+            _freeze_layers(unet, model_cfg.freeze_layer_prefixes)
         if tf.keras.mixed_precision.global_policy().name == "mixed_float16":
             float32_outputs = [
                 tf.keras.layers.Activation("linear", dtype="float32", name=f"output_{i}_float32")(out)
@@ -484,7 +686,9 @@ def train(
             unet,
             train_cfg.learning_rate,
             metric_class_weights=data_cfg.class_weights,
-            loss_class_weights=train_cfg.loss_class_weights,
+            train_cfg=train_cfg,
+            latitudes=train_dataset.input_ds["latitude"].values,
+            gradient_clip_norm=train_cfg.gradient_clip_norm,
         )
     logger.info("Model built and compiled.")
 
@@ -504,6 +708,9 @@ def train(
             full_pass_epochs,
             train_steps,
         )
+    effective_stopping_patience = callbacks_cfg.early_stopping_patience
+    if effective_stopping_patience is not None:
+        effective_stopping_patience = max(effective_stopping_patience, full_pass_epochs)
     if train_cfg.epochs < full_pass_epochs:
         logger.warning(
             "epochs=%d is fewer than the %d epochs needed for one full training pass; "
@@ -560,6 +767,8 @@ def train(
         patience=effective_patience,
         learning_rate_decay_factor=callbacks_cfg.learning_rate_decay_factor,
         learning_rate_minimum=callbacks_cfg.learning_rate_minimum,
+        monitor_min_delta=callbacks_cfg.min_delta,
+        early_stopping_patience=effective_stopping_patience,
         model_checkpoint_path=callbacks_cfg.model_checkpoint_path,
         wandb_project=wandb_project,
         run_name=run_name,
@@ -580,7 +789,9 @@ def main() -> None:
     args = parser.parse_args()
 
     yaml_data = utils.load_yaml(args.config)
-    data_cfg = utils.parse_config_section(yaml_data, datasets.DatasetConfig, "data_config")
+    data_cfg = utils.parse_config_section(
+        yaml_data, datasets.DatasetConfig, "data_config", type_hooks=utils.YAML_TYPE_HOOKS
+    )
     model_cfg = utils.parse_config_section(yaml_data, model.ModelConfig, "model_config")
     callbacks_cfg = utils.parse_config_section(yaml_data, fronts_callbacks.CallbacksConfig, "callbacks_config")
     wandb_cfg = (

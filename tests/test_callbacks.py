@@ -30,6 +30,25 @@ class TestMetricsConsolidationCallback:
             "val_hss": pytest.approx(0.3),
         }
 
+    def test_aggregates_multiple_custom_metrics_independently(self):
+        """A second custom metric (e.g. hss_hard) must aggregate to its own key, not hss's."""
+        logs = {
+            "loss": 1.0,
+            "sup1_softmax_hss": 0.1,
+            "sup1_softmax_hss_hard": 0.6,
+            "sup1_softmax_loss": 0.4,
+            "sup2_softmax_hss": 0.3,
+            "sup2_softmax_hss_hard": 0.8,
+            "sup2_softmax_loss": 0.2,
+        }
+        fc.MetricsConsolidationCallback().on_epoch_end(0, logs)
+
+        assert logs == {
+            "loss": 1.0,
+            "hss": pytest.approx(0.2),
+            "hss_hard": pytest.approx(0.7),
+        }
+
     def test_noop_on_empty_logs(self):
         logs = {}
         fc.MetricsConsolidationCallback().on_epoch_end(0, logs)

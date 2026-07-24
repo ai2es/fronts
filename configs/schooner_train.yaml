@@ -1,11 +1,13 @@
-run_name: no_weight_in_loss_dilation_fix
+run_name: neighborhood_brier_loss
 
 train_config:
   epochs: 5000
   seed: 42
-  learning_rate: 0.0001
+  learning_rate: 0.0005
   shuffle: true
-  loss_class_weights: null  # null supervises all classes incl. background in the FSS loss, matching the AIES FrontFinder model
+  loss_class_weights: null  # null supervises all classes incl. background in the training loss, matching the AIES FrontFinder model
+  loss_name: neighborhood_brier_score
+  nbs_tolerance_km: 25.0  # reproduces the old 1-px (0.25 deg) label dilation
 
 data_config:
   inputs_icechunk_config:
@@ -43,6 +45,7 @@ data_config:
     "2m_dewpoint_temperature",
     ]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax
   num_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 model_config:

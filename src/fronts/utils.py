@@ -151,19 +151,19 @@ def attach_periodic_lon_index(data: _XArray) -> _XArray:
     return data.drop_indexes("longitude").set_xindex("longitude", index_cls=PeriodicBoundaryIndex, period=360)
 
 
-def select_spatial_domain(data: xr.Dataset, bb: BoundingBox) -> xr.Dataset:
-    """Select latitude and longitude from a Dataset, handling wrap-crossing ranges.
+def select_spatial_domain(data: _XArray, bb: BoundingBox) -> _XArray:
+    """Select latitude and longitude from a Dataset or DataArray, handling wrap-crossing ranges.
 
     Attaches a :class:`PeriodicBoundaryIndex` to longitude if one is not already
     present, then performs a single ``.sel()`` so wrap-crossing slices (e.g.
     ``lon_min=350, lon_max=370``) are handled transparently.
 
     Args:
-        data: Dataset with ``latitude`` and ``longitude`` coordinates.
+        data: Dataset or DataArray with ``latitude`` and ``longitude`` coordinates.
         bb: Bounding box. ``lon_max > 360`` triggers wrap-crossing logic.
 
     Returns:
-        Spatially subsetted Dataset.
+        Spatially subsetted input, same type as ``data``.
     """
     lat_vals = data["latitude"].values
     lat_slice = (

@@ -9,7 +9,6 @@ from tensorflow.keras.layers import (
     Conv3D,
     MaxPooling2D,
     MaxPooling3D,
-    Reshape,
     UpSampling2D,
     UpSampling3D,
 )
@@ -745,14 +744,10 @@ def deep_supervision_side_output(
         tensor = conv_layer(filters=num_classes, **conv_kwargs)(
             tensor
         )  # This convolution layer contains num_classes filters, one for each class
-        # Remove singleton spatial dimensions (keep batch + channels)
-        new_shape = []
-
-        for _, dim in enumerate(tensor.shape[1:]):  # skip batch axis
-            if dim != 1:
-                new_shape.append(dim)
-
-        tensor = Reshape(tuple(new_shape), name=f"{name}_Reshape")(tensor)
+        # The collapse convolution leaves each squeezed axis with size 1; drop those axes.
+        # Keras 3's Reshape requires a fully-known target shape, so it cannot squeeze
+        # tensors whose spatial dims are dynamic (None) — ops.squeeze handles them.
+        tensor = tf.keras.ops.squeeze(tensor, axis=tuple(squeeze_axes_list))
 
     activation_kwargs = {"name": f"{name}_{activation}"}
     activation_config = keras_builders.ActivationConfig(

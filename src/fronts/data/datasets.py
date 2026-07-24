@@ -36,10 +36,19 @@ class DatasetConfig:
         norm_stats_cache_dir: Optional directory for caching normalization
             statistics, keyed by store snapshot, channels, and train indices.
             None recomputes the statistics on every run.
+        normalization_method: "standardization" normalizes inputs by z-score
+            (mean/variance); "minmax" rescales inputs to their min/max range. See
+            ``fronts.data.inputs.compute_norm_stats`` and ``fronts.model.UNet3Plus``.
         max_queue_size: Maximum number of prefetched batches kept in RAM ahead of the
             training loop (passed to ``tf.keras.utils.PyDataset(max_queue_size=...)``).
         max_pydataset_workers: Maximum number of threads used by ``tf.keras.utils.PyDataset`` to
             load batches in parallel. None uses the number of CPUs allocated to the job.
+        coordinates: Optional spatial bounding box to restrict inputs and targets to before
+            batching (e.g. a CONUS crop). None trains on the full domain loaded from the
+            icechunk stores.
+        volume_inputs: If True, batches keep the vertical structure as a separate axis —
+            shape (batch, latitude, longitude, level, variable) for a 3D Conv3D model —
+            instead of flattening level and variable into one channel axis for a 2D model.
     """
 
     inputs_icechunk_config: utils.IcechunkStorageConfig
@@ -52,8 +61,11 @@ class DatasetConfig:
     front_dilation: int = 0
     time_resolution: str = "6h"
     norm_stats_cache_dir: str | None = None
+    normalization_method: inputs.NormalizationMethod = "standardization"
     max_queue_size: int = 4
     max_pydataset_workers: int = 16
+    coordinates: utils.BoundingBox | None = None
+    volume_inputs: bool = False
 
 
 class FrontsPyDataset(tf.keras.utils.PyDataset):
@@ -76,6 +88,12 @@ class FrontsPyDataset(tf.keras.utils.PyDataset):
         target_da: This split's raw integer front-code DataArray, shape (time, latitude, longitude).
         batch_size: Number of timesteps per batch.
         shuffle: If True, reshuffles the sample order at the end of every epoch.
+        drop_remainder: If True, drop the final under-sized batch instead of yielding it,
+            so every batch has exactly ``batch_size`` samples. A trailing batch smaller
+            than ``batch_size`` splits unevenly across replicas under
+            ``tf.distribute.MirroredStrategy``, which triggers a cuDNN backend bug
+            (``CUDNN_STATUS_BAD_PARAM`` in ``Conv3DBackpropFilterV2``) on that batch's
+            backward pass (see https://github.com/tensorflow/tensorflow/issues/60935).
     """
 
     def __init__(
@@ -88,6 +106,7 @@ class FrontsPyDataset(tf.keras.utils.PyDataset):
         seed: int = 0,
         workers: int = 1,
         max_queue_size: int = 10,
+        drop_remainder: bool = False,
     ):
         super().__init__(workers=workers, max_queue_size=max_queue_size)
         if input_ds.sizes["time"] != target_da.sizes["time"]:
@@ -99,6 +118,7 @@ class FrontsPyDataset(tf.keras.utils.PyDataset):
         self.data_config = data_config
         self.batch_size = batch_size
         self.shuffle = shuffle
+        self.drop_remainder = drop_remainder
         self._rng = np.random.default_rng(seed)
         self._order = self._rng.permutation(self._total) if shuffle else np.arange(self._total)
 
@@ -113,6 +133,8 @@ class FrontsPyDataset(tf.keras.utils.PyDataset):
 
     def __len__(self) -> int:
         """Returns the number of batches per epoch."""
+        if self.drop_remainder:
+            return self._total // self.batch_size
         return math.ceil(self._total / self.batch_size)
 
     def on_epoch_end(self) -> None:
@@ -130,8 +152,12 @@ class FrontsPyDataset(tf.keras.utils.PyDataset):
         x_xarray = self.input_ds.isel(time=idxs)
         y_da = self.target_da.isel(time=idxs)
 
-        # Convert inputs to a DataArray of shape (time, latitude, longitude, channel) and load into memory as float32.
-        x = inputs.inputs_ds_to_dataarray(x_xarray, self.data_config.variables).values
+        # Convert inputs to a DataArray — (time, latitude, longitude, channel) for 2D models,
+        # (time, latitude, longitude, level, variable) for 3D — and load into memory as float32.
+        if self.data_config.volume_inputs:
+            x = inputs.inputs_ds_to_volume_dataarray(x_xarray, self.data_config.variables).values
+        else:
+            x = inputs.inputs_ds_to_dataarray(x_xarray, self.data_config.variables).values
 
         # One-hot encode targets, remap front classes to the configured set, and load into memory as float32.
         # Dilate fronts if > 0

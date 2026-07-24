@@ -89,6 +89,39 @@ class TestUnwrapLongitude:
         np.testing.assert_array_equal(result["longitude"].values, lons)
 
 
+def _make_latlon_da(lats: list[float], lons: list[float]) -> xr.DataArray:
+    data = np.zeros((len(lats), len(lons)))
+    return xr.DataArray(data, dims=["latitude", "longitude"], coords={"latitude": lats, "longitude": lons})
+
+
+def _make_latlon_ds(lats: list[float], lons: list[float]) -> xr.Dataset:
+    return xr.Dataset({"var": _make_latlon_da(lats, lons)})
+
+
+class TestSelectSpatialDomain:
+    _LATS = [10.0, 20.0, 30.0, 40.0]
+    _LONS = [100.0, 110.0, 120.0, 130.0]
+    _BB = utils.BoundingBox(lat_min=15.0, lat_max=35.0, lon_min=105.0, lon_max=125.0)
+
+    def test_dataset_input_returns_dataset(self):
+        ds = _make_latlon_ds(self._LATS, self._LONS)
+        result = utils.select_spatial_domain(ds, self._BB)
+        assert isinstance(result, xr.Dataset)
+        assert result["latitude"].values.min() >= self._BB.lat_min
+        assert result["latitude"].values.max() <= self._BB.lat_max
+        assert result["longitude"].values.min() >= self._BB.lon_min
+        assert result["longitude"].values.max() <= self._BB.lon_max
+
+    def test_dataarray_input_returns_dataarray(self):
+        da = _make_latlon_da(self._LATS, self._LONS)
+        result = utils.select_spatial_domain(da, self._BB)
+        assert isinstance(result, xr.DataArray)
+        assert result["latitude"].values.min() >= self._BB.lat_min
+        assert result["latitude"].values.max() <= self._BB.lat_max
+        assert result["longitude"].values.min() >= self._BB.lon_min
+        assert result["longitude"].values.max() <= self._BB.lon_max
+
+
 class TestEpochsPerFullPass:
     def test_paper_example(self):
         assert utils.epochs_per_full_pass(35_200, 64, 10) == 55

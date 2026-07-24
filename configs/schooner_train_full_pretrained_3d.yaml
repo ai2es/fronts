@@ -1,0 +1,90 @@
+run_name: brier_3d_full_domain_pretrained_conus
+
+# Full-domain 3D run warm-started from the CONUS-domain checkpoint produced by
+# schooner_train_conus_3d.yaml (run_name brier_conus_3d_comparison). Architecture fields
+# below are kept identical to that config so the loaded weights transfer cleanly. The
+# input_normalization layer is reset to this run's own full-domain stats regardless of
+# what the CONUS checkpoint's normalization layer contained (see train._load_pretrained_weights).
+# freeze_layer_prefixes starts by freezing the encoder ("En") and only fine-tuning the
+# decoder and supervision heads on the full domain; remove that line to fine-tune end-to-end.
+# The dryline class (index 5) is zero-weighted in both the loss and metrics below: the full
+# domain has no dryline labels not because drylines don't occur there but because the label
+# data doesn't cover them, so training with a nonzero weight would actively teach the model
+# "dryline never happens," eroding what the CONUS checkpoint already learned for that class.
+
+train_config:
+  epochs: 5000
+  seed: 42
+  learning_rate: 0.0001
+  shuffle: true
+  loss_class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 0.0]  # background, CF, WF, SF, OF, dryline
+  gradient_clip_norm: 1.0
+  loss_name: neighborhood_brier_score
+  nbs_tolerance_km: 25.0
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 4
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 0.0]  # background, CF, WF, SF, OF, dryline
+  front_dilation: 1
+  time_resolution: "6h"
+  volume_inputs: true
+  variables: [
+    "temperature",
+    "dewpoint_temperature",
+    "virtual_temperature",
+    "u_component_of_wind",
+    "v_component_of_wind",
+    "relative_humidity",
+    "specific_humidity",
+    "equivalent_potential_temperature",
+    "geopotential",
+    "mean_sea_level_pressure",
+    ]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax
+  num_pydataset_workers: 16
+
+model_config:
+  n_classes: 6
+  n_channels: 10
+  levels: 4
+  filter_num: [16, 32, 64, 128]
+  pool_size: [2, 2, 1]
+  upsample_size: [2, 2, 1]
+  kernel_size: 5
+  squeeze_axes: 3
+  first_encoder_connections: true
+  deep_supervision: true
+  batch_normalization: true
+  activation: "gelu"
+  output_activation: "softmax"
+  modules_per_node: 2
+  pretrained_weights_path: "/ourdisk/hpc/ai2es/tman/models/brier_conus_3d_comparison/_best_loss.keras"  # fill in once experiment/conus-brier-3d finishes
+  freeze_layer_prefixes: ["En"]  # start with frozen encoder; remove this line to fine-tune end-to-end
+
+callbacks_config:
+  monitor: "val_loss"
+  patience: 3
+  learning_rate_decay_factor: 0.2
+  learning_rate_minimum: 1e-6
+  min_delta: 0.0
+  early_stopping_patience: 12
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/"
+  test_viz_every_n_epochs: 1
+  test_viz_sample_size: 200
+
+wandb_config:
+  project_name: "fronts"
+  run_name: "${run_name}"
+  log_freq: 10

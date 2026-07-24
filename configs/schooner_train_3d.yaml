@@ -1,0 +1,93 @@
+run_name: brier_3d_full_domain
+
+# 3D-instantiation experiment on the full domain with the neighborhood Brier loss.
+# Inspecting model_1702.h5 directly revealed the AIES FrontFinder model is a 3D U-Net —
+# input (lat, lon, 5 levels, 10 variables), 33 Conv3D layers with 5x5x5 kernels,
+# MaxPooling3D/UpSampling3D [2,2,1] (horizontal-only downsampling, vertical column carried
+# through the whole network), and a learned [1,1,levels] collapse conv per supervision
+# head — totaling 8.7M parameters vs the 4.9x smaller 2D instantiation (levels flattened
+# into channels) every run so far has used.
+#
+# This config mirrors this branch's schooner_train.yaml (neighborhood Brier loss, full
+# domain, 6-hourly, min-max normalization, no label dilation) but with volume_inputs,
+# Conv3D geometry, and squeeze_axes matching model_1702. Variables parallel AIES's 10
+# (T, Td, Tv, u, v, r, q, RH, sp_z, theta_e): geopotential stands in for the z part of
+# sp_z and broadcast mean_sea_level_pressure for the surface part; there is no
+# mixing-ratio (r) equivalent in the store. The store's 6 native levels (1000-300 hPa)
+# are used, vs AIES's 5-level near-surface stack (surface-850) — the closest available
+# match.
+
+train_config:
+  epochs: 5000
+  seed: 42
+  learning_rate: 0.0001  # 5e-4 (tuned for the 1.8M-param 2D model at batch 32) blew up this 8.7M-param 3D model at small batch: a single spike mid-epoch-2 wiped the learned features (W&B run 898culiq); 1e-4 also matches AIES model_1702
+  shuffle: true
+  loss_class_weights: null  # null supervises all classes incl. background in the training loss, matching the AIES FrontFinder model
+  gradient_clip_norm: 1.0  # caps the damage a single outlier batch can do
+  loss_name: neighborhood_brier_score
+  nbs_tolerance_km: 25.0  # reproduces the old 1-px (0.25 deg) label dilation
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 4  # 3D activations carry the 6-level axis through every layer on the full 320x960 domain (~6x the 2D model's memory at the same batch size)
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  volume_inputs: true  # batches shaped (batch, lat, lon, level, variable) for Conv3D
+  variables: [
+    "temperature",
+    "dewpoint_temperature",
+    "virtual_temperature",
+    "u_component_of_wind",
+    "v_component_of_wind",
+    "relative_humidity",
+    "specific_humidity",
+    "equivalent_potential_temperature",
+    "geopotential",
+    "mean_sea_level_pressure",
+    ]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax
+  num_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+
+model_config:
+  n_classes: 6
+  n_channels: 10  # informational in volume mode: the variable axis; actual input shape (lat, lon, level, variable) is derived from the data
+  levels: 4
+  filter_num: [16, 32, 64, 128]
+  pool_size: [2, 2, 1]  # horizontal-only downsampling; the level axis stays intact through the network, matching model_1702
+  upsample_size: [2, 2, 1]
+  kernel_size: 5  # scalar -> 5x5x5 kernels for Conv3D
+  squeeze_axes: 3  # collapse the level axis at each supervision head via a [1,1,n_levels] valid conv, matching model_1702
+  first_encoder_connections: true
+  deep_supervision: true
+  batch_normalization: true
+  activation: "gelu"
+  output_activation: "softmax"
+  modules_per_node: 2
+
+callbacks_config:
+  monitor: "val_loss"
+  patience: 3
+  learning_rate_decay_factor: 0.2
+  learning_rate_minimum: 1e-6
+  min_delta: 0.0  # Keras's absolute 1e-4 default reads every epoch as a plateau at this loss's ~1.5e-3 magnitude, decaying LR to the floor by ~epoch 13 and freezing training
+  early_stopping_patience: 12  # end the run after 12 epochs with no val_loss improvement (allows ~4 LR decays at patience 3 first); without this, LR-decay mode has no stop condition at all
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/"
+  test_viz_every_n_epochs: 1  # log a test-set prediction map + performance diagrams to W&B every N epochs; null disables
+  test_viz_sample_size: 200  # number of (seeded, random) test timesteps used for the periodic performance diagram
+
+wandb_config:
+  project_name: "fronts"
+  run_name: "${run_name}"
+  log_freq: 10 # log to W&B every 10 batches instead of waiting for each epoch to finish
