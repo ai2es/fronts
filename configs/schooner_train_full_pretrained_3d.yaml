@@ -77,7 +77,7 @@ model_config:
   activation: "gelu"
   output_activation: "softmax"
   modules_per_node: 2
-  pretrained_weights_path: "/ourdisk/hpc/ai2es/tman/models/brier_conus_3d_comparison/_best_loss.keras"  # fill in once experiment/conus-brier-3d finishes
+  pretrained_weights_path: "/ourdisk/hpc/ai2es/tman/models/brier_conus_3d_all_vars/_best_loss.keras"  # fill in once experiment/conus-brier-3d finishes
   freeze_layer_prefixes: ["En"]  # start with frozen encoder; remove this line to fine-tune end-to-end
 
 callbacks_config:
