@@ -1,4 +1,4 @@
-run_name: brier_conus_3d_comparison
+run_name: brier_conus_3d_all_vars
 
 # 3D-instantiation experiment. Inspecting model_1702.h5 directly revealed the AIES
 # FrontFinder model is a 3D U-Net — input (lat, lon, 5 levels, 10 variables), 33 Conv3D
@@ -47,16 +47,23 @@ data_config:
   coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
   volume_inputs: true  # batches shaped (batch, lat, lon, level, variable) for Conv3D
   variables: [
+    "geopotential",
     "temperature",
-    "dewpoint_temperature",
-    "virtual_temperature",
     "u_component_of_wind",
     "v_component_of_wind",
-    "relative_humidity",
     "specific_humidity",
+    "vertical_velocity",
+    "potential_vorticity",
     "equivalent_potential_temperature",
-    "geopotential",
+    "virtual_temperature",
+    "dewpoint_temperature",
+    "relative_humidity",
+    "potential_temperature",
     "mean_sea_level_pressure",
+    "2m_temperature",
+    "10m_u_component_of_wind",
+    "10m_v_component_of_wind",
+    "2m_dewpoint_temperature",
     ]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
   normalization_method: minmax
