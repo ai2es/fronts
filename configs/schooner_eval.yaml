@@ -1,4 +1,4 @@
-run_name: brier_3d_full_domain_pretrained_conus
+run_name: brier_3d_all_vars_full_domain_pretrained_conus
 
 data_config:
   inputs_icechunk_config:
