@@ -172,65 +172,28 @@ def compute_derived_stats(
     return xr.Dataset(data_vars)
 
 
-def compute_stats(
+def predict_batches(
     model: tf.keras.Model,
     input_ds: xr.Dataset,
     target_da: xr.DataArray,
     data_config: datasets.DatasetConfig,
-    front_types: list[str],
-    lats: np.ndarray,
-    lons: np.ndarray,
-    spatial_mask: np.ndarray | None,
     batch_size: int = 32,
     class_weights: list[float] | None = None,
-) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
-    """Run inference then accumulate TP/FP/TN/FN over all timesteps.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Run model inference over every timestep and concatenate predictions and targets.
 
     Args:
         model: Loaded Keras model with baked-in normalization, callable as model(x, training=False).
         input_ds: ERA5 input Dataset with dims (time, latitude, longitude) per variable.
         target_da: Raw integer front-code DataArray with dims (time, latitude, longitude).
         data_config: DatasetConfig providing variables list and front_dilation.
-        front_types: Front type labels in class order excluding background (class 0).
-        lats: 1-D latitude array.
-        lons: 1-D longitude array.
-        spatial_mask: Boolean (n_lat, n_lon) mask — True for included points. None = all.
         batch_size: Batch size for inference.
-        class_weights: Per-class loss weights passed to the FSS loss and HSS metric.
+        class_weights: Per-class loss weights passed to the FSS loss and HSS metric (logged only;
+            does not affect the returned predictions/targets).
 
     Returns:
-        Tuple of (spatial_ds, aggregate_ds, derived_ds) xr.Datasets.
-        spatial_ds variables have dims (latitude, longitude, neighborhood, threshold).
-        aggregate_ds variables have dims (neighborhood, threshold).
-        derived_ds contains POD, SR, CSI, FB, HSS, reliability, and spatial CSI.
+        Tuple of (all_preds, all_targets), each shaped (time, latitude, longitude, n_classes).
     """
-    n_fronts = len(front_types)
-    n_nbhd = len(NEIGHBORHOODS_KM)
-    n_lat, n_lon = len(lats), len(lons)
-
-    lat_res_km = float(np.abs(np.diff(lats)).mean()) * np.pi * 6371.0 / 180.0
-    nbhd_step_km = float(np.unique(np.diff(NEIGHBORHOODS_KM)).item())
-    lat_pixels_per_step = round(nbhd_step_km / lat_res_km)
-    lon_pixels_per_lat = np.round(nbhd_step_km / (lat_res_km * np.cos(np.deg2rad(lats)))).astype(int)
-    log.info(
-        "Grid resolution %.2f km → lat_pixels_per_step=%d, lon range=[%d, %d]",
-        lat_res_km,
-        lat_pixels_per_step,
-        lon_pixels_per_lat.min(),
-        lon_pixels_per_lat.max(),
-    )
-    lat_weights = np.cos(np.deg2rad(lats))[:, np.newaxis] * np.ones((1, n_lon), dtype=np.float32)
-    if spatial_mask is not None:
-        lat_weights = lat_weights * spatial_mask.astype(np.float32)
-
-    spatial_shape = (n_fronts, n_lat, n_lon, n_nbhd, N_THRESHOLDS)
-    aggregate_shape = (n_fronts, n_nbhd, N_THRESHOLDS)
-    spatial = {k: np.zeros(spatial_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
-    aggregate = {k: np.zeros(aggregate_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
-
-    n_times = input_ds.sizes["time"]
-    class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
-
     loss_fn = losses.fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)
     hss_fn = metrics.heidke_skill_score(class_weights=class_weights)
 
@@ -252,7 +215,7 @@ def compute_stats(
     all_preds_list: list[np.ndarray] = []
     all_targets_list: list[np.ndarray] = []
     total_loss, total_hss = 0.0, 0.0
-    log.info("Running eval_step over %d timesteps …", n_times)
+    log.info("Running eval_step over %d timesteps …", input_ds.sizes["time"])
     for i in tqdm(range(len(eval_dataset)), unit="batch"):
         x_batch, y_batch = eval_dataset[i]
         pred_batch, batch_loss, batch_hss = eval_step(tf.constant(x_batch), tf.constant(y_batch))
@@ -264,12 +227,68 @@ def compute_stats(
     all_preds = np.concatenate(all_preds_list, axis=0)
     all_targets = np.concatenate(all_targets_list, axis=0)
     log.info("Eval — loss: %.4f | HSS: %.4f", total_loss / n_batches, total_hss / n_batches)
+    return all_preds, all_targets
+
+
+def accumulate_stats(
+    all_preds: np.ndarray,
+    all_targets: np.ndarray,
+    front_types: list[str],
+    lats: np.ndarray,
+    lons: np.ndarray,
+    spatial_mask: np.ndarray | None,
+) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
+    """Accumulate TP/FP/TN/FN over all timesteps from precomputed predictions and targets.
+
+    Args:
+        all_preds: Predictions shaped (time, latitude, longitude, n_classes), as returned by
+            predict_batches.
+        all_targets: One-hot targets shaped (time, latitude, longitude, n_classes), as returned
+            by predict_batches.
+        front_types: Front type labels in class order excluding background (class 0).
+        lats: 1-D latitude array.
+        lons: 1-D longitude array.
+        spatial_mask: Boolean (n_lat, n_lon) mask — True for included points. None = all.
+
+    Returns:
+        Tuple of (spatial_ds, aggregate_ds, derived_ds) xr.Datasets.
+        spatial_ds variables have dims (latitude, longitude, neighborhood, threshold).
+        aggregate_ds variables have dims (neighborhood, threshold).
+        derived_ds contains POD, SR, CSI, FB, HSS, reliability, and spatial CSI.
+    """
+    n_fronts = len(front_types)
+    n_nbhd = len(NEIGHBORHOODS_KM)
+    n_lat, n_lon = len(lats), len(lons)
+    n_times = all_preds.shape[0]
+
+    lat_res_km = float(np.abs(np.diff(lats)).mean()) * np.pi * 6371.0 / 180.0
+    nbhd_step_km = float(np.unique(np.diff(NEIGHBORHOODS_KM)).item())
+    lat_pixels_per_step = round(nbhd_step_km / lat_res_km)
+    lon_pixels_per_lat = np.round(nbhd_step_km / (lat_res_km * np.cos(np.deg2rad(lats)))).astype(int)
+    log.info(
+        "Grid resolution %.2f km → lat_pixels_per_step=%d, lon range=[%d, %d]",
+        lat_res_km,
+        lat_pixels_per_step,
+        lon_pixels_per_lat.min(),
+        lon_pixels_per_lat.max(),
+    )
+    lat_weights = np.cos(np.deg2rad(lats))[:, np.newaxis] * np.ones((1, n_lon), dtype=np.float32)
+    if spatial_mask is not None:
+        lat_weights = lat_weights * spatial_mask.astype(np.float32)
+
+    spatial_shape = (n_fronts, n_lat, n_lon, n_nbhd, N_THRESHOLDS)
+    aggregate_shape = (n_fronts, n_nbhd, N_THRESHOLDS)
+    spatial = {k: np.zeros(spatial_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
+    aggregate = {k: np.zeros(aggregate_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
+
+    class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
 
     _above = np.empty((n_fronts, n_lat, n_lon, N_THRESHOLDS), dtype=bool)
     _bool_buf = np.empty_like(_above)
     _float_buf = np.empty((n_fronts, n_lat, n_lon, N_THRESHOLDS), dtype=np.float32)
+    _float_buf2 = np.empty_like(_float_buf)
     _above_f32 = np.empty_like(_float_buf)
-    _expanded = np.empty((n_nbhd, n_lat, n_lon, n_fronts), dtype=bool)
+    _above_weighted = np.empty_like(_float_buf)
     w_4d = lat_weights[np.newaxis, :, :, np.newaxis]
     w_flat = lat_weights.ravel()
 
@@ -285,42 +304,44 @@ def compute_stats(
         truth_f = truth_fronts.transpose(2, 0, 1)  # (F, lat, lon)
 
         np.greater_equal(pred_f[:, :, :, np.newaxis], THRESHOLDS, out=_above)
+        _above_f32[:] = _above
+        np.multiply(_above_f32, w_4d, out=_above_weighted)
 
         truth_4d = truth_f[:, :, :, np.newaxis]  # (F, lat, lon, 1) — tiny view
 
-        # TN: ~above & ~truth, weighted.
+        # TN: ~above & ~truth, weighted. Broadcast into every neighborhood slot at once —
+        # TN/FN don't depend on the neighborhood radius.
         np.logical_not(_above, out=_bool_buf)
         np.logical_and(_bool_buf, ~truth_4d, out=_bool_buf)
         np.multiply(_bool_buf, w_4d, out=_float_buf)
-        for ni in range(n_nbhd):
-            spatial["tn"][:, :, :, ni, :] += _float_buf
+        spatial["tn"] += _float_buf[:, :, :, np.newaxis, :]
         aggregate["tn"] += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
 
         # FN: ~above & truth, weighted.
         np.logical_not(_above, out=_bool_buf)
         np.logical_and(_bool_buf, truth_4d, out=_bool_buf)
         np.multiply(_bool_buf, w_4d, out=_float_buf)
-        for ni in range(n_nbhd):
-            spatial["fn"][:, :, :, ni, :] += _float_buf
+        spatial["fn"] += _float_buf[:, :, :, np.newaxis, :]
         aggregate["fn"] += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
 
-        _expanded[:] = _expand_all_neighborhoods(truth_fronts, n_nbhd, lat_pixels_per_step, lon_pixels_per_lat)
-        exp_f = _expanded.transpose(3, 0, 1, 2)  # (F, n_nbhd, lat, lon)
+        # Force contiguity: matmul below falls back to a slow non-BLAS path on the
+        # transpose-then-reshape view (~96x slower than on a contiguous copy).
+        expanded = _expand_all_neighborhoods(truth_fronts, n_nbhd, lat_pixels_per_step, lon_pixels_per_lat)
+        exp_f = np.ascontiguousarray(expanded.transpose(3, 0, 1, 2))  # (F, n_nbhd, lat, lon)
 
-        _above_f32[:] = _above
         above_flat = _above_f32.reshape(n_fronts, n_lat * n_lon, N_THRESHOLDS)
         exp_flat = exp_f.reshape(n_fronts, n_nbhd, n_lat * n_lon)
         aggregate["tp"] += np.matmul(exp_flat * w_flat, above_flat)
         aggregate["fp"] += np.matmul((~exp_flat) * w_flat, above_flat)
 
+        # TP + FP == above_weighted exactly for a 0/1 mask, so FP is derived by subtraction
+        # instead of a second logical_and + multiply pass.
         for ni in range(n_nbhd):
             exp_ni = exp_f[:, ni, :, :, np.newaxis]  # (F, lat, lon, 1) — tiny view
-            np.logical_and(_above, exp_ni, out=_bool_buf)
-            np.multiply(_bool_buf, w_4d, out=_float_buf)
+            np.multiply(_above_weighted, exp_ni, out=_float_buf)
             spatial["tp"][:, :, :, ni, :] += _float_buf
-            np.logical_and(_above, ~exp_ni, out=_bool_buf)
-            np.multiply(_bool_buf, w_4d, out=_float_buf)
-            spatial["fp"][:, :, :, ni, :] += _float_buf
+            np.subtract(_above_weighted, _float_buf, out=_float_buf2)
+            spatial["fp"][:, :, :, ni, :] += _float_buf2
 
     dims_sp = ("latitude", "longitude", "neighborhood", "threshold")
     dims_ag = ("neighborhood", "threshold")
@@ -343,6 +364,46 @@ def compute_stats(
     derived_ds = compute_derived_stats(aggregate_ds, spatial_ds, front_types)
 
     return spatial_ds, aggregate_ds, derived_ds
+
+
+def compute_stats(
+    model: tf.keras.Model,
+    input_ds: xr.Dataset,
+    target_da: xr.DataArray,
+    data_config: datasets.DatasetConfig,
+    front_types: list[str],
+    lats: np.ndarray,
+    lons: np.ndarray,
+    spatial_mask: np.ndarray | None,
+    batch_size: int = 32,
+    class_weights: list[float] | None = None,
+) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
+    """Run inference then accumulate TP/FP/TN/FN over all timesteps.
+
+    Thin wrapper around predict_batches + accumulate_stats, kept for callers that only need one
+    region/mask per model load; callers evaluating multiple masks over the same model and data
+    should call predict_batches once and accumulate_stats per mask instead.
+
+    Args:
+        model: Loaded Keras model with baked-in normalization, callable as model(x, training=False).
+        input_ds: ERA5 input Dataset with dims (time, latitude, longitude) per variable.
+        target_da: Raw integer front-code DataArray with dims (time, latitude, longitude).
+        data_config: DatasetConfig providing variables list and front_dilation.
+        front_types: Front type labels in class order excluding background (class 0).
+        lats: 1-D latitude array.
+        lons: 1-D longitude array.
+        spatial_mask: Boolean (n_lat, n_lon) mask — True for included points. None = all.
+        batch_size: Batch size for inference.
+        class_weights: Per-class loss weights passed to the FSS loss and HSS metric.
+
+    Returns:
+        Tuple of (spatial_ds, aggregate_ds, derived_ds) xr.Datasets.
+        spatial_ds variables have dims (latitude, longitude, neighborhood, threshold).
+        aggregate_ds variables have dims (neighborhood, threshold).
+        derived_ds contains POD, SR, CSI, FB, HSS, reliability, and spatial CSI.
+    """
+    all_preds, all_targets = predict_batches(model, input_ds, target_da, data_config, batch_size, class_weights)
+    return accumulate_stats(all_preds, all_targets, front_types, lats, lons, spatial_mask)
 
 
 def load_eval_arrays(

@@ -9,8 +9,10 @@ from fronts.evaluate import (
     N_THRESHOLDS,
     THRESHOLDS,
     _expand_all_neighborhoods,
+    accumulate_stats,
     compute_derived_stats,
     compute_stats,
+    predict_batches,
 )
 
 try:
@@ -411,3 +413,71 @@ class TestComputeStatsShapes:
         threshold_idx = int(np.searchsorted(THRESHOLDS, 0.5))
         for ni in range(1, N_NBHD):
             assert tp[ni, threshold_idx] >= tp[ni - 1, threshold_idx], f"TP decreased at neighbourhood {ni}"
+
+    def test_matches_predict_batches_then_accumulate_stats(
+        self, small_input_ds, small_target_da, small_data_config, tiny_lats, tiny_lons
+    ):
+        """compute_stats must be exactly equivalent to calling the two split functions."""
+        model = self._make_model(_N_LAT, _N_LON, _N_CLASSES)
+        wrapped = compute_stats(
+            model=model,
+            input_ds=small_input_ds,
+            target_da=small_target_da,
+            data_config=small_data_config,
+            front_types=_FRONT_TYPES,
+            lats=tiny_lats,
+            lons=tiny_lons,
+            spatial_mask=None,
+        )
+        all_preds, all_targets = predict_batches(
+            model=model,
+            input_ds=small_input_ds,
+            target_da=small_target_da,
+            data_config=small_data_config,
+        )
+        split = accumulate_stats(
+            all_preds=all_preds,
+            all_targets=all_targets,
+            front_types=_FRONT_TYPES,
+            lats=tiny_lats,
+            lons=tiny_lons,
+            spatial_mask=None,
+        )
+        for wrapped_ds, split_ds in zip(wrapped, split, strict=True):
+            xr.testing.assert_identical(wrapped_ds, split_ds)
+
+    def test_predict_batches_reused_across_two_masks_matches_two_compute_stats_calls(
+        self, small_input_ds, small_target_da, small_data_config, tiny_lats, tiny_lons
+    ):
+        """Reusing one predict_batches call across masks must match per-mask compute_stats calls."""
+        model = self._make_model(_N_LAT, _N_LON, _N_CLASSES)
+        mask = np.zeros((_N_LAT, _N_LON), dtype=bool)
+        mask[:, : _N_LON // 2] = True
+
+        all_preds, all_targets = predict_batches(
+            model=model,
+            input_ds=small_input_ds,
+            target_da=small_target_da,
+            data_config=small_data_config,
+        )
+        for spatial_mask in (None, mask):
+            split = accumulate_stats(
+                all_preds=all_preds,
+                all_targets=all_targets,
+                front_types=_FRONT_TYPES,
+                lats=tiny_lats,
+                lons=tiny_lons,
+                spatial_mask=spatial_mask,
+            )
+            wrapped = compute_stats(
+                model=model,
+                input_ds=small_input_ds,
+                target_da=small_target_da,
+                data_config=small_data_config,
+                front_types=_FRONT_TYPES,
+                lats=tiny_lats,
+                lons=tiny_lons,
+                spatial_mask=spatial_mask,
+            )
+            for wrapped_ds, split_ds in zip(wrapped, split, strict=True):
+                xr.testing.assert_identical(wrapped_ds, split_ds)

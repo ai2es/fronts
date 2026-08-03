@@ -321,12 +321,18 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
 
     def _predict(self, x: np.ndarray) -> np.ndarray:
         """Run the model's finest-resolution (first) output, chunked by ``predict_batch_size``."""
-        # An unbatched call on the full subsample (e.g. 200 timesteps) allocates one huge
-        # activation buffer on top of training's already-resident GPU memory and reliably OOMs.
-        pred = self.model.predict(x, batch_size=self.predict_batch_size, verbose=0)
-        if isinstance(pred, (list, tuple)):
-            pred = pred[0]
-        return np.asarray(pred)
+        # model.predict() batches its forward passes but still accumulates every batch's
+        # output into one GPU-resident tensor before returning; at full spatial resolution
+        # (e.g. full-CONUS-domain runs) that accumulated buffer, on top of training's
+        # already-resident GPU memory, reliably OOMs. Looping over predict_on_batch and
+        # moving each batch to CPU immediately keeps only one batch's output on GPU at a time.
+        outputs: list[np.ndarray] = []
+        for start in range(0, x.shape[0], self.predict_batch_size):
+            pred = self.model.predict_on_batch(x[start : start + self.predict_batch_size])
+            if isinstance(pred, (list, tuple)):
+                pred = pred[0]
+            outputs.append(np.asarray(pred))
+        return np.concatenate(outputs, axis=0)
 
     def on_epoch_end(self, epoch: int, logs: dict | None = None) -> None:
         """Every ``every_n_epochs`` epochs, logs an active-day prediction map and per-region diagrams."""
