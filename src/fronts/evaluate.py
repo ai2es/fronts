@@ -345,20 +345,18 @@ def compute_stats(
     return spatial_ds, aggregate_ds, derived_ds
 
 
-def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
-    """Run stats computation from pre-loaded config objects.
+def load_eval_arrays(
+    eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig
+) -> tuple[xr.Dataset, xr.DataArray, np.ndarray, np.ndarray, np.ndarray | None, datasets.DatasetConfig]:
+    """Open icechunk stores, align to a common time/space grid, and resolve dilation/mask.
 
     Args:
-        eval_cfg: Evaluation configuration specifying model path, output directory, etc.
+        eval_cfg: Evaluation configuration specifying coordinates, mask, dilation, and time range.
         data_cfg: Dataset configuration specifying icechunk store paths and variables.
-    """
-    utils.configure_gpu(eval_cfg.gpu_device)
-    log.info("Loading model from %s …", eval_cfg.model_path)
-    keras_model = tf.keras.models.load_model(
-        eval_cfg.model_path, compile=False, custom_objects={"SharedTargetModel": SharedTargetModel}
-    )
-    log.info("Model loaded. Output count: %d.", len(keras_model.outputs))
 
+    Returns:
+        Tuple of (era5_ds, fronts_raw, lats, lons, spatial_mask, effective_data_cfg).
+    """
     ic_era5 = data_cfg.inputs_icechunk_config
     ic_fronts = data_cfg.targets_icechunk_config
 
@@ -404,6 +402,25 @@ def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
     lons = era5_ds["longitude"].values
 
     spatial_mask = _build_spatial_mask(lats, lons, eval_cfg.mask) if eval_cfg.mask else None
+
+    return era5_ds, fronts_raw, lats, lons, spatial_mask, effective_data_cfg
+
+
+def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
+    """Run stats computation from pre-loaded config objects.
+
+    Args:
+        eval_cfg: Evaluation configuration specifying model path, output directory, etc.
+        data_cfg: Dataset configuration specifying icechunk store paths and variables.
+    """
+    utils.configure_gpu(eval_cfg.gpu_device)
+    log.info("Loading model from %s …", eval_cfg.model_path)
+    keras_model = tf.keras.models.load_model(
+        eval_cfg.model_path, compile=False, custom_objects={"SharedTargetModel": SharedTargetModel}
+    )
+    log.info("Model loaded. Output count: %d.", len(keras_model.outputs))
+
+    era5_ds, fronts_raw, lats, lons, spatial_mask, effective_data_cfg = load_eval_arrays(eval_cfg, data_cfg)
 
     log.info("Computing statistics …")
     spatial_ds, aggregate_ds, derived_ds = compute_stats(
