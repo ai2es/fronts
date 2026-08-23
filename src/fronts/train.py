@@ -150,6 +150,9 @@ def load_data_into_dataloader(
 
     logger.info("Loading %s inputs...", split)
     inputs_ds = _open(data_config.inputs_icechunk_config)
+    if data_config.pressure_levels is not None:
+        logger.info("Restricting to pressure levels: %s", data_config.pressure_levels)
+        inputs_ds = utils.select_pressure_levels(inputs_ds, data_config.pressure_levels)
 
     logger.info("Loading %s targets...", split)
     targets_da = _open(data_config.targets_icechunk_config)["identifier"]
@@ -645,10 +648,10 @@ def train(
 
     strategy = _get_distribution_strategy()
 
-    if data_cfg.volume_inputs:
-        input_shape = (None, None, *train_inputs_da.shape[3:])
-    else:
-        input_shape = (None, None, model_cfg.n_channels)
+    # Derived from the actual loaded data rather than a hand-maintained config value, so
+    # it automatically reflects data_cfg.variables and data_cfg.pressure_levels: (channel,)
+    # for 2D models, (level, variable) for 3D/volume models.
+    input_shape = (None, None, *train_inputs_da.shape[3:])
     logger.info("Model input shape: %s", input_shape)
 
     logger.info("Building and compiling model...")

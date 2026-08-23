@@ -417,6 +417,76 @@ class TestLoadDataIntoDataloaderCoordinates:
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestLoadDataIntoDataloaderPressureLevels:
+    """data_config.pressure_levels must restrict the loaded store to that subset of levels."""
+
+    _TIMES = pd.date_range("2020-01-01", periods=4, freq="6h")
+    _LAT = np.array([10.0, 20.0, 30.0, 40.0])
+    _LON = np.array([100.0, 110.0, 120.0, 130.0])
+    _LEVELS = np.array([1000, 850, 500, 300])
+
+    def _write_store(self, tmp_path, name: str, var_name: str) -> IcechunkStorageConfig:
+        storage_config = IcechunkStorageConfig(store_path=str(tmp_path / name), branch_name="main")
+        ds = xr.Dataset(
+            {
+                var_name: xr.DataArray(
+                    np.zeros(
+                        (len(self._TIMES), len(self._LEVELS), len(self._LAT), len(self._LON)), dtype=np.float32
+                    ),
+                    dims=["time", "level", "latitude", "longitude"],
+                    coords={
+                        "time": self._TIMES,
+                        "level": self._LEVELS,
+                        "latitude": self._LAT,
+                        "longitude": self._LON,
+                    },
+                )
+            }
+        )
+        write_or_append_icechunk_store(storage_config, ds)
+        return storage_config
+
+    def _write_target_store(self, tmp_path, name: str, var_name: str) -> IcechunkStorageConfig:
+        storage_config = IcechunkStorageConfig(store_path=str(tmp_path / name), branch_name="main")
+        ds = xr.Dataset(
+            {
+                var_name: xr.DataArray(
+                    np.zeros((len(self._TIMES), len(self._LAT), len(self._LON)), dtype=np.float32),
+                    dims=["time", "latitude", "longitude"],
+                    coords={"time": self._TIMES, "latitude": self._LAT, "longitude": self._LON},
+                )
+            }
+        )
+        write_or_append_icechunk_store(storage_config, ds)
+        return storage_config
+
+    def test_pressure_levels_restrict_loaded_levels(self, tmp_path):
+        data_config = DatasetConfig(
+            inputs_icechunk_config=self._write_store(tmp_path, "inputs", "temperature"),
+            targets_icechunk_config=self._write_target_store(tmp_path, "targets", "identifier"),
+            variables=["temperature"],
+            test_years=[2020],
+            val_years=[],
+            pressure_levels=[1000, 500],
+        )
+        test_dataset = load_data_into_dataloader(data_config, split="test", seed=0)
+        levels = test_dataset.input_ds["level"].values
+        assert sorted(levels.tolist()) == [500, 1000], f"levels not restricted: {levels}"
+
+    def test_pressure_levels_none_keeps_all_levels(self, tmp_path):
+        data_config = DatasetConfig(
+            inputs_icechunk_config=self._write_store(tmp_path, "inputs", "temperature"),
+            targets_icechunk_config=self._write_target_store(tmp_path, "targets", "identifier"),
+            variables=["temperature"],
+            test_years=[2020],
+            val_years=[],
+        )
+        test_dataset = load_data_into_dataloader(data_config, split="test", seed=0)
+        levels = test_dataset.input_ds["level"].values
+        assert sorted(levels.tolist()) == sorted(self._LEVELS.tolist())
+
+
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
 class TestBuildLoss:
     _LATITUDES = np.linspace(25.0, 56.75, 8)
 

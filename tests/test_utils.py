@@ -122,6 +122,35 @@ class TestSelectSpatialDomain:
         assert result["longitude"].values.max() <= self._BB.lon_max
 
 
+def _make_level_da(levels: list[int]) -> xr.DataArray:
+    return xr.DataArray(
+        np.zeros((len(levels),), dtype=np.float32),
+        dims=["level"],
+        coords={"level": levels},
+        name="var",
+    )
+
+
+class TestSelectPressureLevels:
+    _LEVELS = [1000, 850, 500, 300]
+
+    def test_none_is_a_noop(self):
+        da = _make_level_da(self._LEVELS)
+        result = utils.select_pressure_levels(da, None)
+        assert result is da
+
+    def test_subset_restricts_levels(self):
+        da = _make_level_da(self._LEVELS)
+        result = utils.select_pressure_levels(da, [1000, 500])
+        assert sorted(result["level"].values.tolist()) == [500, 1000]
+
+    def test_dataset_input_returns_dataset(self):
+        ds = xr.Dataset({"var": _make_level_da(self._LEVELS)})
+        result = utils.select_pressure_levels(ds, [850])
+        assert isinstance(result, xr.Dataset)
+        assert result["level"].values.tolist() == [850]
+
+
 class TestEpochsPerFullPass:
     def test_paper_example(self):
         assert utils.epochs_per_full_pass(35_200, 64, 10) == 55

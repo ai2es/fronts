@@ -443,6 +443,7 @@ def load_eval_arrays(
     bb = eval_cfg.coordinates
     era5_ds = utils.select_spatial_domain(era5_ds, bb)
     fronts_ds = utils.select_spatial_domain(fronts_ds, bb)
+    era5_ds = utils.select_pressure_levels(era5_ds, data_cfg.pressure_levels)
 
     fronts_raw = utils.drop_duplicate_times(fronts_ds["identifier"])
 

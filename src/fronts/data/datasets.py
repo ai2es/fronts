@@ -49,6 +49,10 @@ class DatasetConfig:
         volume_inputs: If True, batches keep the vertical structure as a separate axis —
             shape (batch, latitude, longitude, level, variable) for a 3D Conv3D model —
             instead of flattening level and variable into one channel axis for a 2D model.
+        pressure_levels: Pressure levels (hPa) to select from the icechunk store's
+            ``level`` dimension. None keeps every level already present in the store.
+            Must be a subset of the levels the store was generated with (see
+            ``fronts.data.generate.ERA5DataLoaderConfig.pressure_levels``).
     """
 
     inputs_icechunk_config: utils.IcechunkStorageConfig
@@ -66,6 +70,7 @@ class DatasetConfig:
     max_pydataset_workers: int = 16
     coordinates: utils.BoundingBox | None = None
     volume_inputs: bool = False
+    pressure_levels: list[int] | None = None
 
 
 class FrontsPyDataset(tf.keras.utils.PyDataset):

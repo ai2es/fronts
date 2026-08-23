@@ -595,6 +595,7 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.Datase
         virtual_chunk_local_path=ic_era5.virtual_chunk_local_path,
     )
     era5_ds = utils.unwrap_longitude(utils.select_spatial_domain(era5_ds, plot_bb))
+    era5_ds = utils.select_pressure_levels(era5_ds, data_cfg.pressure_levels)
 
     probs_ds = _load_prediction(model, era5_ds, data_cfg.variables, predict_cfg.front_types, init_time)
 

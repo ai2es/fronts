@@ -176,6 +176,23 @@ def select_spatial_domain(data: _XArray, bb: BoundingBox) -> _XArray:
     return data.sel(latitude=lat_slice, longitude=slice(bb.lon_min, bb.lon_max))
 
 
+def select_pressure_levels(data: _XArray, levels: list[int] | None) -> _XArray:
+    """Select a subset of pressure levels from a Dataset or DataArray.
+
+    Args:
+        data: Dataset or DataArray with a ``level`` coordinate.
+        levels: Pressure levels (hPa) to keep, or None to keep every level
+            already present (a no-op).
+
+    Returns:
+        ``data`` restricted to ``levels`` via ``.sel(level=levels)``, or ``data``
+        unchanged if ``levels`` is None.
+    """
+    if levels is None:
+        return data
+    return data.sel(level=levels)
+
+
 def unwrap_longitude(data: _XArray) -> _XArray:
     """Remap a wrap-crossing longitude coordinate to be monotonically increasing.
 
