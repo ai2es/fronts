@@ -1,3 +1,5 @@
+import pathlib
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -68,15 +70,17 @@ class TestVariableMappings:
             "10m_u_component_of_wind",
             "10m_v_component_of_wind",
             "2m_dewpoint_temperature",
-            "land_sea_mask",
         }
         assert required <= set(sources.GOOGLE_TO_ARRAYLAKE_SINGLE)
 
     def test_potential_vorticity_maps_to_pv(self):
         assert sources.GOOGLE_TO_ARRAYLAKE_PRESSURE["potential_vorticity"] == "pv"
 
-    def test_land_sea_mask_maps_to_lsm(self):
-        assert sources.GOOGLE_TO_ARRAYLAKE_SINGLE["land_sea_mask"] == "lsm"
+    def test_land_sea_mask_not_in_arraylake_mapping(self):
+        # land_sea_mask ("lsm") is absent from the live Arraylake single/spatial and
+        # single/temporal groups; it is sourced from STATIC_VARIABLE_SOURCES instead
+        # (see TestStaticVariableSources) rather than GOOGLE_TO_ARRAYLAKE_SINGLE.
+        assert "land_sea_mask" not in sources.GOOGLE_TO_ARRAYLAKE_SINGLE
 
 
 class TestRenameToGoogle:
@@ -117,3 +121,93 @@ class TestOpenArraylakeEra5Validation:
     def test_unknown_variable_raises(self):
         with pytest.raises(ValueError, match="no known Arraylake mapping"):
             sources.open_arraylake_era5("arraylake://earthmover-public/era5", ["not_a_variable"])
+
+
+class _FakeSession:
+    def __init__(self, store):
+        self.store = store
+
+
+class _FakeRepo:
+    def __init__(self, store):
+        self._store = store
+
+    def readonly_session(self, branch: str) -> _FakeSession:
+        return _FakeSession(self._store)
+
+
+class _FakeClient:
+    def __init__(self, store):
+        self._store = store
+
+    def get_repo(self, repo_name: str) -> _FakeRepo:
+        return _FakeRepo(self._store)
+
+
+class TestOpenArraylakeEra5StaleMapping:
+    """Reproduces the incident where a mapped short name absent from the live store.
+
+    Raises loudly instead of silently returning an empty dataset (which surfaced
+    downstream as a confusing icechunk "no changes to commit" error).
+    """
+
+    @pytest.fixture
+    def incomplete_single_store(self, tmp_path: pathlib.Path) -> pathlib.Path:
+        rng = np.random.default_rng(9)
+        ds = xr.Dataset(
+            {
+                "t2m": xr.DataArray(
+                    rng.standard_normal((len(_TIME), len(_LAT), len(_LON))).astype(np.float32),
+                    dims=["valid_time", "latitude", "longitude"],
+                    coords={"valid_time": _TIME, "latitude": _LAT, "longitude": _LON},
+                )
+            }
+        )
+        path = tmp_path / "fake_repo"
+        ds.to_zarr(path, group=sources.ARRAYLAKE_SINGLE_GROUP)
+        return path
+
+    def test_missing_short_name_raises(self, incomplete_single_store: pathlib.Path, monkeypatch):
+        monkeypatch.setattr(sources.arraylake, "Client", lambda: _FakeClient(str(incomplete_single_store)))
+        with pytest.raises(ValueError, match="absent from group"):
+            sources.open_arraylake_era5("arraylake://fake/repo", ["mean_sea_level_pressure"])
+
+    def test_present_short_name_does_not_raise(self, incomplete_single_store: pathlib.Path, monkeypatch):
+        monkeypatch.setattr(sources.arraylake, "Client", lambda: _FakeClient(str(incomplete_single_store)))
+        result = sources.open_arraylake_era5("arraylake://fake/repo", ["2m_temperature"])
+        assert "2m_temperature" in result.data_vars
+
+
+class TestStaticVariableSources:
+    def test_geopotential_at_surface_registered(self):
+        assert "geopotential_at_surface" in sources.STATIC_VARIABLE_SOURCES
+
+    def test_land_sea_mask_registered(self):
+        assert "land_sea_mask" in sources.STATIC_VARIABLE_SOURCES
+
+    def test_unregistered_variable_raises(self):
+        with pytest.raises(ValueError, match="No static source registered"):
+            sources.open_static_era5_variable("not_a_variable")
+
+    def test_unregistered_variable_error_lists_registry(self):
+        with pytest.raises(ValueError, match="geopotential_at_surface"):
+            sources.open_static_era5_variable("not_a_variable")
+
+
+class TestOpenStaticEra5Variable:
+    @pytest.fixture
+    def static_source_zarr(self, make_static_source_zarr) -> pathlib.Path:
+        time = pd.date_range("2019-01-01", periods=3, freq="6h")
+        return make_static_source_zarr("geopotential_at_surface", _LAT, _LON, time=time, seed=5)
+
+    def test_drops_time_dimension(self, static_source_zarr, monkeypatch):
+        monkeypatch.setitem(sources.STATIC_VARIABLE_SOURCES, "geopotential_at_surface", str(static_source_zarr))
+        result = sources.open_static_era5_variable("geopotential_at_surface")
+        assert "time" not in result.dims
+        assert result.dims == ("latitude", "longitude")
+
+    def test_values_match_first_timestep(self, static_source_zarr, monkeypatch):
+        monkeypatch.setitem(sources.STATIC_VARIABLE_SOURCES, "geopotential_at_surface", str(static_source_zarr))
+        result = sources.open_static_era5_variable("geopotential_at_surface")
+        expected = xr.open_zarr(static_source_zarr, chunks=None)["geopotential_at_surface"].isel(time=0)
+        np.testing.assert_array_equal(result.values, expected.values)

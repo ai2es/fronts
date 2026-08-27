@@ -18,7 +18,8 @@ era5_config:
     "10m_u_component_of_wind",
     "10m_v_component_of_wind",
     "2m_dewpoint_temperature",
-    "land_sea_mask"
+    "land_sea_mask",
+    "geopotential_at_surface"
     ]
   pressure_levels: [1000, 925, 850, 700, 500, 300]
   time_start: "2007-01-01T00:00:00"

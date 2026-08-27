@@ -139,7 +139,9 @@ class WriteStrategy:
                 )
                 ds_download = generate_era5_download_data(narrow_config)
 
-            _, derived_vars = derived.classify_variables(era5_config.variables, {str(k) for k in ds_download.data_vars})
+            derived_vars = derived.classify_variables(
+                era5_config.variables, {str(k) for k in ds_download.data_vars}
+            ).derived
             stored_derived = (
                 [v for v in derived_vars if v in store_contents.variables] if store_contents is not None else []
             )
@@ -160,7 +162,9 @@ class WriteStrategy:
         if self.missing_variables and store_contents is not None:
             still_missing = [v for v in self.missing_variables if v not in store_contents.variables]
             if still_missing:
-                direct_vars, derived_vars = _classify_missing(era5_config, still_missing)
+                direct_vars, derived_vars, static_vars = derived.classify_variables(
+                    still_missing, _available_variables(era5_config)
+                )
 
                 if direct_vars:
                     logger.info(f"Downloading missing variables {direct_vars}...")
@@ -172,6 +176,9 @@ class WriteStrategy:
                 if derived_vars:
                     logger.info(f"Computing missing derived variables {derived_vars}...")
                     write_derived_variables(era5_config, icechunk_config, derived_vars)
+                if static_vars:
+                    logger.info(f"Fetching missing static variables {static_vars}...")
+                    write_static_variables(era5_config, icechunk_config, static_vars)
 
 
 def _available_variables(era5_config: ERA5DataLoaderConfig, ds: xr.Dataset | None = None) -> set[str]:
@@ -189,11 +196,6 @@ def _available_variables(era5_config: ERA5DataLoaderConfig, ds: xr.Dataset | Non
     return {str(k) for k in ds.data_vars}
 
 
-def _classify_missing(era5_config: ERA5DataLoaderConfig, missing_variables: list[str]) -> tuple[list[str], list[str]]:
-    """Split missing variables into directly downloadable (any level type) and derived."""
-    return derived.classify_variables(missing_variables, _available_variables(era5_config))
-
-
 def _open_source_dataset(era5_config: ERA5DataLoaderConfig) -> xr.Dataset:
     """Open a non-arraylake zarr source lazily without dask."""
     open_kwargs: dict = {"chunks": None}
@@ -208,7 +210,10 @@ def generate_era5_download_data(era5_config: ERA5DataLoaderConfig) -> xr.Dataset
     This deliberately excludes derived-variable computation: the returned dataset
     contains all directly available variables plus the inputs required to derive
     the rest, subset by time, pressure level, and spatial bounding box. Variables
-    and coordinates follow Google ARCO naming regardless of the source.
+    and coordinates follow Google ARCO naming regardless of the source. Static
+    variables (e.g. ``geopotential_at_surface``) are fetched from their registered
+    external source (see ``sources.STATIC_VARIABLE_SOURCES``) and merged in before
+    the spatial subset, so they get cropped to the same bounding box as everything else.
 
     Args:
         era5_config: Configuration object containing all necessary parameters for
@@ -220,19 +225,24 @@ def generate_era5_download_data(era5_config: ERA5DataLoaderConfig) -> xr.Dataset
 
     Raises:
         ValueError: If any requested variable is unavailable in the source and has
-            no registered derivation function.
+            no registered derivation or static function.
     """
     if era5_config.era5_uri.startswith(sources.ARRAYLAKE_URI_PREFIX):
-        direct_vars, derived_vars = derived.classify_variables(era5_config.variables, _available_variables(era5_config))
+        direct_vars, derived_vars, static_vars = derived.classify_variables(
+            era5_config.variables, _available_variables(era5_config)
+        )
         download_vars = derived.resolve_download_variables(direct_vars, derived_vars)
-        ds = sources.open_arraylake_era5(era5_config.era5_uri, download_vars)
+        ds = sources.open_arraylake_era5(era5_config.era5_uri, download_vars) if download_vars else xr.Dataset()
     else:
         ds = _open_source_dataset(era5_config)
-        direct_vars, derived_vars = derived.classify_variables(
+        direct_vars, derived_vars, static_vars = derived.classify_variables(
             era5_config.variables, _available_variables(era5_config, ds)
         )
         download_vars = derived.resolve_download_variables(direct_vars, derived_vars)
         ds = ds[download_vars]
+
+    if static_vars:
+        ds = xr.merge([ds, derived.resolve_static_variables(static_vars)], join="inner", compat="override")
 
     ds = utils.select_spatial_domain(ds, era5_config.coordinates)
     selection: dict = {}
@@ -284,7 +294,7 @@ def generate_era5_data(era5_config: ERA5DataLoaderConfig) -> xr.Dataset:
         single-level variables.
     """
     ds_download = generate_era5_download_data(era5_config)
-    _, derived_vars = derived.classify_variables(era5_config.variables, {str(k) for k in ds_download.data_vars})
+    derived_vars = derived.classify_variables(era5_config.variables, {str(k) for k in ds_download.data_vars}).derived
     ds_derived = generate_era5_derived_data(derived_vars, ds_download)
     ds = ds_download.assign({str(name): ds_derived[name] for name in ds_derived.data_vars})
     requested = set(era5_config.variables)
@@ -328,6 +338,24 @@ def write_derived_variables(
     local_ds = local_ds.chunk(era5_config.chunks or _derivation_chunks(local_ds))
     ds_derived = generate_era5_derived_data(derived_vars, local_ds)
     write_new_variables_to_icechunk_store(icechunk_config, ds_derived)
+
+
+def write_static_variables(
+    era5_config: ERA5DataLoaderConfig,
+    icechunk_config: utils.IcechunkStorageConfig,
+    static_vars: list[str],
+) -> None:
+    """Fetch static variables from their registered external source and write them as new variables.
+
+    Args:
+        era5_config: Configuration providing the spatial domain to crop each variable to,
+            matching the existing store's extent.
+        icechunk_config: Configuration for the icechunk store to write to.
+        static_vars: Names of the static variables to fetch and write.
+    """
+    ds_static = derived.resolve_static_variables(static_vars)
+    ds_static = utils.select_spatial_domain(ds_static, era5_config.coordinates)
+    write_new_variables_to_icechunk_store(icechunk_config, ds_static)
 
 
 def inspect_store(storage_config: utils.IcechunkStorageConfig) -> StoreContents | None:

@@ -1,8 +1,11 @@
 import dataclasses
 from collections.abc import Callable
+from typing import NamedTuple
 
 import xarray as xr
 import xarray.ufuncs as xu
+
+from fronts.data import sources
 
 _R_D = 287.05  # dry air gas constant, J kg-1 K-1
 _C_PD = 1004.0  # specific heat of dry air at constant pressure, J kg-1 K-1
@@ -146,31 +149,47 @@ DERIVED_VARIABLE_REGISTRY: dict[str, DerivedVariableSpec] = {
 }
 
 
+class VariableClassification(NamedTuple):
+    """Requested variable names split by how each must be obtained.
+
+    Attributes:
+        direct: Available directly in the configured ARCO ERA5 source.
+        derived: Must be computed via ``DERIVED_VARIABLE_REGISTRY``.
+        static: Must be fetched via ``sources.open_static_era5_variables``.
+    """
+
+    direct: list[str]
+    derived: list[str]
+    static: list[str]
+
+
 def classify_variables(
     requested: list[str],
     arco_available: set[str],
-) -> tuple[list[str], list[str]]:
-    """Split requested variable names into direct (in ARCO) and derived.
+) -> VariableClassification:
+    """Split requested variable names into direct (in ARCO), derived, and static.
 
     Args:
         requested: Variable names from the user config.
         arco_available: Variable names present in the ARCO ERA5 Zarr store.
 
     Returns:
-        Tuple of (direct_vars, derived_vars) where direct_vars are available
-        in ARCO and derived_vars must be computed via the registry.
+        VariableClassification for ``requested``.
 
     Raises:
-        ValueError: If any variable is neither in ``arco_available`` nor in
-            ``DERIVED_VARIABLE_REGISTRY``.
+        ValueError: If any variable is in none of ``arco_available``,
+            ``DERIVED_VARIABLE_REGISTRY``, or ``sources.STATIC_VARIABLE_SOURCES``.
     """
     direct_vars: list[str] = []
     derived_vars: list[str] = []
+    static_vars: list[str] = []
     unknown: list[str] = []
 
     for var in requested:
         if var in arco_available:
             direct_vars.append(var)
+        elif var in sources.STATIC_VARIABLE_SOURCES:
+            static_vars.append(var)
         elif var in DERIVED_VARIABLE_REGISTRY:
             derived_vars.append(var)
         else:
@@ -178,11 +197,24 @@ def classify_variables(
 
     if unknown:
         raise ValueError(
-            f"Variables not available in ARCO ERA5 and have no derivation function: {unknown}. "
-            f"Registered derivable variables: {sorted(DERIVED_VARIABLE_REGISTRY)}"
+            f"Variables not available in ARCO ERA5 and have no derivation or static function: {unknown}. "
+            f"Registered derivable variables: {sorted(DERIVED_VARIABLE_REGISTRY)}. "
+            f"Registered static variables: {sorted(sources.STATIC_VARIABLE_SOURCES)}"
         )
 
-    return direct_vars, derived_vars
+    return VariableClassification(direct_vars, derived_vars, static_vars)
+
+
+def resolve_static_variables(static_vars: list[str]) -> xr.Dataset:
+    """Fetch the requested static variables from their registered external sources.
+
+    Args:
+        static_vars: Variable names, each a key of ``sources.STATIC_VARIABLE_SOURCES``.
+
+    Returns:
+        Dataset of lazy (latitude, longitude) DataArrays, one per requested variable.
+    """
+    return sources.open_static_era5_variables(static_vars)
 
 
 def resolve_download_variables(
