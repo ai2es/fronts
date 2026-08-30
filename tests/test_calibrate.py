@@ -7,7 +7,7 @@ try:
     import tensorflow as tf
 
     from fronts import model as fronts_model
-    from fronts.calibrate import extract_logit_model, fit_temperature
+    from fronts.calibrate import extract_logit_model, fit_temperature, resolve_calibration_config
     from fronts.model import TemperatureScaledModel
 
     _TF_AVAILABLE = True
@@ -168,3 +168,28 @@ class TestFitTemperature:
 
         assert t_opt < 1.0, f"Underconfident model (logits * 0.1) should produce T < 1; got T={t_opt:.4f}"
         assert t_opt > 0.01, f"T should be within valid bounds; got T={t_opt:.4f}"
+
+
+class TestResolveCalibrationConfig:
+    def test_derives_paths_from_model_checkpoint_path(self):
+        yaml_data = {
+            "callbacks_config": {"model_checkpoint_path": "/models/my_run/"},
+        }
+        cfg = resolve_calibration_config(yaml_data)
+        assert cfg.model_path == "/models/my_run/_best_loss.keras"
+        assert cfg.output_path == "/models/my_run/_calibrated.keras"
+
+    def test_explicit_calibration_config_overrides_derivation(self):
+        yaml_data = {
+            "callbacks_config": {"model_checkpoint_path": "/models/my_run/"},
+            "calibration_config": {"model_path": "/custom/model.keras", "max_pixels": 123},
+        }
+        cfg = resolve_calibration_config(yaml_data)
+        assert cfg.model_path == "/custom/model.keras"
+        assert cfg.output_path == "/models/my_run/_calibrated.keras"
+        assert cfg.max_pixels == 123
+
+    def test_raises_without_checkpoint_path_or_explicit_paths(self):
+        yaml_data = {"callbacks_config": {}}
+        with pytest.raises(ValueError, match="model_checkpoint_path"):
+            resolve_calibration_config(yaml_data)

@@ -7,11 +7,15 @@ is a drop-in replacement for the original.
 Temperature scaling reference:
     Guo et al. (2017): https://arxiv.org/abs/1706.04599
 
+By default, both the input and output model paths are derived from the same
+``callbacks_config.model_checkpoint_path`` (interpolated from ``run_name``) that
+training writes to: the input defaults to ``{model_checkpoint_path}_best_loss.keras``
+and the output to ``{model_checkpoint_path}_calibrated.keras``. Pass
+``--model_path``/``--output_path`` to override either.
+
 Usage:
     pixi run -e schooner python src/fronts/calibrate.py \\
-        --config_path configs/schooner_train.yaml \\
-        --model_path /path/to/model.keras \\
-        --output_path /path/to/model_calibrated.keras
+        --config_path configs/schooner_train.yaml
 """
 
 import argparse
@@ -22,6 +26,7 @@ import numpy as np
 import scipy.optimize
 import tensorflow as tf
 
+from fronts import callbacks as fronts_callbacks
 from fronts import utils
 from fronts.data import datasets
 from fronts.model import SharedTargetModel, TemperatureScaledModel
@@ -35,15 +40,18 @@ class CalibrationConfig:
     """Configuration for temperature scaling calibration.
 
     Attributes:
-        model_path: Path to the saved .keras model to calibrate.
-        output_path: Where to save the calibrated TemperatureScaledModel.
+        model_path: Path to the saved .keras model to calibrate. None derives
+            ``{callbacks_config.model_checkpoint_path}_best_loss.keras`` from the
+            training config, matching where ``train.py`` writes its best checkpoint.
+        output_path: Where to save the calibrated TemperatureScaledModel. None derives
+            ``{callbacks_config.model_checkpoint_path}_calibrated.keras``.
         gpu_device: GPU index to use. None runs on CPU.
         max_pixels: Maximum number of pixels to collect for T optimisation.
             Subsamples randomly when the val set exceeds this count.
     """
 
-    model_path: str
-    output_path: str
+    model_path: str | None = None
+    output_path: str | None = None
     gpu_device: int | None = None
     max_pixels: int = 500_000
 
@@ -123,25 +131,76 @@ def fit_temperature(
     return t_opt
 
 
+def resolve_calibration_config(yaml_data: dict) -> CalibrationConfig:
+    """Build a ``CalibrationConfig`` from an optional ``calibration_config`` section.
+
+    Any field left unset (None) is filled in from ``callbacks_config.model_checkpoint_path``
+    — the same path ``train.py`` writes its checkpoints to — so a bare training config
+    (e.g. ``schooner_train.yaml``) is enough to run calibration with no extra section.
+
+    Args:
+        yaml_data: Pre-loaded and interpolated YAML dict (from ``utils.load_yaml``).
+
+    Returns:
+        A fully-resolved ``CalibrationConfig`` with concrete ``model_path``/``output_path``.
+
+    Raises:
+        ValueError: If ``model_path``/``output_path`` aren't set and
+            ``callbacks_config.model_checkpoint_path`` isn't available to derive them from.
+    """
+    calib_cfg = (
+        utils.parse_config_section(yaml_data, CalibrationConfig, "calibration_config")
+        if "calibration_config" in yaml_data
+        else CalibrationConfig()
+    )
+
+    if calib_cfg.model_path is not None and calib_cfg.output_path is not None:
+        return calib_cfg
+
+    callbacks_cfg = utils.parse_config_section(yaml_data, fronts_callbacks.CallbacksConfig, "callbacks_config")
+    checkpoint_path = callbacks_cfg.model_checkpoint_path
+    if checkpoint_path is None:
+        raise ValueError(
+            "calibration_config.model_path/output_path aren't set and callbacks_config."
+            "model_checkpoint_path is None, so the model paths can't be derived. Set either."
+        )
+
+    return dataclasses.replace(
+        calib_cfg,
+        model_path=calib_cfg.model_path or f"{checkpoint_path}_best_loss.keras",
+        output_path=calib_cfg.output_path or f"{checkpoint_path}_calibrated.keras",
+    )
+
+
 def main() -> None:
     """CLI entry point for temperature scaling calibration."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     parser = argparse.ArgumentParser(description="Post-hoc temperature scaling calibration for a UNet3Plus model")
-    parser.add_argument("--config_path", required=True, help="Path to training YAML config (for DatasetConfig)")
-    parser.add_argument("--model_path", required=True, help="Path to the trained .keras model")
-    parser.add_argument("--output_path", required=True, help="Where to save the calibrated model")
-    parser.add_argument("--gpu_device", type=int, default=None, help="GPU index (None = CPU)")
-    parser.add_argument("--max_pixels", type=int, default=500_000, help="Max pixels for T optimisation")
+    parser.add_argument("--config_path", required=True, help="Path to training YAML config")
+    parser.add_argument("--model_path", default=None, help="Override: path to the trained .keras model")
+    parser.add_argument("--output_path", default=None, help="Override: where to save the calibrated model")
+    parser.add_argument("--gpu_device", type=int, default=None, help="Override: GPU index (None = CPU)")
+    parser.add_argument("--max_pixels", type=int, default=None, help="Override: max pixels for T optimisation")
     args = parser.parse_args()
 
-    utils.configure_gpu(args.gpu_device)
-
     yaml_data = utils.load_yaml(args.config_path)
+    calib_cfg = resolve_calibration_config(yaml_data)
+    if args.model_path is not None:
+        calib_cfg.model_path = args.model_path
+    if args.output_path is not None:
+        calib_cfg.output_path = args.output_path
+    if args.gpu_device is not None:
+        calib_cfg.gpu_device = args.gpu_device
+    if args.max_pixels is not None:
+        calib_cfg.max_pixels = args.max_pixels
+
+    utils.configure_gpu(calib_cfg.gpu_device)
+
     data_cfg: datasets.DatasetConfig = utils.parse_config_section(yaml_data, datasets.DatasetConfig, "data_config")
 
     keras_model = tf.keras.models.load_model(
-        args.model_path,
+        calib_cfg.model_path,
         compile=False,
         custom_objects={"SharedTargetModel": SharedTargetModel},
     )
@@ -149,11 +208,11 @@ def main() -> None:
     val_dataset = load_data_into_dataloader(data_cfg, split="val")
 
     logit_model = extract_logit_model(keras_model)
-    t_opt = fit_temperature(logit_model, val_dataset, max_pixels=args.max_pixels)
+    t_opt = fit_temperature(logit_model, val_dataset, max_pixels=calib_cfg.max_pixels)
 
     calibrated = TemperatureScaledModel(logit_model=logit_model, temperature=t_opt, name="temperature_scaled_model")
-    calibrated.save(args.output_path)
-    log.info(f"Saved calibrated model to {args.output_path}")
+    calibrated.save(calib_cfg.output_path)
+    log.info(f"Saved calibrated model to {calib_cfg.output_path}")
 
 
 if __name__ == "__main__":
