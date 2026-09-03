@@ -199,6 +199,22 @@ def plot_performance_diagrams(
         ax0.plot(sr[boundary], pod[boundary], color=color, linewidth=1)
         ax1.plot(thresholds[:-1], observed_relative_frequency[boundary], color=color, linewidth=1)
 
+    # Pointwise (exact-pixel, no neighborhood tolerance) reliability, when present — verifies
+    # forecast probability against the same positional tolerance the training loss actually
+    # targets, rather than the looser 50-250 km neighborhood match used above. Overlaying it
+    # shows how much of any gap from the 1-1 line is a real pointwise calibration problem versus
+    # an artifact of verifying against the neighborhood-matched (easier) truth.
+    pointwise_var = f"obs_rel_freq_pointwise_{front_type}"
+    if pointwise_var in derived_ds:
+        ax1.plot(
+            thresholds[:-1],
+            derived_ds[pointwise_var].values,
+            color="black",
+            linewidth=1.5,
+            label="0 km (pointwise)",
+        )
+        ax1.legend(loc="lower right", fontsize=8, framealpha=0.7)
+
     ax0.set_xticklabels(axis_ticklabels[::-1])
     ax0.set_xlabel("Success Ratio (1-FAR; %)")
     ax0.set_ylabel("Probability of Detection (POD; %)")

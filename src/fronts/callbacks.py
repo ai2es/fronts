@@ -321,14 +321,21 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
 
     def _predict(self, x: np.ndarray) -> np.ndarray:
         """Run the model's finest-resolution (first) output, chunked by ``predict_batch_size``."""
-        # model.predict() batches its forward passes but still accumulates every batch's
-        # output into one GPU-resident tensor before returning; at full spatial resolution
-        # (e.g. full-CONUS-domain runs) that accumulated buffer, on top of training's
-        # already-resident GPU memory, reliably OOMs. Looping over predict_on_batch and
-        # moving each batch to CPU immediately keeps only one batch's output on GPU at a time.
+        # model.predict() over the full array batches its forward passes but still accumulates
+        # every batch's output into one GPU-resident tensor before returning; at full spatial
+        # resolution (e.g. full-CONUS-domain runs) that accumulated buffer, on top of training's
+        # already-resident GPU memory, reliably OOMs. Calling predict() once per chunk and moving
+        # each result to CPU immediately keeps only one chunk's output on GPU at a time.
+        #
+        # This must be predict(), not predict_on_batch(): under MirroredStrategy,
+        # predict_on_batch() hands its input to distribute_strategy.run() undistributed, so each
+        # replica runs the forward pass on the *whole* chunk rather than a shard of it, and the
+        # per-replica outputs are then concatenated — silently inflating the result to
+        # num_replicas x chunk_size rows. predict() constructs a proper distributed dataset
+        # under the hood and returns exactly chunk_size rows.
         outputs: list[np.ndarray] = []
         for start in range(0, x.shape[0], self.predict_batch_size):
-            pred = self.model.predict_on_batch(x[start : start + self.predict_batch_size])
+            pred = self.model.predict(x[start : start + self.predict_batch_size], verbose=0)
             if isinstance(pred, (list, tuple)):
                 pred = pred[0]
             outputs.append(np.asarray(pred))

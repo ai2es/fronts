@@ -146,18 +146,27 @@ class TestVisualizationCallbackPredict:
         result = cb._predict(cb.subsample_x)
         np.testing.assert_allclose(result, cb.subsample_x)
 
-    def test_never_calls_batch_accumulating_predict(self, monkeypatch):
-        # model.predict() accumulates every batch's output into one GPU-resident tensor
-        # before returning, which is exactly what OOMs on large full-domain subsamples;
-        # _predict must go through predict_on_batch instead (see callbacks.py:_predict).
+    def test_never_calls_predict_on_the_full_unchunked_array(self, monkeypatch):
+        # Calling model.predict() on the whole subsample at once accumulates every batch's
+        # output into one GPU-resident tensor before returning, which is exactly what OOMs on
+        # large full-domain subsamples. _predict must call predict() once per
+        # predict_batch_size-sized chunk instead (see callbacks.py:_predict) — not
+        # predict_on_batch(), which under MirroredStrategy hands its input to
+        # distribute_strategy.run() undistributed, so every replica runs the forward pass on
+        # the whole chunk and the (duplicate) per-replica outputs get concatenated together,
+        # inflating the result to num_replicas x chunk_size rows.
         cb = self._make_callback(n_samples=5, predict_batch_size=2)
-        monkeypatch.setattr(
-            cb.model,
-            "predict",
-            lambda *a, **k: (_ for _ in ()).throw(AssertionError("model.predict() must not be called")),
-        )
+        real_predict = cb.model.predict
+        call_sizes = []
+
+        def tracking_predict(x, *a, **k):
+            call_sizes.append(len(x))
+            return real_predict(x, *a, **k)
+
+        monkeypatch.setattr(cb.model, "predict", tracking_predict)
         result = cb._predict(cb.subsample_x)
         np.testing.assert_allclose(result, cb.subsample_x)
+        assert call_sizes == [2, 2, 1]
 
     def test_predict_batch_size_field_is_required(self):
         with pytest.raises(TypeError):

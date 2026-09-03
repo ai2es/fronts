@@ -1,3 +1,4 @@
+import dataclasses
 import math
 
 import numpy as np
@@ -11,15 +12,22 @@ from fronts.utils import IcechunkStorageConfig, apply_time_resolution
 try:
     import tensorflow as tf
 
+    from fronts.callbacks import CallbacksConfig
     from fronts.data.datasets import DatasetConfig, FrontsPyDataset
     from fronts.data.generate import write_or_append_icechunk_store
     from fronts.data.inputs import inputs_ds_to_dataarray
     from fronts.model import ModelConfig, UNet3Plus
     from fronts.train import (
+        TrainConfig,
+        WandBConfig,
         _build_loss,
         _build_monitor_callbacks,
+        _build_run_callbacks,
+        _build_wandb_config,
+        _compile,
         _freeze_layers,
         _load_pretrained_weights,
+        _optimizer_uses_ema,
         load_data_into_dataloader,
     )
 
@@ -234,6 +242,71 @@ class TestBuildMonitorCallbacks:
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestOptimizerUsesEma:
+    def test_plain_optimizer_without_ema_is_false(self):
+        assert _optimizer_uses_ema(tf.keras.optimizers.Adam(use_ema=False)) is False
+
+    def test_plain_optimizer_with_ema_is_true(self):
+        assert _optimizer_uses_ema(tf.keras.optimizers.Adam(use_ema=True)) is True
+
+    def test_loss_scale_wrapped_optimizer_is_unwrapped(self):
+        """Mixed-precision training wraps Adam in a LossScaleOptimizer; use_ema lives on the inner optimizer."""
+        wrapped = tf.keras.mixed_precision.LossScaleOptimizer(tf.keras.optimizers.Adam(use_ema=True))
+        assert _optimizer_uses_ema(wrapped) is True
+
+    def test_loss_scale_wrapped_optimizer_without_ema_is_false(self):
+        wrapped = tf.keras.mixed_precision.LossScaleOptimizer(tf.keras.optimizers.Adam(use_ema=False))
+        assert _optimizer_uses_ema(wrapped) is False
+
+
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestBuildRunCallbacks:
+    """Callback-order test suite.
+
+    `_build_run_callbacks` ordering directly determines whether EMA-swapped weights make it
+    into checkpoints and EarlyStopping's best-weight snapshot — see its docstring.
+    """
+
+    def _build(self, uses_ema: bool, **overrides):
+        kwargs = {
+            "uses_ema": uses_ema,
+            "monitor": "val_loss",
+            "patience": 5,
+            "learning_rate_decay_factor": None,
+            "learning_rate_minimum": None,
+            "monitor_min_delta": 0.0,
+            "early_stopping_patience": None,
+            "extra_callbacks": None,
+            "wandb_project": None,
+            "wandb_log_freq": "epoch",
+            "model_checkpoint_path": None,
+        }
+        kwargs.update(overrides)
+        return _build_run_callbacks(**kwargs)
+
+    def test_no_ema_omits_swap_ema_weights_callback(self):
+        callbacks = self._build(uses_ema=False)
+        assert not any(isinstance(cb, tf.keras.callbacks.SwapEMAWeights) for cb in callbacks)
+
+    def test_ema_adds_swap_ema_weights_first(self):
+        callbacks = self._build(uses_ema=True)
+        assert isinstance(callbacks[0], tf.keras.callbacks.SwapEMAWeights)
+        assert callbacks[0].swap_on_epoch is True
+
+    def test_swap_ema_weights_precedes_early_stopping(self):
+        callbacks = self._build(uses_ema=True)
+        swap_idx = next(i for i, cb in enumerate(callbacks) if isinstance(cb, tf.keras.callbacks.SwapEMAWeights))
+        early_stop_idx = next(i for i, cb in enumerate(callbacks) if isinstance(cb, tf.keras.callbacks.EarlyStopping))
+        assert swap_idx < early_stop_idx
+
+    def test_swap_ema_weights_precedes_model_checkpoint(self, tmp_path):
+        callbacks = self._build(uses_ema=True, model_checkpoint_path=str(tmp_path / "model"))
+        swap_idx = next(i for i, cb in enumerate(callbacks) if isinstance(cb, tf.keras.callbacks.SwapEMAWeights))
+        ckpt_idx = next(i for i, cb in enumerate(callbacks) if isinstance(cb, tf.keras.callbacks.ModelCheckpoint))
+        assert swap_idx < ckpt_idx
+
+
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
 class TestFrontsPyDatasetGather:
     def test_select_and_order_samples(self, era5_ds, front_da, data_config):
         # A non-contiguous time selection must yield exactly those timesteps in order.
@@ -306,6 +379,29 @@ class TestFrontsPyDataset:
         np.testing.assert_array_equal(ds._order, np.arange(N_TIME))
         ds.on_epoch_end()
         np.testing.assert_array_equal(ds._order, np.arange(N_TIME))
+
+    def test_shuffle_reorders_batches_not_samples_within_a_batch(self, era5_ds, front_da, data_config):
+        """Shuffling must only reorder whole batches, keeping each batch a contiguous read.
+
+        Both icechunk stores backing this dataset chunk at 1 timestep, so a fully random
+        per-sample shuffle turns every batch read into scattered single-chunk fetches,
+        measured at 10-30x slower than a sequential read of the same size (see
+        scripts/diagnose_read_throughput.py). Every batch must therefore still correspond
+        to some contiguous run of the original timesteps, even with shuffling enabled.
+        """
+        batch_size = 2
+        ds = self._make_ds(era5_ds, front_da, data_config, batch_size=batch_size, shuffle=True, seed=0)
+        expected = inputs_ds_to_dataarray(era5_ds, data_config.variables).values
+        for i in range(len(ds)):
+            x_batch, _ = ds[i]
+            n = x_batch.shape[0]
+            matches = [s for s in range(N_TIME - n + 1) if np.allclose(x_batch, expected[s : s + n])]
+            assert matches, f"batch {i} is not a contiguous run of original timesteps"
+
+    def test_shuffle_visits_every_batch_exactly_once_per_epoch(self, era5_ds, front_da, data_config):
+        batch_size = 2
+        ds = self._make_ds(era5_ds, front_da, data_config, batch_size=batch_size, shuffle=True, seed=0)
+        np.testing.assert_array_equal(np.sort(ds._order), np.arange(len(ds)))
 
     def test_drop_remainder_drops_undersized_final_batch(self, era5_ds, front_da, data_config):
         """N_TIME=5 with batch_size=2 has a 1-sample remainder batch that must be dropped.
@@ -555,6 +651,69 @@ class TestBuildLoss:
         assert np.isfinite(fss_value)
         assert np.isfinite(nbs_value)
 
+    def test_nbs_include_pixel_defaults_to_off(self):
+        """nbs_include_pixel/nbs_pixel_weight are optional — omitting them must not change the loss."""
+        rng = np.random.default_rng(1)
+        n_classes = 3
+        y_true = tf.one_hot(rng.integers(0, n_classes, size=(2, 8, 8)), n_classes)
+        y_pred = tf.nn.softmax(rng.standard_normal((2, 8, 8, n_classes)).astype(np.float32), axis=-1)
+
+        default_loss = _build_loss(
+            loss_name="neighborhood_brier_score",
+            loss_class_weights=None,
+            latitudes=self._LATITUDES,
+            fss_mask_size=(3, 3),
+            nbs_tolerance_km=25.0,
+            nbs_periodic_lon=False,
+            nbs_lat_dependent_pool=False,
+        )
+        explicit_off_loss = _build_loss(
+            loss_name="neighborhood_brier_score",
+            loss_class_weights=None,
+            latitudes=self._LATITUDES,
+            fss_mask_size=(3, 3),
+            nbs_tolerance_km=25.0,
+            nbs_periodic_lon=False,
+            nbs_lat_dependent_pool=False,
+            nbs_include_pixel=False,
+        )
+        default_value = float(tf.reduce_mean(default_loss(y_true, y_pred)))
+        explicit_off_value = float(tf.reduce_mean(explicit_off_loss(y_true, y_pred)))
+        assert default_value == pytest.approx(explicit_off_value)
+
+    def test_nbs_include_pixel_true_changes_loss(self):
+        """Turning on nbs_include_pixel must add the un-pooled pixelwise term."""
+        rng = np.random.default_rng(2)
+        n_classes = 3
+        y_true = tf.one_hot(rng.integers(0, n_classes, size=(2, 8, 8)), n_classes)
+        y_pred = tf.nn.softmax(rng.standard_normal((2, 8, 8, n_classes)).astype(np.float32), axis=-1)
+
+        pooled_only_loss = _build_loss(
+            loss_name="neighborhood_brier_score",
+            loss_class_weights=None,
+            latitudes=self._LATITUDES,
+            fss_mask_size=(3, 3),
+            nbs_tolerance_km=25.0,
+            nbs_periodic_lon=False,
+            nbs_lat_dependent_pool=False,
+            nbs_include_pixel=False,
+        )
+        with_pixel_loss = _build_loss(
+            loss_name="neighborhood_brier_score",
+            loss_class_weights=None,
+            latitudes=self._LATITUDES,
+            fss_mask_size=(3, 3),
+            nbs_tolerance_km=25.0,
+            nbs_periodic_lon=False,
+            nbs_lat_dependent_pool=False,
+            nbs_include_pixel=True,
+            nbs_pixel_weight=0.5,
+        )
+        pooled_only_value = float(tf.reduce_mean(pooled_only_loss(y_true, y_pred)))
+        with_pixel_value = float(tf.reduce_mean(with_pixel_loss(y_true, y_pred)))
+        assert np.isfinite(with_pixel_value)
+        assert with_pixel_value != pytest.approx(pooled_only_value)
+
 
 class TestTrainConfigLossClassWeights:
     @pytest.fixture
@@ -575,6 +734,22 @@ class TestTrainConfigLossClassWeights:
         yaml_data = {"train_config": {"loss_class_weights": weights, "epochs": 1}}
         cfg = utils.parse_config_section(yaml_data, train_config_cls, "train_config")
         assert cfg.loss_class_weights == weights
+
+    def test_nbs_include_pixel_defaults(self, train_config_cls):
+        from fronts import utils
+
+        yaml_data = {"train_config": {"loss_class_weights": None, "epochs": 1}}
+        cfg = utils.parse_config_section(yaml_data, train_config_cls, "train_config")
+        assert cfg.nbs_include_pixel is False
+        assert cfg.nbs_pixel_weight == 0.1
+
+    def test_sooner_ablations_config_parses_nbs_pixel_fields(self, train_config_cls):
+        from fronts import utils
+
+        yaml_data = utils.load_yaml("configs/sooner_ablations.yaml")
+        cfg = utils.parse_config_section(yaml_data, train_config_cls, "train_config")
+        assert cfg.nbs_include_pixel is True
+        assert cfg.nbs_pixel_weight == 0.5
 
     def test_schooner_configs_parse(self, train_config_cls):
         from fronts import utils
@@ -773,3 +948,69 @@ class TestModelConfigFreezeValidation:
     def test_freeze_prefixes_without_pretrained_path_raises(self):
         with pytest.raises(ValueError):
             ModelConfig(freeze_layer_prefixes=["En"], pretrained_weights_path=None)
+
+
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestCompileEma:
+    _LATITUDES = np.linspace(25.0, 56.75, 8)
+
+    def test_use_ema_defaults_to_false(self):
+        unet = _build_small_unet()
+        train_cfg = TrainConfig(loss_class_weights=None)
+        _compile(unet, learning_rate=1e-4, metric_class_weights=None, train_cfg=train_cfg, latitudes=self._LATITUDES)
+        assert unet.optimizer.use_ema is False
+
+    def test_use_ema_true_sets_optimizer_flag_and_momentum(self):
+        unet = _build_small_unet()
+        train_cfg = TrainConfig(loss_class_weights=None, use_ema=True, ema_momentum=0.95)
+        _compile(unet, learning_rate=1e-4, metric_class_weights=None, train_cfg=train_cfg, latitudes=self._LATITUDES)
+        assert unet.optimizer.use_ema is True
+        assert unet.optimizer.ema_momentum == pytest.approx(0.95)
+
+    def test_use_ema_false_leaves_default_ema_momentum_inert(self):
+        """ema_momentum must not affect a compiled optimizer when use_ema is False."""
+        unet = _build_small_unet()
+        train_cfg = TrainConfig(loss_class_weights=None, use_ema=False, ema_momentum=0.5)
+        _compile(unet, learning_rate=1e-4, metric_class_weights=None, train_cfg=train_cfg, latitudes=self._LATITUDES)
+        assert unet.optimizer.use_ema is False
+
+
+@pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
+class TestBuildWandbConfig:
+    def test_nests_every_config_section_under_its_yaml_key(self, data_config):
+        model_cfg = ModelConfig()
+        callbacks_cfg = CallbacksConfig()
+        train_cfg = TrainConfig(loss_class_weights=None)
+        wandb_cfg = WandBConfig(log_freq="epoch")
+
+        result = _build_wandb_config(data_config, model_cfg, callbacks_cfg, train_cfg, wandb_cfg, run_meta={})
+
+        assert result["data_config"] == dataclasses.asdict(data_config)
+        assert result["model_config"] == dataclasses.asdict(model_cfg)
+        assert result["callbacks_config"] == dataclasses.asdict(callbacks_cfg)
+        assert result["train_config"] == dataclasses.asdict(train_cfg)
+        assert result["wandb_config"] == dataclasses.asdict(wandb_cfg)
+
+    def test_flattens_run_meta_alongside_config_sections(self, data_config):
+        model_cfg = ModelConfig()
+        callbacks_cfg = CallbacksConfig()
+        train_cfg = TrainConfig(loss_class_weights=None)
+        wandb_cfg = WandBConfig(log_freq="epoch")
+        run_meta = {"git_commit": "abc123", "era5_snapshot_id": "snap1"}
+
+        result = _build_wandb_config(data_config, model_cfg, callbacks_cfg, train_cfg, wandb_cfg, run_meta)
+
+        assert result["git_commit"] == "abc123"
+        assert result["era5_snapshot_id"] == "snap1"
+
+    def test_nested_dataclass_fields_are_plain_dicts(self, data_config):
+        """Nested dataclasses (e.g. IcechunkStorageConfig) must serialize to dicts, not objects, for W&B."""
+        model_cfg = ModelConfig()
+        callbacks_cfg = CallbacksConfig()
+        train_cfg = TrainConfig(loss_class_weights=None)
+        wandb_cfg = WandBConfig(log_freq="epoch")
+
+        result = _build_wandb_config(data_config, model_cfg, callbacks_cfg, train_cfg, wandb_cfg, run_meta={})
+
+        assert isinstance(result["data_config"]["inputs_icechunk_config"], dict)
+        assert result["data_config"]["inputs_icechunk_config"]["store_path"] == "unused"

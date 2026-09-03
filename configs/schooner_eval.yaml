@@ -1,4 +1,4 @@
-run_name: brier_3d_all_vars_full_domain_pretrained_conus
+run_name: ablation_pv_and_theta_e
 
 data_config:
   inputs_icechunk_config:
@@ -17,24 +17,13 @@ data_config:
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   volume_inputs: true  # batches shaped (batch, lat, lon, level, variable) for Conv3D
-  variables: [
-    "geopotential",
-    "temperature",
-    "u_component_of_wind",
-    "v_component_of_wind",
-    "specific_humidity",
-    "vertical_velocity",
-    "potential_vorticity",
-    "equivalent_potential_temperature",
-    "virtual_temperature",
-    "dewpoint_temperature",
-    "relative_humidity",
-    "potential_temperature",
-    "mean_sea_level_pressure",
-    "2m_temperature",
-    "10m_u_component_of_wind",
-    "10m_v_component_of_wind",
-    "2m_dewpoint_temperature",
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "potential_vorticity",
     ]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
   normalization_method: minmax

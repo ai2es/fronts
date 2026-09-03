@@ -2,7 +2,13 @@ r"""Compute TP/FP/TN/FN performance statistics from an icechunk-backed model and
 
 Iterates over all aligned ERA5/fronts timesteps in the icechunk stores, runs model
 inference, and accumulates statistics over 5 neighbourhood radii (50-250 km) and
-100 probability thresholds (0.01-1.0) with optional land/ocean masking.
+100 probability thresholds (0.01-1.0) with optional land/ocean masking. Also accumulates
+exact-pixel (no neighborhood expansion) TP/FP, so the reliability diagram can show a
+pointwise curve alongside the neighborhood-matched ones — verifying the forecast probability
+against "front at this exact pixel" rather than "front somewhere within 50-250 km" is closer
+to what the training loss's own positional tolerance (tens of km) actually targets, and the
+gap between the two tells you how much of any calibration gap is a real pointwise issue versus
+an artifact of the looser neighborhood-match criterion.
 
 Outputs three NetCDF files compatible with the ``performance-diagrams`` subcommand of
 ``src/fronts/plot/plot.py``.
@@ -31,7 +37,7 @@ from tqdm import tqdm
 from fronts import utils
 from fronts.data import datasets
 from fronts.layers import losses, metrics
-from fronts.model import SharedTargetModel
+from fronts.model import SharedTargetModel, TemperatureScaledModel
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +137,11 @@ def compute_derived_stats(
     """Derive POD, SR, CSI, FB, HSS, and reliability metrics from raw TP/FP/TN/FN datasets.
 
     Args:
-        aggregate_ds: Per-front-type TP/FP/TN/FN with dims (neighborhood, threshold).
+        aggregate_ds: Per-front-type TP/FP/TN/FN with dims (neighborhood, threshold). When it
+            also carries ``tp_pointwise_{ft}``/``fp_pointwise_{ft}`` (dims (threshold,) — see
+            ``accumulate_stats``), an ``obs_rel_freq_pointwise_{ft}`` reliability curve is
+            derived too, verified against the exact-pixel truth rather than a neighborhood-
+            expanded one.
         spatial_ds: Per-front-type spatial TP/FP/TN/FN with dims (lat, lon, neighborhood, threshold).
         front_types: Front type labels in class order excluding background.
 
@@ -157,6 +167,17 @@ def compute_derived_stats(
         fp_diff = abs(fp.diff("threshold")).rename({"threshold": "threshold_diff"})
         denom_rf = tp_diff + fp_diff
         data_vars[f"obs_rel_freq_{ft}"] = xr.where(denom_rf > 0, tp_diff / denom_rf, 0.0).astype(np.float32)
+
+        pointwise_key = f"tp_pointwise_{ft}"
+        if pointwise_key in aggregate_ds:
+            tp_pw = aggregate_ds[pointwise_key]
+            fp_pw = aggregate_ds[f"fp_pointwise_{ft}"]
+            tp_pw_diff = abs(tp_pw.diff("threshold")).rename({"threshold": "threshold_diff"})
+            fp_pw_diff = abs(fp_pw.diff("threshold")).rename({"threshold": "threshold_diff"})
+            denom_pw = tp_pw_diff + fp_pw_diff
+            data_vars[f"obs_rel_freq_pointwise_{ft}"] = xr.where(denom_pw > 0, tp_pw_diff / denom_pw, 0.0).astype(
+                np.float32
+            )
 
         total_0 = (tp + fp + tn + fn).isel(neighborhood=0, threshold=0)
         data_vars[f"rel_forecast_frac_{ft}"] = xr.where(
@@ -253,8 +274,13 @@ def accumulate_stats(
     Returns:
         Tuple of (spatial_ds, aggregate_ds, derived_ds) xr.Datasets.
         spatial_ds variables have dims (latitude, longitude, neighborhood, threshold).
-        aggregate_ds variables have dims (neighborhood, threshold).
-        derived_ds contains POD, SR, CSI, FB, HSS, reliability, and spatial CSI.
+        aggregate_ds variables have dims (neighborhood, threshold), plus
+        ``tp_pointwise_{ft}``/``fp_pointwise_{ft}`` with dims (threshold,) — TP/FP against the
+        exact-pixel truth (no neighborhood expansion), for diagnosing whether the neighborhood-
+        matched reliability curves (b) reflect a real pointwise calibration problem or just the
+        looser 50-250 km match criterion.
+        derived_ds contains POD, SR, CSI, FB, HSS, reliability (neighborhood-matched and
+        pointwise), and spatial CSI.
     """
     n_fronts = len(front_types)
     n_nbhd = len(NEIGHBORHOODS_KM)
@@ -278,8 +304,12 @@ def accumulate_stats(
 
     spatial_shape = (n_fronts, n_lat, n_lon, n_nbhd, N_THRESHOLDS)
     aggregate_shape = (n_fronts, n_nbhd, N_THRESHOLDS)
+    pointwise_shape = (n_fronts, N_THRESHOLDS)
     spatial = {k: np.zeros(spatial_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
     aggregate = {k: np.zeros(aggregate_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
+    # Exact-pixel (no neighborhood expansion) TP/FP, kept separately from the neighborhood-radius
+    # aggregate above — see the module-level docstring on the reliability-diagram mismatch.
+    aggregate_pointwise = {k: np.zeros(pointwise_shape, dtype=np.float32) for k in ("tp", "fp")}
 
     class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
 
@@ -324,6 +354,15 @@ def accumulate_stats(
         spatial["fn"] += _float_buf[:, :, :, np.newaxis, :]
         aggregate["fn"] += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
 
+        # Pointwise TP/FP: above & exact-pixel truth (no neighborhood expansion), the same
+        # truth_4d used for TN/FN above. Aggregate-only (no spatial map) — this exists purely
+        # to derive obs_rel_freq_pointwise, the reliability curve the training loss's positional
+        # tolerance (~tens of km) actually corresponds to, as opposed to the 50-250 km curves.
+        np.multiply(_above_weighted, truth_4d, out=_float_buf)
+        aggregate_pointwise["tp"] += _float_buf.sum(axis=(1, 2))
+        np.subtract(_above_weighted, _float_buf, out=_float_buf2)
+        aggregate_pointwise["fp"] += _float_buf2.sum(axis=(1, 2))
+
         # Force contiguity: matmul below falls back to a slow non-BLAS path on the
         # transpose-then-reshape view (~96x slower than on a contiguous copy).
         expanded = _expand_all_neighborhoods(truth_fronts, n_nbhd, lat_pixels_per_step, lon_pixels_per_lat)
@@ -353,12 +392,20 @@ def accumulate_stats(
             for k in ("tp", "fp", "tn", "fn")
         },
     )
+    dims_pw = ("threshold",)
     aggregate_ds = xr.Dataset(
         coords={"neighborhood": NEIGHBORHOODS_KM, "threshold": THRESHOLDS},
         data_vars={
-            f"{k}_{ft}": (dims_ag, aggregate[k][fi])
-            for fi, ft in enumerate(front_types)
-            for k in ("tp", "fp", "tn", "fn")
+            **{
+                f"{k}_{ft}": (dims_ag, aggregate[k][fi])
+                for fi, ft in enumerate(front_types)
+                for k in ("tp", "fp", "tn", "fn")
+            },
+            **{
+                f"{k}_pointwise_{ft}": (dims_pw, aggregate_pointwise[k][fi])
+                for fi, ft in enumerate(front_types)
+                for k in ("tp", "fp")
+            },
         },
     )
     derived_ds = compute_derived_stats(aggregate_ds, spatial_ds, front_types)
@@ -478,9 +525,14 @@ def run(eval_cfg: EvalConfig, data_cfg: datasets.DatasetConfig) -> None:
     utils.configure_gpu(eval_cfg.gpu_device)
     log.info("Loading model from %s …", eval_cfg.model_path)
     keras_model = tf.keras.models.load_model(
-        eval_cfg.model_path, compile=False, custom_objects={"SharedTargetModel": SharedTargetModel}
+        eval_cfg.model_path,
+        compile=False,
+        custom_objects={"SharedTargetModel": SharedTargetModel, "TemperatureScaledModel": TemperatureScaledModel},
     )
-    log.info("Model loaded. Output count: %d.", len(keras_model.outputs))
+    # TemperatureScaledModel is a subclassed (not functional) tf.keras.Model, so it has no
+    # .outputs attribute of its own — only its wrapped functional logit_model does.
+    output_bearing_model = getattr(keras_model, "logit_model", keras_model)
+    log.info("Model loaded. Output count: %d.", len(output_bearing_model.outputs))
 
     era5_ds, fronts_raw, lats, lons, spatial_mask, effective_data_cfg = load_eval_arrays(eval_cfg, data_cfg)
 
@@ -525,6 +577,7 @@ def main() -> None:
         help="Restrict stats to land or ocean grid points.",
     )
     parser.add_argument("--outdir", type=str, default=None, help="Override output directory from eval_config.")
+    parser.add_argument("--model_path", type=str, default=None, help="Override model path from eval_config.")
     args = parser.parse_args()
 
     yaml_data = utils.load_yaml(args.config_path)
@@ -534,6 +587,7 @@ def main() -> None:
         eval_cfg,
         mask=args.mask if args.mask is not None else eval_cfg.mask,
         outdir=args.outdir if args.outdir is not None else eval_cfg.outdir,
+        model_path=args.model_path if args.model_path is not None else eval_cfg.model_path,
     )
     run(eval_cfg, data_cfg)
 

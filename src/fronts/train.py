@@ -84,6 +84,27 @@ class TrainConfig:
         nbs_lat_dependent_pool: ``lat_dependent_pool`` passed to
             ``losses.neighborhood_brier_score``. Only used when
             ``loss_name == "neighborhood_brier_score"``.
+        nbs_include_pixel: ``include_pixel`` passed to ``losses.neighborhood_brier_score`` — adds
+            an un-pooled, per-pixel Brier term alongside the neighborhood-pooled one. The pooled
+            term alone only constrains the *neighborhood-averaged* forecast fraction, so it gives
+            very little gradient pressure to sharpen any single pixel's probability once it's
+            already moderately high (the marginal squared-error gain of 0.8 -> 0.99 is tiny and
+            further diluted by averaging over the pooling window) — this is why pointwise
+            reliability curves (see ``evaluate.obs_rel_freq_pointwise``) tend to plateau well
+            below 100% forecast probability. The pixelwise term scores each pixel directly,
+            undiluted by pooling, to counteract that. Only used when
+            ``loss_name == "neighborhood_brier_score"``.
+        nbs_pixel_weight: ``pixel_weight`` passed to ``losses.neighborhood_brier_score`` — the
+            pixelwise term's weight relative to the pooled term (which is fixed at 1). Only used
+            when ``nbs_include_pixel`` is True.
+        use_ema: Whether the optimizer tracks an exponential moving average (Polyak averaging) of
+            the model's trainable weights, swapped into the model for validation, checkpointing,
+            and early-stopping's best-weight snapshot via a ``SwapEMAWeights(swap_on_epoch=True)``
+            callback (see ``_run``). Averaging over recent weight updates trades a small amount of
+            fit-to-the-latest-batch for a flatter, less noise-sensitive optimum — cheap to enable
+            since it adds no extra forward/backward passes.
+        ema_momentum: Decay rate for the weight EMA (Keras default: 0.99, an ~100-step effective
+            averaging window). Only used when ``use_ema`` is True.
     """
 
     loss_class_weights: list[float] | None
@@ -97,6 +118,10 @@ class TrainConfig:
     nbs_tolerance_km: float = 25.0
     nbs_periodic_lon: bool = False
     nbs_lat_dependent_pool: bool = False
+    nbs_include_pixel: bool = False
+    nbs_pixel_weight: float = 0.1
+    use_ema: bool = False
+    ema_momentum: float = 0.99
 
 
 def load_data_into_dataloader(
@@ -238,6 +263,8 @@ def _build_loss(
     nbs_tolerance_km: float,
     nbs_periodic_lon: bool,
     nbs_lat_dependent_pool: bool,
+    nbs_include_pixel: bool = False,
+    nbs_pixel_weight: float = 0.1,
 ):
     """Build the configured training loss.
 
@@ -251,6 +278,10 @@ def _build_loss(
         nbs_periodic_lon: Whether longitude wraps. Only used by "neighborhood_brier_score".
         nbs_lat_dependent_pool: Whether to use latitude-dependent pooling. Only used by
             "neighborhood_brier_score".
+        nbs_include_pixel: Whether to add the un-pooled pixelwise Brier term. Only used by
+            "neighborhood_brier_score".
+        nbs_pixel_weight: Relative weight of the pixelwise term when ``nbs_include_pixel`` is
+            True. Only used by "neighborhood_brier_score".
 
     Returns:
         A callable loss function suitable for ``model.compile(loss=...)``.
@@ -267,6 +298,8 @@ def _build_loss(
             class_weights=loss_class_weights,
             periodic_lon=nbs_periodic_lon,
             lat_dependent_pool=nbs_lat_dependent_pool,
+            include_pixel=nbs_include_pixel,
+            pixel_weight=nbs_pixel_weight,
         )
     raise ValueError(
         f"Unrecognized loss_name {loss_name!r}; expected 'fractions_skill_score' or 'neighborhood_brier_score'."
@@ -340,13 +373,20 @@ def _compile(
         nbs_tolerance_km=train_cfg.nbs_tolerance_km,
         nbs_periodic_lon=train_cfg.nbs_periodic_lon,
         nbs_lat_dependent_pool=train_cfg.nbs_lat_dependent_pool,
+        nbs_include_pixel=train_cfg.nbs_include_pixel,
+        nbs_pixel_weight=train_cfg.nbs_pixel_weight,
     )
     hss_fn = metrics.heidke_skill_score(class_weights=metric_class_weights)
     hss_hard_fn = tf.keras.metrics.MeanMetricWrapper(
         fn=metrics.heidke_skill_score(class_weights=metric_class_weights, threshold=0.5),
         name="hss_hard",
     )
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=gradient_clip_norm)
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=learning_rate,
+        clipnorm=gradient_clip_norm,
+        use_ema=train_cfg.use_ema,
+        ema_momentum=train_cfg.ema_momentum,
+    )
     if tf.keras.mixed_precision.global_policy().name == "mixed_float16":
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     model.compile(
@@ -420,6 +460,93 @@ def _build_monitor_callbacks(
     ]
 
 
+def _optimizer_uses_ema(optimizer: tf.keras.optimizers.Optimizer) -> bool:
+    """Whether optimizer has weight EMA enabled, unwrapping a mixed-precision LossScaleOptimizer.
+
+    Args:
+        optimizer: The model's (possibly LossScaleOptimizer-wrapped) optimizer.
+
+    Returns:
+        True if the underlying optimizer was built with ``use_ema=True``.
+    """
+    inner_optimizer = getattr(optimizer, "inner_optimizer", optimizer)
+    return bool(getattr(inner_optimizer, "use_ema", False))
+
+
+def _build_run_callbacks(
+    uses_ema: bool,
+    monitor: str,
+    patience: int,
+    learning_rate_decay_factor: float | None,
+    learning_rate_minimum: float | None,
+    monitor_min_delta: float,
+    early_stopping_patience: int | None,
+    extra_callbacks: list[tf.keras.callbacks.Callback] | None,
+    wandb_project: str | None,
+    wandb_log_freq: str | int,
+    model_checkpoint_path: str | None,
+) -> list[tf.keras.callbacks.Callback]:
+    """Build the ordered callback list passed to model.fit().
+
+    Ordering is load-bearing when ``uses_ema`` is True: SwapEMAWeights must be listed first so
+    it swaps the EMA-averaged weights into the model at ``on_epoch_end`` before EarlyStopping /
+    ModelCheckpoint (listed after it) capture their epoch's "best" snapshot — otherwise both
+    would checkpoint raw, non-averaged weights even though the val_loss they selected on was
+    already computed against the EMA weights (SwapEMAWeights always swaps EMA in for every
+    internal validation pass, independent of this ordering). See ``TrainConfig.use_ema``.
+
+    Args:
+        uses_ema: Whether the compiled model's optimizer has weight EMA enabled.
+        monitor: Metric name to monitor for LR decay / early stopping.
+        patience: Epochs with no improvement before decaying LR (or stopping, without decay).
+        learning_rate_decay_factor: Passed through to ``_build_monitor_callbacks``.
+        learning_rate_minimum: Passed through to ``_build_monitor_callbacks``.
+        monitor_min_delta: Passed through to ``_build_monitor_callbacks``.
+        early_stopping_patience: Passed through to ``_build_monitor_callbacks``.
+        extra_callbacks: Additional callbacks (e.g. periodic test-set visualization) to append.
+        wandb_project: W&B project name, or None to skip W&B logging/checkpointing.
+        wandb_log_freq: Passed to ``wandb.keras.WandbMetricsLogger``.
+        model_checkpoint_path: Path prefix for the best-loss checkpoint, or None to skip
+            checkpointing.
+
+    Returns:
+        Ordered list of callbacks for ``model.fit()``.
+    """
+    # Use the W&B Keras callback if logging to W&B, otherwise the standard ModelCheckpoint.
+    ckpt_cls = wandb.keras.WandbModelCheckpoint if wandb_project else tf.keras.callbacks.ModelCheckpoint
+    callbacks: list[tf.keras.callbacks.Callback] = []
+    if uses_ema:
+        callbacks.append(tf.keras.callbacks.SwapEMAWeights(swap_on_epoch=True))
+    callbacks.extend(
+        _build_monitor_callbacks(
+            monitor,
+            patience,
+            learning_rate_decay_factor,
+            learning_rate_minimum,
+            min_delta=monitor_min_delta,
+            early_stopping_patience=early_stopping_patience,
+        )
+    )
+    callbacks.append(fronts_callbacks.GcCallback())
+    # Must run before WandbMetricsLogger: it mutates the shared `logs` dict that
+    # WandbMetricsLogger reads, collapsing per-deep-supervision-output keys into
+    # single aggregate hss/val_hss (and stripping the per-output loss keys).
+    callbacks.append(fronts_callbacks.MetricsConsolidationCallback())
+    callbacks.extend(extra_callbacks or [])
+    if wandb_project:
+        callbacks.append(wandb.keras.WandbMetricsLogger(log_freq=wandb_log_freq))
+    if model_checkpoint_path:
+        callbacks.append(
+            ckpt_cls(
+                f"{model_checkpoint_path}_best_loss.keras",
+                monitor="val_loss",
+                save_best_only=True,
+                mode="min",
+            )
+        )
+    return callbacks
+
+
 def _run(
     model: tf.keras.Model,
     train_data: datasets.FrontsPyDataset,
@@ -438,7 +565,7 @@ def _run(
     wandb_log_freq: str | int = "epoch",
     steps_per_epoch: int | None = None,
     validation_steps: int | None = None,
-    run_config: dict[str, str] | None = None,
+    run_config: dict | None = None,
     extra_callbacks: list[tf.keras.callbacks.Callback] | None = None,
 ) -> tuple[tf.keras.callbacks.History, float]:
     if wandb_project:
@@ -449,35 +576,19 @@ def _run(
             config=run_config or {},
         )
 
-    # Use the W&B Keras callback if logging to W&B, otherwise the standard ModelCheckpoint.
-    ckpt_cls = wandb.keras.WandbModelCheckpoint if wandb_project else tf.keras.callbacks.ModelCheckpoint
-    callbacks = [
-        *_build_monitor_callbacks(
-            monitor,
-            patience,
-            learning_rate_decay_factor,
-            learning_rate_minimum,
-            min_delta=monitor_min_delta,
-            early_stopping_patience=early_stopping_patience,
-        ),
-        fronts_callbacks.GcCallback(),
-        # Must run before WandbMetricsLogger: it mutates the shared `logs` dict that
-        # WandbMetricsLogger reads, collapsing per-deep-supervision-output keys into
-        # single aggregate hss/val_hss (and stripping the per-output loss keys).
-        fronts_callbacks.MetricsConsolidationCallback(),
-    ]
-    callbacks.extend(extra_callbacks or [])
-    if wandb_project:
-        callbacks.append(wandb.keras.WandbMetricsLogger(log_freq=wandb_log_freq))
-    if model_checkpoint_path:
-        callbacks.append(
-            ckpt_cls(
-                f"{model_checkpoint_path}_best_loss.keras",
-                monitor="val_loss",
-                save_best_only=True,
-                mode="min",
-            )
-        )
+    callbacks = _build_run_callbacks(
+        uses_ema=_optimizer_uses_ema(model.optimizer),
+        monitor=monitor,
+        patience=patience,
+        learning_rate_decay_factor=learning_rate_decay_factor,
+        learning_rate_minimum=learning_rate_minimum,
+        monitor_min_delta=monitor_min_delta,
+        early_stopping_patience=early_stopping_patience,
+        extra_callbacks=extra_callbacks,
+        wandb_project=wandb_project,
+        wandb_log_freq=wandb_log_freq,
+        model_checkpoint_path=model_checkpoint_path,
+    )
     t0 = time.time()
     history = model.fit(
         train_data,
@@ -578,6 +689,39 @@ def _collect_run_metadata(data_config: datasets.DatasetConfig) -> dict[str, str]
         if value is not None:
             meta[key.lower()] = value
     return meta
+
+
+def _build_wandb_config(
+    data_cfg: datasets.DatasetConfig,
+    model_cfg: model.ModelConfig,
+    callbacks_cfg: fronts_callbacks.CallbacksConfig,
+    train_cfg: TrainConfig,
+    wandb_cfg: WandBConfig,
+    run_meta: dict[str, str],
+) -> dict:
+    """Assemble the full ``wandb.init(config=...)`` payload from every YAML config section.
+
+    Args:
+        data_cfg: Parsed ``data_config`` YAML section.
+        model_cfg: Parsed ``model_config`` YAML section.
+        callbacks_cfg: Parsed ``callbacks_config`` YAML section.
+        train_cfg: Parsed ``train_config`` YAML section.
+        wandb_cfg: Parsed ``wandb_config`` YAML section.
+        run_meta: Provenance metadata from ``_collect_run_metadata`` (git commit, icechunk
+            snapshot ids, SLURM job info).
+
+    Returns:
+        Dict nesting each config section (as a plain dict, via ``dataclasses.asdict``) under
+        its YAML key, plus the flat ``run_meta`` keys.
+    """
+    return {
+        "data_config": dataclasses.asdict(data_cfg),
+        "model_config": dataclasses.asdict(model_cfg),
+        "callbacks_config": dataclasses.asdict(callbacks_cfg),
+        "train_config": dataclasses.asdict(train_cfg),
+        "wandb_config": dataclasses.asdict(wandb_cfg),
+        **run_meta,
+    }
 
 
 def train(
@@ -739,6 +883,11 @@ def train(
 
     wandb_project = wandb_cfg.project_name if wandb_cfg is not None else None
     run_name = wandb_cfg.run_name if wandb_cfg is not None else None
+    run_config = (
+        _build_wandb_config(data_cfg, model_cfg, callbacks_cfg, train_cfg, wandb_cfg, run_meta)
+        if wandb_cfg is not None
+        else run_meta
+    )
 
     extra_callbacks = []
     if wandb_project and callbacks_cfg.test_viz_every_n_epochs:
@@ -776,7 +925,7 @@ def train(
         wandb_project=wandb_project,
         run_name=run_name,
         wandb_log_freq=wandb_cfg.log_freq if wandb_cfg is not None else "epoch",
-        run_config=run_meta,
+        run_config=run_config,
         extra_callbacks=extra_callbacks,
     )
 

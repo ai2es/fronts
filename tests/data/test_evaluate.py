@@ -99,18 +99,23 @@ def small_data_config():
 
 @pytest.fixture()
 def aggregate_ds_fixture(tiny_lats, tiny_lons) -> xr.Dataset:
-    """Synthetic aggregate TP/FP/TN/FN Dataset for derive tests."""
+    """Synthetic aggregate TP/FP/TN/FN Dataset for derive tests, including pointwise TP/FP."""
     n_nbhd = len(NEIGHBORHOODS_KM)
     coords = {"neighborhood": NEIGHBORHOODS_KM, "threshold": THRESHOLDS}
     rng = np.random.default_rng(7)
-    return xr.Dataset(
+    data_vars = {
+        f"{k}_{ft}": (["neighborhood", "threshold"], rng.random((n_nbhd, N_THRESHOLDS)).astype(np.float32))
+        for ft in _FRONT_TYPES
+        for k in ("tp", "fp", "tn", "fn")
+    }
+    data_vars.update(
         {
-            f"{k}_{ft}": (["neighborhood", "threshold"], rng.random((n_nbhd, N_THRESHOLDS)).astype(np.float32))
+            f"{k}_pointwise_{ft}": (["threshold"], rng.random(N_THRESHOLDS).astype(np.float32))
             for ft in _FRONT_TYPES
-            for k in ("tp", "fp", "tn", "fn")
-        },
-        coords=coords,
+            for k in ("tp", "fp")
+        }
     )
+    return xr.Dataset(data_vars, coords=coords)
 
 
 @pytest.fixture()
@@ -194,6 +199,30 @@ class TestComputeDerivedStats:
         for ft in _FRONT_TYPES:
             shape = derived[f"obs_rel_freq_{ft}"].shape
             assert shape == (N_NBHD, N_THRESHOLDS - 1), f"obs_rel_freq_{ft} shape {shape}"
+
+    def test_obs_rel_freq_pointwise_present_when_inputs_available(self, aggregate_ds_fixture, spatial_ds_fixture):
+        """obs_rel_freq_pointwise_{ft} is derived whenever tp/fp_pointwise_{ft} are in aggregate_ds."""
+        derived = compute_derived_stats(aggregate_ds_fixture, spatial_ds_fixture, _FRONT_TYPES)
+        for ft in _FRONT_TYPES:
+            shape = derived[f"obs_rel_freq_pointwise_{ft}"].shape
+            assert shape == (N_THRESHOLDS - 1,), f"obs_rel_freq_pointwise_{ft} shape {shape}"
+
+    def test_obs_rel_freq_pointwise_absent_without_inputs(self, spatial_ds_fixture):
+        """Older aggregate_ds files without pointwise TP/FP don't crash — the variable is just omitted."""
+        n_nbhd = len(NEIGHBORHOODS_KM)
+        coords = {"neighborhood": NEIGHBORHOODS_KM, "threshold": THRESHOLDS}
+        rng = np.random.default_rng(7)
+        agg_without_pointwise = xr.Dataset(
+            {
+                f"{k}_{ft}": (["neighborhood", "threshold"], rng.random((n_nbhd, N_THRESHOLDS)).astype(np.float32))
+                for ft in _FRONT_TYPES
+                for k in ("tp", "fp", "tn", "fn")
+            },
+            coords=coords,
+        )
+        derived = compute_derived_stats(agg_without_pointwise, spatial_ds_fixture, _FRONT_TYPES)
+        for ft in _FRONT_TYPES:
+            assert f"obs_rel_freq_pointwise_{ft}" not in derived
 
     def test_spatial_csi_shape(self, aggregate_ds_fixture, spatial_ds_fixture, tiny_lats, tiny_lons):
         derived = compute_derived_stats(aggregate_ds_fixture, spatial_ds_fixture, _FRONT_TYPES)
@@ -295,6 +324,9 @@ class TestComputeStatsShapes:
                 assert f"{metric}_{ft}" in aggregate_ds
                 assert spatial_ds[f"{metric}_spatial_{ft}"].shape == (_N_LAT, _N_LON, N_NBHD, N_THRESHOLDS)
                 assert aggregate_ds[f"{metric}_{ft}"].shape == (N_NBHD, N_THRESHOLDS)
+            for metric in ("tp", "fp"):
+                assert f"{metric}_pointwise_{ft}" in aggregate_ds
+                assert aggregate_ds[f"{metric}_pointwise_{ft}"].shape == (N_THRESHOLDS,)
 
     def test_derived_ds_variables_present(
         self, small_input_ds, small_target_da, small_data_config, tiny_lats, tiny_lons
@@ -311,7 +343,17 @@ class TestComputeStatsShapes:
             spatial_mask=None,
         )
         for ft in _FRONT_TYPES:
-            for var in ("pod", "sr", "csi", "fb", "hss", "obs_rel_freq", "rel_forecast_frac", "spatial_csi"):
+            for var in (
+                "pod",
+                "sr",
+                "csi",
+                "fb",
+                "hss",
+                "obs_rel_freq",
+                "obs_rel_freq_pointwise",
+                "rel_forecast_frac",
+                "spatial_csi",
+            ):
                 assert f"{var}_{ft}" in derived_ds, f"Missing {var}_{ft} in derived_ds"
 
     def test_nonnegative_outputs(self, small_input_ds, small_target_da, small_data_config, tiny_lats, tiny_lons):
@@ -354,6 +396,8 @@ class TestComputeStatsShapes:
         )
         assert np.all(aggregate_ds["tp_CF"].values == 0)
         assert np.all(aggregate_ds["fp_CF"].values == 0)
+        assert np.all(aggregate_ds["tp_pointwise_CF"].values == 0)
+        assert np.all(aggregate_ds["fp_pointwise_CF"].values == 0)
 
     def test_tp_nondecreasing_with_neighbourhood(self, small_data_config, tiny_lats, tiny_lons):
         """TP can only grow as the neighbourhood radius increases."""
@@ -413,6 +457,12 @@ class TestComputeStatsShapes:
         threshold_idx = int(np.searchsorted(THRESHOLDS, 0.5))
         for ni in range(1, N_NBHD):
             assert tp[ni, threshold_idx] >= tp[ni - 1, threshold_idx], f"TP decreased at neighbourhood {ni}"
+
+        # Pointwise (exact-pixel) TP requires the front to be at that exact pixel, a strictly
+        # tighter criterion than even the smallest (50 km) neighborhood match, so it can only be
+        # smaller or equal.
+        tp_pointwise = aggregate_ds["tp_pointwise_CF"].values  # (N_THRESHOLDS,)
+        assert tp_pointwise[threshold_idx] <= tp[0, threshold_idx]
 
     def test_matches_predict_batches_then_accumulate_stats(
         self, small_input_ds, small_target_da, small_data_config, tiny_lats, tiny_lons
