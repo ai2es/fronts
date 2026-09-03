@@ -1,0 +1,72 @@
+run_name: ablation_terrain_4_levels_surface_vars_full
+
+train_config:
+  epochs: 5000
+  seed: 42
+  learning_rate: 0.0005
+  shuffle: true
+  loss_class_weights: null # null supervises all classes incl. background in the training loss, matching the AIES FrontFinder model
+  loss_name: neighborhood_brier_score
+  nbs_tolerance_km: 25.0 # reproduces the old 1-px (0.25 deg) label dilation
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 32
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "3h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "10m_u_component_of_wind",
+      "10m_v_component_of_wind",
+      "2m_dewpoint_temperature",
+      "geopotential_at_surface"
+    ]
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax
+  num_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+
+model_config:
+  n_classes: 6
+  n_channels: 30
+  levels: 4
+  filter_num: [16, 32, 64, 128]
+  pool_size: [2, 2]
+  upsample_size: [2, 2]
+  kernel_size: 5
+  first_encoder_connections: true
+  deep_supervision: true
+  batch_normalization: true
+  activation: "gelu"
+  output_activation: "softmax"
+  modules_per_node: 2
+
+callbacks_config:
+  monitor: "val_loss"
+  patience: 3
+  learning_rate_decay_factor: 0.2
+  learning_rate_minimum: 1e-6
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/"
+  test_viz_every_n_epochs: 1 # log a test-set prediction map + performance diagrams to W&B every N epochs; null disables
+  test_viz_sample_size: 200 # number of (seeded, random) test timesteps used for the periodic performance diagram
+
+wandb_config:
+  project_name: "fronts"
+  run_name: "${run_name}"
+  log_freq: 10 # log to W&B every 10 batches instead of waiting for each epoch to finish
