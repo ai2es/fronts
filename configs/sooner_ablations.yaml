@@ -33,7 +33,7 @@ data_config:
   max_queue_size: 16
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
-  time_resolution: "3h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
   variables:
     [
