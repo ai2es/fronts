@@ -59,6 +59,79 @@ class TestMetricsConsolidationCallback:
         fc.MetricsConsolidationCallback().on_epoch_end(0, None)
 
 
+class TestBuildDatasetShapeSummary:
+    def test_builds_shape_and_date_range(self):
+        times = np.array(["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64[D]")
+        summary = fc.build_dataset_shape_summary(
+            split="train", input_shape=(3, 4, 5, 2), target_shape=(3, 4, 5), times=times
+        )
+        assert summary.split == "train"
+        assert summary.input_shape == (3, 4, 5, 2)
+        assert summary.target_shape == (3, 4, 5)
+        assert summary.date_min == "2020-01-01"
+        assert summary.date_max == "2020-01-03"
+
+    def test_out_of_order_times_still_yield_true_min_max(self):
+        times = np.array(["2020-03-01", "2020-01-05", "2020-02-10"], dtype="datetime64[D]")
+        summary = fc.build_dataset_shape_summary(
+            split="val", input_shape=(3, 2, 2), target_shape=(3, 2, 2), times=times
+        )
+        assert summary.date_min == "2020-01-05"
+        assert summary.date_max == "2020-03-01"
+
+    def test_empty_times_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            fc.build_dataset_shape_summary(
+                split="test", input_shape=(0, 2, 2), target_shape=(0, 2, 2), times=np.array([], dtype="datetime64[D]")
+            )
+
+
+class TestDatasetSummaryCallback:
+    def _make_summaries(self) -> list["fc.DatasetShapeSummary"]:
+        return [
+            fc.DatasetShapeSummary(
+                split="train",
+                input_shape=(10, 4, 5, 2),
+                target_shape=(10, 4, 5),
+                date_min="2020-01-01",
+                date_max="2020-06-01",
+            ),
+            fc.DatasetShapeSummary(
+                split="val",
+                input_shape=(2, 4, 5, 2),
+                target_shape=(2, 4, 5),
+                date_min="2020-06-02",
+                date_max="2020-07-01",
+            ),
+        ]
+
+    def test_logs_every_split(self, caplog):
+        cb = fc.DatasetSummaryCallback(self._make_summaries())
+        with caplog.at_level("INFO", logger="fronts.callbacks"):
+            cb.on_train_begin()
+        assert "train split" in caplog.text
+        assert "val split" in caplog.text
+        assert "2020-01-01" in caplog.text
+        assert "2020-07-01" in caplog.text
+
+    def test_updates_wandb_summary_when_run_active(self, monkeypatch):
+        summary_updates = {}
+        fake_run = type("FakeRun", (), {"summary": type("FakeSummary", (), {"update": summary_updates.update})()})()
+        monkeypatch.setattr(fc.wandb, "run", fake_run)
+
+        cb = fc.DatasetSummaryCallback(self._make_summaries())
+        cb.on_train_begin()
+
+        assert summary_updates["data/train"]["input_shape"] == [10, 4, 5, 2]
+        assert summary_updates["data/train"]["date_min"] == "2020-01-01"
+        assert summary_updates["data/val"]["date_max"] == "2020-07-01"
+
+    def test_no_wandb_call_when_no_run_active(self, monkeypatch):
+        monkeypatch.setattr(fc.wandb, "run", None)
+        cb = fc.DatasetSummaryCallback(self._make_summaries())
+        cb.on_train_begin()  # Must not raise even with no active run.
+
+
 class TestSelectActiveTestTimestep:
     def test_returns_first_timestep_with_a_front(self):
         data = np.zeros((4, 3, 3), dtype=np.int32)

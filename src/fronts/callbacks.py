@@ -179,6 +179,98 @@ class GcCallback(tf.keras.callbacks.Callback):
             )
 
 
+@dataclasses.dataclass
+class DatasetShapeSummary:
+    """Array shape and date range for one data split, for training-provenance logging.
+
+    Attributes:
+        split: Split name ("train", "val", or "test").
+        input_shape: Model input array shape, e.g. (n_samples, latitude, longitude, channel)
+            for 2D models or (n_samples, latitude, longitude, level, variable) for volume models.
+        target_shape: Raw (non-one-hot) target array shape (n_samples, latitude, longitude).
+        date_min: Earliest timestamp in the split (ISO 8601 date).
+        date_max: Latest timestamp in the split (ISO 8601 date).
+    """
+
+    split: str
+    input_shape: tuple[int, ...]
+    target_shape: tuple[int, ...]
+    date_min: str
+    date_max: str
+
+
+def build_dataset_shape_summary(
+    split: str,
+    input_shape: tuple[int, ...],
+    target_shape: tuple[int, ...],
+    times: np.ndarray,
+) -> DatasetShapeSummary:
+    """Build a DatasetShapeSummary from a split's array shapes and time coordinate.
+
+    Args:
+        split: Split name ("train", "val", or "test").
+        input_shape: Model input array shape for this split.
+        target_shape: Raw (non-one-hot) target array shape for this split.
+        times: 1-D array of ``numpy.datetime64`` timestamps for this split.
+
+    Returns:
+        A DatasetShapeSummary with the date range read from ``times``.
+
+    Raises:
+        ValueError: If ``times`` is empty.
+    """
+    if len(times) == 0:
+        raise ValueError(f"Cannot summarize an empty '{split}' split (0 timesteps).")
+    return DatasetShapeSummary(
+        split=split,
+        input_shape=tuple(input_shape),
+        target_shape=tuple(target_shape),
+        date_min=str(np.datetime_as_string(np.min(times), unit="D")),
+        date_max=str(np.datetime_as_string(np.max(times), unit="D")),
+    )
+
+
+class DatasetSummaryCallback(tf.keras.callbacks.Callback):
+    """Logs each split's input/target array shape and date range once, to logs and W&B.
+
+    Fires on ``on_train_begin`` since shapes and date ranges are fixed for the whole run
+    rather than changing per epoch. Always logs through the fronts logger; also updates the
+    active W&B run's summary (not a time-series metric — ``wandb.log`` would place the
+    string date fields on the run's step-indexed chart axis) when a run is active.
+
+    Attributes:
+        summaries: Shape/date-range summaries for each split to log, in log order.
+    """
+
+    def __init__(self, summaries: list[DatasetShapeSummary]) -> None:
+        super().__init__()
+        self.summaries = summaries
+
+    def on_train_begin(self, logs: dict | None = None) -> None:
+        """Logs every split's array shape and date range to the fronts logger and W&B."""
+        for summary in self.summaries:
+            logger.info(
+                "%s split: input_shape=%s target_shape=%s date_range=[%s, %s]",
+                summary.split,
+                summary.input_shape,
+                summary.target_shape,
+                summary.date_min,
+                summary.date_max,
+            )
+        if wandb.run is not None:
+            wandb.run.summary.update(
+                {
+                    f"data/{summary.split}": {
+                        "input_shape": list(summary.input_shape),
+                        "target_shape": list(summary.target_shape),
+                        "date_min": summary.date_min,
+                        "date_max": summary.date_max,
+                    }
+                    for summary in self.summaries
+                }
+            )
+
+
 def select_active_test_timestep(target_da: xr.DataArray) -> int:
     """Return the index of the first test timestep containing any front pixel.
 
