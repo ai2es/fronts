@@ -1,4 +1,4 @@
-run_name: ablation_terrain_pressure_levels_surface_vars_full_pixelwise_ema
+run_name: ablation_pixelwise_ema
 
 train_config:
   epochs: 5000
@@ -32,7 +32,7 @@ data_config:
   max_queue_size: 16
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
-  time_resolution: "3h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   variables:
     [
       "equivalent_potential_temperature",
@@ -44,7 +44,7 @@ data_config:
       "2m_dewpoint_temperature",
       "geopotential_at_surface"
     ]
-  pressure_levels: [1000, 925, 850, 700]
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
   normalization_method: minmax
   num_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel

@@ -25,32 +25,26 @@ data_config:
   class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
-  variables: [
-    "geopotential",
-    "temperature",
-    "u_component_of_wind",
-    "v_component_of_wind",
-    "specific_humidity",
-    "vertical_velocity",
-    "potential_vorticity",
-    "equivalent_potential_temperature",
-    "virtual_temperature",
-    "dewpoint_temperature",
-    "relative_humidity",
-    "potential_temperature",
-    "mean_sea_level_pressure",
-    "2m_temperature",
-    "10m_u_component_of_wind",
-    "10m_v_component_of_wind",
-    "2m_dewpoint_temperature",
-    "geopotential_at_surface",
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "10m_u_component_of_wind",
+      "10m_v_component_of_wind",
+      "2m_dewpoint_temperature",
+      "geopotential_at_surface"
     ]
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
   normalization_method: minmax
-  num_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+  num_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 model_config:
   n_classes: 6
+  n_channels: 30
   levels: 4
   filter_num: [16, 32, 64, 128]
   pool_size: [2, 2]
