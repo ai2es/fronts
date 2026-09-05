@@ -1,4 +1,4 @@
-run_name: neighborhood_brier_loss
+run_name: merged_ablation_with_feat
 
 train_config:
   epochs: 5000
