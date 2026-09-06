@@ -621,14 +621,17 @@ def _build_dataset_summary(
 
     Returns:
         A DatasetShapeSummary describing the split's model-input shape, target shape, and
-        date range. Stacking the input Dataset into its model-input array is lazy
-        (metadata-only), so no data is read from disk here.
+        date range. ``dataset.input_ds`` is opened with ``chunks=None`` so per-batch
+        training reads go straight through zarr; stacking it directly would force
+        ``to_array``/``stack`` to materialize the whole split in RAM (as with the
+        norm-stats computation above), so it's re-chunked to dask first to keep this
+        metadata-only.
 
     Raises:
         ValueError: If the split has 0 timesteps.
     """
     stack_inputs = inputs.inputs_ds_to_volume_dataarray if data_cfg.volume_inputs else inputs.inputs_ds_to_dataarray
-    input_da = stack_inputs(dataset.input_ds, data_cfg.variables)
+    input_da = stack_inputs(dataset.input_ds.chunk("auto"), data_cfg.variables)
     return fronts_callbacks.build_dataset_shape_summary(
         split=split,
         input_shape=input_da.shape,
