@@ -517,6 +517,35 @@ class TestBuildDatasetSummary:
         assert summary.date_min == str(times.min().date())
         assert summary.date_max == str(times.max().date())
 
+    def test_does_not_eagerly_materialize_a_chunks_none_input_ds(self, era5_ds, front_da, data_config, monkeypatch):
+        """Regression test: stacking a chunks=None input_ds must not materialize the full split.
+
+        ``load_data_into_dataloader`` opens ``input_ds`` with ``chunks=None`` so per-batch
+        training reads go straight through zarr. Stacking that non-dask array directly
+        (``to_array``/``stack``) forces full materialization into RAM regardless of
+        ``batch_size`` — the same trap ``load_or_compute_norm_stats``'s caller avoids with a
+        metadata-only ``.chunk("auto")`` first. This asserts the same precaution is taken here.
+        """
+        times = pd.date_range("2020-01-01", periods=N_TIME, freq="6h")
+        dataset = self._make_dated_dataset(era5_ds, front_da, data_config, times)
+
+        original_chunk = xr.Dataset.chunk
+        chunked_datasets = []
+
+        def _spy_chunk(self, *args, **kwargs):
+            result = original_chunk(self, *args, **kwargs)
+            chunked_datasets.append(result)
+            return result
+
+        monkeypatch.setattr(xr.Dataset, "chunk", _spy_chunk)
+
+        _build_dataset_summary("train", dataset, data_config)
+
+        assert chunked_datasets, "_build_dataset_summary must .chunk() input_ds before stacking it"
+        assert all(var.chunks is not None for var in chunked_datasets[-1].data_vars.values()), (
+            "input_ds must be dask-backed before to_array/stack, or the full split materializes eagerly"
+        )
+
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
 class TestBuildTestVisualizationCallback:
