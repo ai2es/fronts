@@ -34,16 +34,13 @@ import xarray as xr
 from scipy.ndimage import maximum_filter1d
 from tqdm import tqdm
 
-from fronts import utils
+from fronts import constants, utils
 from fronts.data import datasets
 from fronts.layers import losses, metrics
 from fronts.model import SharedTargetModel, TemperatureScaledModel
 
 log = logging.getLogger(__name__)
 
-# Note that FRONT_TYPE_CLASS_INDEX is not the number from the fronts data, but the index
-# in the one-hot encoded array (0=background, 1=CF, 2=WF, 3=SF, 4=OF, 5=DL)
-FRONT_TYPE_CLASS_INDEX: dict[str, int] = {"CF": 1, "WF": 2, "SF": 3, "OF": 4, "DL": 5}
 NEIGHBORHOODS_KM = np.array([50, 100, 150, 200, 250])
 N_THRESHOLDS = 100
 THRESHOLDS = np.linspace(0.01, 1.0, N_THRESHOLDS, dtype=np.float32)
@@ -311,7 +308,7 @@ def accumulate_stats(
     # aggregate above — see the module-level docstring on the reliability-diagram mismatch.
     aggregate_pointwise = {k: np.zeros(pointwise_shape, dtype=np.float32) for k in ("tp", "fp")}
 
-    class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
+    class_indices = [constants.FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
 
     _above = np.empty((n_fronts, n_lat, n_lon, N_THRESHOLDS), dtype=bool)
     _bool_buf = np.empty_like(_above)

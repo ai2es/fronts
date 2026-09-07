@@ -22,7 +22,7 @@ import wandb
 import xarray as xr
 
 from fronts import callbacks as fronts_callbacks
-from fronts import model, utils
+from fronts import constants, model, utils
 from fronts.data import datasets, inputs, targets
 from fronts.layers import losses, metrics
 from fronts.utils import apply_time_resolution
@@ -105,6 +105,10 @@ class TrainConfig:
             since it adds no extra forward/backward passes.
         ema_momentum: Decay rate for the weight EMA (Keras default: 0.99, an ~100-step effective
             averaging window). Only used when ``use_ema`` is True.
+        per_front_type_metrics: Whether to attach the per-front-type metric set (soft/hard HSS,
+            CSI, POD from ``metrics.per_front_type_metrics``, plus the per-front-type loss
+            decomposition from ``_per_front_type_loss_metrics``) to the finest model output. See
+            ``_compile``. Reporting only — never affects ``loss=`` or gradients.
     """
 
     loss_class_weights: list[float] | None
@@ -122,6 +126,9 @@ class TrainConfig:
     nbs_pixel_weight: float = 0.1
     use_ema: bool = False
     ema_momentum: float = 0.99
+    # Defaulted (contrary to the usual no-defaults rule for dataclasses) so the 17 existing
+    # YAML configs keep parsing: dacite raises on a missing required field.
+    per_front_type_metrics: bool = True
 
 
 def load_data_into_dataloader(
@@ -306,6 +313,143 @@ def _build_loss(
     )
 
 
+def _per_front_type_loss_metrics(
+    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score"],
+    loss_class_weights: list[float] | None,
+    latitudes: np.ndarray,
+    fss_mask_size: tuple[int, ...],
+    nbs_tolerance_km: float,
+    nbs_periodic_lon: bool,
+    nbs_lat_dependent_pool: bool,
+    nbs_include_pixel: bool,
+    nbs_pixel_weight: float,
+    n_classes: int,
+) -> list[tf.keras.metrics.Metric]:
+    """Build one loss-valued metric per front type (plus background) for reporting.
+
+    Cost note: this builds ``n_classes`` independent ``_build_loss`` calls (one per front type
+    plus background), each of which — for both ``"fractions_skill_score"`` and
+    ``"neighborhood_brier_score"`` — pools the *entire* ``(batch, H, W, n_classes)`` tensor at
+    full resolution before zeroing out every class but one (class weights are applied AFTER
+    pooling in both losses; see ``losses.neighborhood_brier_score``'s docstring on pooling
+    dominating backward-pass memory). Combined with the compiled loss's own pass, that's
+    ``n_classes + 1`` full-resolution poolings per batch on the finest (largest) model output.
+    This is forward-only reporting cost — it adds no backward pass and does not touch gradients
+    — but it is real, avoidable compute. Sharing one pooling across these independent
+    ``tf.keras.metrics.Metric`` objects would require threading pooled intermediates through the
+    constraint-sensitive loss path (see the REPORTING ONLY constraint in ``TrainConfig``), so
+    this was deliberately deferred rather than fixed; a future maintainer profiling the training
+    loop should look here first, not rediscover it via a profiler.
+
+    Each metric rebuilds the configured training loss (the same ``_build_loss`` call used
+    for the compiled ``loss=`` argument) with a one-hot ``loss_class_weights`` vector that
+    isolates a single class, then wraps it in ``tf.keras.metrics.MeanMetricWrapper`` for a
+    stable ``.name`` (``hss_hard`` in ``_compile`` is the existing precedent for this
+    pattern). These metrics are REPORTING ONLY — none of them is the compiled ``loss=``
+    argument, so none contributes a gradient or changes the optimized scalar.
+
+    Whether the six reported values (five front types plus background) sum exactly to the
+    total configured loss depends on how that loss normalizes ``class_weights``, which
+    differs between the two options this project supports:
+
+    ``neighborhood_brier_score`` (``losses.neighborhood_brier_score``) applies
+    ``class_weights`` directly and unnormalized (``se *= cw`` inside its inner ``_brier``
+    helper), and every term of the loss — the pooled Brier term and, when
+    ``include_pixel`` is set, the pixelwise term — is a mean of ``se * cw`` over the
+    spatial+class axes. That mean is linear in ``cw``: for any two weight vectors u, v and
+    scalars p, q, ``loss(p*u + q*v) == p*loss(u) + q*loss(v)``, because ``cw`` only ever
+    enters as a multiplicative factor before a sum. Building each per-class metric's
+    one-hot vector as ``cw[c] * one_hot(c)`` (using 1.0 in place of ``cw[c]`` when
+    ``loss_class_weights`` is None, matching that loss's "supervise all classes equally"
+    behavior) therefore makes ``sum_c loss(cw[c] * one_hot(c)) == loss(sum_c cw[c] *
+    one_hot(c)) == loss(cw)``, i.e. the per-class values sum EXACTLY to the total loss, on
+    every input — including when some ``cw[c]`` is 0 (that class's reported loss is then
+    exactly 0, its true contribution). This is pinned by
+    ``TestPerFrontTypeLossMetrics.test_nbs_per_class_losses_sum_to_total``.
+
+    ``fractions_skill_score`` (``losses.fractions_skill_score``) renormalizes internally
+    (``relative_cw = cw / sum(cw)``, an unguarded division — a zero-sum ``cw`` divides by
+    zero) and returns a RATIO of two weighted sums (``1 - MSE_n / MSE_ref``), not a
+    weighted sum itself. A ratio of sums is not, in general, a sum of ratios: writing
+    ``a_c`` and ``b_c`` for class c's contributions to the numerator and denominator sums,
+    ``sum_c cw[c] * (a_c / b_c) != (sum_c cw[c] * a_c) / (sum_c cw[c] * b_c)`` unless every
+    ``b_c`` happens to be equal. So no choice of one-hot scaling can make per-class FSS
+    losses sum to the total without changing the loss itself, which the reporting-only
+    constraint forbids. Every per-class FSS metric here therefore uses a plain, UNSCALED
+    one-hot vector (weight 1.0, regardless of that class's configured weight): this avoids
+    the zero-sum-``cw`` NaN (a one-hot vector always sums to 1, never 0) and yields each
+    class's own, self-normalized FSS loss ``a_c / b_c``, i.e. the FSS loss computed as if
+    only that class existed. The weaker property that DOES hold: writing the total as
+    ``sum_c lambda_c * (a_c / b_c)`` with ``lambda_c = (relative_cw[c] * b_c) / sum(relative_cw
+    * b)`` (a valid convex combination — ``lambda_c >= 0`` and ``sum_c lambda_c == 1``,
+    since both ``relative_cw`` and each ``b_c`` are non-negative), the total FSS loss is
+    always a data-dependent weighted average of the reported per-class FSS losses, and so
+    always lies between their min and max: ``min_c loss_c <= total_loss <= max_c loss_c``.
+    Pinned by ``TestPerFrontTypeLossMetrics.test_fss_per_class_losses_bound_total``.
+
+    Args:
+        loss_name: Which training loss to rebuild per class — see ``TrainConfig.loss_name``.
+        loss_class_weights: The whole-vector class weights passed to the compiled loss, or
+            None to supervise all classes equally (weight 1.0 each).
+        latitudes: 1-D grid latitudes, forwarded to ``_build_loss``.
+        fss_mask_size: Forwarded to ``_build_loss``. Only used by "fractions_skill_score".
+        nbs_tolerance_km: Forwarded to ``_build_loss``. Only used by "neighborhood_brier_score".
+        nbs_periodic_lon: Forwarded to ``_build_loss``. Only used by "neighborhood_brier_score".
+        nbs_lat_dependent_pool: Forwarded to ``_build_loss``. Only used by
+            "neighborhood_brier_score".
+        nbs_include_pixel: Forwarded to ``_build_loss``. Only used by
+            "neighborhood_brier_score".
+        nbs_pixel_weight: Forwarded to ``_build_loss``. Only used when ``nbs_include_pixel``
+            is True.
+        n_classes: The model's configured class count (``model.ModelConfig.n_classes``). Must
+            equal ``max(constants.FRONT_TYPE_CLASS_INDEX.values()) + 1`` (background plus every
+            mapped front type); a mismatch raises immediately rather than building a mis-shaped
+            weight vector that would fail with a confusing shape error deep inside
+            ``_build_loss``.
+
+    Returns:
+        One ``MeanMetricWrapper`` per front type (``loss_{ft}``, e.g. ``loss_CF``) plus one
+        for the background class (``loss_{BACKGROUND_CLASS_KEY}``, i.e. ``loss_none``).
+
+    Raises:
+        ValueError: If ``n_classes`` does not match the class count implied by
+            ``constants.FRONT_TYPE_CLASS_INDEX``.
+    """
+    expected_n_classes = max(constants.FRONT_TYPE_CLASS_INDEX.values()) + 1
+    if n_classes != expected_n_classes:
+        raise ValueError(
+            f"n_classes={n_classes} (from model.ModelConfig.n_classes) does not match the "
+            f"{expected_n_classes} classes implied by constants.FRONT_TYPE_CLASS_INDEX "
+            f"(background plus {sorted(constants.FRONT_TYPE_CLASS_INDEX)}). Per-front-type loss "
+            "metrics require these to agree — update constants.FRONT_TYPE_CLASS_INDEX or the "
+            "model's n_classes so they match."
+        )
+    effective_weights = (
+        np.ones(n_classes, dtype=np.float32)
+        if loss_class_weights is None
+        else np.asarray(loss_class_weights, dtype=np.float32)
+    )
+    class_index_by_key = {constants.BACKGROUND_CLASS_KEY: 0, **constants.FRONT_TYPE_CLASS_INDEX}
+
+    metrics_list: list[tf.keras.metrics.Metric] = []
+    for key, class_index in class_index_by_key.items():
+        one_hot_weights = np.zeros(n_classes, dtype=np.float32)
+        one_hot_weights[class_index] = 1.0 if loss_name == "fractions_skill_score" else effective_weights[class_index]
+        loss_fn = _build_loss(
+            loss_name=loss_name,
+            loss_class_weights=one_hot_weights.tolist(),
+            latitudes=latitudes,
+            fss_mask_size=fss_mask_size,
+            nbs_tolerance_km=nbs_tolerance_km,
+            nbs_periodic_lon=nbs_periodic_lon,
+            nbs_lat_dependent_pool=nbs_lat_dependent_pool,
+            nbs_include_pixel=nbs_include_pixel,
+            nbs_pixel_weight=nbs_pixel_weight,
+        )
+        metrics_list.append(tf.keras.metrics.MeanMetricWrapper(fn=loss_fn, name=f"loss_{key}"))
+    return metrics_list
+
+
 def _load_pretrained_weights(
     unet: tf.keras.Model,
     pretrained_weights_path: str,
@@ -362,8 +506,27 @@ def _compile(
     metric_class_weights: list[float] | None,
     train_cfg: "TrainConfig",
     latitudes: np.ndarray,
+    n_classes: int,
     gradient_clip_norm: float | None = None,
 ) -> int:
+    """Compile ``model`` with the configured loss, HSS metrics, and optional per-front-type metrics.
+
+    Args:
+        model: The (possibly strategy-scoped) model to compile in place.
+        learning_rate: Adam learning rate.
+        metric_class_weights: Class weights for the reported HSS metrics (independent of the
+            training loss's own class weights).
+        train_cfg: Training hyperparameters — see ``TrainConfig``.
+        latitudes: 1-D grid latitudes, forwarded to ``_build_loss``.
+        n_classes: The model's configured class count (``model.ModelConfig.n_classes``),
+            forwarded to ``_per_front_type_loss_metrics`` for validation against
+            ``constants.FRONT_TYPE_CLASS_INDEX``. Only used when
+            ``train_cfg.per_front_type_metrics`` is True.
+        gradient_clip_norm: Per-gradient L2-norm clip, or None to leave gradients unclipped.
+
+    Returns:
+        The number of model outputs (``len(model.outputs)``).
+    """
     n_out = len(model.outputs)
     loss_fn = _build_loss(
         loss_name=train_cfg.loss_name,
@@ -381,6 +544,20 @@ def _compile(
         fn=metrics.heidke_skill_score(class_weights=metric_class_weights, threshold=0.5),
         name="hss_hard",
     )
+    per_class: list[tf.keras.metrics.Metric] = []
+    if train_cfg.per_front_type_metrics:
+        per_class = metrics.per_front_type_metrics(constants.FRONT_TYPE_CLASS_INDEX) + _per_front_type_loss_metrics(
+            loss_name=train_cfg.loss_name,
+            loss_class_weights=train_cfg.loss_class_weights,
+            latitudes=latitudes,
+            fss_mask_size=train_cfg.fss_mask_size,
+            nbs_tolerance_km=train_cfg.nbs_tolerance_km,
+            nbs_periodic_lon=train_cfg.nbs_periodic_lon,
+            nbs_lat_dependent_pool=train_cfg.nbs_lat_dependent_pool,
+            nbs_include_pixel=train_cfg.nbs_include_pixel,
+            nbs_pixel_weight=train_cfg.nbs_pixel_weight,
+            n_classes=n_classes,
+        )
     optimizer = tf.keras.optimizers.Adam(
         learning_rate=learning_rate,
         clipnorm=gradient_clip_norm,
@@ -392,7 +569,7 @@ def _compile(
     model.compile(
         optimizer=optimizer,
         loss=loss_fn,
-        metrics=[[hss_fn, hss_hard_fn]] * n_out,
+        metrics=[[hss_fn, hss_hard_fn, *per_class]] + [[hss_fn, hss_hard_fn]] * (n_out - 1),
     )
     return n_out
 
@@ -473,6 +650,119 @@ def _optimizer_uses_ema(optimizer: tf.keras.optimizers.Optimizer) -> bool:
     return bool(getattr(inner_optimizer, "use_ema", False))
 
 
+def _resolve_metrics_csv_path(metrics_csv_path: str | None, model_checkpoint_path: str | None) -> str | None:
+    """Resolves the path the per-epoch metrics CSV should be written to.
+
+    Args:
+        metrics_csv_path: Explicit path from ``CallbacksConfig.metrics_csv_path``, or None to
+            derive one from ``model_checkpoint_path``.
+        model_checkpoint_path: Path prefix for the best-loss checkpoint, or None.
+
+    Returns:
+        ``metrics_csv_path`` if given; otherwise ``metrics_epoch.csv`` next to
+        ``model_checkpoint_path``; otherwise None (CSV logging skipped) when both are None.
+    """
+    if metrics_csv_path is not None:
+        return metrics_csv_path
+    if model_checkpoint_path is not None:
+        return os.path.join(os.path.dirname(model_checkpoint_path), "metrics_epoch.csv")
+    return None
+
+
+def _csv_logger_fieldnames(logs: dict) -> list[str]:
+    """Replicates ``tf.keras.callbacks.CSVLogger``'s column-selection logic for one epoch's logs.
+
+    Mirrors ``CSVLogger.on_epoch_end``'s ``self.keys`` computation exactly (sorted log keys, with
+    a ``val_``-prefixed mirror appended when no ``val_`` key is already present), so the header a
+    real ``CSVLogger`` would write for this run can be computed and compared against an existing
+    file's header before deciding whether to append to it. See ``_ResumeSafeCSVLogger``.
+
+    Args:
+        logs: The epoch logs dict, as passed to a callback's ``on_epoch_end``.
+
+    Returns:
+        The full CSV fieldnames list (``["epoch", *keys]``) ``CSVLogger`` would use.
+    """
+    keys = sorted(logs.keys())
+    if keys and not any(key.startswith("val_") for key in keys):
+        keys = keys + [f"val_{key}" for key in keys]
+    return ["epoch", *keys]
+
+
+class _ResumeSafeCSVLogger(tf.keras.callbacks.Callback):
+    """Wraps ``CSVLogger`` to avoid silently appending rows under a mismatched header.
+
+    ``CSVLogger(path, append=True)`` fixes its column set from the FIRST epoch's ``logs`` and
+    skips writing a header whenever the target file already exists and is non-empty. Resuming a
+    run whose metric set changed since that file was last written (e.g.
+    ``TrainConfig.per_front_type_metrics`` toggled, or ``TrainConfig.loss_name`` changed) then
+    silently writes new rows under the OLD header, misaligning ``metrics_epoch.csv`` — a file
+    that exists specifically to be a durable, independently-plottable record, so silent
+    misalignment defeats its entire purpose.
+
+    The exact column set a run will produce is only known once its first epoch's logs are
+    available (``CSVLogger`` itself has no earlier knowledge of it either — it derives ``self.keys``
+    from ``logs.keys()`` on the first ``on_epoch_end`` call), so this wrapper defers building the
+    real ``CSVLogger`` until that first call. At that point, if the target file already exists, is
+    non-empty, and its header row does not match this run's computed fieldnames (see
+    ``_csv_logger_fieldnames``), the old file is rotated aside under a numeric ``.stale-N`` suffix
+    and a warning is logged explaining what happened and where the old file went, before a fresh
+    file (and header) is started. When the header matches — the genuine same-shape resume case —
+    or no file exists yet, behavior is identical to ``CSVLogger(path, append=True)``.
+
+    Attributes:
+        path: The CSV file path passed to the underlying ``CSVLogger``.
+    """
+
+    def __init__(self, path: str):
+        """Initializes the wrapper without touching the filesystem.
+
+        Args:
+            path: Path the per-epoch metrics CSV should be written to.
+        """
+        super().__init__()
+        self.path = path
+        self._inner: tf.keras.callbacks.CSVLogger | None = None
+
+    def _rotate_stale_file(self) -> None:
+        """Moves the existing, mismatched-header file at ``self.path`` aside and logs a warning."""
+        base, ext = os.path.splitext(self.path)
+        suffix = 1
+        stale_path = f"{base}.stale-{suffix}{ext}"
+        while os.path.exists(stale_path):
+            suffix += 1
+            stale_path = f"{base}.stale-{suffix}{ext}"
+        os.rename(self.path, stale_path)
+        logger.warning(
+            "Existing metrics CSV %s has a different column set than this run will produce "
+            "(per_front_type_metrics or loss_name likely changed since it was last written). "
+            "To avoid silently misaligning it, moved the old file to %s and starting a fresh %s.",
+            self.path,
+            stale_path,
+            self.path,
+        )
+
+    def on_epoch_end(self, epoch: int, logs: dict | None = None) -> None:
+        """Lazily builds (and, if needed, rotates ahead of) the real CSVLogger, then forwards to it."""
+        logs = logs or {}
+        if self._inner is None:
+            if os.path.exists(self.path) and os.path.getsize(self.path) > 0:
+                with open(self.path, encoding="utf-8") as f:
+                    existing_header = f.readline().rstrip("\n").split(",")
+                if existing_header != _csv_logger_fieldnames(logs):
+                    self._rotate_stale_file()
+            self._inner = tf.keras.callbacks.CSVLogger(self.path, append=True)
+            self._inner.set_model(self.model)
+            self._inner.set_params(self.params)
+            self._inner.on_train_begin()
+        self._inner.on_epoch_end(epoch, logs)
+
+    def on_train_end(self, logs: dict | None = None) -> None:
+        """Forwards to the real CSVLogger, if any epoch ever ran and built one."""
+        if self._inner is not None:
+            self._inner.on_train_end(logs)
+
+
 def _build_run_callbacks(
     uses_ema: bool,
     monitor: str,
@@ -485,6 +775,8 @@ def _build_run_callbacks(
     wandb_project: str | None,
     wandb_log_freq: str | int,
     model_checkpoint_path: str | None,
+    metrics_csv_path: str | None = None,
+    compact_progress_every_n_batches: int | None = None,
 ) -> list[tf.keras.callbacks.Callback]:
     """Build the ordered callback list passed to model.fit().
 
@@ -508,6 +800,13 @@ def _build_run_callbacks(
         wandb_log_freq: Passed to ``wandb.keras.WandbMetricsLogger``.
         model_checkpoint_path: Path prefix for the best-loss checkpoint, or None to skip
             checkpointing.
+        metrics_csv_path: Explicit path to append per-epoch metrics to as CSV. None derives
+            ``metrics_epoch.csv`` next to ``model_checkpoint_path``; if that is also None, CSV
+            logging is skipped entirely. See ``_resolve_metrics_csv_path``.
+        compact_progress_every_n_batches: ``CallbacksConfig.compact_progress_every_n_batches``.
+            None omits ``CompactProgressCallback`` entirely, leaving Keras's default progress
+            bar alone; an int appends it, throttled to that many batches. See
+            ``_resolve_fit_verbose``, which silences Keras's own progress bar to match.
 
     Returns:
         Ordered list of callbacks for ``model.fit()``.
@@ -528,10 +827,21 @@ def _build_run_callbacks(
         )
     )
     callbacks.append(fronts_callbacks.GcCallback())
-    # Must run before WandbMetricsLogger: it mutates the shared `logs` dict that
-    # WandbMetricsLogger reads, collapsing per-deep-supervision-output keys into
-    # single aggregate hss/val_hss (and stripping the per-output loss keys).
+    # Must run before WandbMetricsLogger, _ResumeSafeCSVLogger, and CompactProgressCallback: it
+    # mutates the shared `logs` dict that all three read, collapsing per-deep-supervision-output
+    # keys into single aggregate hss/val_hss (and stripping the per-output loss keys) and
+    # renaming per-front-type keys into slash-delimited form. _ResumeSafeCSVLogger is listed
+    # immediately after it for the same reason — writing the consolidated, renamed keys rather
+    # than raw sup{N}_{activation}_{metric} ones. CompactProgressCallback is listed after it too,
+    # for the same reason again — it reads front/{front_type}/hss and front/{front_type}/csi,
+    # which only exist in that form once this callback has run.
     callbacks.append(fronts_callbacks.MetricsConsolidationCallback())
+    csv_path = _resolve_metrics_csv_path(metrics_csv_path, model_checkpoint_path)
+    if csv_path:
+        os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
+        callbacks.append(_ResumeSafeCSVLogger(csv_path))
+    if compact_progress_every_n_batches is not None:
+        callbacks.append(fronts_callbacks.CompactProgressCallback(compact_progress_every_n_batches))
     callbacks.extend(extra_callbacks or [])
     if wandb_project:
         callbacks.append(wandb.keras.WandbMetricsLogger(log_freq=wandb_log_freq))
@@ -545,6 +855,22 @@ def _build_run_callbacks(
             )
         )
     return callbacks
+
+
+def _resolve_fit_verbose(compact_progress_every_n_batches: int | None) -> str | int:
+    """Return the ``verbose`` value for ``model.fit`` given the compact-progress setting.
+
+    ``CompactProgressCallback`` renders its own terminal-width-bounded progress line, so
+    Keras's default ``ProgbarLogger`` must be silenced whenever it is active — otherwise both
+    would print, defeating the reason ``CompactProgressCallback`` exists.
+
+    Args:
+        compact_progress_every_n_batches: ``CallbacksConfig.compact_progress_every_n_batches``.
+
+    Returns:
+        ``0`` if the compact callback is active, else Keras's own default ``"auto"``.
+    """
+    return 0 if compact_progress_every_n_batches is not None else "auto"
 
 
 def _run(
@@ -567,6 +893,8 @@ def _run(
     validation_steps: int | None = None,
     run_config: dict | None = None,
     extra_callbacks: list[tf.keras.callbacks.Callback] | None = None,
+    metrics_csv_path: str | None = None,
+    compact_progress_every_n_batches: int | None = None,
 ) -> tuple[tf.keras.callbacks.History, float]:
     if wandb_project:
         wandb.init(
@@ -588,6 +916,8 @@ def _run(
         wandb_project=wandb_project,
         wandb_log_freq=wandb_log_freq,
         model_checkpoint_path=model_checkpoint_path,
+        metrics_csv_path=metrics_csv_path,
+        compact_progress_every_n_batches=compact_progress_every_n_batches,
     )
     t0 = time.time()
     history = model.fit(
@@ -598,6 +928,7 @@ def _run(
         validation_steps=validation_steps,
         callbacks=callbacks,
         shuffle=shuffle,
+        verbose=_resolve_fit_verbose(compact_progress_every_n_batches),
     )
     elapsed = time.time() - t0
     if model_checkpoint_path:
@@ -679,7 +1010,7 @@ def _build_test_visualization_callback(
         subsample_y=subsample_y,
         lats=test_dataset.input_ds["latitude"].values,
         lons=test_dataset.input_ds["longitude"].values,
-        front_types=list(fronts_callbacks.FRONT_TYPE_CLASS_INDEX),
+        front_types=list(constants.FRONT_TYPE_CLASS_INDEX),
         predict_batch_size=data_config.batch_size,
         every_n_epochs=callbacks_config.test_viz_every_n_epochs,
     )
@@ -864,6 +1195,7 @@ def train(
             metric_class_weights=data_cfg.class_weights,
             train_cfg=train_cfg,
             latitudes=train_dataset.input_ds["latitude"].values,
+            n_classes=model_cfg.n_classes,
             gradient_clip_norm=train_cfg.gradient_clip_norm,
         )
     logger.info("Model built and compiled.")
@@ -973,6 +1305,8 @@ def train(
         monitor_min_delta=callbacks_cfg.min_delta,
         early_stopping_patience=effective_stopping_patience,
         model_checkpoint_path=callbacks_cfg.model_checkpoint_path,
+        metrics_csv_path=callbacks_cfg.metrics_csv_path,
+        compact_progress_every_n_batches=callbacks_cfg.compact_progress_every_n_batches,
         wandb_project=wandb_project,
         run_name=run_name,
         wandb_log_freq=wandb_cfg.log_freq if wandb_cfg is not None else "epoch",

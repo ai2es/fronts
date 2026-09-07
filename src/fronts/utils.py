@@ -5,7 +5,6 @@ import datetime
 import math
 import os
 import subprocess
-from collections import namedtuple
 from string import Template
 from typing import Any, TypeVar
 
@@ -19,9 +18,13 @@ import zarr
 from xarray.core.indexes import IndexSelResult, PandasIndex, _query_slice
 from xarray.core.indexing import _expand_slice
 
+# Deliberate compatibility re-export: BoundingBox lives in fronts.constants (so
+# fronts.layers.metrics can use it without pulling in this module's icechunk/xarray/pandas
+# imports), but utils.BoundingBox is referenced widely as a type annotation.
+from fronts.constants import BoundingBox
+
 T = TypeVar("T")
 _XArray = TypeVar("_XArray", xr.Dataset, xr.DataArray)
-BoundingBox = namedtuple("BoundingBox", ["lat_min", "lat_max", "lon_min", "lon_max"])
 
 
 @dataclasses.dataclass

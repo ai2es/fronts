@@ -1,9 +1,7 @@
 import numpy as np
 import xarray as xr
 
-# Original front codes → experiment class indices
-# 0 = no front (background), 1-4 kept as-is, 16 (dryline) → 5, all others → 0
-FRONT_CLASS_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 16: 5}
+from fronts import constants
 
 
 def filter_timesteps(fronts_da: xr.DataArray, rng: np.random.Generator) -> np.ndarray:
@@ -15,7 +13,7 @@ def filter_timesteps(fronts_da: xr.DataArray, rng: np.random.Generator) -> np.nd
 
     Args:
         fronts_da: Raw identifier DataArray of shape (time, latitude, longitude) with
-            original front codes (see ``FRONT_CLASS_MAP``).
+            original front codes (see ``constants.FRONT_CLASS_MAP``).
         rng: Seeded generator used for the 50% draws.
 
     Returns:
@@ -24,7 +22,7 @@ def filter_timesteps(fronts_da: xr.DataArray, rng: np.random.Generator) -> np.nd
     # Compute any() over space before .compute() so only (n_codes, n_times) booleans
     # are materialised rather than the full spatial array.
     presence = xr.concat(
-        [(fronts_da == code).any(dim=["latitude", "longitude"]) for code in FRONT_CLASS_MAP],
+        [(fronts_da == code).any(dim=["latitude", "longitude"]) for code in constants.FRONT_CLASS_MAP],
         dim="front_type",
     ).compute()
     has_all_types = presence.all(dim="front_type").values
@@ -45,7 +43,7 @@ def remap_fronts(da: xr.DataArray) -> xr.DataArray:
         Lazy int32 DataArray of the same shape as ``da``.
     """
     remapped = xr.full_like(da, 0, dtype=np.int32)
-    for orig, new in FRONT_CLASS_MAP.items():
+    for orig, new in constants.FRONT_CLASS_MAP.items():
         remapped = xr.where(da == orig, new, remapped)
     return remapped
 

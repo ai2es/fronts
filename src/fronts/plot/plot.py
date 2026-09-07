@@ -30,38 +30,12 @@ from matplotlib import cm, colors
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import FixedLocator
 
-from fronts import evaluate, utils
+from fronts import constants, evaluate, utils
 from fronts.data import config, datasets, inputs, targets
 from fronts.model import SharedTargetModel
 from fronts.plot.utils import plot_background, truncated_colormap
 
 log = logging.getLogger(__name__)
-
-FRONT_COLORS: dict[str, str] = {
-    "CF": "blue",
-    "WF": "red",
-    "SF": "limegreen",
-    "OF": "darkviolet",
-    "DL": "chocolate",
-}
-
-CONTOUR_CMAPS: dict[str, str] = {
-    "CF": "Blues",
-    "WF": "Reds",
-    "SF": "Greens",
-    "OF": "Purples",
-    "DL": "copper_r",
-}
-
-FRONT_NAMES: dict[str, str] = {
-    "CF": "Cold front",
-    "WF": "Warm front",
-    "SF": "Stationary front",
-    "OF": "Occluded front",
-    "DL": "Dryline",
-}
-
-FRONT_TYPE_CLASS_INDEX: dict[str, int] = {"CF": 1, "WF": 2, "SF": 3, "OF": 4, "DL": 5}
 
 
 class _LayoutConfig(TypedDict):
@@ -279,7 +253,7 @@ def plot_performance_diagrams(
     gl.ylabel_style = {"size": 8}
 
     mask_label = f" ({mask})" if mask else ""
-    plt.suptitle(f"{FRONT_NAMES.get(front_type, front_type)}s{mask_label}", fontsize=20)
+    plt.suptitle(f"{constants.FRONT_NAMES.get(front_type, front_type)}s{mask_label}", fontsize=20)
 
     os.makedirs(outdir, exist_ok=True)
     mask_suffix = f"_{mask}" if mask else ""
@@ -318,14 +292,14 @@ def _load_prediction(
     pred_np = pred.numpy()[0].astype(np.float32)  # (lat, lon, n_classes)
 
     for ft in front_types:
-        idx = FRONT_TYPE_CLASS_INDEX[ft]
+        idx = constants.FRONT_TYPE_CLASS_INDEX[ft]
         log.info("%s (class %d): max prob = %.3f", ft, idx, pred_np[:, :, idx].max())
 
     lats = era5_t["latitude"].values
     lons = era5_t["longitude"].values
     ds = xr.Dataset(coords={"latitude": lats, "longitude": lons})
     for ft in front_types:
-        ds[ft] = (["latitude", "longitude"], pred_np[:, :, FRONT_TYPE_CLASS_INDEX[ft]])
+        ds[ft] = (["latitude", "longitude"], pred_np[:, :, constants.FRONT_TYPE_CLASS_INDEX[ft]])
     return ds
 
 
@@ -359,7 +333,7 @@ def _plot_front_probability_contours(
         open_contours: Draw open (line) probability contours.
     """
     n_colors = int(1 / prob_int) + 1
-    front_colors = [FRONT_COLORS[ft] for ft in front_types]
+    front_colors = [constants.FRONT_COLORS[ft] for ft in front_types]
 
     cbar_x_start = 0.85
     cbar_front_labels = []
@@ -370,7 +344,7 @@ def _plot_front_probability_contours(
             continue
 
         if filled_contours:
-            cmap_probs = truncated_colormap(CONTOUR_CMAPS[ft], minval=0.1, n=n_colors)
+            cmap_probs = truncated_colormap(constants.CONTOUR_CMAPS[ft], minval=0.1, n=n_colors)
             norm_probs = colors.Normalize(vmin=0, vmax=1.01)
             probs_masked[ft].plot.contourf(
                 ax=ax,
@@ -407,7 +381,7 @@ def _plot_front_probability_contours(
                 add_colorbar=False,
             )
 
-        cbar_front_labels.append(FRONT_NAMES.get(ft, ft))
+        cbar_front_labels.append(constants.FRONT_NAMES.get(ft, ft))
         cbar_front_ticks.append(front_no + 0.5)
 
     cmap_front = colors.ListedColormap(front_colors, name="from_list", N=len(front_colors))
@@ -487,7 +461,7 @@ def plot_test_prediction(
     )
 
     if truth_da is not None:
-        front_colors = [FRONT_COLORS[ft] for ft in front_types]
+        front_colors = [constants.FRONT_COLORS[ft] for ft in front_types]
         cmap_front = colors.ListedColormap(front_colors, name="from_list", N=len(front_colors))
         norm_front = colors.Normalize(vmin=1, vmax=len(front_colors) + 1)
         xr.where(truth_da == 0, float("nan"), truth_da).plot(
@@ -578,7 +552,7 @@ def plot_performance_diagram_lite(
         loc="center",
     )
 
-    fig.suptitle(f"{title} {FRONT_NAMES.get(front_type, front_type)}".strip())
+    fig.suptitle(f"{title} {constants.FRONT_NAMES.get(front_type, front_type)}".strip())
     fig.tight_layout()
     return fig
 

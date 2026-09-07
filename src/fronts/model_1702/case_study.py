@@ -29,10 +29,9 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from fronts import utils
+from fronts import constants, utils
 from fronts.data import inputs
 from fronts.model_1702 import adapter, loader, store
-from fronts.plot import plot
 from fronts.plot import utils as plot_utils
 
 logger = logging.getLogger(__name__)
@@ -50,7 +49,7 @@ class CaseStudyConfig:
         model_path: Path to ``model_1702.h5``.
         times: Timesteps to render, one panel each, as ISO datetime strings.
         coordinates: Spatial bounding box as [lat_min, lat_max, lon_min, lon_max].
-        front_types: Front type keys to contour (class indices/cmaps from ``fronts.plot.plot``).
+        front_types: Front type keys to contour (class indices/cmaps from ``fronts.constants``).
         era5_uri: Remote ERA5 source for input derivation (``arraylake://...`` or a zarr URL).
         storage_options: Storage options for non-arraylake zarr sources (e.g. anonymous GCS).
         inputs_cache_path: NetCDF path caching the derived inputs. Loaded instead of the remote
@@ -138,7 +137,7 @@ def render_case_figure(
 
     Args:
         preds: Predictions shaped (time, lat, lon, n_classes), class indices per
-            ``fronts.plot.plot.FRONT_TYPE_CLASS_INDEX``.
+            ``fronts.constants.FRONT_TYPE_CLASS_INDEX``.
         lats: Latitude values.
         lons: Longitude values.
         times: Panel timesteps, one per prediction row.
@@ -164,7 +163,7 @@ def render_case_figure(
             continue
         plot_utils.plot_background(extent=extent, ax=ax, linewidth=0.4)
         for front_type in front_types:
-            class_idx = plot.FRONT_TYPE_CLASS_INDEX[front_type]
+            class_idx = constants.FRONT_TYPE_CLASS_INDEX[front_type]
             probs = preds[panel, :, :, class_idx]
             masked = np.where(probs >= CONTOUR_LEVELS[0], probs, np.nan)
             ax.contourf(
@@ -172,7 +171,7 @@ def render_case_figure(
                 lats,
                 masked,
                 levels=CONTOUR_LEVELS,
-                cmap=plot_utils.truncated_colormap(plot.CONTOUR_CMAPS[front_type], minval=CMAP_TRUNCATION_MIN),
+                cmap=plot_utils.truncated_colormap(constants.CONTOUR_CMAPS[front_type], minval=CMAP_TRUNCATION_MIN),
                 transform=ccrs.PlateCarree(),
             )
         ax.text(
@@ -187,7 +186,7 @@ def render_case_figure(
         )
         ax.set_title(panel_title(times[panel]), fontsize=10)
 
-    legend = ", ".join(f"{plot.FRONT_COLORS[ft]} = {plot.FRONT_NAMES[ft].lower()}" for ft in front_types)
+    legend = ", ".join(f"{constants.FRONT_COLORS[ft]} = {constants.FRONT_NAMES[ft].lower()}" for ft in front_types)
     fig.suptitle(
         "model_1702 predictions from ERA5 analysis — raw (uncalibrated) probabilities, "
         f"filled contours at 10% intervals\n{legend}",
