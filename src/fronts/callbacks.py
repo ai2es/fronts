@@ -1,10 +1,13 @@
-"""Keras callbacks for training: resource monitoring, W&B metric cleanup, and periodic test-set visualization."""
+"""Keras callbacks for training: resource monitoring, metric cleanup, compact progress, and test-set visualization."""
 
 import collections
 import dataclasses
 import gc
 import logging
+import math
 import re
+import shutil
+import sys
 
 import numpy as np
 import psutil
@@ -13,27 +16,10 @@ import tensorflow as tf
 import wandb
 import xarray as xr
 
-from fronts import utils
-from fronts.data import targets
+from fronts import constants, utils
 from fronts.plot import plot as plot_module
 
 logger = logging.getLogger(__name__)
-
-FRONT_TYPE_CLASS_INDEX: dict[str, int] = {"CF": 1, "WF": 2, "SF": 3, "OF": 4, "DL": 5}
-
-# Office-of-responsibility regions for the Unified Surface Analysis (WPC manual, p.25).
-# The 30N split and the 140W HFO/NHC boundary come from the manual; WPC vs OPC is
-# approximated as a longitude band over the continental US since the real WPC area of
-# responsibility is an irregular coastline-following polygon, not a box.
-OFFICE_REGIONS: dict[str, utils.BoundingBox] = {
-    "OPC_west": utils.BoundingBox(lat_min=30.0, lat_max=80.0, lon_min=130.0, lon_max=220.0),
-    "WPC": utils.BoundingBox(lat_min=30.0, lat_max=80.0, lon_min=220.0, lon_max=300.0),
-    "OPC_east": utils.BoundingBox(lat_min=30.0, lat_max=80.0, lon_min=300.0, lon_max=369.75),
-    "HFO": utils.BoundingBox(lat_min=0.25, lat_max=30.0, lon_min=130.0, lon_max=220.0),
-    "NHC": utils.BoundingBox(lat_min=0.25, lat_max=30.0, lon_min=220.0, lon_max=369.75),
-}
-
-LITE_THRESHOLDS = np.linspace(0.05, 1.0, 20, dtype=np.float32)
 
 _PER_OUTPUT_LOSS_RE = re.compile(r"^sup\d+_.+_loss$")
 # Matches any per-output metric key, e.g. "sup1_softmax_hss" or "sup1_softmax_hss_hard" —
@@ -42,9 +28,34 @@ _PER_OUTPUT_LOSS_RE = re.compile(r"^sup\d+_.+_loss$")
 # metric-name-specific regex (see MetricsConsolidationCallback).
 _PER_OUTPUT_METRIC_RE = re.compile(r"^sup\d+_[^_]+_(?P<metric>.+)$")
 
+# Tokens that, as the trailing "_{token}" segment of a consolidated metric key, mark it as
+# per-front-type rather than an aggregate (see _rename_front_type_keys).
+_FRONT_TYPE_TOKENS = frozenset(constants.FRONT_TYPE_CLASS_INDEX) | {constants.BACKGROUND_CLASS_KEY}
+
 
 def _strip_val_prefix(key: str) -> str:
     return key[len("val_") :] if key.startswith("val_") else key
+
+
+def _rename_front_type_keys(logs: dict) -> None:
+    """Rewrites keys ending in "_{front_type}" to "front/{front_type}/{remainder}" in place.
+
+    Leaves aggregate keys (e.g. "hss", "val_loss") untouched, since none of them ends in a
+    front-type token, and preserves any "val_" prefix on the remainder rather than the
+    front-type token (e.g. "val_hss_CF" becomes "front/CF/val_hss", not "front/val_CF/hss").
+
+    Args:
+        logs: Mutable Keras logs dict, already consolidated by ``_consolidate``.
+    """
+    for key in list(logs):
+        remainder, separator, token = key.rpartition("_")
+        if not separator or not remainder or token not in _FRONT_TYPE_TOKENS:
+            continue
+        if remainder.startswith("val_"):
+            new_key = f"front/{token}/val_{remainder[len('val_') :]}"
+        else:
+            new_key = f"front/{token}/{remainder}"
+        logs[new_key] = logs.pop(key)
 
 
 @dataclasses.dataclass
@@ -85,6 +96,16 @@ class CallbacksConfig:
             None disables test-set visualization.
         test_viz_sample_size: Maximum number of timesteps to subsample from the test split
             for the performance diagram. Ignored if ``test_viz_every_n_epochs`` is None.
+        metrics_csv_path: Optional path to append every epoch's metrics to as CSV, a durable
+            local record independent of W&B. None derives ``metrics_epoch.csv`` in the same
+            directory as ``model_checkpoint_path``; if that is also None, CSV logging is
+            skipped entirely rather than guessing a location. See ``train._build_run_callbacks``.
+        compact_progress_every_n_batches: Optional batch throttle for ``CompactProgressCallback``,
+            a terminal-width-bounded replacement for Keras's default per-batch progress bar
+            (which prints every key in ``logs`` on one line — far wider than a terminal once
+            per-front-type metrics are added, so it wraps and floods stdout). None disables
+            the compact callback and leaves Keras's default progress bar (``verbose=1``) alone.
+            Must be a positive int if set; ``CompactProgressCallback`` raises otherwise.
     """
 
     monitor: str = "val_loss"
@@ -96,6 +117,12 @@ class CallbacksConfig:
     model_checkpoint_path: str | None = None
     test_viz_every_n_epochs: int | None = 10
     test_viz_sample_size: int = 200
+    # Defaulted (contrary to the usual no-defaults rule for dataclasses) so the 17 existing
+    # YAML configs keep parsing: dacite raises on a missing required field.
+    metrics_csv_path: str | None = None
+    # Defaulted (contrary to the usual no-defaults rule for dataclasses) so the 17 existing
+    # YAML configs keep parsing: dacite raises on a missing required field.
+    compact_progress_every_n_batches: int | None = 10
 
 
 class MetricsConsolidationCallback(tf.keras.callbacks.Callback):
@@ -113,6 +140,13 @@ class MetricsConsolidationCallback(tf.keras.callbacks.Callback):
     (not the reassignable ``__name__``) — use ``tf.keras.metrics.MeanMetricWrapper(fn,
     name=...)`` to give a custom metric a distinct name, or every metric literally named
     ``hss`` collides and Keras silently renames the extras to ``hss_1``, ``hss_2``, etc.
+
+    After that consolidation, keys ending in ``_{front_type}`` (e.g. ``hss_CF``,
+    ``loss_none``) are further rewritten to ``front/{front_type}/{metric_name}`` — see
+    ``_rename_front_type_keys`` — so ``WandbMetricsLogger``'s ``epoch/`` prefix produces
+    ``epoch/front/CF/hss`` and W&B groups per-front-type metrics into one collapsible
+    section per front type. Aggregate keys (``hss``, ``val_loss``, ...) do not end in a
+    front-type token and are left untouched.
 
     Must run before ``wandb.keras.WandbMetricsLogger`` in the callbacks list passed to
     ``model.fit`` — Keras shares one mutable ``logs`` dict across every callback's
@@ -139,6 +173,8 @@ class MetricsConsolidationCallback(tf.keras.callbacks.Callback):
         for key in [k for k in logs if _PER_OUTPUT_LOSS_RE.match(_strip_val_prefix(k))]:
             logs.pop(key)
 
+        _rename_front_type_keys(logs)
+
     def on_train_batch_end(self, batch: int, logs: dict | None = None) -> None:
         """Aggregates per-output hss into hss and strips per-output loss keys in place."""
         self._consolidate(logs)
@@ -146,6 +182,276 @@ class MetricsConsolidationCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch: int, logs: dict | None = None) -> None:
         """Aggregates per-output hss into hss/val_hss and strips per-output loss keys in place."""
         self._consolidate(logs)
+
+
+_LOSS_DECIMALS = 4
+_LOSS_FIELD_WIDTH = 6  # "-.0123" / " .0123" — sign column, dot, four decimal digits.
+_METRIC_DECIMALS = 3
+_METRIC_FIELD_WIDTH = 5  # "-.412" / " .412" — sign column, dot, three decimal digits.
+_MISSING_VALUE_PLACEHOLDER = "--"
+_EPOCH_END_ROW_LABEL_WIDTH = len("loss")  # Widest of the "loss"/"HSS"/"CSI" row labels.
+
+
+def _format_value(value: float | None, width: int, decimals: int) -> str:
+    """Formats one metric value to a fixed, sign-safe width.
+
+    Every field reserves one column for a sign, so a negative value (``-.412``) occupies
+    exactly the same width as a positive one (`` .412``) — column alignment must not depend on
+    sign, since HSS is genuinely and commonly negative early in training (a randomly-initialized
+    model can be worse than chance), and that is exactly when this display matters most.
+
+    A value in (-1, 1) — true of HSS and CSI always, and of loss in steady state — always has a
+    leading zero before the decimal point (``0.412``, ``-0.412``); dropping it (``.412``,
+    ``-.412``) recovers the column the sign reservation costs, so the net width matches the
+    unsigned, no-reservation format this replaced. ``nan``/``inf``/``-inf`` render as literal
+    text; ``-0.0`` is normalized to ``0.0`` first so its sign bit never renders as a spurious
+    ``-``. A value at or beyond +/-1.0 (e.g. an early-training loss spike, or a not-quite-possible
+    exactly-1.0 HSS) simply renders at its natural, potentially wider length instead of being
+    truncated — this is the one case that can still cost the fixed-width guarantee, deliberately
+    accepted as a rare edge case rather than being silently mishandled.
+
+    Args:
+        value: The value to format, or None if missing from ``logs``.
+        width: Target field width, including the reserved sign column. Only a placeholder or an
+            in-range value are padded to exactly this width; wider natural-length values (see
+            above) are left unpadded.
+        decimals: Number of digits after the decimal point.
+
+    Returns:
+        The right-justified formatted value, or a right-justified placeholder if ``value`` is
+        None.
+    """
+    if value is None:
+        return f"{_MISSING_VALUE_PLACEHOLDER:>{width}}"
+    value = float(value)
+    if math.isnan(value):
+        text = "nan"
+    elif math.isinf(value):
+        text = "inf" if value > 0 else "-inf"
+    else:
+        if value == 0:
+            value = 0.0  # Normalize -0.0 so it never renders with a spurious "-".
+        text = f"{value:.{decimals}f}"
+        if text.startswith("0."):
+            text = text[1:]
+        elif text.startswith("-0."):
+            text = "-" + text[2:]
+    return f"{text:>{width}}"
+
+
+def _batch_label(batch: int | None, steps: int | None) -> str:
+    """Renders the "batch/steps" position label, digit-padding ``batch`` to ``steps``'s width.
+
+    Padding ``batch`` (not the whole label) keeps the label's width constant across an epoch's
+    updates regardless of ``batch``'s own digit count, e.g. ``" 10/450"`` and ``"100/450"`` are
+    both 7 characters.
+
+    Args:
+        batch: Current 1-indexed batch number, or None if unknown.
+        steps: Total batches in the epoch, or None if unknown.
+
+    Returns:
+        ``"{batch}/{steps}"`` with ``batch`` padded to ``steps``'s digit count, ``str(batch)``
+        alone if ``steps`` is unknown, or ``""`` if ``batch`` is also unknown.
+    """
+    if steps is not None and batch is not None:
+        return f"{batch:>{len(str(steps))}}/{steps}"
+    if batch is not None:
+        return str(batch)
+    return ""
+
+
+def _epoch_summary_row(
+    label: str,
+    train_values: list[float | None],
+    val_values: list[float | None],
+    width: int,
+    decimals: int,
+) -> str:
+    """Renders one "label train_values | val val_values" epoch-summary row.
+
+    Train and validation values for one metric are placed side by side on the same permanent
+    row (rather than on two separate rows, as an earlier version of this callback did) so that
+    truncating a too-long *line* to the terminal width can never remove validation metrics
+    entirely while leaving training metrics intact, or vice versa — both are equally exposed to
+    (and, by design, safely clear of) the truncation safety net.
+
+    Args:
+        label: Metric name ("loss", "HSS", or "CSI"), left-justified to
+            ``_EPOCH_END_ROW_LABEL_WIDTH``.
+        train_values: Training value(s) for this metric — a single-element list for loss, or one
+            per front type for HSS/CSI, in ``constants.FRONT_TYPE_CLASS_INDEX`` order.
+        val_values: Validation value(s), same shape as ``train_values``.
+        width: Field width passed to ``_format_value`` for every value in this row.
+        decimals: Decimal places passed to ``_format_value`` for every value in this row.
+
+    Returns:
+        The rendered row, not yet truncated to the terminal width.
+    """
+    train_str = " ".join(_format_value(v, width, decimals) for v in train_values)
+    val_str = " ".join(_format_value(v, width, decimals) for v in val_values)
+    return f"{label:<{_EPOCH_END_ROW_LABEL_WIDTH}} {train_str} | val {val_str}"
+
+
+def _truncate_to_terminal_width(line: str) -> str:
+    r"""Truncates ``line`` to one column short of the terminal width, so ``\r`` always rewinds it.
+
+    A last-resort safety net, not the normal path: every numeric field above reserves a sign
+    column and is joined with single spaces, so a full row — even with all ten HSS/CSI values
+    negative — fits comfortably inside 80 columns without ever engaging this. See
+    ``TestCompactProgressCallback.test_all_negative_hss_and_csi_fit_in_80_columns``.
+    """
+    width = shutil.get_terminal_size(fallback=(120, 24)).columns - 1
+    return line[:width]
+
+
+class CompactProgressCallback(tf.keras.callbacks.Callback):
+    r"""Prints a small, terminal-width-bounded progress display per epoch instead of Keras's default.
+
+    Keras's default ``ProgbarLogger`` (``verbose=1``) prints every key in ``logs`` on a single
+    line. With the ~29 per-front-type metric keys this branch adds, that line is far wider than
+    any terminal: it wraps across several visual rows, and Keras's trailing ``\r`` only rewinds
+    the last one, so every update strands the wrapped rows above it and stdout degenerates into
+    an unreadable wall of text.
+
+    This callback instead renders a fixed, deliberately small set of health-check metrics —
+    aggregate ``loss``, and per-front-type ``HSS`` (the soft ``front/{front_type}/hss``) and
+    ``CSI`` (``front/{front_type}/csi``), in ``constants.FRONT_TYPE_CLASS_INDEX`` order — using a
+    sign-safe fixed-width number format (every field reserves a column for a leading ``-``, so
+    column alignment never depends on sign or magnitude) chosen so a full row fits inside 80
+    columns by design, even when every value is negative. The rendered row is additionally
+    truncated to the actual terminal width before every write as a last-resort safety net (see
+    ``_truncate_to_terminal_width``), so ``\r`` always rewinds the whole line even in a narrower
+    terminal. Every in-place write is also padded with trailing spaces to at least as long as the
+    longest line written in place since the last real newline (see ``_pad_for_inplace``) — a bare
+    ``\r`` only moves the cursor to column 0, it does not clear the line, so writing a shorter
+    row than its predecessor would otherwise leave that predecessor's tail visible on screen.
+    ``hss_hard``, ``pod``, and the per-front-type losses are deliberately omitted here: they
+    remain in W&B and metrics_epoch.csv, since stdout here is a health check, not the record.
+
+    A header line naming the front-type column order is printed once per epoch (real newline).
+    On a TTY, one train-only, loss-and-HSS-only row (CSI is dropped from this row only, since it
+    is short by construction and can never overflow) is then rewritten in place via ``\r``,
+    throttled to at most every ``every_n_batches`` batches (plus always the epoch's final batch).
+    At ``on_epoch_end``, three permanent rows are printed — one per metric (loss, HSS, CSI) —
+    each with that metric's training and validation values side by side (see
+    ``_epoch_summary_row``), so validation metrics can never be truncated away while training
+    metrics survive, or vice versa. Each row ends in a real newline, so the next epoch's header
+    starts fresh. On a non-TTY stdout (e.g. a SLURM log file, where ``\r`` is useless and only
+    bloats the file), no per-batch output is emitted at all — only the header and the same three
+    epoch-end rows. Whether stdout is a TTY is determined once, at construction, not re-checked
+    per batch.
+
+    Must run after ``MetricsConsolidationCallback`` in the callbacks list passed to
+    ``model.fit`` — it reads ``front/{front_type}/hss`` and ``front/{front_type}/csi``, which
+    only exist in that slash-delimited form after ``MetricsConsolidationCallback`` rewrites the
+    shared ``logs`` dict. See ``train._build_run_callbacks``.
+
+    Attributes:
+        every_n_batches: Update the in-place train row at most this often, in batches (plus
+            always the epoch's final batch). Has no effect on a non-TTY stdout, which never
+            updates per batch regardless. Must be a positive int.
+    """
+
+    def __init__(self, every_n_batches: int) -> None:
+        if every_n_batches <= 0:
+            raise ValueError(f"every_n_batches must be a positive int, got {every_n_batches!r}.")
+        super().__init__()
+        self.every_n_batches = every_n_batches
+        self._is_tty = sys.stdout.isatty()
+        self._front_types = list(constants.FRONT_TYPE_CLASS_INDEX)
+        # Length of the longest line written in place (via `\r`) since the last real newline —
+        # see `_pad_for_inplace`.
+        self._inplace_written_length = 0
+
+    def _epochs_total(self) -> int | None:
+        return (self.params or {}).get("epochs")
+
+    def _steps_total(self) -> int | None:
+        return (self.params or {}).get("steps")
+
+    def _pad_for_inplace(self, row: str) -> str:
+        r"""Pads ``row`` so it cannot leave stale characters from a previous in-place write.
+
+        A bare ``\r`` only returns the cursor to column 0 — it does not clear the line — so
+        writing a shorter string than the previous ``\r``-written line leaves that line's
+        trailing characters on screen, looking like corrupted digits (e.g. a short epoch-end
+        row overwriting a longer batch row leaves the batch row's tail visible). Padding with
+        trailing spaces up to the longest line written in place since the last real newline
+        guarantees no such residue survives. Terminal-width truncation must be applied to the
+        *result* of this padding, not before, so a padded row still cannot exceed the width
+        bound.
+
+        Args:
+            row: The not-yet-truncated row about to be written in place.
+
+        Returns:
+            ``row`` padded with trailing spaces to at least ``self._inplace_written_length``.
+        """
+        return row.ljust(self._inplace_written_length)
+
+    def on_epoch_begin(self, epoch: int, logs: dict | None = None) -> None:
+        """Prints the epoch header line naming the front-type column order."""
+        epochs_total = self._epochs_total()
+        header = (
+            f"Epoch {epoch + 1}/{epochs_total if epochs_total is not None else '?'}"
+            f"  fronts: {' '.join(self._front_types)}"
+        )
+        sys.stdout.write(_truncate_to_terminal_width(header) + "\n")
+        sys.stdout.flush()
+        self._inplace_written_length = 0  # A real newline was just written; nothing to blot out.
+
+    def on_train_batch_end(self, batch: int, logs: dict | None = None) -> None:
+        """Rewrites the in-place train-only, loss-and-HSS-only row, throttled per ``every_n_batches``."""
+        if not self._is_tty:
+            return
+        steps_total = self._steps_total()
+        batch_number = batch + 1
+        is_final_batch = steps_total is not None and batch_number >= steps_total
+        if not is_final_batch and batch_number % self.every_n_batches != 0:
+            return
+        logs = logs or {}
+        label = _batch_label(batch_number, steps_total)
+        loss_str = _format_value(logs.get("loss"), _LOSS_FIELD_WIDTH, _LOSS_DECIMALS)
+        hss_values = [logs.get(f"front/{ft}/hss") for ft in self._front_types]
+        hss_str = " ".join(_format_value(v, _METRIC_FIELD_WIDTH, _METRIC_DECIMALS) for v in hss_values)
+        row = f"{label} loss {loss_str} HSS {hss_str}"
+        truncated = _truncate_to_terminal_width(self._pad_for_inplace(row))
+        sys.stdout.write("\r" + truncated)
+        sys.stdout.flush()
+        self._inplace_written_length = len(truncated)
+
+    def on_epoch_end(self, epoch: int, logs: dict | None = None) -> None:
+        """Prints the epoch's three permanent train/val summary rows (loss, HSS, CSI)."""
+        logs = logs or {}
+        loss_row = _epoch_summary_row(
+            "loss", [logs.get("loss")], [logs.get("val_loss")], _LOSS_FIELD_WIDTH, _LOSS_DECIMALS
+        )
+        hss_row = _epoch_summary_row(
+            "HSS",
+            [logs.get(f"front/{ft}/hss") for ft in self._front_types],
+            [logs.get(f"front/{ft}/val_hss") for ft in self._front_types],
+            _METRIC_FIELD_WIDTH,
+            _METRIC_DECIMALS,
+        )
+        csi_row = _epoch_summary_row(
+            "CSI",
+            [logs.get(f"front/{ft}/csi") for ft in self._front_types],
+            [logs.get(f"front/{ft}/val_csi") for ft in self._front_types],
+            _METRIC_FIELD_WIDTH,
+            _METRIC_DECIMALS,
+        )
+        if self._is_tty:
+            # This first write overwrites the last in-place batch row (via `\r`), which may be
+            # longer than loss_row — pad it so none of that row's tail survives on screen.
+            truncated_loss_row = _truncate_to_terminal_width(self._pad_for_inplace(loss_row))
+            sys.stdout.write("\r" + truncated_loss_row + "\n")
+        else:
+            sys.stdout.write(_truncate_to_terminal_width(loss_row) + "\n")
+        self._inplace_written_length = 0  # A real newline was just written; nothing to blot out.
+        sys.stdout.write(_truncate_to_terminal_width(hss_row) + "\n")
+        sys.stdout.write(_truncate_to_terminal_width(csi_row) + "\n")
+        sys.stdout.flush()
 
 
 class GcCallback(tf.keras.callbacks.Callback):
@@ -283,7 +589,7 @@ def select_active_test_timestep(target_da: xr.DataArray) -> int:
     Raises:
         ValueError: If no timestep in ``target_da`` contains a front pixel.
     """
-    front_codes = list(targets.FRONT_CLASS_MAP)
+    front_codes = list(constants.FRONT_CLASS_MAP)
     has_front = target_da.isin(front_codes).any(dim=["latitude", "longitude"]).compute().values
     indices = np.flatnonzero(has_front)
     if len(indices) == 0:
@@ -333,7 +639,7 @@ def accumulate_lite_stats(
     pred: np.ndarray,
     truth: np.ndarray,
     weights: np.ndarray,
-    thresholds: np.ndarray = LITE_THRESHOLDS,
+    thresholds: np.ndarray = constants.LITE_THRESHOLDS,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Accumulate weighted TP/FP/TN/FN per front class and threshold, no neighborhood expansion.
 
@@ -438,7 +744,7 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
         if (epoch + 1) % self.every_n_epochs != 0:
             return
 
-        class_indices = [FRONT_TYPE_CLASS_INDEX[ft] for ft in self.front_types]
+        class_indices = [constants.FRONT_TYPE_CLASS_INDEX[ft] for ft in self.front_types]
 
         pred_day = self._predict(self.active_day_x[np.newaxis])[0]  # (lat, lon, class)
         probs_ds = xr.Dataset(coords={"latitude": self.lats, "longitude": self.lons})
@@ -467,14 +773,14 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
         truth_subsample = self.subsample_y[:, :, :, class_indices] > 0.5
         lat_weights = np.cos(np.deg2rad(self.lats))[:, np.newaxis] * np.ones((1, len(self.lons)), dtype=np.float32)
 
-        regions: dict[str, utils.BoundingBox | None] = {"whole_domain": None, **OFFICE_REGIONS}
+        regions: dict[str, utils.BoundingBox | None] = {"whole_domain": None, **constants.OFFICE_REGIONS}
         for region_name, region in regions.items():
             weights = lat_weights * region_mask(self.lats, self.lons, region)
             tp, fp, tn, fn = accumulate_lite_stats(pred_subsample, truth_subsample, weights)
             for fi, ft in enumerate(self.front_types):
                 fig = plot_module.plot_performance_diagram_lite(
                     front_type=ft,
-                    thresholds=LITE_THRESHOLDS,
+                    thresholds=constants.LITE_THRESHOLDS,
                     tp=tp[fi],
                     fp=fp[fi],
                     tn=tn[fi],

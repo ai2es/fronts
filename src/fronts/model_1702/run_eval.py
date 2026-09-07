@@ -20,7 +20,7 @@ import os
 import numpy as np
 import tensorflow as tf
 
-from fronts import evaluate, utils
+from fronts import constants, evaluate, utils
 from fronts.data import datasets
 from fronts.model import SharedTargetModel
 from fronts.model_1702 import adapter, loader
@@ -30,16 +30,7 @@ log = logging.getLogger(__name__)
 MODEL_KIND_1702 = "model_1702"
 MODEL_KIND_KERAS = "keras"
 
-# Copied verbatim from fronts.callbacks.OFFICE_REGIONS (Unified Surface Analysis / WPC manual
-# p.25 approximations). Copied rather than imported because fronts.callbacks imports wandb at
-# module scope, which is not installed in every pixi environment this driver runs in.
-OFFICE_REGIONS: dict[str, utils.BoundingBox] = {
-    "OPC_west": utils.BoundingBox(lat_min=30.0, lat_max=80.0, lon_min=130.0, lon_max=220.0),
-    "WPC": utils.BoundingBox(lat_min=30.0, lat_max=80.0, lon_min=220.0, lon_max=300.0),
-    "OPC_east": utils.BoundingBox(lat_min=30.0, lat_max=80.0, lon_min=300.0, lon_max=369.75),
-    "HFO": utils.BoundingBox(lat_min=0.25, lat_max=30.0, lon_min=130.0, lon_max=220.0),
-    "NHC": utils.BoundingBox(lat_min=0.25, lat_max=30.0, lon_min=220.0, lon_max=369.75),
-}
+OFFICE_REGIONS = constants.OFFICE_REGIONS
 REGION_FULL = "full"
 REGION_CHOICES = [REGION_FULL, "land", "ocean", *OFFICE_REGIONS]
 
