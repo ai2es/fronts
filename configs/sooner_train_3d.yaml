@@ -1,0 +1,84 @@
+run_name: per_front_metrics_3d
+
+# 3D instantiation of sooner_train.yaml: same data, splits, loss, and ablation-selected
+# variable/level set, but batches keep the vertical structure as its own axis
+# (batch, lat, lon, level, variable) for Conv3D instead of flattening level and variable
+# into 30 channels. Horizontal-only pooling carries the 6-level column through the whole
+# network, and a learned [1, 1, n_levels] collapse conv at each supervision head returns
+# (batch, lat, lon, class), so targets, loss, and metrics are unchanged. This grows the
+# model from 1.76M to 8.74M parameters, which drives the learning-rate, batch-size, and
+# visualization-sample changes noted below.
+
+train_config:
+  epochs: 5000
+  seed: 42
+  learning_rate: 0.0001  # 5e-4 (tuned for the 1.8M-param 2D model) blew up this 8.7M-param 3D model mid-epoch-2 (W&B run 898culiq); 1e-4 also matches AIES model_1702
+  shuffle: true
+  loss_class_weights: null  # null supervises all classes incl. background in the training loss, matching the AIES FrontFinder model
+  gradient_clip_norm: 1.0  # caps the damage a single outlier batch can do
+  loss_name: neighborhood_brier_score
+  nbs_tolerance_km: 25.0  # reproduces the old 1-px (0.25 deg) label dilation
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 4  # 3D activations carry the 6-level axis at full resolution through every layer on the 320x960 domain
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  volume_inputs: true  # batches shaped (batch, lat, lon, level, variable) for Conv3D
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]; the CONUS crop fits batch_size 32
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "10m_u_component_of_wind",
+      "10m_v_component_of_wind",
+      "2m_dewpoint_temperature",
+      "geopotential_at_surface"
+    ]  # the four single-level variables are broadcast as constant columns across every level in volume mode
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax  # stats become per (level, variable) and get their own cache key, so the first run recomputes them
+  max_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+
+model_config:
+  n_classes: 6
+  levels: 4
+  filter_num: [16, 32, 64, 128]
+  pool_size: [2, 2, 1]  # horizontal-only downsampling; the level axis stays intact through the network, matching model_1702
+  upsample_size: [2, 2, 1]
+  kernel_size: 5  # scalar -> 5x5x5 kernels for Conv3D
+  squeeze_axes: 3  # collapse the level axis at each supervision head via a [1, 1, n_levels] valid conv
+  first_encoder_connections: true
+  deep_supervision: true
+  batch_normalization: true
+  activation: "gelu"
+  output_activation: "softmax"
+  modules_per_node: 2
+
+callbacks_config:
+  monitor: "val_loss"
+  patience: 3
+  learning_rate_decay_factor: 0.2
+  learning_rate_minimum: 1e-6
+  early_stopping_patience: 12  # end the run after 12 epochs with no val_loss improvement (allows ~4 LR decays at patience 3 first); without this, LR-decay mode has no stop condition at all
+  model_checkpoint_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/"
+  test_viz_every_n_epochs: 1  # log a test-set prediction map + performance diagrams to W&B every N epochs; null disables
+  test_viz_sample_size: 50  # the subsample is materialized up front and held for the whole run: 59 MB per 3D timestep vs 37 MB in 2D
+
+wandb_config:
+  project_name: "fronts"
+  run_name: "${run_name}"
+  log_freq: 10 # log to W&B every 10 batches instead of waiting for each epoch to finish
