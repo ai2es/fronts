@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 
 from fronts import utils
-from fronts.model_1702 import case_study, normalization
+from fronts.model_1702 import case_study, normalization, store
 
 N_LAT = 6
 N_LON = 8
@@ -93,6 +93,49 @@ class TestLoadCaseInputs:
         case_cfg = _case_cfg(inputs_cache_path=cache_path)
         with pytest.raises(ValueError, match="lack timesteps"):
             case_study.load_case_inputs(case_cfg)
+
+    def test_derive_unwraps_longitude_for_a_wrap_crossing_domain(self, mocker):
+        # A full-domain box like configs/model_1702/case_study_test_2019_01_01.yaml's
+        # [0.25, 80.0, 130.0, 369.75] crosses the 360 deg boundary: select_spatial_domain
+        # returns longitude ordered [340, 350, 0, 10] (non-monotonic) for a box like
+        # [0, 10, 340, 370] below, which load_case_inputs must unwrap to [340, 350, 360, 370]
+        # before it reaches store.build_1702_dataset — a non-monotonic axis produces the
+        # wraparound/banding artifacts seen when this call was missing.
+        times = np.array(["2019-01-01T00:00:00"], dtype="datetime64[ns]")
+        lats = np.array([10.0, 0.0])
+        lons = np.arange(0.0, 360.0, 10.0)
+        levels = np.array(store.PRESSURE_LEVELS_HPA)
+        rng = np.random.default_rng(11)
+        shape_p = (len(times), len(levels), len(lats), len(lons))
+        shape_s = (len(times), len(lats), len(lons))
+        source = xr.Dataset(
+            {
+                "geopotential": (("time", "level", "latitude", "longitude"), rng.uniform(500.0, 15000.0, shape_p)),
+                "temperature": (("time", "level", "latitude", "longitude"), rng.uniform(250.0, 300.0, shape_p)),
+                "u_component_of_wind": (("time", "level", "latitude", "longitude"), rng.uniform(-30.0, 30.0, shape_p)),
+                "v_component_of_wind": (("time", "level", "latitude", "longitude"), rng.uniform(-30.0, 30.0, shape_p)),
+                "specific_humidity": (("time", "level", "latitude", "longitude"), rng.uniform(0.0001, 0.02, shape_p)),
+                "surface_pressure": (("time", "latitude", "longitude"), rng.uniform(80000.0, 103000.0, shape_s)),
+                "2m_temperature": (("time", "latitude", "longitude"), rng.uniform(260.0, 305.0, shape_s)),
+                "2m_dewpoint_temperature": (("time", "latitude", "longitude"), rng.uniform(250.0, 300.0, shape_s)),
+                "10m_u_component_of_wind": (("time", "latitude", "longitude"), rng.uniform(-20.0, 20.0, shape_s)),
+                "10m_v_component_of_wind": (("time", "latitude", "longitude"), rng.uniform(-20.0, 20.0, shape_s)),
+            },
+            coords={"time": times, "level": levels, "latitude": lats, "longitude": lons},
+        )
+        mocker.patch.object(case_study.store, "open_source_era5", return_value=source)
+
+        case_cfg = _case_cfg(
+            times=["2019-01-01T00:00:00"],
+            coordinates=utils.BoundingBox(0.0, 10.0, 340.0, 370.0),
+            inputs_cache_path=None,
+        )
+        built = case_study.load_case_inputs(case_cfg)
+
+        lon_values = built["longitude"].values
+        assert np.all(np.diff(lon_values) > 0), f"longitude not monotonic: {lon_values}"
+        assert lon_values[0] == pytest.approx(340.0)
+        assert lon_values[-1] == pytest.approx(370.0)
 
 
 def test_predict_case_shape():
