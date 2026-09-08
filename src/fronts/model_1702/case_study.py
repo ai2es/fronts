@@ -111,7 +111,7 @@ def load_case_inputs(case_cfg: CaseStudyConfig) -> xr.Dataset:
 
     logger.info("Deriving case inputs from %s", case_cfg.era5_uri)
     source = store.open_source_era5(case_cfg.era5_uri, case_cfg.storage_options)
-    source = utils.select_spatial_domain(source, case_cfg.coordinates)
+    source = utils.unwrap_longitude(utils.select_spatial_domain(source, case_cfg.coordinates))
     source = source.sel(time=times, level=store.PRESSURE_LEVELS_HPA).compute()
     built = store.build_1702_dataset(source)
     if case_cfg.inputs_cache_path:
