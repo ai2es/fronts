@@ -32,6 +32,7 @@ import xarray as xr
 from fronts import constants, utils
 from fronts.data import inputs
 from fronts.model_1702 import adapter, loader, store
+from fronts.plot import plot as plot_module
 from fronts.plot import utils as plot_utils
 
 logger = logging.getLogger(__name__)
@@ -56,8 +57,14 @@ class CaseStudyConfig:
             source when it exists; written after a remote fetch when it does not. None always
             fetches and never caches.
         outdir: Directory to write the figure into.
-        figure_name: Output filename (e.g. ``xmas2023_fig14_style.png``).
+        figure_name: Output filename (e.g. ``xmas2023_fig14_style.png``). With
+            ``use_training_style=True`` and more than one timestep, each panel is saved
+            separately and a timestamp suffix is inserted before the extension.
         gpu_device: GPU index to use. None runs on CPU.
+        use_training_style: Render each timestep with ``fronts.plot.plot.plot_test_prediction``
+            — the same single-panel figure (per-front-type filled contours, colorbars, and
+            legend) that ``TestVisualizationCallback`` logs to W&B during training — instead
+            of this module's AIES Fig. 14 grid style. False preserves the existing grid style.
     """
 
     model_path: str
@@ -70,6 +77,9 @@ class CaseStudyConfig:
     outdir: str
     figure_name: str
     gpu_device: int | None
+    # Defaulted (contrary to the usual no-defaults rule for dataclasses) so existing configs
+    # (e.g. case_study_xmas2023.yaml) keep parsing without this field.
+    use_training_style: bool = False
 
 
 def panel_title(time: np.datetime64) -> str:
@@ -197,6 +207,54 @@ def render_case_figure(
     logger.info("Figure saved to %s", out_path)
 
 
+def render_training_style_figure(
+    preds: np.ndarray,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    times: np.ndarray,
+    front_types: list[str],
+    outdir: str,
+    figure_name: str,
+) -> None:
+    """Renders one single-panel figure per timestep in the periodic training-viz style.
+
+    Matches ``fronts.plot.plot.plot_test_prediction`` exactly — the figure
+    ``TestVisualizationCallback`` logs to W&B every ``test_viz_every_n_epochs`` epochs — so a
+    case-study prediction can be compared directly against those in-training snapshots. No
+    truth overlay is drawn: unlike the training callback, this module has no target store open.
+
+    Args:
+        preds: Predictions shaped (time, lat, lon, n_classes), class indices per
+            ``fronts.constants.FRONT_TYPE_CLASS_INDEX``.
+        lats: Latitude values.
+        lons: Longitude values.
+        times: Panel timesteps, one per prediction row.
+        front_types: Front type keys to plot, in the given order.
+        outdir: Directory to write each timestep's figure into.
+        figure_name: Base output filename; a timestamp suffix is inserted before the extension
+            when rendering more than one timestep.
+    """
+    stem, ext = os.path.splitext(figure_name)
+    for i, time in enumerate(times):
+        probs_ds = xr.Dataset(coords={"latitude": lats, "longitude": lons})
+        for front_type in front_types:
+            class_idx = constants.FRONT_TYPE_CLASS_INDEX[front_type]
+            probs_ds[front_type] = (["latitude", "longitude"], preds[i, :, :, class_idx])
+
+        fig = plot_module.plot_test_prediction(
+            lats=lats,
+            lons=lons,
+            probs_ds=probs_ds,
+            front_types=front_types,
+            title=f"ERA5 {pd.Timestamp(time)}z",
+        )
+        suffix = f"_{pd.Timestamp(time).strftime('%Y%m%d%H')}" if len(times) > 1 else ""
+        out_path = os.path.join(outdir, f"{stem}{suffix}{ext}")
+        fig.savefig(out_path, bbox_inches="tight", dpi=500)
+        plot_module.plt.close(fig)
+        logger.info("Figure saved to %s", out_path)
+
+
 def run(case_cfg: CaseStudyConfig) -> None:
     """Loads data and the model, predicts, and renders the case-study figure.
 
@@ -210,14 +268,27 @@ def run(case_cfg: CaseStudyConfig) -> None:
     wrapped = adapter.FrontFinder1702Adapter(model, lat_ascending=bool(lats[0] < lats[-1]))
     preds = predict_case(wrapped, built)
     os.makedirs(case_cfg.outdir, exist_ok=True)
-    render_case_figure(
-        preds=preds,
-        lats=lats,
-        lons=built["longitude"].values,
-        times=built["time"].values,
-        front_types=case_cfg.front_types,
-        out_path=os.path.join(case_cfg.outdir, case_cfg.figure_name),
-    )
+    lons = built["longitude"].values
+    times = built["time"].values
+    if case_cfg.use_training_style:
+        render_training_style_figure(
+            preds=preds,
+            lats=lats,
+            lons=lons,
+            times=times,
+            front_types=case_cfg.front_types,
+            outdir=case_cfg.outdir,
+            figure_name=case_cfg.figure_name,
+        )
+    else:
+        render_case_figure(
+            preds=preds,
+            lats=lats,
+            lons=lons,
+            times=times,
+            front_types=case_cfg.front_types,
+            out_path=os.path.join(case_cfg.outdir, case_cfg.figure_name),
+        )
 
 
 def main() -> None:

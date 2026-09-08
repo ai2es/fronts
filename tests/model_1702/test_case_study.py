@@ -66,6 +66,16 @@ def test_config_parses():
     assert isinstance(case_cfg.coordinates, utils.BoundingBox)
     assert case_cfg.storage_options == {"token": "anon"}
     assert case_cfg.figure_name.endswith(".png")
+    assert case_cfg.use_training_style is False
+
+
+def test_test_case_config_parses_full_domain_training_style():
+    config_path = os.path.join("configs", "model_1702", "case_study_test_2019_01_01.yaml")
+    yaml_data = utils.load_yaml(config_path)
+    case_cfg = utils.parse_config_section(yaml_data, case_study.CaseStudyConfig, "case_config", utils.YAML_TYPE_HOOKS)
+    assert case_cfg.times == ["2019-01-01T00:00:00"]
+    assert case_cfg.coordinates == utils.BoundingBox(0.25, 80.0, 130.0, 369.75)
+    assert case_cfg.use_training_style is True
 
 
 class TestLoadCaseInputs:
@@ -113,3 +123,26 @@ def test_render_case_figure_writes_file(tmp_path):
     )
     assert os.path.exists(out_path)
     assert os.path.getsize(out_path) > 0
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MODEL_1702_RENDER_TESTS"),
+    reason="set MODEL_1702_RENDER_TESTS=1 to run figure rendering (needs cartopy Natural Earth data)",
+)
+def test_render_training_style_figure_writes_one_file_per_timestep(tmp_path):
+    built = _tiny_inputs_ds(CASE_TIMES)
+    preds = np.random.default_rng(7).random((len(CASE_TIMES), N_LAT, N_LON, 9)).astype(np.float32)
+    case_study.render_training_style_figure(
+        preds=preds,
+        lats=built["latitude"].values,
+        lons=built["longitude"].values,
+        times=built["time"].values,
+        front_types=["CF", "WF", "SF", "OF"],
+        outdir=str(tmp_path),
+        figure_name="case.png",
+    )
+    written = sorted(tmp_path.iterdir())
+    assert len(written) == len(CASE_TIMES)
+    for f in written:
+        assert f.name.startswith("case_") and f.name.endswith(".png")
+        assert f.stat().st_size > 0
