@@ -1,0 +1,62 @@
+run_name: per_front_metrics_3d
+
+# Evaluation counterpart to sooner_train_3d.yaml, and the 3D instantiation of sooner_eval.yaml.
+# data_config repeats sooner_train_3d.yaml verbatim — including volume_inputs and the smaller
+# batch_size the 6-level axis forces — so batches reach the checkpoint in the same
+# (batch, lat, lon, level, variable) layout it was trained on. eval_config and predict_config
+# are identical to the 2D file apart from ${run_name}: the collapse conv at each supervision
+# head means predictions, targets, and stats are still (lat, lon, class).
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 4  # 3D activations carry the 6-level axis at full resolution through every layer on the 320x960 domain
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  volume_inputs: true  # batches shaped (batch, lat, lon, level, variable) for Conv3D
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]; the CONUS crop fits batch_size 32
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "10m_u_component_of_wind",
+      "10m_v_component_of_wind",
+      "2m_dewpoint_temperature",
+      "geopotential_at_surface"
+    ]  # the four single-level variables are broadcast as constant columns across every level in volume mode
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax  # stats are per (level, variable) in volume mode and reuse the training cache key
+  max_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+
+eval_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}/"
+  front_types: [CF, WF, SF, OF, DL]
+  front_dilation: 1  # match training dilation
+  time_start: "2019-01-01T00:00:00"  # the sequestered test year from data_config.test_years, and the
+  time_end: "2020-01-01T00:00:00"    # same window configs/model_1702/eval_1702_*.yaml score against
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # omitted, so stats cover the full USAD domain
+  gpu_device: 0
+  # mask is left unset for full-domain stats; pass --mask land / --mask ocean to write the
+  # land- and ocean-only variants alongside them.
+
+predict_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/${run_name}/"
+  init_time: "2019-01-01T00:00:00"
+  front_types: [CF, WF, SF, OF, DL]
+  filled_contours: true
+  targets: true
