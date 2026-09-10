@@ -47,7 +47,7 @@ data_config:
     ]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
   normalization_method: minmax
-  num_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+  max_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 model_config:
   n_classes: 6
