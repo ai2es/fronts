@@ -38,7 +38,7 @@ data_config:
     ]
   norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
   normalization_method: minmax
-  num_pydataset_workers: 16
+  max_pydataset_workers: 16
 
 generate_config:
   era5_uri: "arraylake://earthmover-public/era5"
