@@ -1,0 +1,60 @@
+run_name: per_front_metrics
+
+# Evaluation counterpart to sooner_train.yaml. data_config repeats that file's store paths,
+# variables, levels, normalization, and dilation verbatim so inputs are built exactly as the
+# model saw them in training; only the training-loop sections (train_config, model_config,
+# callbacks_config, wandb_config) are dropped, since evaluate.py reads the architecture back
+# from the checkpoint.
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 32
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "10m_u_component_of_wind",
+      "10m_v_component_of_wind",
+      "2m_dewpoint_temperature",
+      "geopotential_at_surface"
+    ]
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax
+  max_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+
+eval_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}/"
+  front_types: [CF, WF, SF, OF, DL]
+  front_dilation: 1  # match training dilation
+  time_start: "2019-01-01T00:00:00"  # the sequestered test year from data_config.test_years, and the
+  time_end: "2020-01-01T00:00:00"    # same window configs/model_1702/eval_1702_*.yaml score against
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # omitted, so stats cover the full USAD domain
+  gpu_device: 0
+  # mask is left unset for full-domain stats; pass --mask land / --mask ocean to write the
+  # land- and ocean-only variants alongside them.
+
+predict_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/${run_name}/"
+  init_time: "2019-01-01T00:00:00"
+  front_types: [CF, WF, SF, OF, DL]
+  filled_contours: true
+  targets: true
