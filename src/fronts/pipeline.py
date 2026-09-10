@@ -68,7 +68,7 @@ def main() -> None:
         logger.info("Train: skipping — checkpoint already exists at %s.", callbacks_cfg.model_checkpoint_path)
     else:
         logger.info("Train: starting...")
-        fronts_train.train(data_cfg, model_cfg, callbacks_cfg, wandb_cfg, train_cfg)
+        fronts_train.train(data_cfg, model_cfg, callbacks_cfg, wandb_cfg, train_cfg, config_path=args.config)
         logger.info("Train: complete.")
 
     if "eval_config" in yaml_data:
