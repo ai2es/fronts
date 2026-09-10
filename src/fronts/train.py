@@ -1016,11 +1016,12 @@ def _build_test_visualization_callback(
     )
 
 
-def _collect_run_metadata(data_config: datasets.DatasetConfig) -> dict[str, str]:
+def _collect_run_metadata(data_config: datasets.DatasetConfig, config_path: str) -> dict[str, str]:
     """Collect provenance metadata for logging: git commit, icechunk snapshots, SLURM vars.
 
     Args:
         data_config: DatasetConfig containing icechunk store configurations.
+        config_path: Path to the YAML config file used for this run.
 
     Returns:
         Dict suitable for passing to wandb.init(config=...) and logger.info.
@@ -1032,6 +1033,8 @@ def _collect_run_metadata(data_config: datasets.DatasetConfig) -> dict[str, str]
         "SLURM_ARRAY_TASK_ID",
     )
     meta = {
+        "config_name": os.path.basename(config_path),
+        "config_path": config_path,
         "git_commit": utils.get_git_commit(),
         "era5_snapshot_id": utils.get_icechunk_snapshot_id(
             data_config.inputs_icechunk_config.store_path,
@@ -1090,6 +1093,7 @@ def train(
     callbacks_cfg: fronts_callbacks.CallbacksConfig,
     wandb_cfg: WandBConfig | None,
     train_cfg: TrainConfig,
+    config_path: str,
 ) -> None:
     """Run the full training pipeline from pre-loaded config objects.
 
@@ -1099,8 +1103,10 @@ def train(
         callbacks_cfg: Early-stopping, checkpoint, and visualization callback config.
         wandb_cfg: W&B logging config, or None to disable W&B.
         train_cfg: Training hyperparameters (epochs, seed, learning rate, shuffle).
+        config_path: Path to the YAML config file this run was loaded from, logged as
+            provenance (``config_name``/``config_path`` in W&B and the run logs).
     """
-    run_meta = _collect_run_metadata(data_cfg)
+    run_meta = _collect_run_metadata(data_cfg, config_path)
     for key, value in run_meta.items():
         logger.info("run_meta %s=%s", key, value)
 
@@ -1335,7 +1341,7 @@ def main() -> None:
         utils.parse_config_section(yaml_data, WandBConfig, "wandb_config") if "wandb_config" in yaml_data else None
     )
     train_cfg = utils.parse_config_section(yaml_data, TrainConfig, "train_config")
-    train(data_cfg, model_cfg, callbacks_cfg, wandb_cfg, train_cfg)
+    train(data_cfg, model_cfg, callbacks_cfg, wandb_cfg, train_cfg, config_path=args.config)
 
 
 if __name__ == "__main__":
