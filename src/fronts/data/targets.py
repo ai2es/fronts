@@ -7,9 +7,13 @@ from fronts import constants
 def filter_timesteps(fronts_da: xr.DataArray, rng: np.random.Generator) -> np.ndarray:
     """Return a boolean keep-mask per timestep using the Justin et al. (2025) sampling rule.
 
-    Retain a timestep unconditionally if every front type is present somewhere in the
-    spatial domain; otherwise retain it with 50% probability. This balances class
-    frequency without introducing seasonal bias (Justin et al. 2025, section 2b).
+    Retain a timestep unconditionally if every front type in
+    ``constants.SAMPLING_REQUIRED_FRONT_TYPES`` is present somewhere in the spatial domain;
+    otherwise retain it with 50% probability. This balances class frequency without
+    introducing seasonal bias (Justin et al. 2025, section 2b).
+
+    Trough, tropical trough and instability axis are deliberately outside that requirement
+    even though the model predicts them — see ``constants.SAMPLING_REQUIRED_FRONT_TYPES``.
 
     Args:
         fronts_da: Raw identifier DataArray of shape (time, latitude, longitude) with
@@ -19,10 +23,19 @@ def filter_timesteps(fronts_da: xr.DataArray, rng: np.random.Generator) -> np.nd
     Returns:
         Boolean array of shape (time,).
     """
-    # Compute any() over space before .compute() so only (n_codes, n_times) booleans
-    # are materialised rather than the full spatial array.
+    # Compute any() over space before .compute() so only (n_required_classes, n_times)
+    # booleans are materialised rather than the full spatial array. Group raw codes by target
+    # class so e.g. a forming OR dissipating cold front both count toward "cold front present".
+    required_classes = {constants.FRONT_TYPE_CLASS_INDEX[ft] for ft in constants.SAMPLING_REQUIRED_FRONT_TYPES}
+    codes_by_class: dict[int, list[int]] = {}
+    for code, cls in constants.FRONT_CLASS_MAP.items():
+        if cls in required_classes:
+            codes_by_class.setdefault(cls, []).append(code)
     presence = xr.concat(
-        [(fronts_da == code).any(dim=["latitude", "longitude"]) for code in constants.FRONT_CLASS_MAP],
+        [
+            xr.concat([(fronts_da == code) for code in codes], dim="code").any(dim=["code", "latitude", "longitude"])
+            for codes in codes_by_class.values()
+        ],
         dim="front_type",
     ).compute()
     has_all_types = presence.all(dim="front_type").values
@@ -34,10 +47,12 @@ _SEASON_NAMES = ("DJF", "MAM", "JJA", "SON")
 
 
 def remap_fronts(da: xr.DataArray) -> xr.DataArray:
-    """Map front codes to 6-class experiment labels without loading data.
+    """Map front codes to 9-class experiment labels without loading data.
 
-    Classes: 0=none, 1=CF, 2=WF, 3=SF, 4=OF, 5=dryline. All other original codes map to
-        0.
+    Classes: 0=none, 1=CF, 2=WF, 3=SF, 4=OF, 5=dryline, 6=trough, 7=tropical trough,
+        8=instability axis. Forming and dissipating front codes collapse into their
+        parent front class (e.g. CF-F and CF-D both map to 1). All other original codes
+        map to 0.
 
     Returns:
         Lazy int32 DataArray of the same shape as ``da``.
@@ -137,7 +152,7 @@ def dilate_fronts(da: xr.DataArray, dilation: int) -> xr.DataArray:
     )
 
 
-def one_hot_encode_to_dataarray(da: xr.DataArray, num_classes: int = 6) -> xr.DataArray:
+def one_hot_encode_to_dataarray(da: xr.DataArray, num_classes: int = 9) -> xr.DataArray:
     """One-hot encode a DataArray of integer class labels without loading data.
 
     Broadcasts ``da`` against a class axis so no data is materialized until

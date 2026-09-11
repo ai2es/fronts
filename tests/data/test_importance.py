@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
+from fronts import constants
 from fronts.evaluate import NEIGHBORHOODS_KM, THRESHOLDS
 from fronts.importance import (
     PermutationConfig,
@@ -22,6 +23,7 @@ except ImportError:
     _TF_AVAILABLE = False
 
 _N_TIMES = 6
+_N_CLASSES = max(constants.FRONT_TYPE_CLASS_INDEX.values()) + 1
 _N_LAT = 4
 _N_LON = 5
 _N_LEVELS = 3
@@ -285,7 +287,7 @@ class TestRunPermutationImportance:
             val_years=[],
             front_dilation=0,
         )
-        model = self._make_signal_following_model(n_lat, n_lon, signal_channel, n_classes=6)
+        model = self._make_signal_following_model(n_lat, n_lon, signal_channel, n_classes=_N_CLASSES)
         perm_cfg = PermutationConfig(
             n_repeats=2,
             seed=123,

@@ -20,7 +20,7 @@ data_config:
   test_years: [2019]
   val_years: [2018]
   max_queue_size: 16
-  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   volume_inputs: true  # batches shaped (batch, lat, lon, level, variable) for Conv3D
@@ -44,7 +44,7 @@ data_config:
 eval_config:
   model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
   outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}/"
-  front_types: [CF, WF, SF, OF, DL]
+  front_types: [CF, WF, SF, OF, DL, TROF, TT, INST]
   front_dilation: 1  # match training dilation
   time_start: "2019-01-01T00:00:00"  # the sequestered test year from data_config.test_years, and the
   time_end: "2020-01-01T00:00:00"    # same window configs/model_1702/eval_1702_*.yaml score against
@@ -57,6 +57,6 @@ predict_config:
   model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
   outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/${run_name}/"
   init_time: "2019-01-01T00:00:00"
-  front_types: [CF, WF, SF, OF, DL]
+  front_types: [CF, WF, SF, OF, DL, TROF, TT, INST]
   filled_contours: true
   targets: true

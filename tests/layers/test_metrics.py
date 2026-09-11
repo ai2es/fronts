@@ -17,7 +17,13 @@ per_front_type_metrics = _metrics.per_front_type_metrics
 N_BATCH = 2
 N_H = 8
 N_W = 8
-N_CLASSES = 6
+N_CLASSES = max(constants.FRONT_TYPE_CLASS_INDEX.values()) + 1
+
+# Background weighted to zero, every front type weighted equally.
+BACKGROUND_SUPPRESSED_WEIGHTS = [0.0] + [1.0] * (N_CLASSES - 1)
+
+# Only the cold-front class carries weight; every other class is suppressed.
+CF_ONLY_WEIGHTS = [1.0 if index == constants.FRONT_TYPE_CLASS_INDEX["CF"] else 0.0 for index in range(N_CLASSES)]
 
 
 @pytest.fixture
@@ -83,7 +89,7 @@ class TestHeidkeSkillScoreSoftMode:
     def test_soft_detects_front_where_hard_threshold_does_not(self, front_pred):
         """Soft HSS (no threshold) should be positive when p(CF)=0.35; hard threshold=0.5 should not fire."""
         y_true, y_pred = front_pred
-        class_weights = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        class_weights = BACKGROUND_SUPPRESSED_WEIGHTS
         score_soft = heidke_skill_score(class_weights=class_weights)(y_true, y_pred).numpy()
         score_hard = heidke_skill_score(threshold=0.5, class_weights=class_weights)(y_true, y_pred).numpy()
         assert score_soft > 0.0, f"Soft HSS should be positive for a detected front; got {score_soft:.4f}"
@@ -99,7 +105,7 @@ class TestHeidkeSkillScoreSoftMode:
         y_true[0, 4, 4, 0] = 0.0
         y_true[0, 4, 4, 1] = 1.0
 
-        class_weights = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        class_weights = BACKGROUND_SUPPRESSED_WEIGHTS
         hss = heidke_skill_score(class_weights=class_weights)
 
         def make_pred(cf_prob):
@@ -132,7 +138,7 @@ class TestHeidkeSkillScoreWindow:
         y_pred[0, 5, :, 0] = 0.0
         y_pred[0, 5, :, 1] = 1.0
 
-        class_weights = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        class_weights = BACKGROUND_SUPPRESSED_WEIGHTS
         score_exact = heidke_skill_score(threshold=0.5, class_weights=class_weights)(y_true, y_pred).numpy()
         score_window = heidke_skill_score(threshold=0.5, window_size=(3, 3), class_weights=class_weights)(
             y_true, y_pred
@@ -153,7 +159,7 @@ class TestHeidkeSkillScoreClassWeights:
         y_true[0, 4, 4, 0] = 0.0
         y_true[0, 4, 4, 2] = 1.0
 
-        result = heidke_skill_score(threshold=0.5, class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0])(y_true, y_pred).numpy()
+        result = heidke_skill_score(threshold=0.5, class_weights=BACKGROUND_SUPPRESSED_WEIGHTS)(y_true, y_pred).numpy()
         assert result < 1.0, "HSS should be less than 1 when a front pixel is missed"
 
     def test_equal_weights_matches_unweighted(self, perfect_pred):
@@ -174,13 +180,13 @@ class TestFSSMetricPerfectPrediction:
     def test_perfect_prediction_with_weights_is_one(self):
         y = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
         y[..., 1] = 1.0
-        score = fractions_skill_score(mask_size=(3, 3), class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0])(y, y).numpy()
+        score = fractions_skill_score(mask_size=(3, 3), class_weights=BACKGROUND_SUPPRESSED_WEIGHTS)(y, y).numpy()
         assert score == pytest.approx(1.0, abs=1e-5)
 
     def test_all_background_perfect_prediction_is_one_with_weights(self):
         y = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
         y[..., 0] = 1.0
-        score = fractions_skill_score(mask_size=(3, 3), class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0])(y, y).numpy()
+        score = fractions_skill_score(mask_size=(3, 3), class_weights=BACKGROUND_SUPPRESSED_WEIGHTS)(y, y).numpy()
         assert score == pytest.approx(1.0, abs=1e-5)
 
 
@@ -192,7 +198,7 @@ class TestFSSMetricWrongPrediction:
         y_pred = np.zeros((N_BATCH, N_H, N_W, N_CLASSES), dtype=np.float32)
         y_pred[..., 0] = 1.0
 
-        class_weights = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+        class_weights = CF_ONLY_WEIGHTS
         score = fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)(y_true, y_pred).numpy()
         assert score < 0.95, f"Expected low FSS for completely wrong prediction, got {score:.4f}"
 
@@ -200,7 +206,7 @@ class TestFSSMetricWrongPrediction:
         y_true = np.zeros((1, N_H, N_W, N_CLASSES), dtype=np.float32)
         y_true[..., 1] = 1.0
 
-        class_weights = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+        class_weights = CF_ONLY_WEIGHTS
         fss = fractions_skill_score(mask_size=(3, 3), class_weights=class_weights)
 
         scores = []

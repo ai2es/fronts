@@ -2,6 +2,8 @@
 
 import math
 import os
+import subprocess
+import sys
 from typing import ClassVar
 
 import numpy as np
@@ -108,6 +110,23 @@ class TestCompactProgressCallback:
     """Covers the terminal-width-bounded stdout progress display added to replace verbose=1."""
 
     _FRONT_TYPES: ClassVar[list[str]] = list(constants.FRONT_TYPE_CLASS_INDEX)
+    # Columns a full epoch-summary row occupies with the current front-type count. Measured from
+    # the renderer itself rather than fixed at a literal, so the width the display is designed
+    # around follows constants.FRONT_TYPE_CLASS_INDEX instead of silently going stale when a
+    # front type is added.
+    _EPOCH_ROW_WIDTH: ClassVar[int] = len(
+        fc._epoch_summary_row(
+            "HSS",
+            [0.0] * len(_FRONT_TYPES),
+            [0.0] * len(_FRONT_TYPES),
+            fc._METRIC_FIELD_WIDTH,
+            fc._METRIC_DECIMALS,
+        )
+    )
+
+    def _descending_values(self, start: float, step: float) -> list[float]:
+        """One value per front type, stepping down from ``start`` — distinct values per column."""
+        return [round(start - step * i, 3) for i in range(len(self._FRONT_TYPES))]
 
     def _make(self, monkeypatch, is_tty, every_n_batches=10, terminal_width=120, steps=450, epochs=5000):
         monkeypatch.setattr(fc.sys.stdout, "isatty", lambda: is_tty)
@@ -142,7 +161,7 @@ class TestCompactProgressCallback:
     def test_default_batch_row_fits_comfortably_in_80_columns(self, monkeypatch, capsys):
         """The per-batch row (loss + HSS only) is short by construction; sanity-check it fits."""
         callback = self._make(monkeypatch, is_tty=True, every_n_batches=1, terminal_width=80, steps=450)
-        hss_values = [0.412, 0.342, 0.272, 0.202, 0.132]
+        hss_values = self._descending_values(0.412, 0.04)
         logs = {"loss": 0.0123}
         for front_type, hss in zip(self._FRONT_TYPES, hss_values, strict=True):
             logs[f"front/{front_type}/hss"] = hss
@@ -152,27 +171,27 @@ class TestCompactProgressCallback:
         for value in hss_values:
             assert f"{value:.3f}".lstrip("0") in row
 
-    def test_all_negative_hss_and_csi_fit_in_80_columns_at_epoch_end(self, monkeypatch, capsys):
+    def test_all_negative_hss_and_csi_fit_the_designed_row_width_at_epoch_end(self, monkeypatch, capsys):
         """The critical regression guard: sign must not widen a row past what positive values need.
 
-        Fix round 1 made the row fit at 80 columns for positive values only; every field there
+        Fix round 1 made the row fit its width budget for positive values only; every field there
         dropped its leading zero but reserved no column for a sign, so two or more negative
-        values pushed the row over 80 columns and the safety net silently ate the tail (the
-        exact bug fix round 2 addresses). Here every one of the ten HSS/CSI values, train and
-        val alike, is negative — the worst case for row width — and must still render in full.
+        values pushed the row past the budget and the safety net silently ate the tail (the
+        exact bug fix round 2 addresses). Here every one of the HSS/CSI values, train and val
+        alike, is negative — the worst case for row width — and must still render in full.
         """
-        callback = self._make(monkeypatch, is_tty=True, terminal_width=80)
-        hss = [-0.412, -0.342, -0.272, -0.202, -0.132]
-        csi = [-0.310, -0.250, -0.190, -0.130, -0.062]
-        val_hss = [-0.400, -0.330, -0.260, -0.190, -0.120]
-        val_csi = [-0.300, -0.240, -0.180, -0.120, -0.060]
+        callback = self._make(monkeypatch, is_tty=True, terminal_width=self._EPOCH_ROW_WIDTH + 1)
+        hss = self._descending_values(-0.412, -0.04)
+        csi = self._descending_values(-0.310, -0.03)
+        val_hss = self._descending_values(-0.400, -0.035)
+        val_csi = self._descending_values(-0.300, -0.03)
         logs = self._epoch_end_logs(hss, csi, val_hss, val_csi, loss=-0.0123, val_loss=-0.0141)
         callback.on_epoch_end(0, logs)
         out = capsys.readouterr().out
         lines = [line for line in out.splitlines() if line]
         assert len(lines) == 3
         for line in lines:
-            assert len(line) < 79, f"line exceeds the 80-column budget: {line!r}"
+            assert len(line) <= self._EPOCH_ROW_WIDTH, f"line exceeds the row-width budget: {line!r}"
         hss_line = next(line for line in lines if line.startswith("HSS"))
         csi_line = next(line for line in lines if line.startswith("CSI"))
         for value in hss + val_hss:
@@ -185,10 +204,10 @@ class TestCompactProgressCallback:
     def test_mixed_sign_rows_are_identical_width_to_all_positive_rows(self, monkeypatch, capsys):
         """Column alignment must not depend on sign: a negative value cannot shift later columns."""
         callback = self._make(monkeypatch, is_tty=True, terminal_width=200)
-        pos_hss = [0.412, 0.342, 0.272, 0.202, 0.132]
-        pos_csi = [0.310, 0.250, 0.190, 0.130, 0.062]
-        mixed_hss = [-0.412, 0.342, -0.272, 0.202, -0.132]
-        mixed_csi = [0.310, -0.250, 0.190, -0.130, 0.062]
+        pos_hss = self._descending_values(0.412, 0.04)
+        pos_csi = self._descending_values(0.310, 0.03)
+        mixed_hss = [value if i % 2 else -value for i, value in enumerate(pos_hss)]
+        mixed_csi = [-value if i % 2 else value for i, value in enumerate(pos_csi)]
 
         callback.on_epoch_end(0, self._epoch_end_logs(pos_hss, pos_csi, pos_hss, pos_csi))
         positive_lines = [line for line in capsys.readouterr().out.splitlines() if line]
@@ -218,8 +237,8 @@ class TestCompactProgressCallback:
 
     def test_epoch_end_with_nan_and_inf_values_does_not_raise(self, monkeypatch, capsys):
         callback = self._make(monkeypatch, is_tty=True, terminal_width=200)
-        hss = [math.nan, math.inf, -math.inf, 0.0, -0.0]
-        csi = [0.310, 0.250, 0.190, 0.130, 0.062]
+        hss = [math.nan, math.inf, -math.inf, 0.0, -0.0, *self._descending_values(0.412, 0.04)[5:]]
+        csi = self._descending_values(0.310, 0.03)
         logs = self._epoch_end_logs(hss, csi, hss, csi, loss=math.nan, val_loss=math.inf)
         callback.on_epoch_end(0, logs)  # must not raise
         out = capsys.readouterr().out
@@ -241,7 +260,7 @@ class TestCompactProgressCallback:
         tail would remain visible, looking like corrupted digits.
         """
         callback = self._make(monkeypatch, is_tty=True, every_n_batches=1, terminal_width=200, steps=450)
-        hss_values = [0.412, 0.342, 0.272, 0.202, 0.132]
+        hss_values = self._descending_values(0.412, 0.04)
         long_logs = {"loss": 12.3456}  # loss overflows its reserved width, making this row longer.
         short_logs = {"loss": 0.0123}
         for front_type, hss in zip(self._FRONT_TYPES, hss_values, strict=True):
@@ -271,11 +290,13 @@ class TestCompactProgressCallback:
         The batch row it overwrites has an HSS block the loss row lacks, so the loss row must be
         padded or the batch row's HSS values would trail behind it on screen.
         """
-        callback = self._make(monkeypatch, is_tty=True, every_n_batches=1, terminal_width=80, steps=450)
-        hss_values = [0.412, 0.342, 0.272, 0.202, 0.132]
-        csi_values = [0.310, 0.250, 0.190, 0.130, 0.062]
-        val_hss_values = [0.400, 0.330, 0.260, 0.190, 0.120]
-        val_csi_values = [0.300, 0.240, 0.180, 0.120, 0.060]
+        callback = self._make(
+            monkeypatch, is_tty=True, every_n_batches=1, terminal_width=self._EPOCH_ROW_WIDTH + 1, steps=450
+        )
+        hss_values = self._descending_values(0.412, 0.04)
+        csi_values = self._descending_values(0.310, 0.03)
+        val_hss_values = self._descending_values(0.400, 0.035)
+        val_csi_values = self._descending_values(0.300, 0.03)
         batch_logs = {"loss": 0.0123}
         for front_type, hss in zip(self._FRONT_TYPES, hss_values, strict=True):
             batch_logs[f"front/{front_type}/hss"] = hss
@@ -348,14 +369,13 @@ class TestCompactProgressCallback:
         callback = self._make(monkeypatch, is_tty=True, terminal_width=200)
         callback.on_epoch_begin(2, None)
         out = capsys.readouterr().out
-        assert f"fronts: {' '.join(self._FRONT_TYPES)}" in out
-        assert out == "Epoch 3/5000  fronts: CF WF SF OF DL\n"
+        assert out == f"Epoch 3/5000  fronts: {' '.join(self._FRONT_TYPES)}\n"
 
     def test_header_is_printed_on_non_tty_too(self, monkeypatch, capsys):
         callback = self._make(monkeypatch, is_tty=False, terminal_width=200)
         callback.on_epoch_begin(2, None)
         out = capsys.readouterr().out
-        assert "fronts: CF WF SF OF DL" in out
+        assert f"fronts: {' '.join(self._FRONT_TYPES)}" in out
 
     def test_front_type_values_appear_in_constants_order_within_batch_row(self, monkeypatch, capsys):
         callback = self._make(monkeypatch, is_tty=True, terminal_width=200, steps=25)
@@ -395,11 +415,11 @@ class TestCompactProgressCallback:
 
     def test_epoch_end_val_values_are_not_truncated_away(self, monkeypatch, capsys):
         """The core bug fix: at epoch end, every validation value must survive in full."""
-        callback = self._make(monkeypatch, is_tty=True, terminal_width=80)
-        hss = [0.412, 0.342, 0.272, 0.202, 0.132]
-        csi = [0.310, 0.250, 0.190, 0.130, 0.062]
-        val_hss = [0.400, 0.330, 0.260, 0.190, 0.120]
-        val_csi = [0.300, 0.240, 0.180, 0.120, 0.060]
+        callback = self._make(monkeypatch, is_tty=True, terminal_width=self._EPOCH_ROW_WIDTH + 1)
+        hss = self._descending_values(0.412, 0.04)
+        csi = self._descending_values(0.310, 0.03)
+        val_hss = self._descending_values(0.400, 0.035)
+        val_csi = self._descending_values(0.300, 0.03)
         logs = self._epoch_end_logs(hss, csi, val_hss, val_csi)
         callback.on_epoch_end(0, logs)
         out = capsys.readouterr().out
@@ -414,7 +434,7 @@ class TestCompactProgressCallback:
             assert f"{value:.3f}".lstrip("0") in csi_line, f"val CSI {value} missing from: {csi_line!r}"
 
     def test_non_tty_epoch_end_also_prints_three_rows_with_val_values(self, monkeypatch, capsys):
-        callback = self._make(monkeypatch, is_tty=False, terminal_width=80)
+        callback = self._make(monkeypatch, is_tty=False, terminal_width=self._EPOCH_ROW_WIDTH + 1)
         logs = self._logs(lambda i: 0.01 * i, with_validation=True)
         callback.on_epoch_end(2, logs)
         out = capsys.readouterr().out
@@ -442,13 +462,14 @@ class TestCompactProgressCallback:
 
     def test_single_space_separators_and_no_leading_zero_in_representative_batch_row(self, monkeypatch, capsys):
         callback = self._make(monkeypatch, is_tty=True, every_n_batches=1, terminal_width=200, steps=450)
-        hss_values = [0.412, 0.342, 0.272, 0.202, 0.132]
+        hss_values = self._descending_values(0.412, 0.04)
         logs = {"loss": 0.0123}
         for front_type, hss in zip(self._FRONT_TYPES, hss_values, strict=True):
             logs[f"front/{front_type}/hss"] = hss
         callback.on_train_batch_end(311, logs)
         out = capsys.readouterr().out
-        assert "312/450 loss  .0123 HSS  .412  .342  .272  .202  .132" in out
+        expected_hss = " ".join(f"{value:.3f}".lstrip("0").rjust(fc._METRIC_FIELD_WIDTH) for value in hss_values)
+        assert f"312/450 loss  .0123 HSS {expected_hss}" in out
 
 
 class TestBuildDatasetShapeSummary:
@@ -611,27 +632,89 @@ class TestVisualizationCallbackPredict:
         result = cb._predict(cb.subsample_x)
         np.testing.assert_allclose(result, cb.subsample_x)
 
-    def test_never_calls_predict_on_the_full_unchunked_array(self, monkeypatch):
-        # Calling model.predict() on the whole subsample at once accumulates every batch's
-        # output into one GPU-resident tensor before returning, which is exactly what OOMs on
-        # large full-domain subsamples. _predict must call predict() once per
-        # predict_batch_size-sized chunk instead (see callbacks.py:_predict) — not
-        # predict_on_batch(), which under MirroredStrategy hands its input to
-        # distribute_strategy.run() undistributed, so every replica runs the forward pass on
-        # the whole chunk and the (duplicate) per-replica outputs get concatenated together,
-        # inflating the result to num_replicas x chunk_size rows.
+    def test_never_uses_predict_on_batch(self, monkeypatch):
+        # predict_on_batch is not safe under tf.distribute.MirroredStrategy: it does not
+        # shard/gather a batch across replicas the way predict() does, and can silently
+        # return far more rows than requested (see test_returns_exact_row_count_under_
+        # mirrored_strategy below, and callbacks.py:_predict). _predict must go through
+        # model.predict() only.
         cb = self._make_callback(n_samples=5, predict_batch_size=2)
-        real_predict = cb.model.predict
-        call_sizes = []
-
-        def tracking_predict(x, *a, **k):
-            call_sizes.append(len(x))
-            return real_predict(x, *a, **k)
-
-        monkeypatch.setattr(cb.model, "predict", tracking_predict)
+        monkeypatch.setattr(
+            cb.model,
+            "predict_on_batch",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("model.predict_on_batch() must not be called")),
+        )
         result = cb._predict(cb.subsample_x)
         np.testing.assert_allclose(result, cb.subsample_x)
-        assert call_sizes == [2, 2, 1]
+
+    def test_calls_predict_in_bounded_macro_chunks(self, monkeypatch):
+        # _predict must never hand the whole subsample to a single model.predict() call —
+        # that's exactly the unbounded GPU-resident accumulation that OOMs on large
+        # full-domain subsamples (see callbacks.py:_predict).
+        cb = self._make_callback(n_samples=50, predict_batch_size=2)
+        call_sizes = []
+        real_predict = cb.model.predict
+
+        def spying_predict(x, **kwargs):
+            call_sizes.append(x.shape[0])
+            return real_predict(x, **kwargs)
+
+        monkeypatch.setattr(cb.model, "predict", spying_predict)
+        result = cb._predict(cb.subsample_x)
+
+        np.testing.assert_allclose(result, cb.subsample_x)
+        assert len(call_sizes) > 1
+        assert all(size <= 2 * fc._PREDICT_MACRO_CHUNK_MULTIPLIER for size in call_sizes)
+
+    def test_returns_exact_row_count_under_mirrored_strategy(self):
+        # Regression test for a real training crash: predict_on_batch under a 4-replica
+        # MirroredStrategy silently returned 4x too many rows for a batch of 4 (one full
+        # copy of the batch per replica instead of a sharded/gathered result), which
+        # downstream IndexError'd in accumulate_lite_stats on a truth array sized to the
+        # true sample count. model.predict() shards/gathers correctly.
+        #
+        # Simulating replicas via logical CPU devices requires configuring them before
+        # TF's context is initialized, which earlier tests in this shared suite have
+        # already done — so this runs in a fresh subprocess instead of in-process.
+        script = """
+import numpy as np
+import tensorflow as tf
+
+physical_cpus = tf.config.list_physical_devices("CPU")
+tf.config.set_logical_device_configuration(
+    physical_cpus[0], [tf.config.LogicalDeviceConfiguration() for _ in range(4)]
+)
+logical_cpus = tf.config.list_logical_devices("CPU")
+strategy = tf.distribute.MirroredStrategy(devices=[d.name for d in logical_cpus])
+
+with strategy.scope():
+    inputs = tf.keras.Input(shape=(2, 2, 1))
+    model = tf.keras.Model(inputs, inputs)  # identity
+
+from fronts import callbacks as fc
+
+n_samples = 200
+predict_batch_size = strategy.num_replicas_in_sync
+cb = fc.TestVisualizationCallback(
+    active_day_x=np.zeros((2, 2, 1), dtype=np.float32),
+    active_day_y=np.zeros((2, 2, 1), dtype=np.float32),
+    active_day_label="active day",
+    subsample_x=np.arange(n_samples * 4, dtype=np.float32).reshape(n_samples, 2, 2, 1),
+    subsample_y=np.zeros((n_samples, 2, 2, 1), dtype=np.float32),
+    lats=np.array([0.0, 1.0]),
+    lons=np.array([0.0, 1.0]),
+    front_types=["CF"],
+    predict_batch_size=predict_batch_size,
+)
+cb.set_model(model)
+
+result = cb._predict(cb.subsample_x)
+assert result.shape[0] == n_samples, f"expected {n_samples} rows, got {result.shape[0]}"
+print("OK")
+"""
+        proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120, check=False)
+        assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        assert "OK" in proc.stdout
 
     def test_predict_batch_size_field_is_required(self):
         with pytest.raises(TypeError):
