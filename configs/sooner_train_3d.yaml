@@ -1,4 +1,4 @@
-run_name: per_front_metrics_3d
+run_name: per_front_metrics_3d_forming_dissipating_and_troughs
 
 # 3D instantiation of sooner_train.yaml: same data, splits, loss, and ablation-selected
 # variable/level set, but batches keep the vertical structure as its own axis
@@ -32,7 +32,7 @@ data_config:
   test_years: [2019]
   val_years: [2018]
   max_queue_size: 16
-  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   volume_inputs: true  # batches shaped (batch, lat, lon, level, variable) for Conv3D
@@ -54,7 +54,7 @@ data_config:
   max_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 model_config:
-  n_classes: 6
+  n_classes: 9
   levels: 4
   filter_num: [16, 32, 64, 128]
   pool_size: [2, 2, 1]  # horizontal-only downsampling; the level axis stays intact through the network, matching model_1702

@@ -1,4 +1,5 @@
 import dataclasses
+import glob
 import logging
 import math
 from typing import ClassVar
@@ -46,7 +47,15 @@ try:
 except ImportError:
     _TF_AVAILABLE = False
 
-_ALL_CODES = list(FRONT_CLASS_MAP.keys())  # [1, 2, 3, 4, 16]
+# One canonical raw code per output class (background excluded): CF, WF, SF, OF, DL, TROF, TT, INST.
+_CANONICAL_CODE_BY_CLASS: dict[int, int] = {}
+for _code, _cls in FRONT_CLASS_MAP.items():
+    _CANONICAL_CODE_BY_CLASS.setdefault(_cls, _code)
+_ALL_CODES = [_CANONICAL_CODE_BY_CLASS[cls] for cls in sorted(_CANONICAL_CODE_BY_CLASS)]
+# Canonical codes for just the front types that gate the filter_timesteps sampling rule.
+_REQUIRED_CODES = [
+    _CANONICAL_CODE_BY_CLASS[constants.FRONT_TYPE_CLASS_INDEX[ft]] for ft in constants.SAMPLING_REQUIRED_FRONT_TYPES
+]
 
 
 def _make_fronts(time_codes: list[list[int]], lat: int = 4, lon: int = 8) -> xr.DataArray:
@@ -65,7 +74,7 @@ def _make_fronts(time_codes: list[list[int]], lat: int = 4, lon: int = 8) -> xr.
 N_TIME = 5
 N_LAT = 32
 N_LON = 64
-N_CLASSES = 6
+N_CLASSES = max(constants.FRONT_TYPE_CLASS_INDEX.values()) + 1
 
 
 class TestFilterTimesteps:
@@ -76,18 +85,43 @@ class TestFilterTimesteps:
         assert mask.all()
 
     def test_incomplete_timestep_dropped_by_rng(self):
-        # One code missing — outcome is purely the RNG 50% draw.
+        # One required code missing — outcome is purely the RNG 50% draw.
         # Seed 0: first draw ~0.64 (>= 0.5), so dropped.
-        da = _make_fronts([_ALL_CODES[:-1]])
+        da = _make_fronts([_REQUIRED_CODES[:-1]])
         rng = np.random.default_rng(0)
         mask = filter_timesteps(da, rng)
         assert not mask[0]
 
     def test_incomplete_timestep_kept_by_rng(self):
         # Seed 2: first draw ~0.26 (< 0.5), so kept.
-        da = _make_fronts([_ALL_CODES[:-1]])
+        da = _make_fronts([_REQUIRED_CODES[:-1]])
         rng = np.random.default_rng(2)
         mask = filter_timesteps(da, rng)
+        assert mask[0]
+
+    def test_only_the_original_front_types_gate_the_rule(self):
+        """A timestep carrying every required type but no trough, tropical trough or instability axis is kept.
+
+        The rule's purpose is class balance across the front types the label set actually
+        populates densely. Requiring the three new classes too would leave it firing almost
+        never, collapsing train/val to a straight 50% draw and making runs on the nine-class
+        mapping incomparable to runs on the five-class one.
+        """
+        # Seed 0's first draw is >= 0.5, so a kept timestep can only come from the rule firing.
+        da = _make_fronts([_REQUIRED_CODES])
+        mask = filter_timesteps(da, np.random.default_rng(0))
+        assert mask[0]
+
+    def test_missing_a_new_front_type_does_not_force_the_rng_draw(self):
+        """Trough/TT/INST absence must never be the reason a timestep goes to the coin flip."""
+        kept = sum(filter_timesteps(_make_fronts([_REQUIRED_CODES]), np.random.default_rng(s))[0] for s in range(50))
+        assert kept == 50
+
+    def test_forming_and_dissipating_codes_count_toward_their_parent_type(self):
+        """A forming/dissipating variant satisfies its parent front type's presence requirement."""
+        forming_and_dissipating = {1: 5, 2: 6, 3: 7, 4: 8}  # CF-F, WF-F, SF-F, OF-F
+        codes = [forming_and_dissipating.get(cls, _CANONICAL_CODE_BY_CLASS[cls]) for cls in (1, 2, 3, 4, 5)]
+        mask = filter_timesteps(_make_fronts([codes]), np.random.default_rng(0))
         assert mask[0]
 
     def test_background_only_uses_rng(self):
@@ -1073,6 +1107,90 @@ class TestTrainConfigLossClassWeights:
         assert callbacks_cfg.early_stopping_patience == 12
 
 
+class TestEveryConfigAgreesOnTheClassCount:
+    """Every shipped config must describe the same number of classes the label mapping produces.
+
+    remap_fronts emits one channel per entry in constants.FRONT_TYPE_CLASS_INDEX plus
+    background, so a config declaring fewer builds a model whose output cannot be compared
+    against its own targets — it fails deep inside the loss with a dimension mismatch rather
+    than at parse time. Scanning every config catches the ones nobody has run recently.
+    """
+
+    _CONFIG_PATHS: ClassVar[list[str]] = sorted(glob.glob("configs/*.yaml"))
+
+    def test_config_files_were_found(self):
+        """Guards the glob itself: an empty sweep would make every test below vacuously pass."""
+        assert self._CONFIG_PATHS
+
+    @pytest.mark.parametrize("path", _CONFIG_PATHS)
+    def test_declared_n_classes_matches_the_front_type_mapping(self, path):
+        from fronts import utils
+
+        model_section = utils.load_yaml(path).get("model_config") or {}
+        if "n_classes" not in model_section:
+            pytest.skip(f"{path} declares no n_classes")
+        assert model_section["n_classes"] == N_CLASSES
+
+    @pytest.mark.parametrize("path", _CONFIG_PATHS)
+    def test_class_weight_vectors_have_one_entry_per_class(self, path):
+        from fronts import utils
+
+        yaml_data = utils.load_yaml(path)
+        vectors = {
+            "data_config.class_weights": (yaml_data.get("data_config") or {}).get("class_weights"),
+            "train_config.loss_class_weights": (yaml_data.get("train_config") or {}).get("loss_class_weights"),
+        }
+        present = {name: weights for name, weights in vectors.items() if weights is not None}
+        if not present:
+            pytest.skip(f"{path} declares no class-weight vector")
+        for name, weights in present.items():
+            assert len(weights) == N_CLASSES, f"{path}: {name} has {len(weights)} entries, expected {N_CLASSES}"
+
+
+class TestEvalConfigMirrorsItsTrainingRun:
+    """schooner_eval.yaml feeds its own data_config into a checkpoint another config trained.
+
+    evaluate.load_eval_arrays builds the model's inputs from these fields, so any divergence
+    from the run's training config either fails at the input layer or silently scores the
+    model on inputs it was never trained on. These pin the two files together.
+    """
+
+    _EVAL_CONFIG = "configs/schooner_eval.yaml"
+    _TRAINING_CONFIG = "configs/schooner_train_3d.yaml"
+
+    def _data_config(self, path):
+        from fronts import utils
+        from fronts.data.datasets import DatasetConfig
+
+        return utils.parse_config_section(utils.load_yaml(path), DatasetConfig, "data_config")
+
+    def test_eval_names_the_run_its_training_config_produces(self):
+        from fronts import utils
+
+        eval_run = utils.load_yaml(self._EVAL_CONFIG)["run_name"]
+        training_run = utils.load_yaml(self._TRAINING_CONFIG)["run_name"]
+        assert eval_run == training_run
+
+    def test_model_facing_data_fields_match_the_training_config(self):
+        eval_data = self._data_config(self._EVAL_CONFIG)
+        training_data = self._data_config(self._TRAINING_CONFIG)
+        assert eval_data.variables == training_data.variables
+        assert eval_data.volume_inputs == training_data.volume_inputs
+        assert eval_data.pressure_levels == training_data.pressure_levels
+        assert eval_data.normalization_method == training_data.normalization_method
+        assert eval_data.front_dilation == training_data.front_dilation
+        assert eval_data.class_weights == training_data.class_weights
+
+    def test_eval_domain_is_the_full_extent_the_run_trained_on(self):
+        from fronts import utils
+        from fronts.evaluate import EvalConfig
+
+        eval_cfg = utils.parse_config_section(utils.load_yaml(self._EVAL_CONFIG), EvalConfig, "eval_config")
+        training_data = self._data_config(self._TRAINING_CONFIG)
+        assert training_data.coordinates is None, "training config now restricts its domain; eval must follow it"
+        assert tuple(eval_cfg.coordinates) == (0.25, 80.0, 130.0, 369.75)
+
+
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
 class TestFrontsPyDatasetVolume:
     """volume_inputs=True must yield (batch, lat, lon, level, variable) batches for a 3D model."""
@@ -1138,7 +1256,7 @@ def _build_small_unet(
     filter_num = [8, 16, 32, 64][:levels]
     return UNet3Plus(
         input_shape=(None, None, 4),
-        num_classes=6,
+        num_classes=N_CLASSES,
         pool_size=(2, 2),
         upsample_size=(2, 2),
         levels=levels,
@@ -1246,7 +1364,7 @@ class TestCompileEma:
             metric_class_weights=None,
             train_cfg=train_cfg,
             latitudes=self._LATITUDES,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         assert unet.optimizer.use_ema is False
 
@@ -1259,7 +1377,7 @@ class TestCompileEma:
             metric_class_weights=None,
             train_cfg=train_cfg,
             latitudes=self._LATITUDES,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         assert unet.optimizer.use_ema is True
         assert unet.optimizer.ema_momentum == pytest.approx(0.95)
@@ -1274,7 +1392,7 @@ class TestCompileEma:
             metric_class_weights=None,
             train_cfg=train_cfg,
             latitudes=self._LATITUDES,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         assert unet.optimizer.use_ema is False
 
@@ -1307,7 +1425,7 @@ class TestCompilePerFrontTypeMetrics:
             metric_class_weights=None,
             train_cfg=train_cfg,
             latitudes=self._LATITUDES,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         assert n_out == 3
         metrics_config = unet.get_compile_config()["metrics"]
@@ -1335,7 +1453,7 @@ class TestCompilePerFrontTypeMetrics:
             metric_class_weights=None,
             train_cfg=train_cfg,
             latitudes=self._LATITUDES,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         metrics_config = unet.get_compile_config()["metrics"]
         assert len(metrics_config) == n_out
@@ -1351,7 +1469,7 @@ class TestCompilePerFrontTypeMetrics:
             metric_class_weights=None,
             train_cfg=train_cfg,
             latitudes=self._LATITUDES,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         metrics_config = unet.get_compile_config()["metrics"]
         for output_metrics in metrics_config:
@@ -1367,7 +1485,7 @@ class TestCompilePerFrontTypeMetrics:
             metric_class_weights=None,
             train_cfg=train_cfg,
             latitudes=self._LATITUDES,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         assert n_out == 1
         metrics_config = unet.get_compile_config()["metrics"]
@@ -1400,7 +1518,7 @@ class TestCompilePerFrontTypeMetrics:
             metric_class_weights=None,
             train_cfg=train_cfg_on,
             latitudes=latitudes,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         _compile(
             unet_off,
@@ -1408,7 +1526,7 @@ class TestCompilePerFrontTypeMetrics:
             metric_class_weights=None,
             train_cfg=train_cfg_off,
             latitudes=latitudes,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
 
         loss_on = unet_on.evaluate(x, y, verbose=0)[0]
@@ -1420,13 +1538,19 @@ class TestCompilePerFrontTypeMetrics:
 class TestPerFrontTypeLossMetrics:
     _LATITUDES = np.linspace(25.0, 56.75, 8)
 
-    def _fixed_batch(self, seed: int, n_classes: int = 6, batch: int = 2, height: int = 8, width: int = 8):
+    def _fixed_batch(self, seed: int, n_classes: int = N_CLASSES, batch: int = 2, height: int = 8, width: int = 8):
         rng = np.random.default_rng(seed)
         y_true = tf.one_hot(rng.integers(0, n_classes, size=(batch, height, width)), n_classes)
         y_pred = tf.nn.softmax(rng.standard_normal((batch, height, width, n_classes)).astype(np.float32), axis=-1)
         return y_true, y_pred
 
-    def _per_class_values(self, loss_name, loss_class_weights, y_true, y_pred, n_classes: int = 6) -> list[float]:
+    def _class_weights(self, background: float, front_type_weights: list[float]) -> list[float]:
+        """Weight vector of length N_CLASSES: ``background`` first, then ``front_type_weights`` cycled."""
+        return [background] + [front_type_weights[i % len(front_type_weights)] for i in range(N_CLASSES - 1)]
+
+    def _per_class_values(
+        self, loss_name, loss_class_weights, y_true, y_pred, n_classes: int = N_CLASSES
+    ) -> list[float]:
         per_class_metrics = _per_front_type_loss_metrics(
             loss_name=loss_name,
             loss_class_weights=loss_class_weights,
@@ -1445,7 +1569,7 @@ class TestPerFrontTypeLossMetrics:
             values.append(float(metric.result()))
         return values
 
-    def test_returns_six_uniquely_named_metrics(self):
+    def test_returns_one_uniquely_named_metric_per_class(self):
         per_class_metrics = _per_front_type_loss_metrics(
             loss_name="neighborhood_brier_score",
             loss_class_weights=None,
@@ -1456,16 +1580,16 @@ class TestPerFrontTypeLossMetrics:
             nbs_lat_dependent_pool=False,
             nbs_include_pixel=False,
             nbs_pixel_weight=0.1,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         names = [metric.name for metric in per_class_metrics]
-        assert len(names) == len(set(names)) == 6
+        assert len(names) == len(set(names)) == N_CLASSES
         assert f"loss_{constants.BACKGROUND_CLASS_KEY}" in names
         for front_type in constants.FRONT_TYPE_CLASS_INDEX:
             assert f"loss_{front_type}" in names
 
     def test_n_classes_mismatch_raises_clear_error(self):
-        with pytest.raises(ValueError, match=r"n_classes=7.*does not match.*6"):
+        with pytest.raises(ValueError, match=rf"n_classes={N_CLASSES + 1}.*does not match.*{N_CLASSES}"):
             _per_front_type_loss_metrics(
                 loss_name="neighborhood_brier_score",
                 loss_class_weights=None,
@@ -1476,7 +1600,7 @@ class TestPerFrontTypeLossMetrics:
                 nbs_lat_dependent_pool=False,
                 nbs_include_pixel=False,
                 nbs_pixel_weight=0.1,
-                n_classes=7,
+                n_classes=N_CLASSES + 1,
             )
 
     def test_n_classes_matching_front_type_index_succeeds(self):
@@ -1490,9 +1614,9 @@ class TestPerFrontTypeLossMetrics:
             nbs_lat_dependent_pool=False,
             nbs_include_pixel=False,
             nbs_pixel_weight=0.1,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
-        assert len(per_class_metrics) == 6
+        assert len(per_class_metrics) == N_CLASSES
 
     def test_nbs_per_class_losses_sum_to_total_unweighted(self):
         y_true, y_pred = self._fixed_batch(seed=0)
@@ -1512,7 +1636,7 @@ class TestPerFrontTypeLossMetrics:
     def test_nbs_per_class_losses_sum_to_total_with_zero_weighted_background(self):
         """Additivity must hold even when a class (background) is weighted to exactly zero."""
         y_true, y_pred = self._fixed_batch(seed=1)
-        loss_class_weights = [0.0, 1.0, 2.0, 1.0, 1.0, 3.0]
+        loss_class_weights = self._class_weights(0.0, [1.0, 2.0, 1.0, 1.0, 3.0])
         total_loss_fn = _build_loss(
             loss_name="neighborhood_brier_score",
             loss_class_weights=loss_class_weights,
@@ -1529,7 +1653,7 @@ class TestPerFrontTypeLossMetrics:
 
     def test_nbs_per_class_losses_sum_to_total_with_include_pixel(self):
         y_true, y_pred = self._fixed_batch(seed=2)
-        loss_class_weights = [1.0, 2.0, 0.5, 1.0, 1.0, 1.5]
+        loss_class_weights = self._class_weights(1.0, [2.0, 0.5, 1.0, 1.0, 1.5])
         total_loss_fn = _build_loss(
             loss_name="neighborhood_brier_score",
             loss_class_weights=loss_class_weights,
@@ -1552,7 +1676,7 @@ class TestPerFrontTypeLossMetrics:
             nbs_lat_dependent_pool=False,
             nbs_include_pixel=True,
             nbs_pixel_weight=0.5,
-            n_classes=6,
+            n_classes=N_CLASSES,
         )
         per_class_total = 0.0
         for metric in per_class_metrics:
@@ -1562,7 +1686,7 @@ class TestPerFrontTypeLossMetrics:
 
     def test_fss_per_class_losses_bound_total_and_are_not_additive(self):
         y_true, y_pred = self._fixed_batch(seed=4)
-        loss_class_weights = [0.0, 1.0, 2.0, 1.0, 1.0, 3.0]
+        loss_class_weights = self._class_weights(0.0, [1.0, 2.0, 1.0, 1.0, 3.0])
         total_loss_fn = _build_loss(
             loss_name="fractions_skill_score",
             loss_class_weights=loss_class_weights,
@@ -1583,7 +1707,7 @@ class TestPerFrontTypeLossMetrics:
     def test_fss_zero_weighted_class_does_not_produce_nan(self):
         """A configured zero weight must not NaN out that class's FSS metric (unlike a scaled one-hot would)."""
         y_true, y_pred = self._fixed_batch(seed=5)
-        loss_class_weights = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        loss_class_weights = self._class_weights(0.0, [1.0])
         per_class_values = self._per_class_values("fractions_skill_score", loss_class_weights, y_true, y_pred)
         assert all(np.isfinite(per_class_values))
 

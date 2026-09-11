@@ -1,4 +1,4 @@
-run_name: brier_conus_3d_all_vars
+run_name: brier_conus_3d_all_vars_dissipating_forming_troughs
 
 # 3D-instantiation experiment. Inspecting model_1702.h5 directly revealed the AIES
 # FrontFinder model is a 3D U-Net — input (lat, lon, 5 levels, 10 variables), 33 Conv3D
@@ -41,7 +41,7 @@ data_config:
   test_years: [2019]
   val_years: [2018]
   max_queue_size: 16
-  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
   time_resolution: "3h" # CONUS fronts are available 3-hourly, unlike the 6-hourly full/USAD domain
   coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
@@ -71,7 +71,7 @@ data_config:
   max_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 model_config:
-  n_classes: 6
+  n_classes: 9
   levels: 4
   filter_num: [16, 32, 64, 128]
   pool_size: [2, 2, 1]  # horizontal-only downsampling; the level axis stays intact through the network, matching model_1702

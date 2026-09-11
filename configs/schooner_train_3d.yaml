@@ -1,4 +1,4 @@
-run_name: brier_full_3d_all_vars
+run_name: brier_3d_all_vars_dissipating_forming_troughs
 
 # 3D-instantiation experiment on the full domain with the neighborhood Brier loss.
 # Inspecting model_1702.h5 directly revealed the AIES FrontFinder model is a 3D U-Net —
@@ -40,7 +40,7 @@ data_config:
   test_years: [2019]
   val_years: [2018]
   max_queue_size: 16
-  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   volume_inputs: true  # batches shaped (batch, lat, lon, level, variable) for Conv3D
@@ -69,7 +69,7 @@ data_config:
   max_pydataset_workers: 16  # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 model_config:
-  n_classes: 6
+  n_classes: 9
   levels: 4
   filter_num: [16, 32, 64, 128]
   pool_size: [2, 2, 1]  # horizontal-only downsampling; the level axis stays intact through the network, matching model_1702

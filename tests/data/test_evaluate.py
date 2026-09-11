@@ -32,7 +32,7 @@ RNG = np.random.default_rng(42)
 _N_LAT = 6
 _N_LON = 8
 _N_TIMES = 3
-_N_CLASSES = 6
+_N_CLASSES = 9
 _FRONT_TYPES = ["CF", "WF"]
 _VARIABLES = ["geopotential", "temperature"]
 

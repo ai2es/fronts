@@ -21,6 +21,10 @@ from fronts.plot import plot as plot_module
 
 logger = logging.getLogger(__name__)
 
+# How many predict_batch_size-sized steps model.predict() is allowed to accumulate on GPU
+# before TestVisualizationCallback._predict flushes the result to CPU and starts a new call.
+_PREDICT_MACRO_CHUNK_MULTIPLIER = 8
+
 _PER_OUTPUT_LOSS_RE = re.compile(r"^sup\d+_.+_loss$")
 # Matches any per-output metric key, e.g. "sup1_softmax_hss" or "sup1_softmax_hss_hard" —
 # captures everything after "sup{N}_{activation}_" as the metric name, so any custom
@@ -297,9 +301,12 @@ def _truncate_to_terminal_width(line: str) -> str:
     r"""Truncates ``line`` to one column short of the terminal width, so ``\r`` always rewinds it.
 
     A last-resort safety net, not the normal path: every numeric field above reserves a sign
-    column and is joined with single spaces, so a full row — even with all ten HSS/CSI values
-    negative — fits comfortably inside 80 columns without ever engaging this. See
-    ``TestCompactProgressCallback.test_all_negative_hss_and_csi_fit_in_80_columns``.
+    column and is joined with single spaces, so a full row — even with every HSS/CSI value
+    negative — renders at a width set purely by the front-type count, never wider. With the
+    nine-class mapping that is ~106 columns for an epoch-summary row, inside the 120-column
+    fallback used when stdout is not a terminal (the SLURM log case), so this only engages in an
+    interactive terminal narrower than that. See
+    ``TestCompactProgressCallback.test_all_negative_hss_and_csi_fit_the_designed_row_width_at_epoch_end``.
     """
     width = shutil.get_terminal_size(fallback=(120, 24)).columns - 1
     return line[:width]
@@ -318,8 +325,10 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
     aggregate ``loss``, and per-front-type ``HSS`` (the soft ``front/{front_type}/hss``) and
     ``CSI`` (``front/{front_type}/csi``), in ``constants.FRONT_TYPE_CLASS_INDEX`` order — using a
     sign-safe fixed-width number format (every field reserves a column for a leading ``-``, so
-    column alignment never depends on sign or magnitude) chosen so a full row fits inside 80
-    columns by design, even when every value is negative. The rendered row is additionally
+    column alignment never depends on sign or magnitude), so a full row's width is set purely by
+    the front-type count and never grows with the values — ~106 columns for an epoch-summary row
+    under the nine-class mapping, inside the 120-column fallback used for a non-TTY stdout, even
+    when every value is negative. The rendered row is additionally
     truncated to the actual terminal width before every write as a last-resort safety net (see
     ``_truncate_to_terminal_width``), so ``\r`` always rewinds the whole line even in a narrower
     terminal. Every in-place write is also padded with trailing spaces to at least as long as the
@@ -718,22 +727,29 @@ class TestVisualizationCallback(tf.keras.callbacks.Callback):
         super().__init__()
 
     def _predict(self, x: np.ndarray) -> np.ndarray:
-        """Run the model's finest-resolution (first) output, chunked by ``predict_batch_size``."""
-        # model.predict() over the full array batches its forward passes but still accumulates
-        # every batch's output into one GPU-resident tensor before returning; at full spatial
-        # resolution (e.g. full-CONUS-domain runs) that accumulated buffer, on top of training's
-        # already-resident GPU memory, reliably OOMs. Calling predict() once per chunk and moving
-        # each result to CPU immediately keeps only one chunk's output on GPU at a time.
-        #
-        # This must be predict(), not predict_on_batch(): under MirroredStrategy,
-        # predict_on_batch() hands its input to distribute_strategy.run() undistributed, so each
-        # replica runs the forward pass on the *whole* chunk rather than a shard of it, and the
-        # per-replica outputs are then concatenated — silently inflating the result to
-        # num_replicas x chunk_size rows. predict() constructs a proper distributed dataset
-        # under the hood and returns exactly chunk_size rows.
+        """Run the model's finest-resolution (first) output, in bounded macro-chunks.
+
+        ``model.predict()`` batches its forward passes via ``batch_size``, but that only
+        bounds the per-step compute — it still accumulates every requested sample's output
+        into one GPU-resident tensor before returning. At full spatial resolution (e.g.
+        full-CONUS-domain runs) that accumulated buffer, on top of training's already-
+        resident GPU memory, reliably OOMs for large subsamples (e.g. 200 timesteps).
+        Calling ``predict()`` on bounded macro-chunks and moving each one to CPU
+        immediately caps how much stays GPU-resident at once.
+
+        ``predict_on_batch`` was tried here first as a per-``predict_batch_size``-chunk
+        alternative, but it is not safe under ``tf.distribute.MirroredStrategy``: it does
+        not shard/gather a batch across replicas the way ``predict()`` does, and can
+        silently return far more rows than requested (observed 4x on a 4-replica batch of
+        4). ``predict()`` must be kept for correctness; only the chunk size fed to it
+        is bounded here.
+        """
+        macro_chunk_size = self.predict_batch_size * _PREDICT_MACRO_CHUNK_MULTIPLIER
         outputs: list[np.ndarray] = []
-        for start in range(0, x.shape[0], self.predict_batch_size):
-            pred = self.model.predict(x[start : start + self.predict_batch_size], verbose=0)
+        for start in range(0, x.shape[0], macro_chunk_size):
+            pred = self.model.predict(
+                x[start : start + macro_chunk_size], batch_size=self.predict_batch_size, verbose=0
+            )
             if isinstance(pred, (list, tuple)):
                 pred = pred[0]
             outputs.append(np.asarray(pred))

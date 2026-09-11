@@ -8,7 +8,7 @@ import pytest
 import tensorflow as tf
 import xarray as xr
 
-from fronts import evaluate, utils
+from fronts import constants, evaluate, utils
 from fronts.data import datasets
 from fronts.model_1702 import adapter, normalization, run_eval
 
@@ -16,6 +16,7 @@ N_TIME = 8
 N_LAT = 32
 N_LON = 64
 FRONT_TYPES = ["CF", "WF", "SF", "OF", "DL"]
+N_CLASSES = max(constants.FRONT_TYPE_CLASS_INDEX.values()) + 1
 
 
 @pytest.fixture
@@ -78,17 +79,17 @@ def side_store_data_config():
         test_years=[2019],
         val_years=[2018],
         batch_size=4,
-        class_weights=[0.0] + [1.0] * 5,
+        class_weights=[0.0] + [1.0] * (N_CLASSES - 1),
         front_dilation=1,
         volume_inputs=True,
     )
 
 
 class SoftmaxProbeModel:
-    """Fake legacy model: softmax over six channels derived from the surface level."""
+    """Fake legacy model: softmax over one channel per target class, derived from the surface level."""
 
     def __call__(self, x, training=False):
-        return [tf.nn.softmax(x[:, :, :, 0, :6], axis=-1)]
+        return [tf.nn.softmax(x[:, :, :, 0, :N_CLASSES], axis=-1)]
 
 
 class TestComputeStatsIntegration:
