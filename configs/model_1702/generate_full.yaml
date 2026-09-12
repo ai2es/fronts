@@ -1,0 +1,33 @@
+# model_1702 input side-store: full USAD domain, 2019, 6-hourly (matches full-domain label
+# cadence). Out-of-domain for model_1702 (CONUS-trained); results are caveated accordingly.
+
+era5_config:
+  era5_uri: "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
+  variables: [
+    "geopotential",
+    "temperature",
+    "u_component_of_wind",
+    "v_component_of_wind",
+    "specific_humidity",
+    "surface_pressure",
+    "2m_temperature",
+    "2m_dewpoint_temperature",
+    "10m_u_component_of_wind",
+    "10m_v_component_of_wind",
+    ]
+  pressure_levels: [1000, 950, 900, 850]
+  time_start: "2019-01-01T00:00:00"
+  time_end: "2019-12-31T18:00:00"
+  time_resolution: "6h"
+  coordinates: [0.25, 80.0, 130.0, 369.75]
+  storage_options:
+    token: "anon"
+  chunks: null
+  zarr_async_concurrency: 128
+
+icechunk_storage_config:
+  store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/model_1702"
+  branch_name: "main"
+  commit_message: "AIES model_1702 side-store, full domain 2019 6-hourly"
+  group_name: "full"
+  write_batch_size: 100

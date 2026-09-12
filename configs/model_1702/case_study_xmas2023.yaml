@@ -1,0 +1,21 @@
+# 2023 Christmas storm case study, mirroring Fig. 14 of the FrontFinder AIES paper
+# (Justin et al. 2025). The paper's figure used GFS f000 with 100-km-neighborhood
+# calibration; this renders raw model_1702 probabilities from ERA5 analysis, so spatial
+# structures are comparable but amplitudes read lower.
+
+case_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/model_1702/model_1702.h5"
+  times:
+    - "2023-12-26T00:00:00"
+    - "2023-12-26T12:00:00"
+    - "2023-12-27T00:00:00"
+    - "2023-12-27T12:00:00"
+  coordinates: [25.0, 56.75, 228.0, 299.75]
+  front_types: [CF, WF, SF, OF]
+  era5_uri: "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
+  storage_options:
+    token: "anon"
+  inputs_cache_path: "/ourdisk/hpc/ai2es/tman/data/fronts/model_1702_case_inputs/xmas2023.nc"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/model_1702/"
+  figure_name: "xmas2023_fig14_style.png"
+  gpu_device: null

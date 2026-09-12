@@ -1,0 +1,35 @@
+# model_1702 over the full USAD domain with office-region breakdowns. OUT OF DOMAIN for
+# model_1702, which was trained CONUS-only: results outside the WPC/NHC CONUS overlap
+# characterize generalization, not the model's published skill.
+
+harness_eval_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/model_1702/model_1702.h5"
+  model_kind: "model_1702"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/model_1702/model_1702_full_out_of_domain/"
+  coordinates: [0.25, 80.0, 130.0, 369.75]
+  regions: [full, land, ocean, OPC_west, WPC, OPC_east, HFO, NHC]
+  front_types: [CF, WF, SF, OF, DL]
+  front_dilation: 1
+  batch_size: 4
+  time_start: "2019-01-01T00:00:00"
+  time_end: "2020-01-01T00:00:00"
+  time_resolution: null
+  gpu_device: 0
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/model_1702"
+    branch_name: "main"
+    group_name: "full"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 4
+  test_years: [2019]
+  val_years: [2018]
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "6h"
+  volume_inputs: true
+  variables: [T, Td, Tv, u, v, r, q, RH, sp_z, theta_e]

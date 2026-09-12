@@ -1,0 +1,37 @@
+name: Update Lock Files
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-locks:
+    name: Sync Lock Files
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Update pixi.lock
+        run: pixi lock
+
+      - name: Update uv.lock
+        run: uv lock
+
+      - name: Commit and push lock file changes
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "chore: update lock files [skip ci]"
+          file_pattern: "pixi.lock uv.lock"
