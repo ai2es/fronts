@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -182,3 +184,37 @@ class TestDilateFrontsOverlap:
         result = dilate_fronts(_two_adjacent_fronts_da(), dilation=1).values
         np.testing.assert_array_equal(result[0, :, 3, 1], np.ones(8))
         np.testing.assert_array_equal(result[0, :, 3, 3], np.zeros(8))
+
+
+def _diagonal_front_da(n: int, cls: int = 1) -> xr.DataArray:
+    data = np.zeros((1, n, n, N_CLASSES), dtype=np.float32)
+    for i in range(n):
+        data[0, i, i, cls] = 1.0
+    data[0, :, :, 0] = 1.0 - data[0, :, :, 1:].any(axis=-1)
+    return _make_one_hot_da(data)
+
+
+class TestDilateFrontsSquareStructuringElement:
+    def test_single_pixel_dilates_to_3x3_block(self):
+        da = _single_front_pixel_da(cls=1)
+        result = dilate_fronts(da, dilation=1).values
+        expected = np.zeros((_SMALL_LAT, _SMALL_LON), dtype=np.float32)
+        expected[1:4, 1:4] = 1.0
+        np.testing.assert_array_equal(result[0, :, :, 1], expected)
+        np.testing.assert_array_equal(result[0, :, :, 0], 1.0 - expected)
+
+    def test_diagonal_line_dilates_to_five_wide_band(self):
+        n = 8
+        da = _diagonal_front_da(n)
+        result = dilate_fronts(da, dilation=1).values
+        rows, cols = np.indices((n, n))
+        expected = (np.abs(rows - cols) <= 2).astype(np.float32)
+        np.testing.assert_array_equal(result[0, :, :, 1], expected)
+
+    def test_numpy_fallback_matches_scipy_for_single_pixel(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "scipy.ndimage", None)
+        da = _single_front_pixel_da(cls=1)
+        result = dilate_fronts(da, dilation=1).values
+        expected = np.zeros((_SMALL_LAT, _SMALL_LON), dtype=np.float32)
+        expected[1:4, 1:4] = 1.0
+        np.testing.assert_array_equal(result[0, :, :, 1], expected)

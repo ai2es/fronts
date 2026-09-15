@@ -1,4 +1,4 @@
-run_name: per_front_metrics_3d
+run_name: spix_wce_loss_modified_dilation
 
 # Evaluation counterpart to sooner_train_3d.yaml, and the 3D instantiation of sooner_eval.yaml.
 # data_config repeats sooner_train_3d.yaml verbatim — including volume_inputs and the smaller
@@ -42,7 +42,7 @@ data_config:
   max_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
 
 eval_config:
-  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_final.keras"
   outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}/"
   front_types: [CF, WF, SF, OF, DL, TROF, TT, INST]
   front_dilation: 1  # match training dilation

@@ -1,4 +1,4 @@
-run_name: per_front_metrics_3d_forming_dissipating_and_troughs
+run_name: spix_wce_loss_modified_dilation_3d_forming_dissipating_and_troughs
 
 # 3D instantiation of sooner_train.yaml: same data, splits, loss, and ablation-selected
 # variable/level set, but batches keep the vertical structure as its own axis
@@ -12,12 +12,9 @@ run_name: per_front_metrics_3d_forming_dissipating_and_troughs
 train_config:
   epochs: 5000
   seed: 42
-  learning_rate: 0.0001  # 5e-4 (tuned for the 1.8M-param 2D model) blew up this 8.7M-param 3D model mid-epoch-2 (W&B run 898culiq); 1e-4 also matches AIES model_1702
+  learning_rate: 0.0001
   shuffle: true
-  loss_class_weights: null  # null supervises all classes incl. background in the training loss, matching the AIES FrontFinder model
-  gradient_clip_norm: 1.0  # caps the damage a single outlier batch can do
-  loss_name: neighborhood_brier_score
-  nbs_tolerance_km: 25.0  # reproduces the old 1-px (0.25 deg) label dilation
+  loss_name: multiclass_wbce
 
 data_config:
   inputs_icechunk_config:
@@ -28,7 +25,7 @@ data_config:
     store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
     branch_name: "main"
     virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
-  batch_size: 4  # 3D activations carry the 6-level axis at full resolution through every layer on the 320x960 domain
+  batch_size: 8  # 3D activations carry the 6-level axis at full resolution through every layer on the 320x960 domain
   test_years: [2019]
   val_years: [2018]
   max_queue_size: 16

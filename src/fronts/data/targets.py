@@ -64,9 +64,10 @@ def remap_fronts(da: xr.DataArray) -> xr.DataArray:
 
 
 def _binary_dilate_2d(mask: np.ndarray, iterations: int) -> np.ndarray:
-    """Apply binary dilation with a cross-shaped structuring element for ``iterations`` steps.
+    """Apply binary dilation with a 3x3 square (8-connected) structuring element for ``iterations`` steps.
 
-    Uses scipy.ndimage when available; falls back to a pure-numpy implementation.
+    Uses scipy.ndimage when available; falls back to a pure-numpy implementation. Matches
+    the legacy ``expand_fronts`` behavior this project was ported from.
 
     Args:
         mask: Boolean 2-D array of shape (rows, cols).
@@ -78,7 +79,7 @@ def _binary_dilate_2d(mask: np.ndarray, iterations: int) -> np.ndarray:
     try:
         import scipy.ndimage
 
-        return scipy.ndimage.binary_dilation(mask, iterations=iterations)
+        return scipy.ndimage.binary_dilation(mask, structure=np.ones((3, 3), dtype=bool), iterations=iterations)
     except ModuleNotFoundError:
         result = mask.copy()
         for _ in range(iterations):
@@ -87,6 +88,10 @@ def _binary_dilate_2d(mask: np.ndarray, iterations: int) -> np.ndarray:
                 | np.roll(result, -1, axis=0)
                 | np.roll(result, 1, axis=1)
                 | np.roll(result, -1, axis=1)
+                | np.roll(np.roll(result, 1, axis=0), 1, axis=1)
+                | np.roll(np.roll(result, 1, axis=0), -1, axis=1)
+                | np.roll(np.roll(result, -1, axis=0), 1, axis=1)
+                | np.roll(np.roll(result, -1, axis=0), -1, axis=1)
                 | result
             )
             result = shifted

@@ -117,7 +117,9 @@ class TrainConfig:
     learning_rate: float = 1e-4
     shuffle: bool = False
     gradient_clip_norm: float | None = None
-    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score"] = "neighborhood_brier_score"
+    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score", "multiclass_wbce"] = (
+        "neighborhood_brier_score"
+    )
     fss_mask_size: tuple[int, ...] = (3, 3)
     nbs_tolerance_km: float = 25.0
     nbs_periodic_lon: bool = False
@@ -263,7 +265,7 @@ def _show_input_sample(label: str, inputs: np.ndarray | xr.DataArray, n_show: in
 
 
 def _build_loss(
-    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score"],
+    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score", "multiclass_wbce"],
     loss_class_weights: list[float] | None,
     latitudes: np.ndarray,
     fss_mask_size: tuple[int, ...],
@@ -308,13 +310,15 @@ def _build_loss(
             include_pixel=nbs_include_pixel,
             pixel_weight=nbs_pixel_weight,
         )
+    if loss_name == "multiclass_wbce":
+        return losses.multiclass_wbce_loss(class_weights=loss_class_weights)
     raise ValueError(
         f"Unrecognized loss_name {loss_name!r}; expected 'fractions_skill_score' or 'neighborhood_brier_score'."
     )
 
 
 def _per_front_type_loss_metrics(
-    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score"],
+    loss_name: Literal["fractions_skill_score", "neighborhood_brier_score", "multiclass_wbce"],
     loss_class_weights: list[float] | None,
     latitudes: np.ndarray,
     fss_mask_size: tuple[int, ...],

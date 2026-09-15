@@ -54,16 +54,12 @@ class TestPlanWindows:
 
     def test_max_distinct_widths_bounds_unique_half_x_values(self):
         wide_latitudes = np.arange(89.0, 0.0, -RESOLUTION_DEG)
-        plans = losses._plan_windows(
-            wide_latitudes, RESOLUTION_DEG, (250.0,), max_half_x=128, max_distinct_widths=4
-        )
+        plans = losses._plan_windows(wide_latitudes, RESOLUTION_DEG, (250.0,), max_half_x=128, max_distinct_widths=4)
         assert len(np.unique(plans[0]["half_x"])) <= 4
 
     def test_max_distinct_widths_none_leaves_full_precision(self):
         wide_latitudes = np.arange(89.0, 0.0, -RESOLUTION_DEG)
-        plans = losses._plan_windows(
-            wide_latitudes, RESOLUTION_DEG, (250.0,), max_half_x=128, max_distinct_widths=None
-        )
+        plans = losses._plan_windows(wide_latitudes, RESOLUTION_DEG, (250.0,), max_half_x=128, max_distinct_widths=None)
         assert len(np.unique(plans[0]["half_x"])) > 4
 
 
@@ -385,6 +381,80 @@ class TestFSSLossClassWeights:
             f"CF-only weights should produce >= loss vs equal weights when only CF differs: "
             f"cf_only={loss_cf_only:.4f}, equal={loss_equal_weights:.4f}"
         )
+
+
+class TestMulticlassWbceLoss:
+    """The loss consumes the same one-hot target the data pipeline yields: N_CLASSES channels, no weight map."""
+
+    def test_accepts_pipeline_target_with_one_channel_per_class(self):
+        """Regression: y_true carries exactly N_CLASSES one-hot channels, matching y_pred."""
+        y_true = _one_hot_background()
+        y_pred = np.full_like(y_true, 0.5)
+        loss = losses.multiclass_wbce_loss()(y_true, y_pred)
+        assert loss.shape == ()
+        assert float(loss.numpy()) == pytest.approx(-np.log(0.5 + tf.keras.backend.epsilon()), rel=1e-5)
+
+    def test_graph_mode_with_unknown_shapes(self):
+        """Regression: under tf.function the class count is symbolic, so it cannot drive Python-level ops."""
+        y_true = _one_hot_background()
+        signature = [tf.TensorSpec((None, None, None, None), tf.float32)] * 2
+        traced = tf.function(losses.multiclass_wbce_loss(), input_signature=signature)
+        result = float(traced(tf.constant(y_true), tf.constant(np.full_like(y_true, 0.5))).numpy())
+        assert result == pytest.approx(-np.log(0.5 + tf.keras.backend.epsilon()), rel=1e-5)
+
+    def test_confident_correct_prediction_is_near_zero(self):
+        y_true = _with_front_row(_one_hot_background(), row=4)
+        loss = losses.multiclass_wbce_loss()(y_true, y_true.copy())
+        assert float(loss.numpy()) == pytest.approx(0.0, abs=1e-5)
+
+    def test_wrong_prediction_costs_more_than_correct_one(self):
+        y_true = _with_front_row(_one_hot_background(), row=4)
+        loss_fn = losses.multiclass_wbce_loss()
+        correct = float(loss_fn(y_true, y_true.copy()).numpy())
+        wrong = float(loss_fn(y_true, _one_hot_background()).numpy())
+        assert wrong > correct
+
+    def test_background_channel_is_supervised(self):
+        """Channel 0 is a real class here, not a weight map, so background errors must register."""
+        y_true = _one_hot_background()
+        y_pred = y_true.copy()
+        y_pred[..., 0] = 0.5
+        assert float(losses.multiclass_wbce_loss()(y_true, y_pred).numpy()) > 0.0
+
+    def test_uniform_class_weights_match_unweighted(self):
+        y_true = _with_front_row(_one_hot_background(), row=4)
+        y_pred = np.full_like(y_true, 0.3)
+        unweighted = float(losses.multiclass_wbce_loss()(y_true, y_pred).numpy())
+        uniform = float(losses.multiclass_wbce_loss(class_weights=[5.0] * N_CLASSES)(y_true, y_pred).numpy())
+        assert uniform == pytest.approx(unweighted, rel=1e-5)
+
+    def test_zero_weight_class_excluded_from_loss(self):
+        """The configs train with [0, 1, 1, 1, 1, 1], so a background-only error must vanish."""
+        y_true = _one_hot_background()
+        y_pred = y_true.copy()
+        y_pred[..., 0] = 0.5
+        loss_fn = losses.multiclass_wbce_loss(class_weights=[0.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        assert float(loss_fn(y_true, y_pred).numpy()) == pytest.approx(0.0, abs=1e-6)
+
+    def test_class_weights_emphasize_weighted_class_error(self):
+        y_true = _with_front_row(_one_hot_background(), row=4)
+        y_pred = y_true.copy()
+        y_pred[..., 1] = 0.3
+        emphasize_error = [1.0, 5.0, 1.0, 1.0, 1.0, 1.0]
+        emphasize_correct = [5.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        loss_error = float(losses.multiclass_wbce_loss(class_weights=emphasize_error)(y_true, y_pred).numpy())
+        loss_correct = float(losses.multiclass_wbce_loss(class_weights=emphasize_correct)(y_true, y_pred).numpy())
+        assert loss_error > loss_correct
+
+    def test_gradient_flows_to_predictions(self):
+        y_true = tf.constant(_with_front_row(_one_hot_background(), row=4))
+        y_pred = tf.Variable(np.full((N_BATCH, N_H, N_W, N_CLASSES), 1.0 / N_CLASSES, dtype=np.float32))
+        loss_fn = losses.multiclass_wbce_loss()
+        with tf.GradientTape() as tape:
+            loss = loss_fn(y_true, y_pred)
+        grad = tape.gradient(loss, y_pred)
+        assert grad is not None
+        assert float(tf.reduce_max(tf.abs(grad))) > 0.0
 
 
 class TestFSSLossBackgroundSupervision:

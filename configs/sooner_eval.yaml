@@ -1,4 +1,4 @@
-run_name: per_front_metrics
+run_name: spix_wce_loss_modified_dilation
 
 # Evaluation counterpart to sooner_train.yaml. data_config repeats that file's store paths,
 # variables, levels, normalization, and dilation verbatim so inputs are built exactly as the
