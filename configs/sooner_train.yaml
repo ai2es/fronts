@@ -1,11 +1,13 @@
-run_name: spix_wce_loss_modified_dilation
+run_name: nbs_square_dilation_trof_tt_no_inst
 
 train_config:
   epochs: 5000
   seed: 42
   learning_rate: 0.0001
   shuffle: true
-  loss_name: multiclass_wbce
+  loss_class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]  # background, CF, WF, SF, OF, DL, TROF, TT, INST (INST unsupervised)
+  loss_name: neighborhood_brier_score
+  nbs_tolerance_km: 25.0  # reproduces the old 1-px (0.25 deg) label dilation
 
 data_config:
   inputs_icechunk_config:
@@ -20,7 +22,7 @@ data_config:
   test_years: [2019]
   val_years: [2018]
   max_queue_size: 16
-  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]  # metric weights: background and INST excluded
   front_dilation: 1
   time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
   # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
