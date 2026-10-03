@@ -1,4 +1,4 @@
-run_name: spix_wce_loss_modified_dilation
+run_name: nbs_square_dilation_trof_tt_no_inst
 
 # Evaluation counterpart to sooner_train.yaml. data_config repeats that file's store paths,
 # variables, levels, normalization, and dilation verbatim so inputs are built exactly as the
