@@ -63,7 +63,7 @@ class FrontFinder1702Adapter:
 
 
 class ClassPaddingAdapter:
-    """Pads a 2.0 model's class axis up to ``NUM_EVAL_CLASSES``, a no-op for 6-class checkpoints."""
+    """Pads a 2.0 model's class axis up to ``NUM_EVAL_CLASSES``; a no-op for checkpoints with >= 6 classes."""
 
     def __init__(self, model: keras.Model):
         self.model = model
@@ -76,15 +76,14 @@ class ClassPaddingAdapter:
             training: Accepted for signature compatibility; inference only.
 
         Returns:
-            Tensor with the last axis padded to ``NUM_EVAL_CLASSES`` classes.
+            Tensor with the last axis padded to at least ``NUM_EVAL_CLASSES`` classes; models with
+            more classes (e.g. the 9-class 2.0 targets) pass through unchanged.
         """
         preds = self.model(x, training=False)
         if isinstance(preds, (list, tuple)):
             preds = preds[0]
         missing = NUM_EVAL_CLASSES - int(preds.shape[-1])
-        if missing < 0:
-            raise ValueError(f"Model emits {int(preds.shape[-1])} classes, more than the {NUM_EVAL_CLASSES} expected")
-        if missing == 0:
+        if missing <= 0:
             return preds
         return tf.pad(preds, [[0, 0], [0, 0], [0, 0], [0, missing]])
 

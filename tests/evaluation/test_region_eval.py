@@ -10,7 +10,8 @@ import xarray as xr
 
 from fronts import constants, evaluate, utils
 from fronts.data import datasets
-from fronts.model_1702 import adapter, normalization, run_eval
+from fronts.evaluation import region_eval as run_eval
+from fronts.model_1702 import adapter, normalization
 
 N_TIME = 8
 N_LAT = 32
@@ -231,6 +232,16 @@ class TestConfigParsing:
         if harness_cfg.model_kind == run_eval.MODEL_KIND_1702:
             assert data_cfg.variables == list(normalization.VARIABLES)
         assert data_cfg.volume_inputs
+
+    def test_sooner_eval_regions_config_parses(self):
+        yaml_data = utils.load_yaml(os.path.join("configs", "sooner_eval_regions.yaml"))
+        harness_cfg = utils.parse_config_section(
+            yaml_data, run_eval.HarnessEvalConfig, "harness_eval_config", utils.YAML_TYPE_HOOKS
+        )
+        data_cfg = utils.parse_config_section(yaml_data, datasets.DatasetConfig, "data_config", utils.YAML_TYPE_HOOKS)
+        assert harness_cfg.model_kind == run_eval.MODEL_KIND_KERAS
+        assert harness_cfg.regions == run_eval.REGION_CHOICES
+        assert len(data_cfg.class_weights) == len(harness_cfg.front_types) + 1
 
     def test_generate_configs_parse(self):
         from fronts.data import generate

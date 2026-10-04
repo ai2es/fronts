@@ -31,12 +31,12 @@ run() {
 
 echo "==== figures ===="
 for run_name in model_1702_conus model_1702_conus_6h baseline_conus; do
-    run python -m fronts.model_1702.figures \
+    run python -m fronts.evaluation.figures \
         --stats_dir "$STATS_ROOT/$run_name/" \
         --coordinates 25.0 56.75 228.0 299.75
 done
 for run_name in model_1702_full_out_of_domain baseline_full; do
-    run python -m fronts.model_1702.figures \
+    run python -m fronts.evaluation.figures \
         --stats_dir "$STATS_ROOT/$run_name/" \
         --coordinates 0.25 80.0 130.0 369.75
 done

@@ -1,12 +1,12 @@
 """Batch 4-panel figure generation for harness evaluation outputs.
 
 Globs every ``stats_derived*.nc`` in a stats directory (as written by
-``fronts.model_1702.run_eval``) and renders the standard 4-panel performance figure for each
+``fronts.evaluation.region_eval``) and renders the standard 4-panel performance figure for each
 front type in each file via ``fronts.plot.plot.plot_performance_diagrams`` — including office
 regions the core plot CLI does not expose.
 
 Usage:
-    python -m fronts.model_1702.figures \
+    python -m fronts.evaluation.figures \
         --stats_dir /ourdisk/hpc/ai2es/tman/models/stats/model_1702/model_1702_conus/ \
         --coordinates 25.0 56.75 228.0 299.75
 """

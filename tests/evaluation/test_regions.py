@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from fronts.model_1702 import run_eval
+from fronts.evaluation import region_eval as run_eval
 
 FULL_DOMAIN_LATS = np.arange(80.0, 0.0, -0.25)
 FULL_DOMAIN_LONS_WRAPPED = np.concatenate([np.arange(130.0, 360.0, 0.25), np.arange(0.0, 10.0, 0.25)])

@@ -37,7 +37,7 @@ from fronts import constants, evaluate, utils
 from fronts.constants import BoundingBox
 from fronts.data import datasets
 from fronts.model import SharedTargetModel, TemperatureScaledModel
-from fronts.model_1702 import run_eval
+from fronts.evaluation import region_eval as run_eval
 
 log = logging.getLogger(__name__)
 

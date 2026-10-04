@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from fronts.model_1702 import figures
+from fronts.evaluation import figures
 
 log = logging.getLogger(__name__)
 

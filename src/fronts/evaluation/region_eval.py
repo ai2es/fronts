@@ -7,8 +7,9 @@ regions — writing ``stats_{spatial,aggregate,derived}{_region}.nc`` files with
 naming scheme as ``fronts.evaluate`` so the standard plotting code consumes them unchanged.
 
 Usage:
-    python -m fronts.model_1702.run_eval --config_path configs/model_1702/eval_1702_conus.yaml
-    python -m fronts.model_1702.run_eval --config_path configs/model_1702/eval_1702_full.yaml --region WPC
+    python -m fronts.evaluation.region_eval --config_path configs/sooner_eval_regions.yaml
+    python -m fronts.evaluation.region_eval --config_path configs/model_1702/eval_1702_conus.yaml
+    python -m fronts.evaluation.region_eval --config_path configs/model_1702/eval_1702_full.yaml --region WPC
 """
 
 import argparse

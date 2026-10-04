@@ -77,13 +77,13 @@ class TestClassPaddingAdapter:
         assert out.shape == (2, N_LAT, N_LON, 6)
         np.testing.assert_allclose(out, 1.0 / 6.0)
 
-    def test_too_many_classes_raises(self, raw_batch):
-        def ten_class_model(x, training=False):
-            return tf.ones((tf.shape(x)[0], N_LAT, N_LON, 10))
+    def test_more_than_six_classes_pass_through(self, raw_batch):
+        def nine_class_model(x, training=False):
+            return tf.ones((tf.shape(x)[0], N_LAT, N_LON, 9))
 
-        wrapped = adapter.ClassPaddingAdapter(ten_class_model)
-        with pytest.raises(ValueError, match="more than"):
-            wrapped(tf.constant(raw_batch))
+        wrapped = adapter.ClassPaddingAdapter(nine_class_model)
+        out = wrapped(tf.constant(raw_batch)).numpy()
+        assert out.shape == (2, N_LAT, N_LON, 9)
 
 
 def test_normalize_volume_matches_legacy_formula():

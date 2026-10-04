@@ -43,7 +43,7 @@ eval_stage() {
     if [ -f "$marker" ]; then
         echo "==== skipping $config (found $marker)"
     else
-        run python -m fronts.model_1702.run_eval --config_path "$config"
+        run python -m fronts.evaluation.region_eval --config_path "$config"
     fi
 }
 
@@ -60,12 +60,12 @@ eval_stage configs/model_1702/eval_baseline_full.yaml "$STATS_ROOT/baseline_full
 
 echo "==== stage 3/4: figures ===="
 for run_name in model_1702_conus model_1702_conus_6h baseline_conus; do
-    run python -m fronts.model_1702.figures \
+    run python -m fronts.evaluation.figures \
         --stats_dir "$STATS_ROOT/$run_name/" \
         --coordinates 25.0 56.75 228.0 299.75
 done
 for run_name in model_1702_full_out_of_domain baseline_full; do
-    run python -m fronts.model_1702.figures \
+    run python -m fronts.evaluation.figures \
         --stats_dir "$STATS_ROOT/$run_name/" \
         --coordinates 0.25 80.0 130.0 369.75
 done
