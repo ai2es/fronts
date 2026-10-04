@@ -17,7 +17,7 @@
 # Per-region stats + performance diagrams (full, land, ocean, and the five forecast-office
 # regions) for the 2.0 checkpoint named in configs/sooner_eval_regions.yaml.
 
-set -euo pipefail
+set -eo pipefail
 export LD_LIBRARY_PATH="${PIXI_ENV}/lib:${LD_LIBRARY_PATH}"
 
 CONFIG=configs/sooner_eval_regions.yaml
