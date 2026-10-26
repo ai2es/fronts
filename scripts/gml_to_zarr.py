@@ -57,7 +57,7 @@ def main() -> None:
             if not ok:
                 continue
             ds = gml.make_front_dataset([r[0] for r in ok], [r[1] for r in ok], lats, lons)
-            ds = ds.chunk({"time": 8})
+            ds = ds.chunk({"time": 1})  # skipped files make the length arbitrary, so chunks must not span timesteps
             if first:
                 ds.to_zarr(args.out, mode="w")
                 first = False
