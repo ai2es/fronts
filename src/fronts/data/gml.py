@@ -36,7 +36,11 @@ GML_FRONT_TYPE_CODES: dict[str, int] = {
 # sharper front types overwrite the broader trough-like ones. Codes absent here sort first.
 _DRAW_ORDER = (15, 13, 14, 16, 3, 4, 2, 1)
 
-_TIME_RE = re.compile(r"\.(\d{8}T\d{6})Z\.")
+# Analysts' polar troughs are occasionally extrapolated a degree or so past the pole (seen: 90.92). Up to
+# this many degrees is clipped to the pole; beyond it the file is taken to be lat,lon ordered and rejected.
+_POLE_TOLERANCE = 95.0
+
+_TIME_RE =re.compile(r"\.(\d{8}T\d{6})Z\.")
 
 LonLatLine = tuple[np.ndarray, np.ndarray]
 
@@ -86,9 +90,9 @@ def parse_fronts(path: str | Path) -> tuple[list[tuple[int, LonLatLine]], Counte
             pairs = np.array([p.split(",") for p in (coords.text or "").split()], dtype=np.float64)
             if pairs.ndim != 2 or len(pairs) < 2:
                 continue
-            if np.abs(pairs[:, 1]).max() > 90.0:
-                raise ValueError(f"{path}: FRONT coordinates are not lon,lat ordered (|second value| > 90)")
-            fronts.append((code, (pairs[:, 0], pairs[:, 1])))
+            if np.abs(pairs[:, 1]).max() > _POLE_TOLERANCE:
+                raise ValueError(f"{path}: FRONT coordinates are not lon,lat ordered (|second value| > {_POLE_TOLERANCE})")
+            fronts.append((code, (pairs[:, 0], np.clip(pairs[:, 1], -90.0, 90.0))))
     return fronts, unmapped
 
 

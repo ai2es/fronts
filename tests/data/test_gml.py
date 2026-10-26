@@ -55,6 +55,12 @@ def test_parse_rejects_lat_lon_ordered_fronts(tmp_path):
         gml.parse_fronts(path)
 
 
+def test_parse_clips_small_overshoot_past_the_pole(tmp_path):
+    path = _write(tmp_path, _front("Trough", "-163.7,86.6 -161.3,90.92"))
+    (_, (_, lat)), = gml.parse_fronts(path)[0]
+    np.testing.assert_array_equal(lat, [86.6, 90.0])
+
+
 def test_rasterize_places_cells_on_expected_lat_lon():
     # Horizontal line at 40N from 250E to 251E (given as -110..-109).
     grid = gml.rasterize_fronts([(2, (np.array([-110.0, -109.0]), np.array([40.0, 40.0])))], LATS, LONS)
