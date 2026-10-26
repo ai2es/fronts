@@ -1,0 +1,55 @@
+run_name: nbs_square_dilation_trof_tt_no_inst
+
+# Global evaluation counterpart to sooner_train.yaml. data_config repeats that file's store paths,
+# variables, levels, normalization, and dilation verbatim so inputs are built exactly as the
+# model saw them in training; only the training-loop sections (train_config, model_config,
+# callbacks_config, wandb_config) are dropped, since evaluate.py reads the architecture back
+# from the checkpoint.
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/global_2023_2025/"  # from configs/generate_icechunk_global.yaml
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 8 # global grid is ~3x the training domain
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "6h" # TWC analyses are 3-hourly; 6h matches training and halves the cost
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "10m_u_component_of_wind",
+      "10m_v_component_of_wind",
+      "2m_dewpoint_temperature",
+      "geopotential_at_surface"
+    ]
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax
+  max_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+
+global_eval_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  targets_zarr: "/ourdisk/hpc/ai2es/tman/twc_fronts_global.zarr"  # from scripts/gml_to_zarr.py
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}_global/"
+  coordinates: [-80.0, 80.0, 0.0, 359.75]  # must be symmetric about the equator (hemisphere flip)
+  front_types: [CF, WF, SF, OF, DL, TROF]  # the TWC product has no tropical-trough or instability-axis fronts; DL is very sparse
+  front_dilation: 1  # match training dilation
+  batch_size: 8
+  chunk_size: 64  # timesteps of predictions + targets held in memory at once
+  time_start: "2023-06-15T00:00:00"
+  time_end: "2026-01-01T00:00:00"  # ERA5 inputs end 2025-12-31
+  time_resolution: "6h"
+  write_spatial: false  # per-pixel stats files are tens of GB at this grid
+  gpu_device: 0
