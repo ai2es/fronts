@@ -31,6 +31,14 @@ def test_flip_negates_only_v_and_mirrors_latitude():
     np.testing.assert_array_equal(out["10m_v_component_of_wind"].values, -ds["10m_v_component_of_wind"].values[:, ::-1])
 
 
+def test_flip_mirrors_descending_latitude_too():
+    ds = _ds().isel(latitude=slice(None, None, -1))
+    out = global_eval.flip_inputs(ds)
+    np.testing.assert_array_equal(out["latitude"].values, LATS[::-1])
+    np.testing.assert_array_equal(out["u_component_of_wind"].values, ds["u_component_of_wind"].values[:, ::-1])
+    np.testing.assert_array_equal(out["v_component_of_wind"].values, -ds["v_component_of_wind"].values[:, ::-1])
+
+
 def test_flip_is_an_involution_and_leaves_input_untouched():
     ds = _ds()
     before = ds["v_component_of_wind"].values.copy()
@@ -49,6 +57,12 @@ def test_hemisphere_slices_put_equator_in_north():
     rows = global_eval.hemisphere_slices(LATS)
     assert LATS[rows["SH"]].tolist() == [-0.5]
     assert LATS[rows["NH"]].tolist() == [0.0, 0.5]
+
+
+def test_hemisphere_slices_descending_axis():
+    rows = global_eval.hemisphere_slices(LATS[::-1])
+    assert LATS[::-1][rows["NH"]].tolist() == [0.5, 0.0]
+    assert LATS[::-1][rows["SH"]].tolist() == [-0.5]
 
 
 def test_combine_global_sums_counts_and_stacks_maps():

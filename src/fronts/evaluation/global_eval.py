@@ -83,17 +83,18 @@ def flip_inputs(input_ds: xr.Dataset) -> xr.Dataset:
     why the grid must be symmetric about the equator. Done on raw inputs, before the model's normalization.
 
     Args:
-        input_ds: Dataset with ascending ``latitude`` symmetric about 0.
+        input_ds: Dataset with monotonic ``latitude`` (either order) symmetric about 0.
 
     Returns:
         Dataset on the same coordinates with flipped fields.
 
     Raises:
-        ValueError: If latitudes are not ascending and symmetric about the equator.
+        ValueError: If latitudes are not monotonic and symmetric about the equator.
     """
     lats = input_ds["latitude"].values
-    if not (np.all(np.diff(lats) > 0) and np.allclose(lats, -lats[::-1])):
-        raise ValueError("flip_inputs needs ascending latitudes symmetric about the equator")
+    steps = np.diff(lats)
+    if not ((np.all(steps > 0) or np.all(steps < 0)) and np.allclose(lats, -lats[::-1])):
+        raise ValueError("flip_inputs needs monotonic latitudes symmetric about the equator")
     flipped = input_ds.copy()
     for name in flipped.data_vars:
         if _V_WIND in name:
@@ -103,14 +104,18 @@ def flip_inputs(input_ds: xr.Dataset) -> xr.Dataset:
 
 
 def hemisphere_slices(lats: np.ndarray) -> dict[str, slice]:
-    """Row slices for the northern (lat >= 0) and southern (lat < 0) hemispheres of an ascending axis."""
-    split = int(np.searchsorted(lats, 0.0, side="left"))
-    return {"SH": slice(0, split), "NH": slice(split, len(lats))}
+    """Row slices for the northern (lat >= 0) and southern (lat < 0) hemispheres, for either axis order."""
+    north = np.flatnonzero(lats >= 0.0)
+    south = np.flatnonzero(lats < 0.0)
+    return {
+        "NH": slice(int(north.min()), int(north.max()) + 1),
+        "SH": slice(int(south.min()), int(south.max()) + 1),
+    }
 
 
 def combine_global(parts: dict[str, tuple[xr.Dataset, xr.Dataset]]) -> tuple[xr.Dataset, xr.Dataset]:
-    """Adds hemispheric (spatial, aggregate) counts into global ones; spatial maps are stacked south-north."""
-    spatial = xr.concat([parts["SH"][0], parts["NH"][0]], dim="latitude")
+    """Adds hemispheric (spatial, aggregate) counts into global ones; spatial maps come back with ascending latitude."""
+    spatial = xr.concat([parts["SH"][0], parts["NH"][0]], dim="latitude").sortby("latitude")
     aggregate = parts["SH"][1] + parts["NH"][1]
     return spatial, aggregate
 
@@ -134,6 +139,12 @@ def _open_data(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig):
     input_ds = utils.select_spatial_domain(input_ds, cfg.coordinates)
     fronts_ds = utils.select_spatial_domain(fronts_ds, cfg.coordinates)
     fronts_raw = utils.drop_duplicate_times(fronts_ds["identifier"])
+    # The loader pairs inputs and targets by row position, not by label, so put the targets in the
+    # inputs' latitude order (ERA5 is descending, the rasterized fronts ascending). sel raises
+    # KeyError rather than silently misaligning if the grids differ.
+    if not np.array_equal(fronts_raw["longitude"].values, input_ds["longitude"].values):
+        raise ValueError("Input and target longitudes differ")
+    fronts_raw = fronts_raw.sel(latitude=input_ds["latitude"].values)
 
     times = np.intersect1d(input_ds["time"].values, fronts_raw["time"].values)
     if cfg.time_start:
