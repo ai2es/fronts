@@ -24,7 +24,9 @@ def _write(tmp_path, *members: str):
         '<gml:coordinates cs="," decimal="." ts=" ">48.1,-58.0 47.3,-58.4</gml:coordinates>'
         "</gml:LineString></gml:lineStringProperty></CONTOUR_LINE></gml:featureMember>"
     )
-    path.write_text(f'<?xml version="1.0"?><collection xmlns:gml="http://www.opengis.net/gml">{isobar}{"".join(members)}</collection>')
+    path.write_text(
+        f'<?xml version="1.0"?><collection xmlns:gml="http://www.opengis.net/gml">{isobar}{"".join(members)}</collection>'
+    )
     return path
 
 
@@ -57,7 +59,7 @@ def test_parse_rejects_lat_lon_ordered_fronts(tmp_path):
 
 def test_parse_clips_small_overshoot_past_the_pole(tmp_path):
     path = _write(tmp_path, _front("Trough", "-163.7,86.6 -161.3,90.92"))
-    (_, (_, lat)), = gml.parse_fronts(path)[0]
+    ((_, (_, lat)),) = gml.parse_fronts(path)[0]
     np.testing.assert_array_equal(lat, [86.6, 90.0])
 
 

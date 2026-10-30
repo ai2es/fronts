@@ -30,6 +30,7 @@ def _rasterize(path: Path, lats: np.ndarray, lons: np.ndarray):
 
 
 def main() -> None:
+    """Rasterizes every GML file under ``--gml_dir`` into one zarr, appending in batches."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gml_dir", type=Path, required=True)

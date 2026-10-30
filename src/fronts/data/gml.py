@@ -40,7 +40,7 @@ _DRAW_ORDER = (15, 13, 14, 16, 3, 4, 2, 1)
 # this many degrees is clipped to the pole; beyond it the file is taken to be lat,lon ordered and rejected.
 _POLE_TOLERANCE = 95.0
 
-_TIME_RE =re.compile(r"\.(\d{8}T\d{6})Z\.")
+_TIME_RE = re.compile(r"\.(\d{8}T\d{6})Z\.")
 
 LonLatLine = tuple[np.ndarray, np.ndarray]
 
@@ -91,7 +91,7 @@ def parse_fronts(path: str | Path) -> tuple[list[tuple[int, LonLatLine]], Counte
             if pairs.ndim != 2 or len(pairs) < 2:
                 continue
             if np.abs(pairs[:, 1]).max() > _POLE_TOLERANCE:
-                raise ValueError(f"{path}: FRONT coordinates are not lon,lat ordered (|second value| > {_POLE_TOLERANCE})")
+                raise ValueError(f"{path}: FRONT coordinates are not lon,lat ordered (|lat| > {_POLE_TOLERANCE})")
             fronts.append((code, (pairs[:, 0], np.clip(pairs[:, 1], -90.0, 90.0))))
     return fronts, unmapped
 
@@ -108,9 +108,7 @@ def _densify(lon: np.ndarray, lat: np.ndarray, step: float) -> LonLatLine:
     return np.concatenate(out_lon), np.concatenate(out_lat)
 
 
-def rasterize_fronts(
-    fronts: Sequence[tuple[int, LonLatLine]], lats: np.ndarray, lons: np.ndarray
-) -> np.ndarray:
+def rasterize_fronts(fronts: Sequence[tuple[int, LonLatLine]], lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
     """Draws front polylines onto a regular grid as original front codes.
 
     Args:

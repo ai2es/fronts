@@ -91,6 +91,7 @@ class PadToMultiple:
         self.multiple = multiple
 
     def __call__(self, x: tf.Tensor, training: bool = False):
+        """Runs the model on latitude-padded inputs and returns outputs cropped to the original rows."""
         n_lat = x.shape[1]
         extra = -n_lat % self.multiple
         top = extra // 2
@@ -200,7 +201,7 @@ def run(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig) -> None:
     for start in range(0, n_times, cfg.chunk_size):
         sel = slice(start, min(start + cfg.chunk_size, n_times))
         chunk_in, chunk_tg = input_ds.isel(time=sel), fronts_raw.isel(time=sel)
-        log.info("Chunk %d–%d of %d", sel.start, sel.stop, n_times)
+        log.info("Chunk %d-%d of %d", sel.start, sel.stop, n_times)
         for mode, inputs in (("direct", chunk_in), ("flipped", flip_inputs(chunk_in))):
             preds, targets = evaluate.predict_batches(
                 model=model,
@@ -248,6 +249,7 @@ def run(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig) -> None:
 
 
 def main() -> None:
+    """Parses arguments, loads the config, and runs the global evaluation."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Global evaluation with direct and hemisphere-flipped inference.")
     parser.add_argument("--config_path", type=str, required=True)

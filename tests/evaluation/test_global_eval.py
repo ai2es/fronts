@@ -67,7 +67,8 @@ def test_hemisphere_slices_descending_axis():
 
 def test_combine_global_sums_counts_and_stacks_maps():
     def part(lats, value):
-        spatial = xr.Dataset({"tp": (("latitude", "longitude"), np.full((len(lats), 2), value))}, coords={"latitude": lats, "longitude": LONS})
+        grid = np.full((len(lats), 2), value)
+        spatial = xr.Dataset({"tp": (("latitude", "longitude"), grid)}, coords={"latitude": lats, "longitude": LONS})
         aggregate = xr.Dataset({"tp": (("threshold",), np.array([value, value]))})
         return spatial, aggregate
 
