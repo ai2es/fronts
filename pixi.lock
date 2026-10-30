@@ -3816,8 +3816,8 @@ packages:
   timestamp: 1734014884486
 - pypi: ./
   name: fronts
-  version: 0.2.0
-  sha256: 587442a3592d4448600c1829d365d86cdc5e16fe25263f5d59771269f5ac1bbd
+  version: 2.0.0
+  sha256: d6cfa1b37b7cb37a138e81e58cc23147a6002e8b3c6dbbaa5f18dd2dc87508b4
   requires_dist:
   - dacite>=1.9.2,<2
   - icechunk>=2
