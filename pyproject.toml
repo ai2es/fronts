@@ -1,6 +1,6 @@
 [project]
 name = "fronts"
-version = "0.2.0"
+version = "2.0.0"
 description = "FrontFinder AI for finding various frontal and baroclinic boundaries"
 requires-python = ">=3.12,<=3.14.5"
 keywords = [
@@ -214,7 +214,7 @@ include = ["src/fronts/**/*"]
 
 [tool.pixi.package] 
 name = "fronts"
-version = "0.2.0"
+version = "2.0.0"
 
 [tool.pixi.package.host-dependencies] 
 hatchling = ">=1.26.3"
