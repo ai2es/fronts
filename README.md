@@ -1,7 +1,7 @@
 # NOAA FrontFinder
 
 FrontFinder finds weather fronts in ERA5 reanalysis data with a UNet3+ neural network. This repository is the updated
-version of NOAA's FrontFinder code. Andrew Justin (@andrewjustin) created it, and Taylor Mandelbaum (@aaTman) updated it.
+version of NOAA's FrontFinder code. Andrew Justin (@andrewjustin) created it and Taylor Mandelbaum (@aaTman) updated it.
 
 The model labels each grid point with one of nine classes: no front, cold front, warm front, stationary front, occluded
 front, dryline, trough, tropical trough, and instability axis. Forming and dissipating fronts are merged into their
@@ -9,21 +9,22 @@ parent type.
 
 ## Key updates for v2.0.0
 
-- **YAML configs.** Every run (data, training, evaluation) is driven by one YAML file in `configs/`. The YAML is the
-  single source of truth, so there are no shell scripts full of flags to manage, and each config is versioned with the
-  code.
+- **YAML configs.** Every run is driven by one YAML file in `configs/`. The YAML is meant to be the
+  single source of truth and each config is versioned with the code.
 - **Typed, linted code.** All code is type-checked with `pyrefly` and linted and formatted with `ruff`. Both run as
   pre-commit hooks.
 - **Keras 3 and TensorFlow 2.16+.** The model saves as a `.keras` file, which is
-  [easier to manage](https://www.tensorflow.org/tutorials/keras/save_and_load#new_high-level_keras_format) than the old
+  [easier to manage](https://www.tensorflow.org/tutorials/keras/save_and_load#new_high-level_keras_format) than previous
   formats.
-- **icechunk data stores.** Inputs and targets live in [icechunk](https://icechunk.io) stores, which are versioned zarr
-  stores.
-- **2D or 3D models.** The UNet3+ can treat pressure levels as channels (2D) or as a depth axis (3D convolutions).
+- **icechunk data stores.** Inputs and targets live in [icechunk](https://icechunk.io) stores, which are ACID-transaction
+  based zarr stores.
+- **2D or 3D models.** The UNet3+ can treat pressure levels as channels (2D) or as a depth axis (3D convolutions). The
+  most recent version, and version tentatively in the forthcoming update paper, is 2D (lat x lon x channel).
 - **Experiment tracking.** Training logs losses, per-front-type metrics, and test-set prediction maps to Weights & Biases.
-- **`pixi` environments.** FrontFinder trains on OU's supercomputers (schooner and sooner), which pin `glibc` to 2.17.
+- **`pixi` environments.** FrontFinder trains on OU's supercomputer (Sooner), which pin `glibc` to 2.17.
   `pixi` handles that, mixes conda-forge and PyPI packages in one `pyproject.toml`, and locks every environment. It is
-  also much faster than conda. Use `pixi-pack` to move an environment to a machine without `pixi`.
+  also much faster than conda. Use `pixi-pack` to move an environment to a machine without `pixi`. Recent updates to Sooner
+  have removed this requirement.
 
 ## Installing
 
@@ -118,7 +119,7 @@ is a shortcut for the first row: `pixi run -e schooner eval --mask land`.
 
 The `scripts/` folder holds the SLURM batch files used on sooner, such as `scripts/sooner_eval_regions.sbatch`.
 
-### Comparing with the v1 model
+### Comparing with the Justin et al. 2025 model
 
 `fronts.model_1702` loads the published AIES FrontFinder model (`model_1702`) and rebuilds its original inputs, so it
 can be scored with the same code as v2 models. Its configs are in `configs/model_1702/`:
