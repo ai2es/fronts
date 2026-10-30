@@ -26,4 +26,4 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Pyrefly type check
-        run: uv run pyrefly check
+        run: uv run pyrefly check --python-interpreter-path .venv/bin/python
