@@ -189,6 +189,7 @@ test = [
     "hypothesis>=6.0",
     "matplotlib>=3.9.0",
     "numpy>=2,<2.1",
+    "regionmask>=0.13.0",
 ]
 
 #TODO: swap wget with requests in code
