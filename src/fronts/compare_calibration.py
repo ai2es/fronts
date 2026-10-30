@@ -177,13 +177,15 @@ def main() -> None:
     front_types = args.front_types or eval_cfg.front_types
     mask_suffix = f"_{mask}" if mask else ""
 
-    variants = [
-        ("best_loss", compare_cfg.best_model_path),
-        ("calibrated", compare_cfg.calibrated_model_path),
-    ]
+    outdir = compare_cfg.outdir
+    if outdir is None:
+        raise ValueError("No output directory: set compare_calibration_config.outdir, eval_config.outdir, or --outdir.")
+    best_model_path, calibrated_model_path = compare_cfg.best_model_path, compare_cfg.calibrated_model_path
+    assert best_model_path is not None and calibrated_model_path is not None  # filled in by resolve_compare_config
+    variants = [("best_loss", best_model_path), ("calibrated", calibrated_model_path)]
 
     for label, model_path in variants:
-        subdir = os.path.join(compare_cfg.outdir, label)
+        subdir = os.path.join(outdir, label)
         derived_path = os.path.join(subdir, f"stats_derived{mask_suffix}.nc")
         if not compare_cfg.force and os.path.exists(derived_path):
             log.info("Eval[%s]: skipping — stats already exist at %s.", label, derived_path)
@@ -192,7 +194,7 @@ def main() -> None:
             run_eval_subprocess(args.config_path, model_path, subdir, mask)
 
     for label, _ in variants:
-        subdir = os.path.join(compare_cfg.outdir, label)
+        subdir = os.path.join(outdir, label)
         derived_path = os.path.join(subdir, f"stats_derived{mask_suffix}.nc")
         derived_ds = xr.open_dataset(derived_path)
         types = front_types or _parse_front_types(derived_ds)
@@ -211,7 +213,7 @@ def main() -> None:
 
     log.info("Done. Compare:")
     for label, model_path in variants:
-        log.info("  %-10s %s → %s", label, model_path, os.path.join(compare_cfg.outdir, label))
+        log.info("  %-10s %s → %s", label, model_path, os.path.join(outdir, label))
 
 
 if __name__ == "__main__":

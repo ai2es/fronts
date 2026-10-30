@@ -1,11 +1,24 @@
 """Custom loss functions for U-Net models: BSS, CSI, FSS, neighborhood Brier, and POD."""
 
 from collections.abc import Callable, Sequence
+from typing import TypedDict
 
 import numpy as np
 import tensorflow as tf
 
 KM_PER_DEG = 111.32
+
+
+class WindowPlan(TypedDict):
+    """Neighborhood window half-widths for one tolerance scale.
+
+    Attributes:
+        half_y: Meridional half-width in pixels, the same for every row.
+        half_x: Zonal half-width in pixels, one per row.
+    """
+
+    half_y: int
+    half_x: np.ndarray
 
 
 def brier_skill_score(
@@ -129,7 +142,7 @@ def multiclass_wbce_loss(
         A callable TensorFlow loss function accepting ``y_true`` and
         ``y_pred`` and returning a scalar loss.
     """
-    class_weights = tf.cast(class_weights, tf.float32) if class_weights is not None else None
+    cw: tf.Tensor | None = tf.cast(class_weights, tf.float32) if class_weights is not None else None
 
     @tf.function
     def loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
@@ -144,9 +157,9 @@ def multiclass_wbce_loss(
         # Average over spatial dimensions.
         bce = tf.reduce_mean(bce, axis=[1, 2])
 
-        if class_weights is not None:
+        if cw is not None:
             # Normalize so that the average class weight is 1.
-            class_weights_normalized = class_weights / tf.reduce_mean(class_weights)
+            class_weights_normalized = cw / tf.reduce_mean(cw)
 
             bce = bce * class_weights_normalized
 
@@ -250,7 +263,7 @@ def _plan_windows(
     max_half_x: int,
     pole_clip_deg: float = 85.0,
     max_distinct_widths: int | None = None,
-) -> list[dict[str, int | np.ndarray]]:
+) -> list[WindowPlan]:
     """Precompute window half-widths in pixels for each tolerance scale.
 
     Args:
@@ -269,7 +282,7 @@ def _plan_windows(
     lat = np.asarray(latitudes, dtype=np.float64)
     coslat = np.clip(np.cos(np.deg2rad(lat)), np.cos(np.deg2rad(pole_clip_deg)), 1.0)
     dy_km = resolution_deg * KM_PER_DEG
-    plans = []
+    plans: list[WindowPlan] = []
     for tol in tolerances_km:
         half_y = round(tol / dy_km)
         half_x = np.round(tol / (resolution_deg * KM_PER_DEG * coslat)).astype(int)
@@ -394,13 +407,15 @@ def neighborhood_brier_score(
     if resolution_deg is None:
         resolution_deg = float(np.median(np.abs(np.diff(lat))))
     plan = _plan_windows(lat, resolution_deg, (tolerance_km,), max_half_x, max_distinct_widths=max_distinct_widths)[0]
-    isotropic_pool = (
-        None
-        if lat_dependent_pool
-        else tf.keras.layers.AveragePooling2D(
+    if lat_dependent_pool:
+
+        def pool(field: tf.Tensor) -> tf.Tensor:
+            return _lat_dependent_pool(field, plan["half_y"], plan["half_x"], periodic_lon)
+
+    else:
+        pool = tf.keras.layers.AveragePooling2D(
             pool_size=(2 * plan["half_y"] + 1, 2 * plan["half_y"] + 1), strides=1, padding="same"
         )
-    )
 
     weight_sum = 1.0 + (pixel_weight if include_pixel else 0.0)
 
@@ -426,12 +441,8 @@ def neighborhood_brier_score(
                 se *= cw
             return tf.reduce_mean(se, axis=spatial_axes)
 
-        if lat_dependent_pool:
-            O_n = _lat_dependent_pool(y_true, plan["half_y"], plan["half_x"], periodic_lon)
-            M_n = _lat_dependent_pool(y_pred, plan["half_y"], plan["half_x"], periodic_lon)
-        else:
-            O_n = isotropic_pool(y_true)
-            M_n = isotropic_pool(y_pred)
+        O_n = pool(y_true)
+        M_n = pool(y_pred)
         total = _brier(O_n, M_n)
         if include_pixel:
             total += float(pixel_weight) * _brier(y_true, y_pred)
