@@ -36,8 +36,8 @@ import tensorflow as tf
 from fronts import constants, evaluate, utils
 from fronts.constants import BoundingBox
 from fronts.data import datasets
-from fronts.model import SharedTargetModel, TemperatureScaledModel
 from fronts.evaluation import region_eval as run_eval
+from fronts.model import SharedTargetModel, TemperatureScaledModel
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def summarize(preds: np.ndarray, targets: np.ndarray, front_types: list[str]) ->
         out[ft] = {
             "n": float(on_front.size),
             "mean": float(on_front.mean()),
-            **{f"p{p}": float(v) for p, v in zip(PERCENTILES, pcts)},
+            **{f"p{p}": float(v) for p, v in zip(PERCENTILES, pcts, strict=True)},
             "frac_ge_0.5": float((on_front >= 0.5).mean()),
             "frac_ge_0.8": float((on_front >= 0.8).mean()),
             "max_anywhere": float(channel.max()),

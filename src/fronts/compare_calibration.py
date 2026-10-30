@@ -85,9 +85,7 @@ def resolve_compare_config(yaml_data: dict) -> tuple[CompareCalibrationConfig, e
 
     best_model_path = compare_cfg.best_model_path or eval_cfg.model_path
     if best_model_path is None:
-        raise ValueError(
-            "compare_calibration_config.best_model_path isn't set and eval_config.model_path is None."
-        )
+        raise ValueError("compare_calibration_config.best_model_path isn't set and eval_config.model_path is None.")
 
     calibrated_model_path = compare_cfg.calibrated_model_path
     if calibrated_model_path is None:
