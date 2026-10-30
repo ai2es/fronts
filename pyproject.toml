@@ -108,9 +108,8 @@ obstore = "*"
 s3fs = ">=2024.6.0"
 
 [tool.pixi.feature.train.tasks]
-train = "python -m fronts.train --config configs/default.yaml"
-experiment = "python -m fronts.experiments"
-eval = { cmd = "echo 'eval script not yet implemented'", description = "Run model evaluation (placeholder)" }
+train = "python -m fronts.train --config configs/sooner_train.yaml"
+eval = "python -m fronts.evaluate --config_path configs/sooner_eval.yaml"
 
 [tool.pixi.system-requirements]
 libc = "2.17"
