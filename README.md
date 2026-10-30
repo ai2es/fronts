@@ -1,4 +1,4 @@
-# NOAA FrontFinder v2
+# NOAA FrontFinder
 
 FrontFinder finds weather fronts in ERA5 reanalysis data with a UNet3+ neural network. This repository is the updated
 version of NOAA's FrontFinder code. Andrew Justin (@andrewjustin) created it, and Taylor Mandelbaum (@aaTman) updated it.
@@ -7,7 +7,7 @@ The model labels each grid point with one of nine classes: no front, cold front,
 front, dryline, trough, tropical trough, and instability axis. Forming and dissipating fronts are merged into their
 parent type.
 
-## What changed from v1
+## Key updates for v2.0.0
 
 - **YAML configs.** Every run (data, training, evaluation) is driven by one YAML file in `configs/`. The YAML is the
   single source of truth, so there are no shell scripts full of flags to manage, and each config is versioned with the
