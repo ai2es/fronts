@@ -74,10 +74,11 @@ The front labels are available on request. Training reads them from the icechunk
 ## Training
 
 ```
-pixi run -e schooner python -m fronts.train --config configs/sooner_train.yaml
+pixi run -e schooner train
 ```
 
-The config has one section per part of the run: `train_config` (loss, learning rate, epochs), `data_config` (stores,
+That task runs `python -m fronts.train --config configs/sooner_train.yaml`. Call the module directly to use another
+config. The config has one section per part of the run: `train_config` (loss, learning rate, epochs), `data_config` (stores,
 variables, levels, train/val/test years), `model_config` (UNet3+ shape), `callbacks_config` (early stopping,
 checkpoints), and `wandb_config`. 2019 is held out for testing and 2018 for validation. Training uses every visible GPU
 through TensorFlow's `MirroredStrategy`.
@@ -112,7 +113,8 @@ labeled front, across 100 probability thresholds. It writes NetCDF stats files.
 | `python -m fronts.evaluation.figures --stats_dir /path/to/stats`                        | Performance diagrams and maps from a stats directory.                |
 | `python -m fronts.importance --config_path configs/schooner_importance.yaml`            | Ranks input variables by permutation importance.                     |
 
-Run each one inside an environment, for example `pixi run -e schooner python -m fronts.evaluate ...`.
+Run each one inside an environment, for example `pixi run -e schooner python -m fronts.evaluate ...`. The `eval` task
+is a shortcut for the first row: `pixi run -e schooner eval --mask land`.
 
 The `scripts/` folder holds the SLURM batch files used on sooner, such as `scripts/sooner_eval_regions.sbatch`.
 
