@@ -1083,6 +1083,7 @@ class TestTrainConfigLossClassWeights:
             assert cfg.nbs_tolerance_km == 25.0
 
     def test_3d_config_parses(self):
+        pytest.importorskip("wandb")
         from fronts import utils
         from fronts.callbacks import CallbacksConfig
         from fronts.data.datasets import DatasetConfig
