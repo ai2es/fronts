@@ -75,3 +75,29 @@ def test_combine_global_sums_counts_and_stacks_maps():
     assert spatial["latitude"].values.tolist() == [-0.5, 0.0, 0.5]
     assert spatial["tp"].values[:, 0].tolist() == [1.0, 2.0, 2.0]
     assert aggregate["tp"].values.tolist() == [3.0, 3.0]
+
+
+def test_pad_to_multiple_crops_back_to_input_rows():
+    import tensorflow as tf
+
+    seen = []
+
+    def fake_model(x, training=False):
+        seen.append(x.shape[1])
+        return x[..., :2]
+
+    x = tf.constant(np.arange(2 * 5 * 3 * 4, dtype=np.float32).reshape(2, 5, 3, 4))
+    out = global_eval.PadToMultiple(fake_model, 4)(x)
+    assert seen == [8]
+    np.testing.assert_array_equal(out.numpy(), x.numpy()[..., :2])
+
+
+def test_pad_to_multiple_handles_list_outputs():
+    import tensorflow as tf
+
+    def fake_model(x, training=False):
+        return [x[..., :1], x[..., 1:2]]
+
+    x = tf.ones((1, 641, 4, 3))
+    outs = global_eval.PadToMultiple(fake_model, 32)(x)
+    assert [o.shape[1] for o in outs] == [641, 641]

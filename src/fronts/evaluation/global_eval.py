@@ -53,6 +53,7 @@ class GlobalEvalConfig:
         front_types: Front types to score, in class order.
         front_dilation: Dilation iterations applied to truth labels.
         batch_size: Inference batch size.
+        pad_multiple: Latitude is reflect-padded up to a multiple of this (the model's total downsampling factor).
         chunk_size: Timesteps held in memory at once.
         time_start: Keep timesteps on or after this date. None keeps all.
         time_end: Keep timesteps before this date. None keeps all.
@@ -68,12 +69,35 @@ class GlobalEvalConfig:
     front_types: list[str]
     front_dilation: int
     batch_size: int
+    pad_multiple: int
     chunk_size: int
     time_start: datetime.datetime | None
     time_end: datetime.datetime | None
     time_resolution: str | None
     write_spatial: bool
     gpu_device: int | None
+
+
+class PadToMultiple:
+    """Pads the latitude axis up to a multiple before calling a downsampling model, then crops the output.
+
+    The U-Net halves the grid at each level, so an odd or non-divisible row count comes back short
+    (641 rows -> 640 out) and no longer lines up with the targets. The symmetric ±80 global grid has
+    641 rows (equator included), so it is padded by reflection and the padding rows are cropped away.
+    """
+
+    def __init__(self, model, multiple: int):
+        self.model = model
+        self.multiple = multiple
+
+    def __call__(self, x: tf.Tensor, training: bool = False):
+        n_lat = x.shape[1]
+        extra = -n_lat % self.multiple
+        top = extra // 2
+        x = tf.pad(x, [[0, 0], [top, extra - top], [0, 0], [0, 0]], mode="REFLECT")
+        preds = self.model(x, training=training)
+        crop = lambda p: p[:, top : top + n_lat]  # noqa: E731
+        return [crop(p) for p in preds] if isinstance(preds, (list, tuple)) else crop(preds)
 
 
 def flip_inputs(input_ds: xr.Dataset) -> xr.Dataset:
@@ -165,9 +189,10 @@ def run(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig) -> None:
     lons = input_ds["longitude"].values
     rows = hemisphere_slices(lats)
 
-    model = adapter.ClassPaddingAdapter(
-        tf.keras.models.load_model(cfg.model_path, compile=False, custom_objects={"SharedTargetModel": SharedTargetModel})
+    keras_model = tf.keras.models.load_model(
+        cfg.model_path, compile=False, custom_objects={"SharedTargetModel": SharedTargetModel}
     )
+    model = adapter.ClassPaddingAdapter(PadToMultiple(keras_model, cfg.pad_multiple))
     data_cfg = dataclasses.replace(data_cfg, front_dilation=cfg.front_dilation)
 
     totals: dict[tuple[str, str], tuple[xr.Dataset, xr.Dataset]] = {}

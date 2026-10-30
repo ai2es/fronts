@@ -47,6 +47,7 @@ global_eval_config:
   front_types: [CF, WF, SF, OF, DL, TROF]  # the TWC product has no tropical-trough or instability-axis fronts; DL is very sparse
   front_dilation: 1  # match training dilation
   batch_size: 8
+  pad_multiple: 32  # 641 latitude rows must reach a multiple of the U-Net's downsampling factor
   chunk_size: 64  # timesteps of predictions + targets held in memory at once
   time_start: "2023-06-15T00:00:00"
   time_end: "2026-01-01T00:00:00"  # ERA5 inputs end 2025-12-31
