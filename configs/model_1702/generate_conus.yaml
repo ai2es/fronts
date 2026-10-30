@@ -1,0 +1,34 @@
+# model_1702 input side-store: CONUS, 2019, 3-hourly (matches CONUS front-label cadence).
+# variables/pressure_levels are informational: fronts.model_1702.store fixes the model_1702
+# requirements (surface + 1000/950/900/850 from z, t, u, v, q, sp, t2m, d2m, u10, v10).
+
+era5_config:
+  era5_uri: "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
+  variables: [
+    "geopotential",
+    "temperature",
+    "u_component_of_wind",
+    "v_component_of_wind",
+    "specific_humidity",
+    "surface_pressure",
+    "2m_temperature",
+    "2m_dewpoint_temperature",
+    "10m_u_component_of_wind",
+    "10m_v_component_of_wind",
+    ]
+  pressure_levels: [1000, 950, 900, 850]
+  time_start: "2019-01-01T00:00:00"
+  time_end: "2019-12-31T21:00:00"
+  time_resolution: "3h"
+  coordinates: [25.0, 56.75, 228.0, 299.75]
+  storage_options:
+    token: "anon"
+  chunks: null
+  zarr_async_concurrency: 128
+
+icechunk_storage_config:
+  store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/model_1702"
+  branch_name: "main"
+  commit_message: "AIES model_1702 side-store, CONUS 2019 3-hourly"
+  group_name: "conus"
+  write_batch_size: 200

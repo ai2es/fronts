@@ -1,0 +1,21 @@
+# Single-panel visual check for the first timestep of the model_1702 test window (2019, per
+# configs/model_1702/eval_1702_conus.yaml), over the full USAD domain — out-of-domain for
+# model_1702 (CONUS-trained), so treat results outside the CONUS overlap accordingly, matching
+# eval_1702_full.yaml's caveat. Rendered in the same single-panel style
+# (fronts.plot.plot.plot_test_prediction) as the periodic test-set visualization logged to W&B
+# during training, for a direct visual comparison against those in-training snapshots.
+
+case_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/model_1702/model_1702.h5"
+  times:
+    - "2019-01-01T00:00:00"
+  coordinates: [0.25, 80.0, 130.0, 369.75]
+  front_types: [CF, WF, SF, OF, DL]
+  era5_uri: "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
+  storage_options:
+    token: "anon"
+  inputs_cache_path: "/ourdisk/hpc/ai2es/tman/data/fronts/model_1702_case_inputs/test_2019_01_01_full_v2.nc"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/case_studies/model_1702/"
+  figure_name: "test_2019_01_01_00z.png"
+  gpu_device: null
+  use_training_style: true

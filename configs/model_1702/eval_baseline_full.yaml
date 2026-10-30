@@ -1,0 +1,45 @@
+# 2.0 baseline (brier_3d_full_domain_pretrained_conus, 6-class) over the full USAD domain
+# with all office-region breakdowns, matching the model_1702 full-domain eval.
+
+harness_eval_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/brier_3d_full_domain_pretrained_conus/_best_loss.keras"
+  model_kind: "keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/model_1702/baseline_full/"
+  coordinates: [0.25, 80.0, 130.0, 369.75]
+  regions: [full, land, ocean, OPC_west, WPC, OPC_east, HFO, NHC]
+  front_types: [CF, WF, SF, OF, DL]
+  front_dilation: 1
+  batch_size: 4
+  time_start: "2019-01-01T00:00:00"
+  time_end: "2020-01-01T00:00:00"
+  time_resolution: null
+  gpu_device: 0
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 4
+  test_years: [2019]
+  val_years: [2018]
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "6h"
+  volume_inputs: true
+  variables: [
+    "temperature",
+    "dewpoint_temperature",
+    "virtual_temperature",
+    "u_component_of_wind",
+    "v_component_of_wind",
+    "relative_humidity",
+    "specific_humidity",
+    "equivalent_potential_temperature",
+    "geopotential",
+    "mean_sea_level_pressure",
+    ]

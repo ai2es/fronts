@@ -130,3 +130,16 @@ dmypy.json
 
 # For PyCharm
 .idea
+
+# Weights and Biases
+wandb/
+
+# Kept in a separate private repo; never commit these here.
+*twc*
+*gml_to_zarr*
+src/fronts/data/gml.py
+src/fronts/evaluation/global_eval.py
+tests/data/test_gml.py
+tests/evaluation/test_global_eval.py
+configs/*_global*.yaml
+scripts/*_global*.sbatch
