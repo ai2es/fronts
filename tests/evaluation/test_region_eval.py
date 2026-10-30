@@ -241,6 +241,7 @@ class TestConfigParsing:
         data_cfg = utils.parse_config_section(yaml_data, datasets.DatasetConfig, "data_config", utils.YAML_TYPE_HOOKS)
         assert harness_cfg.model_kind == run_eval.MODEL_KIND_KERAS
         assert harness_cfg.regions == run_eval.REGION_CHOICES
+        assert data_cfg.class_weights is not None
         assert len(data_cfg.class_weights) == len(harness_cfg.front_types) + 1
 
     def test_generate_configs_parse(self):

@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -99,8 +101,8 @@ def _make_latlon_ds(lats: list[float], lons: list[float]) -> xr.Dataset:
 
 
 class TestSelectSpatialDomain:
-    _LATS = [10.0, 20.0, 30.0, 40.0]
-    _LONS = [100.0, 110.0, 120.0, 130.0]
+    _LATS: ClassVar[list[float]] = [10.0, 20.0, 30.0, 40.0]
+    _LONS: ClassVar[list[float]] = [100.0, 110.0, 120.0, 130.0]
     _BB = utils.BoundingBox(lat_min=15.0, lat_max=35.0, lon_min=105.0, lon_max=125.0)
 
     def test_dataset_input_returns_dataset(self):
@@ -132,7 +134,7 @@ def _make_level_da(levels: list[int]) -> xr.DataArray:
 
 
 class TestSelectPressureLevels:
-    _LEVELS = [1000, 850, 500, 300]
+    _LEVELS: ClassVar[list[int]] = [1000, 850, 500, 300]
 
     def test_none_is_a_noop(self):
         da = _make_level_da(self._LEVELS)

@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.4
+    rev: v0.15.13  # keep in step with ruff in uv.lock, which CI uses
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -10,8 +10,7 @@ repos:
     hooks:
       - id: pyrefly
         name: pyrefly type check
-        entry: pyrefly check
-        language: python
-        additional_dependencies: [pyrefly]
+        entry: uv run --python 3.12 --group test pyrefly check --python-interpreter-path .venv/bin/python
+        language: system
         types: [python]
         pass_filenames: false

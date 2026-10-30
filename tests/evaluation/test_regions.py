@@ -9,6 +9,13 @@ FULL_DOMAIN_LATS = np.arange(80.0, 0.0, -0.25)
 FULL_DOMAIN_LONS_WRAPPED = np.concatenate([np.arange(130.0, 360.0, 0.25), np.arange(0.0, 10.0, 0.25)])
 
 
+def region_mask(name: str, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
+    """Builds a region mask, failing if the region has none (only ``full`` returns None)."""
+    mask = run_eval.build_region_mask(name, lats, lons)
+    assert mask is not None
+    return mask
+
+
 def test_unwrap_longitudes_restores_monotonicity():
     unwrapped = run_eval.unwrap_longitudes(FULL_DOMAIN_LONS_WRAPPED)
     assert (np.diff(unwrapped) > 0).all()
@@ -31,7 +38,7 @@ def test_unknown_region_raises():
 
 
 def test_opc_east_includes_wrapped_columns():
-    mask = run_eval.build_region_mask("OPC_east", FULL_DOMAIN_LATS, FULL_DOMAIN_LONS_WRAPPED)
+    mask = region_mask("OPC_east", FULL_DOMAIN_LATS, FULL_DOMAIN_LONS_WRAPPED)
     wrapped_columns = mask[:, FULL_DOMAIN_LONS_WRAPPED < 130.0]
     lat_rows_in_band = (FULL_DOMAIN_LATS >= 30.0) & (FULL_DOMAIN_LATS <= 80.0)
     assert wrapped_columns[lat_rows_in_band].all()
@@ -39,10 +46,7 @@ def test_opc_east_includes_wrapped_columns():
 
 
 def test_office_masks_cover_domain_and_overlap_only_at_shared_edges():
-    masks = {
-        name: run_eval.build_region_mask(name, FULL_DOMAIN_LATS, FULL_DOMAIN_LONS_WRAPPED)
-        for name in run_eval.OFFICE_REGIONS
-    }
+    masks = {name: region_mask(name, FULL_DOMAIN_LATS, FULL_DOMAIN_LONS_WRAPPED) for name in run_eval.OFFICE_REGIONS}
     coverage = np.zeros((len(FULL_DOMAIN_LATS), len(FULL_DOMAIN_LONS_WRAPPED)), dtype=int)
     for mask in masks.values():
         coverage += mask.astype(int)
@@ -53,7 +57,7 @@ def test_office_masks_cover_domain_and_overlap_only_at_shared_edges():
 
 
 def test_wpc_mask_covers_conus_band():
-    mask = run_eval.build_region_mask("WPC", FULL_DOMAIN_LATS, FULL_DOMAIN_LONS_WRAPPED)
+    mask = region_mask("WPC", FULL_DOMAIN_LATS, FULL_DOMAIN_LONS_WRAPPED)
     lat_idx = np.where((FULL_DOMAIN_LATS >= 30.0) & (FULL_DOMAIN_LATS <= 56.75))[0]
     lon_idx = np.where((FULL_DOMAIN_LONS_WRAPPED >= 228.0) & (FULL_DOMAIN_LONS_WRAPPED <= 299.75))[0]
     assert mask[np.ix_(lat_idx, lon_idx)].all()
@@ -62,8 +66,8 @@ def test_wpc_mask_covers_conus_band():
 def test_land_ocean_masks_partition_domain():
     lats = np.arange(56.75, 25.0, -0.25)
     lons = np.arange(228.0, 300.0, 0.25)
-    land = run_eval.build_region_mask("land", lats, lons)
-    ocean = run_eval.build_region_mask("ocean", lats, lons)
+    land = region_mask("land", lats, lons)
+    ocean = region_mask("ocean", lats, lons)
     assert land.shape == (len(lats), len(lons))
     assert (land ^ ocean).all()
     assert land.sum() > 0

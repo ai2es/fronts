@@ -22,6 +22,8 @@ import math
 import os
 import string
 import sys
+from collections.abc import Callable
+from typing import Any
 
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
@@ -121,7 +123,7 @@ def load_case_inputs(case_cfg: CaseStudyConfig) -> xr.Dataset:
     return built
 
 
-def predict_case(model: object, built: xr.Dataset) -> np.ndarray:
+def predict_case(model: Callable[..., Any], built: xr.Dataset) -> np.ndarray:
     """Runs a wrapped model over the case inputs.
 
     Args:
@@ -131,7 +133,7 @@ def predict_case(model: object, built: xr.Dataset) -> np.ndarray:
     Returns:
         Prediction array shaped (time, lat, lon, 6).
     """
-    x = inputs.inputs_ds_to_volume_dataarray(built, list(built.data_vars)).values
+    x = inputs.inputs_ds_to_volume_dataarray(built, [str(name) for name in built.data_vars]).values
     return np.asarray(model(x, training=False))
 
 

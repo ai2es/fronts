@@ -93,7 +93,7 @@ def _open_arraylake_with_surface_pressure(era5_uri: str) -> xr.Dataset:
     return xr.merge([ds_pressure, ds_single], join="inner", compat="override")
 
 
-def _pressure_level_fields(source_ds: xr.Dataset, level_hpa: int) -> dict[str, np.ndarray]:
+def _pressure_level_fields(source_ds: xr.Dataset, level_hpa: int) -> dict[str, np.ndarray | float]:
     level_ds = source_ds.sel(level=level_hpa)
     pressure_pa = level_hpa * 100.0
     temperature = level_ds["temperature"].values
@@ -113,7 +113,7 @@ def _pressure_level_fields(source_ds: xr.Dataset, level_hpa: int) -> dict[str, n
     }
 
 
-def _surface_fields(source_ds: xr.Dataset) -> dict[str, np.ndarray]:
+def _surface_fields(source_ds: xr.Dataset) -> dict[str, np.ndarray | float]:
     temperature = source_ds["2m_temperature"].values
     dewpoint = source_ds["2m_dewpoint_temperature"].values
     surface_pressure = source_ds["surface_pressure"].values

@@ -1,82 +1,158 @@
-# NOAA FrontFinder v2
+# NOAA FrontFinder
 
-This repository is the updated version of NOAA's FrontFinder code, created by Andrew Justin (@andrewjustin) and updated by Taylor Mandelbaum (@aaTman). 
+FrontFinder finds weather fronts in ERA5 reanalysis data with a UNet3+ neural network. This repository is the updated
+version of NOAA's FrontFinder code. Andrew Justin (@andrewjustin) created it, and Taylor Mandelbaum (@aaTman) updated it.
 
-## Key updates:
+The model labels each grid point with one of nine classes: no front, cold front, warm front, stationary front, occluded
+front, dryline, trough, tropical trough, and instability axis. Forming and dissipating fronts are merged into their
+parent type.
 
-- **New YAML-based configuration**
-    - Single source of truth
-    - A fully documented approach that avoids needing to manage shell scripts
-    - YAMLs can be version controlled and tied to commits
+## Key updates for v2.0.0
 
-- **Fully-typed code**
-    - All code in the repository is now typed and checked via `pyrefly`
+- **YAML configs.** Every run (data, training, evaluation) is driven by one YAML file in `configs/`. The YAML is the
+  single source of truth, so there are no shell scripts full of flags to manage, and each config is versioned with the
+  code.
+- **Typed, linted code.** All code is type-checked with `pyrefly` and linted and formatted with `ruff`. Both run as
+  pre-commit hooks.
+- **Keras 3 and TensorFlow 2.16+.** The model saves as a `.keras` file, which is
+  [easier to manage](https://www.tensorflow.org/tutorials/keras/save_and_load#new_high-level_keras_format) than the old
+  formats.
+- **icechunk data stores.** Inputs and targets live in [icechunk](https://icechunk.io) stores, which are versioned zarr
+  stores.
+- **2D or 3D models.** The UNet3+ can treat pressure levels as channels (2D) or as a depth axis (3D convolutions).
+- **Experiment tracking.** Training logs losses, per-front-type metrics, and test-set prediction maps to Weights & Biases.
+- **`pixi` environments.** FrontFinder trains on OU's supercomputers (schooner and sooner), which pin `glibc` to 2.17.
+  `pixi` handles that, mixes conda-forge and PyPI packages in one `pyproject.toml`, and locks every environment. It is
+  also much faster than conda. Use `pixi-pack` to move an environment to a machine without `pixi`.
 
-- **Formatted code**
-    - Code is linted and formatted using `ruff`
+## Installing
 
-- **Updated Tensorflow**
-    - Tensorflow is updated as is all ML code
-    - Updating TF prevents issues with deprecated or unoptimized code
-
-- **Managed environments using `pixi`**
-    - FrontFinder is trained on the OU supercomputer, schooner. Schooner has some unique requirements, such as being locked into `glibc <= 2.17`. `pixi` enables sequestered unique virtual environments (features) along with lockfiles to manage dependencies. 
-    - Allows distinct virtual environments for specific tasks, such as training, prediction, development, etc.
-    - Can port environments to non-pixi-friendly resources using `pixi-pack` if needed
-    - Can handle both conda and PyPI dependencies in one `pyproject.toml` (or `pixi.toml`) file
-    - **Much** faster than conda
-
-## Getting Started
-**NOTE: Some parts of this README are not ready yet:**
-
-* Training
-* Prediction
-
-### Installing
-
-Clone this repository:
-
-```git clone https://github.com/ai2es/fronts.git```
-
-Enter the newly cloned directory and install the default environment using `pixi`:
+Clone the repository and install the default environment:
 
 ```
+git clone https://github.com/ai2es/fronts.git
 cd fronts
 pixi install
 ```
 
+The environments are:
+
+| Environment | Use it for                                                    |
+|-------------|---------------------------------------------------------------|
+| `default`   | Running tests.                                                |
+| `data`      | Building the ERA5 input store.                                |
+| `linux`     | Training and evaluation on a generic Linux GPU machine.       |
+| `schooner`  | Training and evaluation on OU's clusters (adds version pins). |
+
+All environments target `linux-64`.
+
+## Data
+
+### Inputs (ERA5)
+
+The input store is built from the public ERA5 dataset on Arraylake (`arraylake://earthmover-public/era5`). This
+downloads 2007-2025 at 6-hour steps, so it takes a long time:
+
+```
+pixi run -e data generate
+```
+
+That task uses `configs/generate_icechunk.yaml`. To use your own config, or to run the work on a SLURM cluster
+through `dask-jobqueue`:
+
+```
+pixi run -e data python -m fronts.data.generate --config /path/to/your.yaml --slurm
+```
+
+The config sets the variables, pressure levels, dates, domain, and the output store path (`icechunk_storage_config`).
+
+### Targets (fronts)
+
+The front labels are available on request. Training reads them from the icechunk store named in
+`data_config.targets_icechunk_config`.
+
 ## Training
 
-The model is available as a `.keras` model which [is much easier](https://www.tensorflow.org/tutorials/keras/save_and_load#new_high-level_keras_format) to manage, debug, etc. If you want to train it from scratch, you need the data.
+```
+pixi run -e schooner train
+```
 
-### Generating Data
+That task runs `python -m fronts.train --config configs/sooner_train.yaml`. Call the module directly to use another
+config. The config has one section per part of the run: `train_config` (loss, learning rate, epochs), `data_config` (stores,
+variables, levels, train/val/test years), `model_config` (UNet3+ shape), `callbacks_config` (early stopping,
+checkpoints), and `wandb_config`. 2019 is held out for testing and 2018 for validation. Training uses every visible GPU
+through TensorFlow's `MirroredStrategy`.
 
-Downloading all of the data for the model, which includes ERA5 and satellite data, is straightforward but will take a long time:
+`configs/sooner_train_3d.yaml` trains the 3D model. Set `data_config.volume_inputs: true` to feed volumes instead of
+stacked channels.
 
-```pixi run -e data generate_data --icechunk_path \path\to\your\icechunk_store```
+To fit a temperature-scaling calibration to a trained model on the validation set:
 
-This downloads all of the data and stores it in an icechunk store specified in the YAML or given by `--icechunk_path`. This YAML is default, located at `src/fronts/configs/generate_data.yaml`. Note that there is currently a default `icechunk_path` that will create the store at the root of this repository. 
+```
+pixi run -e schooner python -m fronts.calibrate --config_path configs/sooner_train.yaml
+```
 
-If you want to invoke your own YAML with all of the required attributes:
+### Full pipeline
 
-```pixi run -e data generate_data --config /path/to/your.yaml```
+`fronts.pipeline` runs generate, train, and evaluate in order. It skips any stage whose outputs already exist, and any
+stage whose section is missing from the config:
 
-The fronts truth data from 2018-2024 is available on request.
+```
+pixi run -e schooner python -m fronts.pipeline --config configs/schooner_pipeline.yaml
+```
 
-### Training the Model
->_Currently in-flight (not ready yet)_
+## Evaluation
 
-Assuming you have all the data in the icechunk store:
+Evaluation runs the model over the test period and counts hits, misses, and false alarms within 50-250 km of each
+labeled front, across 100 probability thresholds. It writes NetCDF stats files.
 
-```pixi run -e train train_model```
+| Command                                                                                 | What it does                                                         |
+|-----------------------------------------------------------------------------------------|----------------------------------------------------------------------|
+| `python -m fronts.evaluate --config_path configs/sooner_eval.yaml [--mask land\|ocean]` | Stats for the full domain, or only land or ocean points.             |
+| `python -m fronts.evaluation.region_eval --config_path configs/sooner_eval_regions.yaml` | Stats per region: full domain, land, ocean, and five forecast-office regions. |
+| `python -m fronts.evaluation.figures --stats_dir /path/to/stats`                        | Performance diagrams and maps from a stats directory.                |
+| `python -m fronts.importance --config_path configs/schooner_importance.yaml`            | Ranks input variables by permutation importance.                     |
 
-This uses `src/fronts/configs/train_model.yaml` to train a UNet3+.
+Run each one inside an environment, for example `pixi run -e schooner python -m fronts.evaluate ...`. The `eval` task
+is a shortcut for the first row: `pixi run -e schooner eval --mask land`.
 
-## Prediction
->_Currently in-flight (not ready yet)_
+The `scripts/` folder holds the SLURM batch files used on sooner, such as `scripts/sooner_eval_regions.sbatch`.
 
-Predicting using the `.keras` model is straightforward as well:
+### Comparing with the v1 model
 
-```pixi run -e predict generate_predictions```
+`fronts.model_1702` loads the published AIES FrontFinder model (`model_1702`) and rebuilds its original inputs, so it
+can be scored with the same code as v2 models. Its configs are in `configs/model_1702/`:
 
-Where the YAML will predict the hold-out year for this project, 2019, for the domain 0.25N to 80N, 130E to 9.75E (i.e. 130-369.75). You can specify what to predict and where the data is located within your own YAML, either with a `start_date`, `end_date` and `frequency`, or `dates` in ISO 8601 formatting. You can specify either or both.
+```
+python -m fronts.model_1702.store --config configs/model_1702/generate_conus.yaml
+python -m fronts.evaluation.region_eval --config_path configs/model_1702/eval_1702_conus.yaml
+python -m fronts.model_1702.compare --stats_root /path/to/stats --out comparison.csv
+```
+
+## Development
+
+Run the tests:
+
+```
+pixi run test
+```
+
+Every PR runs three checks:
+
+- **Tests:** `pytest` on Python 3.12, installed with `uv sync --group test`. Every pixi environment uses 3.12, and the
+  locked TensorFlow has no wheels for newer versions.
+- **Lint and Type Check:** `ruff check`, `ruff format --check`, and `pyrefly check`.
+- **Check Lock Files:** `pixi lock --check` and `uv lock --check`.
+
+CI only reports problems. It never commits fixes, because merging requires signed commits and bot commits are not
+signed. Run `ruff format .` yourself before you push, and sign your commits.
+
+Any edit to `pyproject.toml` makes `pixi.lock` stale, even one that doesn't touch dependencies, because the lock stores
+a hash of the file. After editing it, run `uv lock`, then run `pixi lock` on Linux (sooner works) with pixi 0.67.2.
+That version keeps the lock in format v6, which is what CI checks against. pixi 0.68 and later rewrite it as v7.
+
+Install the pre-commit hooks so `ruff` and `pyrefly` run on every commit, with the same versions and settings as CI:
+
+```
+uv run --python 3.12 pre-commit install
+```

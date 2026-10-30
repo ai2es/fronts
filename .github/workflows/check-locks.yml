@@ -1,0 +1,27 @@
+name: Check Lock Files
+
+on:
+  pull_request:
+
+jobs:
+  check-locks:
+    name: Check Lock Files
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.67.2
+          run-install: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Check pixi.lock
+        run: pixi lock --check
+
+      - name: Check uv.lock
+        run: uv lock --check

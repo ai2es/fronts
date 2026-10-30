@@ -72,9 +72,7 @@ def extract_logit_model(model: tf.keras.Model, output_activation: str = "softmax
         A ``tf.keras.Model`` with the same inputs as ``model`` and one logit
         tensor output per deep supervision head.
     """
-    logit_tensors = [
-        model.get_layer(f"sup{i + 1}_{output_activation}").input for i in range(len(model.outputs))
-    ]
+    logit_tensors = [model.get_layer(f"sup{i + 1}_{output_activation}").input for i in range(len(model.outputs))]
     return tf.keras.Model(inputs=model.inputs, outputs=logit_tensors)
 
 

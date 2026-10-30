@@ -16,6 +16,7 @@ import argparse
 import glob
 import logging
 import os
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -108,7 +109,8 @@ def build_markdown_summary(metrics: pd.DataFrame, reference_run: str | None) -> 
             header += [f"delta {run} vs {reference_run}" for run in runs if run != reference_run]
         lines.append("| " + " | ".join(header) + " |")
         lines.append("|" + "---|" * len(header))
-        for (region, front_type), row in pivot.iterrows():
+        for index, row in pivot.iterrows():
+            region, front_type = cast(tuple[str, str], index)
             cells = [region, front_type] + [_format_csi(row.get(run)) for run in runs]
             if reference_run is not None:
                 reference_value = row.get(reference_run)

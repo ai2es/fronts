@@ -3,6 +3,8 @@
 import numpy as np
 import pytest
 
+from fronts.data.inputs import NormalizationMethod
+
 try:
     import tensorflow as tf
 
@@ -19,7 +21,9 @@ _INPUT_SHAPE = (None, None, N_CHANNELS)
 
 
 def _build_model(
-    normalization_stat_a=None, normalization_stat_b=None, normalization_method="minmax"
+    normalization_stat_a: np.ndarray | None = None,
+    normalization_stat_b: np.ndarray | None = None,
+    normalization_method: NormalizationMethod = "minmax",
 ) -> "tf.keras.Model":
     return fronts_model.UNet3Plus(
         input_shape=_INPUT_SHAPE,
@@ -159,7 +163,9 @@ _UNET_LEVELS_3D = 3
 
 
 def _build_3d_model(
-    normalization_stat_a=None, normalization_stat_b=None, normalization_method="minmax"
+    normalization_stat_a: np.ndarray | None = None,
+    normalization_stat_b: np.ndarray | None = None,
+    normalization_method: NormalizationMethod = "minmax",
 ) -> "tf.keras.Model":
     return fronts_model.UNet3Plus(
         input_shape=(None, None, N_LEVELS_3D, N_VARS_3D),
