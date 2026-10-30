@@ -30,7 +30,7 @@ parent type.
 Clone the repository and install the default environment:
 
 ```
-git clone https://github.com/aaTman/fronts.git
+git clone https://github.com/ai2es/fronts.git
 cd fronts
 pixi install
 ```
@@ -137,10 +137,22 @@ Run the tests:
 pixi run test
 ```
 
-CI runs the same tests with `uv` on Python 3.12, 3.13, and 3.14 (`uv sync --group test`, then `uv run pytest`).
+Every PR runs three checks:
 
-Install the pre-commit hooks so `ruff` and `pyrefly` run on every commit:
+- **Tests:** `pytest` on Python 3.12, installed with `uv sync --group test`. Every pixi environment uses 3.12, and the
+  locked TensorFlow has no wheels for newer versions.
+- **Lint and Type Check:** `ruff check`, `ruff format --check`, and `pyrefly check`.
+- **Check Lock Files:** `pixi lock --check` and `uv lock --check`.
+
+CI only reports problems. It never commits fixes, because merging requires signed commits and bot commits are not
+signed. Run `ruff format .` yourself before you push, and sign your commits.
+
+Any edit to `pyproject.toml` makes `pixi.lock` stale, even one that doesn't touch dependencies, because the lock stores
+a hash of the file. After editing it, run `uv lock`, then run `pixi lock` on Linux (sooner works) with pixi 0.67.2.
+That version keeps the lock in format v6, which is what CI checks against. pixi 0.68 and later rewrite it as v7.
+
+Install the pre-commit hooks so `ruff` and `pyrefly` run on every commit, with the same versions and settings as CI:
 
 ```
-uv run pre-commit install
+uv run --python 3.12 pre-commit install
 ```
