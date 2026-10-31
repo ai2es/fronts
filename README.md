@@ -7,6 +7,9 @@ The model labels each grid point with one of nine classes: no front, cold front,
 front, dryline, trough, tropical trough, and instability axis. Forming and dissipating fronts are merged into their
 parent type.
 
+The pretrained v2.0.0 weights (`v2.0.0.keras`) are on Hugging Face:
+[aaaTman/FrontFinder](https://huggingface.co/aaaTman/FrontFinder).
+
 ## Key updates for v2.0.0
 
 - **YAML configs.** Every run is driven by one YAML file in `configs/`. The YAML is meant to be the
