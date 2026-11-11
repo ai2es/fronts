@@ -29,7 +29,7 @@ for name in sooner_eval sooner_eval_global; do
 done
 USAD_CFG=/ourdisk/hpc/ai2es/tman/logs/sooner_eval_${RUN}_${SLURM_JOB_ID}.yaml
 GLOBAL_CFG=/ourdisk/hpc/ai2es/tman/logs/sooner_eval_global_${RUN}_${SLURM_JOB_ID}.yaml
-grep -c dewpoint "$USAD_CFG" "$GLOBAL_CFG" || true  # expect 0
+grep -c "2m_dewpoint_temperature" "$USAD_CFG" "$GLOBAL_CFG" || true  # expect 0 for both
 
 pixi run -e schooner python -m fronts.evaluate --config_path "$USAD_CFG"
 pixi run -e schooner python -m fronts.evaluation.global_eval --config_path "$GLOBAL_CFG"
