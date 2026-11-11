@@ -23,9 +23,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--entity", required=True)
     parser.add_argument("--project", required=True, help="The project the run was moved INTO")
-    parser.add_argument("--name", required=True, help="Run display name")
+    parser.add_argument("--name", help="Run display name (required unless --run_id is given)")
     parser.add_argument("--run_id", help="Skip the name lookup and use this run id")
     args = parser.parse_args()
+    if not (args.run_id or args.name):
+        parser.error("one of --run_id or --name is required")
 
     api = wandb.Api()
     if args.run_id:
