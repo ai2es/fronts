@@ -26,6 +26,12 @@ def main() -> None:
     parser.add_argument("--project", required=True)
     parser.add_argument("--run_id", required=True)
     parser.add_argument("--csv", required=True, help="Path to the run's metrics_epoch.csv")
+    parser.add_argument(
+        "--after_epoch",
+        type=int,
+        help="Backfill epochs > this value instead of asking W&B (use -1 for all epochs). "
+        "Required if the history query fails.",
+    )
     parser.add_argument("--execute", action="store_true", help="Actually log (default: dry run)")
     args = parser.parse_args()
 
@@ -35,13 +41,25 @@ def main() -> None:
         raise SystemExit(f"{args.csv}: no rows or no 'epoch' column")
     csv_last = max(int(r["epoch"]) for r in rows)
 
-    api = wandb.Api()
-    run = api.run(f"{args.entity}/{args.project}/{args.run_id}")
-    logged = [r["epoch/epoch"] for r in run.scan_history(keys=["epoch/epoch"]) if r.get("epoch/epoch") is not None]
-    wandb_last = int(max(logged)) if logged else -1
+    if args.after_epoch is not None:
+        wandb_last, n_logged = args.after_epoch, "n/a (--after_epoch given)"
+    else:
+        api = wandb.Api()
+        run = api.run(f"{args.entity}/{args.project}/{args.run_id}")
+        try:
+            logged = [
+                r["epoch/epoch"] for r in run.scan_history(keys=["epoch/epoch"]) if r.get("epoch/epoch") is not None
+            ]
+        except Exception as e:
+            raise SystemExit(
+                f"Could not read the run's logged epochs from W&B ({e}).\n"
+                "Look at the epoch charts on the run page, then re-run with --after_epoch N "
+                "(N = last epoch already shown; -1 if none)."
+            ) from e
+        wandb_last, n_logged = (int(max(logged)) if logged else -1), len(logged)
     todo = [r for r in rows if int(r["epoch"]) > wandb_last]
 
-    print(f"W&B has epochs up to {wandb_last} ({len(logged)} rows); CSV has epochs up to {csv_last} ({len(rows)} rows)")
+    print(f"W&B has epochs up to {wandb_last} ({n_logged} rows); CSV has epochs up to {csv_last} ({len(rows)} rows)")
     print(f"To backfill: {len(todo)} epochs" + (f" ({todo[0]['epoch']}..{todo[-1]['epoch']})" if todo else ""))
     if todo:
         print("Columns:", ", ".join(c for c in rows[0] if c != "epoch"))
