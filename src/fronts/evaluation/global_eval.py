@@ -58,7 +58,8 @@ class GlobalEvalConfig:
         time_start: Keep timesteps on or after this date. None keeps all.
         time_end: Keep timesteps before this date. None keeps all.
         time_resolution: Optional pandas offset string to subsample timesteps (e.g. "6h").
-        write_spatial: Also write the (huge) per-pixel spatial stats files.
+        write_spatial: Also accumulate and write the (huge) per-pixel spatial stats. Off, they are never built,
+            which is most of the run time on the global grid, and the derived stats have no ``spatial_csi_*``.
         gpu_device: GPU index. None runs on CPU.
     """
 
@@ -138,14 +139,24 @@ def hemisphere_slices(lats: np.ndarray) -> dict[str, slice]:
     }
 
 
-def combine_global(parts: dict[str, tuple[xr.Dataset, xr.Dataset]]) -> tuple[xr.Dataset, xr.Dataset]:
-    """Adds hemispheric (spatial, aggregate) counts into global ones; spatial maps come back with ascending latitude."""
-    spatial = xr.concat([parts["SH"][0], parts["NH"][0]], dim="latitude").sortby("latitude")
+def combine_global(
+    parts: dict[str, tuple[xr.Dataset | None, xr.Dataset]],
+) -> tuple[xr.Dataset | None, xr.Dataset]:
+    """Adds hemispheric (spatial, aggregate) counts into global ones; spatial maps come back with ascending latitude.
+
+    Spatial maps are None when the hemispheres were accumulated without them, and stay None.
+    """
+    if parts["SH"][0] is None:
+        spatial = None
+    else:
+        spatial = xr.concat([parts["SH"][0], parts["NH"][0]], dim="latitude").sortby("latitude")
     aggregate = parts["SH"][1] + parts["NH"][1]
     return spatial, aggregate
 
 
-def _add_in_place(total: xr.Dataset, chunk: xr.Dataset) -> None:
+def _add_in_place(total: xr.Dataset | None, chunk: xr.Dataset | None) -> None:
+    if total is None:
+        return
     for name in total.data_vars:
         total[name].values += chunk[name].values
 
@@ -221,6 +232,7 @@ def run(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig) -> None:
                     lats=lats[rows[hemi]],
                     lons=lons,
                     spatial_mask=None,
+                    spatial=cfg.write_spatial,
                 )
                 if (mode, hemi) in totals:
                     _add_in_place(totals[(mode, hemi)][0], spatial)

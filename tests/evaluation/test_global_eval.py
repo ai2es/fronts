@@ -102,3 +102,10 @@ def test_pad_to_multiple_handles_list_outputs():
     x = tf.ones((1, 641, 4, 3))
     outs = global_eval.PadToMultiple(fake_model, 32)(x)
     assert [o.shape[1] for o in outs] == [641, 641]
+
+
+def test_combine_global_passes_through_missing_spatial_maps():
+    aggregate = xr.Dataset({"tp": (("threshold",), np.array([1.0, 2.0]))})
+    spatial, total = global_eval.combine_global({"SH": (None, aggregate), "NH": (None, aggregate)})
+    assert spatial is None
+    assert total["tp"].values.tolist() == [2.0, 4.0]

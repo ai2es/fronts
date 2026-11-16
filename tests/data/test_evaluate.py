@@ -531,3 +531,30 @@ class TestComputeStatsShapes:
             )
             for wrapped_ds, split_ds in zip(wrapped, split, strict=True):
                 xr.testing.assert_identical(wrapped_ds, split_ds)
+
+
+class TestAccumulateStatsWithoutSpatial:
+    @staticmethod
+    def _arrays(tiny_lats, tiny_lons) -> tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(3)
+        shape = (_N_TIMES, len(tiny_lats), len(tiny_lons), _N_CLASSES)
+        preds = rng.random(shape).astype(np.float32)
+        targets = (rng.random(shape) > 0.8).astype(np.float32)
+        return preds, targets
+
+    def test_aggregate_matches_and_spatial_is_skipped(self, tiny_lats, tiny_lons):
+        preds, targets = self._arrays(tiny_lats, tiny_lons)
+        kwargs = {"front_types": _FRONT_TYPES, "lats": tiny_lats, "lons": tiny_lons, "spatial_mask": None}
+        full_spatial, full_aggregate, full_derived = accumulate_stats(preds, targets, **kwargs)
+        spatial, aggregate, derived = accumulate_stats(preds, targets, **kwargs, spatial=False)
+
+        assert full_spatial is not None
+        assert spatial is None
+        xr.testing.assert_identical(aggregate, full_aggregate)
+        assert not [name for name in derived.data_vars if "spatial_csi" in str(name)]
+        xr.testing.assert_identical(derived, full_derived.drop_dims(["latitude", "longitude"]))
+
+    def test_compute_derived_stats_accepts_no_spatial_dataset(self, aggregate_ds_fixture):
+        derived = compute_derived_stats(aggregate_ds_fixture, None, _FRONT_TYPES)
+        assert "csi_CF" in derived
+        assert "spatial_csi_CF" not in derived
