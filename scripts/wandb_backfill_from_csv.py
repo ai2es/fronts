@@ -21,6 +21,7 @@ import wandb
 
 
 def main() -> None:
+    """Parses arguments and backfills a W&B run's history from the per-epoch metrics CSV."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--entity", required=True)
     parser.add_argument("--project", required=True)

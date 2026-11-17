@@ -20,6 +20,7 @@ import wandb
 
 
 def main() -> None:
+    """Parses arguments and finalizes a W&B run left unfinished by a crashed or killed job."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--entity", required=True)
     parser.add_argument("--project", required=True, help="The project the run was moved INTO")
