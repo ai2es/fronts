@@ -168,6 +168,9 @@ def test_run_scores_only_the_composite_with_spatial_stats(tmp_path, monkeypatch)
     )
     global_eval.run(cfg, FakeDataConfig())
 
+    composite = tmp_path / "composite"
+    newest = max(composite.iterdir(), key=lambda f: f.stat().st_mtime_ns)
+    assert newest.stat().st_mtime_ns == (composite / "stats_derived_SH.nc").stat().st_mtime_ns  # the sbatch marker
     assert [p.name for p in tmp_path.iterdir()] == ["composite"]
     written = sorted(p.name for p in (tmp_path / "composite").iterdir())
     assert written == [f"stats_{n}{s}.nc" for n in ("aggregate", "derived") for s in ("", "_NH", "_SH")]

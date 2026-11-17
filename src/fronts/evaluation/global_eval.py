@@ -243,7 +243,12 @@ def run(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig) -> None:
 
     outdir = os.path.join(cfg.outdir, COMPOSITE)
     os.makedirs(outdir, exist_ok=True)
-    for region, (spatial, aggregate) in {**totals, "global": combine_global(totals)}.items():
+    # SH goes last: the sbatch treats composite/stats_derived_SH.nc as "the eval finished".
+    for region, (spatial, aggregate) in {
+        "global": combine_global(totals),
+        "NH": totals["NH"],
+        "SH": totals["SH"],
+    }.items():
         derived = evaluate.compute_derived_stats(aggregate, spatial, cfg.front_types)
         suffix = "" if region == "global" else f"_{region}"
         outputs = {"aggregate": aggregate, "derived": derived}
