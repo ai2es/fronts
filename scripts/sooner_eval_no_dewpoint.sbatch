@@ -17,7 +17,8 @@
 # USAD (sooner_eval.yaml) and global TWC (sooner_eval_global.yaml) evals for the
 # nbs_square_dilation_trof_tt_no_inst_no_dewpoint run. Both configs are derived on the fly:
 # run_name is swapped and the 2m_dewpoint_temperature input is dropped to match training.
-# The USAD stats and 4-panel figures are written before the global eval starts.
+# The USAD stats and 4-panel figures are written before the global eval starts. The global eval writes only
+# the composite (NH from the direct pass, SH from the flipped one), and its 4-panel figures follow it.
 # Global needs the rasterized GML at global_eval_config.targets_zarr (scripts/gml_to_zarr.py).
 
 set -eo pipefail
@@ -54,3 +55,5 @@ stage "$USAD_STATS/stats_derived.nc" python -m fronts.evaluate --config_path "$U
 stage "$USAD_STATS/performance_INST.png" python -m fronts.evaluation.figures \
     --stats_dir "$USAD_STATS/" --coordinates 0.25 80.0 130.0 369.75
 stage "$GLOBAL_STATS/composite/stats_derived_SH.nc" python -m fronts.evaluation.global_eval --config_path "$GLOBAL_CFG"
+stage "$GLOBAL_STATS/composite/performance_TROF_SH.png" python -m fronts.evaluation.figures \
+    --stats_dir "$GLOBAL_STATS/composite/" --coordinates -80.0 80.0 0.0 359.75

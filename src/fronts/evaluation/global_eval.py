@@ -2,14 +2,15 @@
 
 The checkpoint was trained on northern-hemisphere fronts, so each timestep is run twice:
 
-* ``direct``  — inputs as they are.
+* ``direct``  — inputs as they are; only the northern hemisphere (lat >= 0) of its predictions is scored.
 * ``flipped`` — inputs mirrored about the equator with the meridional wind negated, so southern-
-  hemisphere fronts look like northern-hemisphere ones. Predictions are mirrored back before scoring.
+  hemisphere fronts look like northern-hemisphere ones. Predictions are mirrored back, and only the
+  southern hemisphere (lat < 0) of them is scored.
 
-Stats are accumulated separately for the northern (lat >= 0) and southern (lat < 0) hemispheres and
-the global stats are their sum, so every region is exact up to a <=250 km neighborhood-expansion edge
-effect at the equator. A third mode, ``composite``, takes the northern hemisphere from ``direct`` and
-the southern from ``flipped``: the number to read as the model's global skill.
+Together these are the ``composite``, the model's global skill, and it is the only result written. Stats
+are accumulated separately for the two hemispheres and the global stats are their sum, so they are exact up
+to a <=250 km neighborhood-expansion edge effect at the equator. Per-pixel counts for every neighborhood
+are always accumulated, since the 4-panel figure's CSI map is built from them.
 
 Time is processed in chunks so predictions and targets never exceed memory; TP/FP/TN/FN are additive
 over time, so chunk stats are summed and the derived metrics computed once at the end.
@@ -35,9 +36,10 @@ from fronts.model_1702 import adapter
 
 log = logging.getLogger(__name__)
 
-MODES = ("direct", "flipped", "composite")
+# (inference pass, hemisphere of its predictions that is scored); together they make the composite.
+COMPOSITE_PASSES = (("direct", "NH"), ("flipped", "SH"))
 HEMISPHERES = ("NH", "SH")
-REGIONS = ("global", *HEMISPHERES)
+COMPOSITE = "composite"
 _V_WIND = "v_component_of_wind"
 
 
@@ -58,7 +60,7 @@ class GlobalEvalConfig:
         time_start: Keep timesteps on or after this date. None keeps all.
         time_end: Keep timesteps before this date. None keeps all.
         time_resolution: Optional pandas offset string to subsample timesteps (e.g. "6h").
-        write_spatial: Also accumulate and write the (huge) per-pixel spatial stats. Off, they are never built,
+        write_spatial: Also write the (huge) per-pixel spatial stats files; the counts are accumulated regardless,
             which is most of the run time on the global grid, and the derived stats have no ``spatial_csi_*``.
         gpu_device: GPU index. None runs on CPU.
     """
@@ -194,7 +196,7 @@ def _open_data(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig):
 
 
 def run(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig) -> None:
-    """Runs direct and flipped inference over the global domain and writes stats for every mode and region."""
+    """Runs direct and flipped inference over the global domain and writes the composite stats for each region."""
     utils.configure_gpu(cfg.gpu_device)
     input_ds, fronts_raw = _open_data(cfg, data_cfg)
     lats = input_ds["latitude"].values
@@ -207,16 +209,16 @@ def run(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig) -> None:
     model = adapter.ClassPaddingAdapter(PadToMultiple(keras_model, cfg.pad_multiple))
     data_cfg = dataclasses.replace(data_cfg, front_dilation=cfg.front_dilation)
 
-    totals: dict[tuple[str, str], tuple[xr.Dataset, xr.Dataset]] = {}
+    totals: dict[str, tuple[xr.Dataset, xr.Dataset]] = {}
     n_times = input_ds.sizes["time"]
     for start in range(0, n_times, cfg.chunk_size):
         sel = slice(start, min(start + cfg.chunk_size, n_times))
         chunk_in, chunk_tg = input_ds.isel(time=sel), fronts_raw.isel(time=sel)
         log.info("Chunk %d-%d of %d", sel.start, sel.stop, n_times)
-        for mode, inputs in (("direct", chunk_in), ("flipped", flip_inputs(chunk_in))):
+        for mode, hemi in COMPOSITE_PASSES:
             preds, targets = evaluate.predict_batches(
                 model=model,
-                input_ds=inputs,
+                input_ds=chunk_in if mode == "direct" else flip_inputs(chunk_in),
                 target_da=chunk_tg,
                 data_config=data_cfg,
                 batch_size=cfg.batch_size,
@@ -224,40 +226,33 @@ def run(cfg: GlobalEvalConfig, data_cfg: datasets.DatasetConfig) -> None:
             )
             if mode == "flipped":
                 preds = preds[:, ::-1]
-            for hemi in HEMISPHERES:
-                spatial, aggregate, _ = evaluate.accumulate_stats(
-                    all_preds=preds[:, rows[hemi]],
-                    all_targets=targets[:, rows[hemi]],
-                    front_types=cfg.front_types,
-                    lats=lats[rows[hemi]],
-                    lons=lons,
-                    spatial_mask=None,
-                    spatial=cfg.write_spatial,
-                )
-                if (mode, hemi) in totals:
-                    _add_in_place(totals[(mode, hemi)][0], spatial)
-                    _add_in_place(totals[(mode, hemi)][1], aggregate)
-                else:
-                    totals[(mode, hemi)] = (spatial, aggregate)
+            spatial, aggregate, _ = evaluate.accumulate_stats(
+                all_preds=preds[:, rows[hemi]],
+                all_targets=targets[:, rows[hemi]],
+                front_types=cfg.front_types,
+                lats=lats[rows[hemi]],
+                lons=lons,
+                spatial_mask=None,
+            )
+            if hemi in totals:
+                _add_in_place(totals[hemi][0], spatial)
+                _add_in_place(totals[hemi][1], aggregate)
+            else:
+                totals[hemi] = (spatial, aggregate)
             del preds, targets
 
-    totals[("composite", "NH")] = totals[("direct", "NH")]
-    totals[("composite", "SH")] = totals[("flipped", "SH")]
-    for mode in MODES:
-        parts = {h: totals[(mode, h)] for h in HEMISPHERES}
-        parts_by_region = {**parts, "global": combine_global(parts)}
-        outdir = os.path.join(cfg.outdir, mode)
-        os.makedirs(outdir, exist_ok=True)
-        for region, (spatial, aggregate) in parts_by_region.items():
-            derived = evaluate.compute_derived_stats(aggregate, spatial, cfg.front_types)
-            suffix = "" if region == "global" else f"_{region}"
-            outputs = {"aggregate": aggregate, "derived": derived}
-            if cfg.write_spatial:
-                outputs["spatial"] = spatial
-            for name, ds in outputs.items():
-                path = os.path.join(outdir, f"stats_{name}{suffix}.nc")
-                ds.to_netcdf(path)
-                log.info("%s/%s → %s", mode, region, path)
+    outdir = os.path.join(cfg.outdir, COMPOSITE)
+    os.makedirs(outdir, exist_ok=True)
+    for region, (spatial, aggregate) in {**totals, "global": combine_global(totals)}.items():
+        derived = evaluate.compute_derived_stats(aggregate, spatial, cfg.front_types)
+        suffix = "" if region == "global" else f"_{region}"
+        outputs = {"aggregate": aggregate, "derived": derived}
+        if cfg.write_spatial:
+            outputs["spatial"] = spatial
+        for name, ds in outputs.items():
+            path = os.path.join(outdir, f"stats_{name}{suffix}.nc")
+            ds.to_netcdf(path)
+            log.info("%s -> %s", region, path)
 
 
 def main() -> None:

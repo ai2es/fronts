@@ -109,3 +109,72 @@ def test_combine_global_passes_through_missing_spatial_maps():
     spatial, total = global_eval.combine_global({"SH": (None, aggregate), "NH": (None, aggregate)})
     assert spatial is None
     assert total["tp"].values.tolist() == [2.0, 4.0]
+
+
+def test_run_scores_only_the_composite_with_spatial_stats(tmp_path, monkeypatch):
+    import dataclasses
+
+    import tensorflow as tf
+
+    from fronts import evaluate, utils
+
+    lats = np.arange(-1.5, 1.75, 0.5)  # 7 rows, symmetric: SH rows 0-2, NH rows 3-6
+    lons = np.arange(0.0, 4.0, 0.5)
+    times = np.array(["2023-06-15T00", "2023-06-15T06"], dtype="datetime64[ns]")
+    dims = ("time", "latitude", "longitude")
+    coords = {"time": times, "latitude": lats, "longitude": lons}
+    inputs = xr.Dataset({"v_component_of_wind": (dims, np.ones((2, 7, 8), np.float32))}, coords=coords)
+    codes = np.zeros((2, 7, 8), np.int8)
+    codes[:, 5, :] = 1  # a cold front in the NH
+    codes[:, 1, :] = 1  # and one in the SH
+    fronts = xr.DataArray(codes, dims=dims, coords=coords)
+
+    onehot = np.zeros((2, 7, 8, 9), np.float32)
+    onehot[..., 0] = 1.0
+    onehot[codes == 1] = [0, 1, 0, 0, 0, 0, 0, 0, 0]
+
+    def fake_predict_batches(model, input_ds, target_da, **kwargs):
+        flipped = bool((input_ds["v_component_of_wind"] < 0).all())
+        preds = onehot[:, ::-1].copy() if flipped else onehot.copy()  # flipped output is in the mirrored frame
+        wrong = slice(0, 4) if flipped else slice(0, 3)  # garbage where the pass is not scored; flipped is mirrored
+        preds[:, wrong] = 0.0
+        return preds, onehot
+
+    @dataclasses.dataclass
+    class FakeDataConfig:
+        front_dilation: int = 0
+        class_weights: list | None = None
+
+    monkeypatch.setattr(utils, "configure_gpu", lambda device: None)
+    monkeypatch.setattr(global_eval, "_open_data", lambda cfg, data_cfg: (inputs, fronts))
+    monkeypatch.setattr(tf.keras.models, "load_model", lambda *a, **k: object())
+    monkeypatch.setattr(evaluate, "predict_batches", fake_predict_batches)
+
+    cfg = global_eval.GlobalEvalConfig(
+        model_path="unused",
+        targets_zarr="unused",
+        outdir=str(tmp_path),
+        coordinates=utils.BoundingBox(-1.5, 1.5, 0.0, 3.5),
+        front_types=["CF"],
+        front_dilation=0,
+        batch_size=2,
+        pad_multiple=1,
+        chunk_size=1,
+        time_start=None,
+        time_end=None,
+        time_resolution=None,
+        write_spatial=False,
+        gpu_device=None,
+    )
+    global_eval.run(cfg, FakeDataConfig())
+
+    assert [p.name for p in tmp_path.iterdir()] == ["composite"]
+    written = sorted(p.name for p in (tmp_path / "composite").iterdir())
+    assert written == [f"stats_{n}{s}.nc" for n in ("aggregate", "derived") for s in ("", "_NH", "_SH")]
+    for suffix in ("", "_NH", "_SH"):
+        derived = xr.open_dataset(tmp_path / "composite" / f"stats_derived{suffix}.nc")
+        assert "spatial_csi_CF" in derived
+        assert derived["spatial_csi_CF"].dims == ("latitude", "longitude", "neighborhood", "threshold")
+        aggregate = xr.open_dataset(tmp_path / "composite" / f"stats_aggregate{suffix}.nc")
+        assert float(aggregate["fn_CF"].isel(neighborhood=0, threshold=50)) == 0.0
+        assert float(aggregate["tp_CF"].isel(neighborhood=0, threshold=50)) > 0.0

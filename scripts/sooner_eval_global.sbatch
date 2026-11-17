@@ -15,7 +15,7 @@
 #SBATCH --chdir=/home/tman/fronts
 
 # Global stats (global, NH, SH) for the 2.0 checkpoint named in configs/sooner_eval_global.yaml against
-# the TWC global analysis, for direct, hemisphere-flipped and composite inference. Rasterize the GML
+# the TWC global analysis: the composite of direct (NH) and hemisphere-flipped (SH) inference. Rasterize the GML
 # first: python scripts/gml_to_zarr.py --gml_dir <extracted tar> --out <targets_zarr from the config>
 
 set -eo pipefail

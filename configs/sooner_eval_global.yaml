@@ -52,5 +52,5 @@ global_eval_config:
   time_start: "2023-06-15T00:00:00"
   time_end: "2026-01-01T00:00:00"  # ERA5 inputs end 2025-12-31
   time_resolution: "6h"
-  write_spatial: false  # per-pixel stats files are tens of GB at this grid
+  write_spatial: false  # per-pixel stats files are tens of GB; the counts feeding the CSI map are always computed
   gpu_device: 0
