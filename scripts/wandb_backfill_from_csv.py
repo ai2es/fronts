@@ -70,7 +70,7 @@ def main() -> None:
 
     resumed = wandb.init(entity=args.entity, project=args.project, id=args.run_id, resume="allow")
     for r in todo:
-        payload = {"epoch/epoch": int(r["epoch"])}
+        payload: dict[str, int | float] = {"epoch/epoch": int(r["epoch"])}
         for key, value in r.items():
             if key == "epoch" or value in ("", None):
                 continue
