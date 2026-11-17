@@ -14,10 +14,11 @@
 #SBATCH -t 48:00:00
 #SBATCH --chdir=/home/tman/fronts
 
-# USAD (sooner_eval.yaml) and global TWC (sooner_eval_global.yaml) evals for the
+# USAD (sooner_eval_regions.yaml) and global TWC (sooner_eval_global.yaml) evals for the
 # nbs_square_dilation_trof_tt_no_inst_no_dewpoint run. Both configs are derived on the fly:
 # run_name is swapped and the 2m_dewpoint_temperature input is dropped to match training.
-# The USAD stats and 4-panel figures are written before the global eval starts. The global eval writes only
+# The USAD stats and 4-panel figures (full, land, ocean and each forecast-office region) are written before the
+# global eval starts. The global eval writes only
 # the composite (NH from the direct pass, SH from the flipped one), and its 4-panel figures follow it.
 # Global needs the rasterized GML at global_eval_config.targets_zarr (scripts/gml_to_zarr.py).
 
@@ -25,11 +26,11 @@ set -eo pipefail
 export LD_LIBRARY_PATH="${PIXI_ENV}/lib:${LD_LIBRARY_PATH}"
 
 RUN=nbs_square_dilation_trof_tt_no_inst_no_dewpoint
-for name in sooner_eval sooner_eval_global; do
+for name in sooner_eval_regions sooner_eval_global; do
     sed "s|^run_name: .*|run_name: ${RUN}|; /\"2m_dewpoint_temperature\",/d" \
         configs/${name}.yaml > /ourdisk/hpc/ai2es/tman/logs/${name}_${RUN}_${SLURM_JOB_ID}.yaml
 done
-USAD_CFG=/ourdisk/hpc/ai2es/tman/logs/sooner_eval_${RUN}_${SLURM_JOB_ID}.yaml
+USAD_CFG=/ourdisk/hpc/ai2es/tman/logs/sooner_eval_regions_${RUN}_${SLURM_JOB_ID}.yaml
 GLOBAL_CFG=/ourdisk/hpc/ai2es/tman/logs/sooner_eval_global_${RUN}_${SLURM_JOB_ID}.yaml
 grep -c "2m_dewpoint_temperature" "$USAD_CFG" "$GLOBAL_CFG" || true  # expect 0 for both
 
@@ -51,8 +52,8 @@ stage() {
 }
 
 # USAD first, with its figures, so they exist even if the global eval runs out of time.
-stage "$USAD_STATS/stats_derived.nc" python -m fronts.evaluate --config_path "$USAD_CFG"
-stage "$USAD_STATS/performance_INST.png" python -m fronts.evaluation.figures \
+stage "$USAD_STATS/stats_derived_NHC.nc" python -m fronts.evaluation.region_eval --config_path "$USAD_CFG"
+stage "$USAD_STATS/performance_INST_ocean.png" python -m fronts.evaluation.figures \
     --stats_dir "$USAD_STATS/" --coordinates 0.25 80.0 130.0 369.75
 stage "$GLOBAL_STATS/composite/stats_derived_SH.nc" python -m fronts.evaluation.global_eval --config_path "$GLOBAL_CFG"
 stage "$GLOBAL_STATS/composite/performance_TROF_SH.png" python -m fronts.evaluation.figures \
