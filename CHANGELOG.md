@@ -6,6 +6,17 @@ Versions track the model release rather than SemVer: `MAJOR.MINOR` is the FrontF
 and a patch release changes only the code around weights that load and run unchanged — 2.0.1 runs the `v2.0.0.keras`
 weights. New features that need new or retrained weights take a minor bump with the model.
 
+## [Unreleased]
+
+### Added
+
+- **Neighborhood calibration.** `fronts.neighborhood_calibration` fits an isotonic regression (a fit that never
+  decreases) to the 50-250 km reliability curves from `fronts.evaluate`. It maps a raw probability to the chance of a
+  front within that radius. The AIES paper used this scale for its maps. The module is a port of the legacy
+  `calibrate_model.py` with two changes. Each bin is weighted by its pixel count. Pixels forecast below 0.01 get
+  their own bin. The case-study plot uses the table when `predict_config.calibration_path` is set.
+- Eval stats now include `nbhd_truth_{ft}`. It is the weighted count of pixels within each radius of a front.
+
 ## [2.0.1] - 2026-11-24
 
 Scores a 2.0 checkpoint globally against the TWC global surface analysis. No model, config, or checkpoint format
@@ -41,17 +52,6 @@ changes: v2.0.0 weights load and run unchanged.
   `spatial_ds` is `None` and `compute_derived_stats` omits `spatial_csi_{ft}`. Defaults to `True`, so existing
   callers are unaffected.
 - `scripts/wandb_finalize_run.py` makes `--name` optional when `--run_id` is given.
-
-## [Unreleased]
-
-### Added
-
-- **Neighborhood calibration.** `fronts.neighborhood_calibration` fits an isotonic regression (a fit that never
-  decreases) to the 50-250 km reliability curves from `fronts.evaluate`. It maps a raw probability to the chance of a
-  front within that radius. The AIES paper used this scale for its maps. The module is a port of the legacy
-  `calibrate_model.py` with two changes. Each bin is weighted by its pixel count. Pixels forecast below 0.01 get
-  their own bin. The case-study plot uses the table when `predict_config.calibration_path` is set.
-- Eval stats now include `nbhd_truth_{ft}`. It is the weighted count of pixels within each radius of a front.
 
 ## [2.0.0] - 2026-10-30
 
