@@ -1243,15 +1243,26 @@ class TestV201EvalConfigDropsOnlyTheDewpointChannel:
                 continue
             assert getattr(v201, field.name) == getattr(v200, field.name), f"{field.name} differs"
 
+    def _harness_section_with_run_name_restored(self, path: str) -> dict[str, str]:
+        """The harness section of a config with the interpolated run name put back as ``${run_name}``.
+
+        load_yaml interpolates ``${run_name}`` before returning, so the two runs' paths only line up once
+        each config's own run name is restored.
+        """
+        from fronts import utils
+
+        yaml_data = utils.load_yaml(path)
+        run_name = str(yaml_data["run_name"])
+        section = yaml_data["harness_eval_config"]
+        return {key: str(value).replace(run_name, "${run_name}") for key, value in section.items()}
+
     def test_only_the_run_name_separates_the_two_evals(self) -> None:
         from fronts import utils
 
-        v200_yaml = utils.load_yaml(self._V200_CONFIG)
-        v201_yaml = utils.load_yaml(self._V201_CONFIG)
-        assert v201_yaml["run_name"] != v200_yaml["run_name"]
-        v201_eval = {k: str(v).replace("${run_name}", "") for k, v in v201_yaml["harness_eval_config"].items()}
-        v200_eval = {k: str(v).replace("${run_name}", "") for k, v in v200_yaml["harness_eval_config"].items()}
-        assert v201_eval == v200_eval
+        assert utils.load_yaml(self._V201_CONFIG)["run_name"] != utils.load_yaml(self._V200_CONFIG)["run_name"]
+        v201 = self._harness_section_with_run_name_restored(self._V201_CONFIG)
+        v200 = self._harness_section_with_run_name_restored(self._V200_CONFIG)
+        assert v201 == v200
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
