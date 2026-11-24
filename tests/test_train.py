@@ -1,4 +1,5 @@
 import dataclasses
+import datetime
 import glob
 import logging
 import math
@@ -1190,6 +1191,23 @@ class TestEvalConfigMirrorsItsTrainingRun:
         training_data = self._data_config(self._TRAINING_CONFIG)
         assert training_data.coordinates is None, "training config now restricts its domain; eval must follow it"
         assert tuple(eval_cfg.coordinates) == (0.25, 80.0, 130.0, 369.75)
+
+
+class TestValidationEvalConfigMirrorsItsTrainingRun(TestEvalConfigMirrorsItsTrainingRun):
+    """sooner_eval_2018.yaml scores the v2.0.0 run on its validation year, which neighborhood calibration fits on."""
+
+    _EVAL_CONFIG = "configs/sooner_eval_2018.yaml"
+    _TRAINING_CONFIG = "configs/sooner_train.yaml"
+
+    def test_eval_window_is_the_validation_year(self) -> None:
+        from fronts import utils
+        from fronts.evaluate import EvalConfig
+
+        yaml_data = utils.load_yaml(self._EVAL_CONFIG)
+        eval_cfg = utils.parse_config_section(yaml_data, EvalConfig, "eval_config", utils.YAML_TYPE_HOOKS)
+        (val_year,) = self._data_config(self._TRAINING_CONFIG).val_years
+        assert eval_cfg.time_start == datetime.datetime(val_year, 1, 1)
+        assert eval_cfg.time_end == datetime.datetime(val_year + 1, 1, 1)
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
