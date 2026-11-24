@@ -2,9 +2,9 @@
 
 All notable changes to FrontFinder are listed here. The format follows [Keep a Changelog](https://keepachangelog.com).
 
-Versions track the model release rather than SemVer: `MAJOR.MINOR` is the FrontFinder model version the package runs,
-and a patch release changes only the code around weights that load and run unchanged — 2.0.1 runs the `v2.0.0.keras`
-weights. New features that need new or retrained weights take a minor bump with the model.
+Versions track the model: `vX.Y.Z` of this package is the release whose weights are published as `vX.Y.Z.keras` on
+[Hugging Face](https://huggingface.co/aaaTman/FrontFinder), so the model and the code that runs it always move together.
+Each entry below is the code side of that model release.
 
 ## [Unreleased]
 
@@ -19,8 +19,17 @@ weights. New features that need new or retrained weights take a minor bump with 
 
 ## [2.0.1] - 2026-11-24
 
-Scores a 2.0 checkpoint globally against the TWC global surface analysis. No model, config, or checkpoint format
-changes: v2.0.0 weights load and run unchanged.
+This release goes with the **`v2.0.1.keras` weights** on
+[Hugging Face](https://huggingface.co/aaaTman/FrontFinder/blob/main/v2.0.1.keras), which are the model to use with it.
+The architecture, output classes, built-in normalization layer, and terrain input are all as in 2.0.0, but the model is
+trained **without the 2 m dewpoint input**: its input stack is 27 channels instead of 28 (the 2.0.0 channel order with
+the dewpoint channel dropped), so inference needs no dewpoint field. The two checkpoints are not interchangeable —
+`v2.0.0.keras` still expects 28 channels. The checked-in configs build the 28-channel stack, and
+`scripts/sooner_eval_no_dewpoint.sbatch` derives the 27-channel one by removing `2m_dewpoint_temperature` from the
+inputs, which is how 2.0.1 was scored.
+
+The code side is global evaluation against the TWC global surface analysis, plus the SLURM and Weights & Biases
+helpers that came out of running it. No changes to config schema or checkpoint format.
 
 ### Added
 
@@ -38,9 +47,9 @@ changes: v2.0.0 weights load and run unchanged.
   levels as the regional store) and `configs/sooner_eval_global.yaml` (repeats the training config's input build
   verbatim so eval inputs match what the model saw).
 - **SLURM scripts**: `scripts/sooner_eval_global.sbatch`, a one-week smoke test
-  (`scripts/sooner_eval_global_smoke.sbatch`), and a no-dewpoint ablation eval
-  (`scripts/sooner_eval_no_dewpoint.sbatch`). Each stage skips its work when its outputs already exist, so a
-  cancelled job resumes where it stopped.
+  (`scripts/sooner_eval_global_smoke.sbatch`), and `scripts/sooner_eval_no_dewpoint.sbatch`, which scores the 2.0.1
+  (no 2 m dewpoint) model on both USAD regions and the globe by deriving its config from the 2.0.0 ones at run time.
+  Each stage skips its work when its outputs already exist, so a cancelled job resumes where it stopped.
 - **Weights & Biases helpers**: `scripts/wandb_finalize_run.py` tags and summarizes a finished run, and
   `scripts/wandb_backfill_from_csv.py` re-logs epochs missing from a run using the training run's
   `metrics_epoch.csv`, which is written independently of W&B. Dry run by default.

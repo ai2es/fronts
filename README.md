@@ -7,8 +7,20 @@ The model labels each grid point with one of nine classes: no front, cold front,
 front, dryline, trough, tropical trough, and instability axis. Forming and dissipating fronts are merged into their
 parent type.
 
-The pretrained v2.0.0 weights (`v2.0.0.keras`) are on Hugging Face:
-[aaaTman/FrontFinder](https://huggingface.co/aaaTman/FrontFinder).
+The pretrained v2.0.1 weights (`v2.0.1.keras`) are on Hugging Face:
+[aaaTman/FrontFinder](https://huggingface.co/aaaTman/FrontFinder). Use them with this version of the code. `v2.0.0.keras`
+is also published there (it is the model served at fronts.espr.ai), but it takes a different input stack — see below.
+
+## Key updates for v2.0.1
+
+- **No 2 m dewpoint input.** `v2.0.1.keras` is the same UNet3+, the same output classes, and the same normalization
+  and terrain inputs as 2.0.0, but it is trained on 27 channels instead of 28: the 2.0.0 channel order with the
+  `2m_dewpoint_temperature` channel removed. Inference therefore needs no dewpoint field. The two checkpoints are not
+  interchangeable, and `scripts/sooner_eval_no_dewpoint.sbatch` shows how to derive a 27-channel config from the
+  checked-in 28-channel ones.
+- **Global evaluation.** `fronts.evaluation.global_eval` scores a checkpoint against the TWC global surface analysis,
+  running each timestep direct over the northern hemisphere and hemisphere-flipped over the southern one, and reports
+  the composite as the model's global skill. See `configs/sooner_eval_global.yaml`.
 
 ## Key updates for v2.0.0
 
