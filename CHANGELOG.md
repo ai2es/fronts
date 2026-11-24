@@ -1,7 +1,10 @@
 # Changelog
 
-All notable changes to FrontFinder are listed here. The format follows [Keep a Changelog](https://keepachangelog.com),
-and versions follow [Semantic Versioning](https://semver.org).
+All notable changes to FrontFinder are listed here. The format follows [Keep a Changelog](https://keepachangelog.com).
+
+Versions track the model release rather than SemVer: `MAJOR.MINOR` is the FrontFinder model version the package runs,
+and a patch release changes only the code around weights that load and run unchanged — 2.0.1 runs the `v2.0.0.keras`
+weights. New features that need new or retrained weights take a minor bump with the model.
 
 ## [2.0.1] - 2026-11-24
 
