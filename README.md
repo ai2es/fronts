@@ -15,9 +15,9 @@ is also published there (it is the model served at fronts.espr.ai), but it takes
 
 - **No 2 m dewpoint input.** `v2.0.1.keras` is the same UNet3+, the same output classes, and the same normalization
   and terrain inputs as 2.0.0, but it is trained on 27 channels instead of 28: the 2.0.0 channel order with the
-  `2m_dewpoint_temperature` channel removed. Inference therefore needs no dewpoint field. The two checkpoints are not
-  interchangeable, and `scripts/sooner_eval_no_dewpoint.sbatch` shows how to derive a 27-channel config from the
-  checked-in 28-channel ones.
+  `2m_dewpoint_temperature` channel removed. Inference therefore needs no dewpoint field. The two checkpoints are
+  not interchangeable: `configs/sooner_eval_regions_v2.0.1.yaml` is the committed 27-channel eval config for this
+  model, and every other config in `configs/` still builds the 28-channel stack.
 - **Global evaluation.** `fronts.evaluation.global_eval` scores a checkpoint against the TWC global surface analysis,
   running each timestep direct over the northern hemisphere and hemisphere-flipped over the southern one, and reports
   the composite as the model's global skill. See `configs/sooner_eval_global.yaml`. The TWC fronts are a NOAA product

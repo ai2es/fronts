@@ -14,9 +14,11 @@
 #SBATCH -t 48:00:00
 #SBATCH --chdir=/home/tman/fronts
 
-# USAD (sooner_eval_regions.yaml) and global TWC (sooner_eval_global.yaml) evals for the
-# nbs_square_dilation_trof_tt_no_inst_no_dewpoint run. Both configs are derived on the fly:
-# run_name is swapped and the 2m_dewpoint_temperature input is dropped to match training.
+# USAD and global TWC evals for the nbs_square_dilation_trof_tt_no_inst_no_dewpoint run, the v2.0.1 model
+# (v2.0.1.keras), which takes 27 input channels: the 2.0.0 stack without the 2 m dewpoint. The USAD config is
+# committed as configs/sooner_eval_regions_v2.0.1.yaml. The global config is not committed, because it names where
+# the rasterized TWC analyses live on Sooner, so it is derived from configs/sooner_eval_global.yaml here: run_name
+# swapped and the 2m_dewpoint_temperature input dropped.
 # The USAD stats and 4-panel figures (full, land, ocean and each forecast-office region) are written before the
 # global eval starts. The global eval writes only
 # the composite (NH from the direct pass, SH from the flipped one), and its 4-panel figures follow it.
@@ -26,12 +28,10 @@ set -eo pipefail
 export LD_LIBRARY_PATH="${PIXI_ENV}/lib:${LD_LIBRARY_PATH}"
 
 RUN=nbs_square_dilation_trof_tt_no_inst_no_dewpoint
-for name in sooner_eval_regions sooner_eval_global; do
-    sed "s|^run_name: .*|run_name: ${RUN}|; /\"2m_dewpoint_temperature\",/d" \
-        configs/${name}.yaml > /ourdisk/hpc/ai2es/tman/logs/${name}_${RUN}_${SLURM_JOB_ID}.yaml
-done
-USAD_CFG=/ourdisk/hpc/ai2es/tman/logs/sooner_eval_regions_${RUN}_${SLURM_JOB_ID}.yaml
+USAD_CFG=configs/sooner_eval_regions_v2.0.1.yaml
 GLOBAL_CFG=/ourdisk/hpc/ai2es/tman/logs/sooner_eval_global_${RUN}_${SLURM_JOB_ID}.yaml
+sed "s|^run_name: .*|run_name: ${RUN}|; /\"2m_dewpoint_temperature\",/d" \
+    configs/sooner_eval_global.yaml > "$GLOBAL_CFG"
 grep -c "2m_dewpoint_temperature" "$USAD_CFG" "$GLOBAL_CFG" || true  # expect 0 for both
 
 STATS_ROOT=/ourdisk/hpc/ai2es/tman/models/stats

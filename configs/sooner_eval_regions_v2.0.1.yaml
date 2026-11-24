@@ -1,0 +1,58 @@
+run_name: nbs_square_dilation_trof_tt_no_inst_no_dewpoint
+
+# The v2.0.1 model (v2.0.1.keras) per-region evaluation counterpart to configs/sooner_eval_regions.yaml.
+# It is that file with the 2 m dewpoint input dropped, which is the only difference between the two runs:
+# v2.0.1 takes 27 input channels where v2.0.0 takes 28. Everything else, including the store paths, the
+# normalization, the domain, and the regions scored, is identical, so the two configs are the same test run
+# against two checkpoints. evaluate.py reads the architecture back from the checkpoint, so nothing here
+# declares the channel count.
+#
+# The global (TWC) counterpart is deliberately not committed: it names where the rasterized TWC analyses
+# live on Sooner. scripts/sooner_eval_no_dewpoint.sbatch derives it from configs/sooner_eval_global.yaml at
+# run time, the same way the 2.0.0 global config was written.
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 32
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  front_dilation: 1
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "10m_u_component_of_wind",
+      "10m_v_component_of_wind",
+      "geopotential_at_surface"
+    ]
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax
+  max_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+
+harness_eval_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  model_kind: "keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}/"
+  coordinates: [0.25, 80.0, 130.0, 369.75]  # full USAD domain; must cover every office region
+  regions: [full, land, ocean, OPC_west, WPC, OPC_east, HFO, NHC]
+  front_types: [CF, WF, SF, OF, DL, TROF, TT, INST]
+  front_dilation: 1  # match training dilation
+  batch_size: 32
+  time_start: "2019-01-01T00:00:00"  # sequestered test year
+  time_end: "2020-01-01T00:00:00"
+  time_resolution: null
+  gpu_device: 0

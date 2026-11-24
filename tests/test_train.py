@@ -1210,6 +1210,50 @@ class TestValidationEvalConfigMirrorsItsTrainingRun(TestEvalConfigMirrorsItsTrai
         assert eval_cfg.time_end == datetime.datetime(val_year + 1, 1, 1)
 
 
+class TestV201EvalConfigDropsOnlyTheDewpointChannel:
+    """configs/sooner_eval_regions_v2.0.1.yaml must equal the v2.0.0 region eval but for one input.
+
+    v2.0.1 was trained with the 2 m dewpoint dropped, so that channel and the run name are the only
+    legitimate differences. evaluate.load_eval_arrays builds the inputs from data_config, so any other
+    difference would score the v2.0.1 checkpoint on a different test set, domain, or target build than the
+    v2.0.0 checkpoint it is being compared against.
+    """
+
+    _V201_CONFIG = "configs/sooner_eval_regions_v2.0.1.yaml"
+    _V200_CONFIG = "configs/sooner_eval_regions.yaml"
+
+    def _data_config(self, path):
+        from fronts import utils
+        from fronts.data.datasets import DatasetConfig
+
+        return utils.parse_config_section(utils.load_yaml(path), DatasetConfig, "data_config")
+
+    def test_v201_drops_only_2m_dewpoint_from_the_inputs(self) -> None:
+        v200 = self._data_config(self._V200_CONFIG)
+        v201 = self._data_config(self._V201_CONFIG)
+        assert "2m_dewpoint_temperature" in v200.variables
+        assert "2m_dewpoint_temperature" not in v201.variables
+        assert [v for v in v200.variables if v != "2m_dewpoint_temperature"] == v201.variables
+
+    def test_everything_else_in_the_data_config_matches(self) -> None:
+        v200 = self._data_config(self._V200_CONFIG)
+        v201 = self._data_config(self._V201_CONFIG)
+        for field in dataclasses.fields(v200):
+            if field.name == "variables":
+                continue
+            assert getattr(v201, field.name) == getattr(v200, field.name), f"{field.name} differs"
+
+    def test_only_the_run_name_separates_the_two_evals(self) -> None:
+        from fronts import utils
+
+        v200_yaml = utils.load_yaml(self._V200_CONFIG)
+        v201_yaml = utils.load_yaml(self._V201_CONFIG)
+        assert v201_yaml["run_name"] != v200_yaml["run_name"]
+        v201_eval = {k: str(v).replace("${run_name}", "") for k, v in v201_yaml["harness_eval_config"].items()}
+        v200_eval = {k: str(v).replace("${run_name}", "") for k, v in v200_yaml["harness_eval_config"].items()}
+        assert v201_eval == v200_eval
+
+
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")
 class TestFrontsPyDatasetVolume:
     """volume_inputs=True must yield (batch, lat, lon, level, variable) batches for a 3D model."""
