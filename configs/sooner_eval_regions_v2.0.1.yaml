@@ -8,8 +8,8 @@ run_name: nbs_square_dilation_trof_tt_no_inst_no_dewpoint
 # declares the channel count.
 #
 # The global (TWC) counterpart is deliberately not committed: it names where the rasterized TWC analyses
-# live on Sooner. scripts/sooner_eval_no_dewpoint.sbatch derives it from configs/sooner_eval_global.yaml at
-# run time, the same way the 2.0.0 global config was written.
+# live on Sooner. scripts/sooner_eval_no_dewpoint.sbatch derives the 27-channel variant from the 2.0.0 global
+# config you pass it as GLOBAL_CONFIG, which is likewise kept out of the repository.
 
 data_config:
   inputs_icechunk_config:

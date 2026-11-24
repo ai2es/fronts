@@ -16,7 +16,10 @@ Time is processed in chunks so predictions and targets never exceed memory; TP/F
 over time, so chunk stats are summed and the derived metrics computed once at the end.
 
 Usage:
-    python -m fronts.evaluation.global_eval --config_path configs/sooner_eval_global.yaml
+    python -m fronts.evaluation.global_eval --config_path /path/to/sooner_eval_global.yaml
+
+The config is not committed: it names the checkpoint, the ERA5 store, and the rasterized TWC fronts, and
+those analyses are not published. ``GlobalEvalConfig`` below documents every field it needs.
 """
 
 import argparse

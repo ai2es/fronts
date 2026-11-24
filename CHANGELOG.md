@@ -50,14 +50,15 @@ needs them.
 - **v2.0.1 eval config.** `configs/sooner_eval_regions_v2.0.1.yaml` scores the no-dewpoint run over the USAD office
   regions. It is `configs/sooner_eval_regions.yaml` with `2m_dewpoint_temperature` dropped and the run name swapped,
   and a test pins the two together so they cannot drift apart.
-- **Global data and eval configs**: `configs/generate_icechunk_global.yaml` (global ERA5 inputs, same variables and
-  levels as the regional store) and `configs/sooner_eval_global.yaml` (repeats the training config's input build
-  verbatim so eval inputs match what the model saw).
+- **Global data config**: `configs/generate_icechunk_global.yaml` (global ERA5 inputs, same variables and levels as
+  the regional store). The global eval's own config is deliberately not committed, because it names the checkpoint,
+  the ERA5 store, and where the rasterized TWC fronts live: the three global SLURM scripts take it as `GLOBAL_CONFIG`,
+  and `GlobalEvalConfig` in `fronts.evaluation.global_eval` documents every field it needs.
 - **SLURM scripts**: `scripts/sooner_eval_global.sbatch`, a one-week smoke test
   (`scripts/sooner_eval_global_smoke.sbatch`), and `scripts/sooner_eval_no_dewpoint.sbatch`, which scores the 2.0.1
-  (no 2 m dewpoint) model on both USAD regions and the globe. It uses the committed 27-channel USAD config and derives
-  the global one at run time, since that names where the rasterized TWC analyses live. Each stage skips its work when
-  its outputs already exist, so a cancelled job resumes where it stopped.
+  (no 2 m dewpoint) model on both USAD regions and the globe. Each takes your own global config as `GLOBAL_CONFIG`
+  and the no-dewpoint one derives the 27-channel variant from it. Each stage skips its work when its outputs already
+  exist, so a cancelled job resumes where it stopped.
 - **Weights & Biases helpers**: `scripts/wandb_finalize_run.py` tags and summarizes a finished run, and
   `scripts/wandb_backfill_from_csv.py` re-logs epochs missing from a run using the training run's
   `metrics_epoch.csv`, which is written independently of W&B. Dry run by default.

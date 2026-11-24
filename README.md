@@ -20,9 +20,10 @@ is also published there (it is the model served at fronts.espr.ai), but it takes
   model, and every other config in `configs/` still builds the 28-channel stack.
 - **Global evaluation.** `fronts.evaluation.global_eval` scores a checkpoint against the TWC global surface analysis,
   running each timestep direct over the northern hemisphere and hemisphere-flipped over the southern one, and reports
-  the composite as the model's global skill. See `configs/sooner_eval_global.yaml`. The TWC fronts are a NOAA product
-  and are not published, so this scoring only works where you have those analyses. It is not usable on the open data
-  this repository otherwise runs on.
+  the composite as the model's global skill. The TWC fronts are a NOAA product and are not published, so this scoring
+  only works where you have those analyses: it is not usable on the open data this repository otherwise runs on. Its
+  config is therefore not committed either — the three global `scripts/*.sbatch` jobs take yours as `GLOBAL_CONFIG`,
+  and `GlobalEvalConfig` in `fronts.evaluation.global_eval` documents every field it needs.
 
 ## Key updates for v2.0.0
 

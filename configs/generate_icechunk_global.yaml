@@ -1,4 +1,4 @@
-# Global ERA5 inputs for configs/sooner_eval_global.yaml; same variables and levels as generate_icechunk.yaml.
+# Global ERA5 inputs for the global eval, whose own config is not committed; same variables and levels as generate_icechunk.yaml.
 era5_config:
   era5_uri: "arraylake://earthmover-public/era5"
   variables: [

@@ -16,13 +16,16 @@
 
 # One-week smoke test of the global eval (about 28 six-hourly timesteps, direct + flipped) before the
 # full sooner_eval_global.sbatch run. Writes to a separate *_global_smoke/ directory.
+# GLOBAL_CONFIG names your own global eval config; it is not committed. Run as:
+#   GLOBAL_CONFIG=/path/to/sooner_eval_global.yaml sbatch scripts/sooner_eval_global_smoke.sbatch
 
 set -eo pipefail
 export LD_LIBRARY_PATH="${PIXI_ENV}/lib:${LD_LIBRARY_PATH}"
 
+GLOBAL_CONFIG=${GLOBAL_CONFIG:?set GLOBAL_CONFIG to your global eval config; it is not committed}
 SMOKE_CONFIG=/ourdisk/hpc/ai2es/tman/logs/eval_global_smoke_${SLURM_JOB_ID}.yaml
 sed 's|time_end: "2026-01-01|time_end: "2023-06-22|; s|_global/"|_global_smoke/"|' \
-    configs/sooner_eval_global.yaml > "$SMOKE_CONFIG"
+    "$GLOBAL_CONFIG" > "$SMOKE_CONFIG"
 grep -E "time_end|outdir" "$SMOKE_CONFIG"
 
 pixi run -e schooner python -m fronts.evaluation.global_eval --config_path "$SMOKE_CONFIG"

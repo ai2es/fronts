@@ -9,7 +9,8 @@ FrontFinder finds weather fronts in ERA5 reanalysis (a global record of past wea
 - Data: ERA5 in Icechunk and zarr stores. `fronts.data.generate` makes them. One YAML file in `configs/` drives each run. The weights (`v2.0.1.keras`) are on Hugging Face (`aaaTman/FrontFinder`). `v2.0.1.keras` takes 27 input channels (no 2 m dewpoint); `v2.0.0.keras` takes 28. They are not interchangeable. Use `configs/sooner_eval_regions_v2.0.1.yaml` for the 27-channel model; every other config builds 28.
 - Eval truth: the global eval (`fronts.evaluation.global_eval`, `fronts.data.gml`, `scripts/gml_to_zarr.py`) scores
   against TWC fronts and the global surface analyses behind them. Neither is published, so that path cannot run on
-  open data. It is here so the team's internal scoring lives with the code it scores.
+  open data. Its config is not committed either (it names where the rasterized fronts live): the global `scripts/*.sbatch`
+  jobs take it as `GLOBAL_CONFIG`. Keep analysis and raster paths out of committed files.
 - Compute: training, evaluation, and data generation run on OU Sooner and Schooner (GPU, Slurm). See `scripts/*.sbatch`. Unit tests and lint run locally with no GPU.
 
 ## Commands

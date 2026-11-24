@@ -1,8 +1,10 @@
 """Rasterize the extracted TWC global-analysis GML files into one zarr of front codes.
 
+The GML files are not published, so neither is the raster. Both paths are command-line arguments and
+nothing about their location is stored in the repository.
+
 Usage:
-    python scripts/gml_to_zarr.py --gml_dir /ourdisk/hpc/ai2es/tman/twc_fronts \
-        --out /ourdisk/hpc/ai2es/tman/twc_fronts_global.zarr --workers 16
+    python scripts/gml_to_zarr.py --gml_dir /path/to/gml --out /path/to/twc_fronts.zarr --workers 16
 """
 
 import argparse
