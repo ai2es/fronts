@@ -3,6 +3,42 @@
 All notable changes to FrontFinder are listed here. The format follows [Keep a Changelog](https://keepachangelog.com),
 and versions follow [Semantic Versioning](https://semver.org).
 
+## [2.0.1] - 2026-11-24
+
+Scores a 2.0 checkpoint globally against the TWC global surface analysis. No model, config, or checkpoint format
+changes: v2.0.0 weights load and run unchanged.
+
+### Added
+
+- **Global evaluation.** `fronts.evaluation.global_eval` scores a checkpoint against the TWC global surface analysis.
+  Because the model was trained on northern-hemisphere fronts, each timestep is run twice: `direct` (inputs as they
+  are, scored over lat >= 0) and `flipped` (inputs mirrored about the equator with the meridional wind negated and
+  the predictions mirrored back, scored over lat < 0). Their union, the `composite`, is the model's global skill and
+  the only result written. Time is processed in chunks so predictions and targets stay in memory.
+- **GML analysis reader.** `fronts.data.gml` parses TWC surface-analysis GML files and rasterizes their `FRONT`
+  features onto the model's lat/lon grid using the original front codes, so the existing `remap_fronts` path applies
+  unchanged. Unrecognized `FRONT_TYPE` strings are counted and skipped, never guessed.
+- **`scripts/gml_to_zarr.py`**, which rasterizes a directory of GML files into one zarr of front codes in parallel,
+  chunked one timestep at a time.
+- **Global data and eval configs**: `configs/generate_icechunk_global.yaml` (global ERA5 inputs, same variables and
+  levels as the regional store) and `configs/sooner_eval_global.yaml` (repeats the training config's input build
+  verbatim so eval inputs match what the model saw).
+- **SLURM scripts**: `scripts/sooner_eval_global.sbatch`, a one-week smoke test
+  (`scripts/sooner_eval_global_smoke.sbatch`), and a no-dewpoint ablation eval
+  (`scripts/sooner_eval_no_dewpoint.sbatch`). Each stage skips its work when its outputs already exist, so a
+  cancelled job resumes where it stopped.
+- **Weights & Biases helpers**: `scripts/wandb_finalize_run.py` tags and summarizes a finished run, and
+  `scripts/wandb_backfill_from_csv.py` re-logs epochs missing from a run using the training run's
+  `metrics_epoch.csv`, which is written independently of W&B. Dry run by default.
+
+### Changed
+
+- `fronts.evaluate.accumulate_stats` takes `spatial`, which skips the per-pixel TP/FP/TN/FN counts. On a global grid
+  those are (n_fronts, lat, lon, 5, 100) float32 arrays and dominate both memory and run time; when skipped,
+  `spatial_ds` is `None` and `compute_derived_stats` omits `spatial_csi_{ft}`. Defaults to `True`, so existing
+  callers are unaffected.
+- `scripts/wandb_finalize_run.py` makes `--name` optional when `--run_id` is given.
+
 ## [2.0.0] - 2026-10-30
 
 Version 2 is a rewrite. The code is now an installable, typed, tested Python package (`fronts`) driven by YAML configs.
@@ -49,5 +85,6 @@ Version 2 is a rewrite. The code is now an installable, typed, tested Python pac
 
 - FrontFinder workflow 1.0.0.
 
+[2.0.1]: https://github.com/ai2es/fronts/releases/tag/v2.0.1
 [2.0.0]: https://github.com/ai2es/fronts/releases/tag/v2.0.0
 [1.0.0]: https://github.com/ai2es/fronts/releases/tag/v1.0.0
