@@ -179,6 +179,39 @@ class TestExpandAllNeighborhoods:
         assert not stack.any()
 
 
+class TestNeighborhoodTruthCounts:
+    """accumulate_stats records, per radius, the weighted count of pixels near a front of each type."""
+
+    @staticmethod
+    def _stats(preds: np.ndarray, truth_cf: np.ndarray, lats: np.ndarray, lons: np.ndarray) -> xr.Dataset:
+        targets = np.zeros(preds.shape, dtype=np.float32)
+        targets[..., 1] = truth_cf
+        targets[..., 0] = 1.0 - truth_cf
+        _, aggregate_ds, _ = accumulate_stats(preds, targets, ["CF"], lats, lons, spatial_mask=None)
+        return aggregate_ds
+
+    @staticmethod
+    def _one_front_pixel() -> np.ndarray:
+        truth = np.zeros((1, _N_LAT, _N_LON), dtype=np.float32)
+        truth[0, 2, 3] = 1.0
+        return truth
+
+    def test_equals_lowest_threshold_tp_when_every_pixel_is_forecast(
+        self, tiny_lats: np.ndarray, tiny_lons: np.ndarray
+    ) -> None:
+        preds = np.full((1, _N_LAT, _N_LON, _N_CLASSES), 0.4, dtype=np.float32)
+        ds = self._stats(preds, self._one_front_pixel(), tiny_lats, tiny_lons)
+        assert ds["nbhd_truth_CF"].dims == ("neighborhood",)
+        np.testing.assert_allclose(ds["nbhd_truth_CF"].values, ds["tp_CF"].isel(threshold=0).values, rtol=1e-6)
+
+    def test_counts_fronts_the_model_missed(self, tiny_lats: np.ndarray, tiny_lons: np.ndarray) -> None:
+        preds = np.zeros((1, _N_LAT, _N_LON, _N_CLASSES), dtype=np.float32)
+        ds = self._stats(preds, self._one_front_pixel(), tiny_lats, tiny_lons)
+        assert np.all(ds["tp_CF"].values == 0)
+        # The 4-degree test grid is coarser than every radius, so only the front pixel itself counts.
+        np.testing.assert_allclose(ds["nbhd_truth_CF"].values, np.cos(np.deg2rad(tiny_lats[2])), rtol=1e-6)
+
+
 class TestComputeDerivedStats:
     def test_output_variables_present(self, aggregate_ds_fixture, spatial_ds_fixture):
         derived = compute_derived_stats(aggregate_ds_fixture, spatial_ds_fixture, _FRONT_TYPES)

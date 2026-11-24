@@ -308,7 +308,10 @@ def accumulate_stats(
         ``tp_pointwise_{ft}``/``fp_pointwise_{ft}`` with dims (threshold,) — TP/FP against the
         exact-pixel truth (no neighborhood expansion), for diagnosing whether the neighborhood-
         matched reliability curves (b) reflect a real pointwise calibration problem or just the
-        looser 50-250 km match criterion.
+        looser 50-250 km match criterion. It also holds ``nbhd_truth_{ft}`` with dims
+        (neighborhood,): the weighted count of pixels within each radius of a front, at any
+        forecast probability. With TP at the lowest threshold, it gives the neighborhood hit
+        rate for pixels below that threshold (see ``fronts.neighborhood_calibration``).
         derived_ds contains POD, SR, CSI, FB, HSS, reliability (neighborhood-matched and
         pointwise), and spatial CSI.
     """
@@ -342,6 +345,7 @@ def accumulate_stats(
     # Exact-pixel (no neighborhood expansion) TP/FP, kept separately from the neighborhood-radius
     # aggregate above — see the module-level docstring on the reliability-diagram mismatch.
     aggregate_pointwise = {k: np.zeros(pointwise_shape, dtype=np.float32) for k in ("tp", "fp")}
+    nbhd_truth = np.zeros((n_fronts, n_nbhd), dtype=np.float32)
 
     class_indices = [constants.FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
 
@@ -404,7 +408,9 @@ def accumulate_stats(
 
         above_flat = _above_f32.reshape(n_fronts, n_lat * n_lon, N_THRESHOLDS)
         exp_flat = exp_f.reshape(n_fronts, n_nbhd, n_lat * n_lon)
-        aggregate["tp"] += np.matmul(exp_flat * w_flat, above_flat)
+        weighted_exp = exp_flat * w_flat
+        aggregate["tp"] += np.matmul(weighted_exp, above_flat)
+        nbhd_truth += weighted_exp.sum(axis=2)
         aggregate["fp"] += np.matmul((~exp_flat) * w_flat, above_flat)
 
         # TP + FP == above_weighted exactly for a 0/1 mask, so FP is derived by subtraction
@@ -445,6 +451,7 @@ def accumulate_stats(
                 for fi, ft in enumerate(front_types)
                 for k in ("tp", "fp")
             },
+            **{f"nbhd_truth_{ft}": (("neighborhood",), nbhd_truth[fi]) for fi, ft in enumerate(front_types)},
         },
     )
     derived_ds = compute_derived_stats(aggregate_ds, spatial_ds, front_types)

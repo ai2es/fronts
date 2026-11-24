@@ -1,0 +1,49 @@
+run_name: nbs_square_dilation_trof_tt_no_inst
+
+# Scores the v2.0.0 run (sooner_train.yaml) on its 2018 validation year: the stats that
+# fronts.neighborhood_calibration fits on. data_config repeats sooner_train.yaml's verbatim so
+# inputs are built exactly as the model saw them in training. Run it with
+# scripts/sooner_eval_2018_calibration.sbatch.
+
+data_config:
+  inputs_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/data/fronts/train/"
+    branch_name: "main"
+    group_name: "era5"
+  targets_icechunk_config:
+    store_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/icechunk"
+    branch_name: "main"
+    virtual_chunk_local_path: "/ourdisk/hpc/ai2es/tman/restructured_front_data/netcdf/"
+  batch_size: 32
+  test_years: [2019]
+  val_years: [2018]
+  max_queue_size: 16
+  class_weights: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]  # metric weights: background and INST excluded
+  front_dilation: 1
+  time_resolution: "6h" # USAD fronts are only 6-hourly; CONUS is 3-hourly
+  # coordinates: [25.0, 56.75, 228.0, 299.75]  # [lat_min, lat_max, lon_min, lon_max]
+  variables:
+    [
+      "equivalent_potential_temperature",
+      "u_component_of_wind",
+      "v_component_of_wind",
+      "specific_humidity",
+      "10m_u_component_of_wind",
+      "10m_v_component_of_wind",
+      "2m_dewpoint_temperature",
+      "geopotential_at_surface"
+    ]
+  pressure_levels: [1000, 925, 850, 700, 500, 300]
+  norm_stats_cache_dir: "/ourdisk/hpc/ai2es/tman/data/fronts/norm_stats_cache"
+  normalization_method: minmax
+  max_pydataset_workers: 16 # Number of threads used by tf.keras.utils.PyDataset to load batches in parallel
+
+eval_config:
+  model_path: "/ourdisk/hpc/ai2es/tman/models/${run_name}/_best_loss.keras"
+  outdir: "/ourdisk/hpc/ai2es/tman/models/stats/${run_name}_2018/"
+  front_types: [CF, WF, SF, OF, DL, TROF, TT, INST]
+  front_dilation: 1  # match training dilation
+  time_start: "2018-01-01T00:00:00"  # data_config.val_years
+  time_end: "2019-01-01T00:00:00"
+  # coordinates: omitted, so stats cover the full USAD domain the run trained on
+  gpu_device: 0

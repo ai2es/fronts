@@ -30,7 +30,7 @@ from matplotlib import cm, colors
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import FixedLocator
 
-from fronts import constants, evaluate, utils
+from fronts import constants, evaluate, neighborhood_calibration, utils
 from fronts.data import config, datasets, inputs, targets
 from fronts.model import SharedTargetModel
 from fronts.plot.utils import plot_background, truncated_colormap
@@ -318,6 +318,7 @@ def _plot_front_probability_contours(
     prob_int: float,
     filled_contours: bool,
     open_contours: bool,
+    cbar_label: str = "Probability (uncalibrated)",
 ) -> None:
     """Draw filled/open per-front-type probability contours plus a shared legend colorbar.
 
@@ -331,6 +332,7 @@ def _plot_front_probability_contours(
         prob_int: Spacing between contour levels.
         filled_contours: Draw filled probability contours with a per-front-type colorbar.
         open_contours: Draw open (line) probability contours.
+        cbar_label: Label for the probability colorbar.
     """
     n_colors = int(1 / prob_int) + 1
     front_colors = [constants.FRONT_COLORS[ft] for ft in front_types]
@@ -364,7 +366,7 @@ def _plot_front_probability_contours(
             )
             cbar.set_ticklabels([])
             if front_no == len(front_types):
-                cbar.set_label("Probability (uncalibrated)", rotation=90)
+                cbar.set_label(cbar_label, rotation=90)
                 tick_vals = np.around(np.arange(prob_mask, 1 + prob_int, prob_int), 2)
                 cbar.set_ticks(tick_vals.tolist())
                 cbar.set_ticklabels([str(v) for v in tick_vals])
@@ -410,6 +412,7 @@ def plot_test_prediction(
     filled_contours: bool = True,
     open_contours: bool = True,
     title: str = "",
+    cbar_label: str = "Probability (uncalibrated)",
 ) -> matplotlib.figure.Figure:
     """Build a single-timestep probability map figure from in-memory arrays.
 
@@ -428,6 +431,7 @@ def plot_test_prediction(
         filled_contours: Draw filled probability contours with a per-front-type colorbar.
         open_contours: Draw open (line) probability contours.
         title: Figure title (e.g. the timestep).
+        cbar_label: Label for the probability colorbar.
 
     Returns:
         The created Figure.
@@ -458,6 +462,7 @@ def plot_test_prediction(
         prob_interval,
         filled_contours=filled_contours,
         open_contours=open_contours,
+        cbar_label=cbar_label,
     )
 
     if truth_da is not None:
@@ -557,6 +562,26 @@ def plot_performance_diagram_lite(
     return fig
 
 
+def probability_scale(
+    probs_ds: xr.Dataset, calibration_path: str | None, neighborhood_km: int
+) -> tuple[xr.Dataset, str]:
+    """Put probabilities on the configured scale and return the matching colorbar label.
+
+    Args:
+        probs_ds: Raw per-front-type probabilities.
+        calibration_path: Table from ``fronts.neighborhood_calibration``, or None to keep raw values.
+        neighborhood_km: Radius to calibrate to. Only used with ``calibration_path``.
+
+    Returns:
+        Tuple of (probabilities, colorbar label).
+    """
+    if calibration_path is None:
+        return probs_ds, "Probability (uncalibrated)"
+    with xr.open_dataset(calibration_path) as table:
+        calibrated = neighborhood_calibration.calibrate(probs_ds, table.load(), neighborhood_km)
+    return calibrated, f"Probability (calibrated - {neighborhood_km} km)"
+
+
 def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.DatasetConfig) -> None:
     """Run inference and generate a single-timestep probability map.
 
@@ -588,6 +613,7 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.Datase
     era5_ds = utils.select_pressure_levels(era5_ds, data_cfg.pressure_levels)
 
     probs_ds = _load_prediction(model, era5_ds, data_cfg.variables, predict_cfg.front_types, init_time)
+    probs_ds, cbar_label = probability_scale(probs_ds, predict_cfg.calibration_path, predict_cfg.calibration_km)
 
     truth_da = None
     if predict_cfg.targets:
@@ -617,6 +643,7 @@ def plot_case_study(predict_cfg: config.PredictConfig, data_cfg: datasets.Datase
         filled_contours=predict_cfg.filled_contours,
         open_contours=predict_cfg.open_contours,
         title=f"ERA5 {init_time}z",
+        cbar_label=cbar_label,
     )
 
     os.makedirs(predict_cfg.outdir, exist_ok=True)
