@@ -7,12 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
-- **Neighborhood calibration.** `fronts.neighborhood_calibration` fits isotonic regression to the 50-250 km
-  reliability curves from `fronts.evaluate`. It maps raw probabilities to the chance of a front within that radius,
-  the scale the AIES paper's maps used. It ports the legacy `calibrate_model.py`, with two changes: bins are weighted
-  by pixel count, and pixels forecast below 0.01 get their own bin. The case-study plot uses it when
-  `predict_config.calibration_path` is set.
-- Eval stats now include `nbhd_truth_{ft}`: the weighted count of pixels within each radius of a front.
+- **Neighborhood calibration.** `fronts.neighborhood_calibration` fits an isotonic regression (a fit that never
+  decreases) to the 50-250 km reliability curves from `fronts.evaluate`. It maps a raw probability to the chance of a
+  front within that radius. The AIES paper used this scale for its maps. The module is a port of the legacy
+  `calibrate_model.py` with two changes. Each bin is weighted by its pixel count. Pixels forecast below 0.01 get
+  their own bin. The case-study plot uses the table when `predict_config.calibration_path` is set.
+- Eval stats now include `nbhd_truth_{ft}`. It is the weighted count of pixels within each radius of a front.
 
 ## [2.0.0] - 2026-10-30
 

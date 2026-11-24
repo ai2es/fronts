@@ -1,17 +1,20 @@
 r"""Neighborhood calibration: turn raw front probabilities into the chance of a front within a radius.
 
-Raw probabilities answer "is this pixel inside the analyst's dilated band?", which hand-drawn labels
-cap near 0.8. Calibrated values answer "is a front of this type within N km?", the scale the AIES
-FrontFinder paper drew its maps on (100 km). This ports the legacy ``evaluation/calibrate_model.py``
-and ``evaluation/prediction_plot.py --calibration``: fit isotonic regression to each neighborhood
-reliability curve from ``fronts.evaluate``, then map model output through it.
+A raw probability answers this question: "is this pixel inside the analyst's dilated band?" Hand-drawn
+labels limit raw values to about 0.8. A calibrated value answers a wider question: "is a front of this
+type within N km?" The AIES FrontFinder paper drew its maps on this scale (100 km).
 
-Two changes from the legacy script. Bins are weighted by their pixel counts, so a sparse high bin
-can't outvote a dense low one. And pixels forecast below the lowest eval threshold (0.01) get their
-own bin, from ``nbhd_truth_{ft}``, instead of taking the 0.01-0.02 bin's value, which tinted whole
-maps.
+This module is a port of the legacy ``evaluation/calibrate_model.py`` and
+``evaluation/prediction_plot.py --calibration``. It fits an isotonic regression (a fit that never
+decreases) to each neighborhood reliability curve from ``fronts.evaluate``. Then it maps model output
+through the fit.
 
-Fit on stats from a year the model didn't train on (the validation year), not the test year.
+The port has two changes from the legacy script. Each bin is weighted by its pixel count, so a bin with
+few pixels does not outweigh a bin with many. Pixels forecast below the lowest eval threshold (0.01)
+get their own bin, from ``nbhd_truth_{ft}``. The legacy script gave them the value of the 0.01-0.02 bin,
+which tinted whole maps.
+
+Fit on stats from the validation year. Do not use the test year, and do not use a year from training.
 
 Usage:
     python -m fronts.neighborhood_calibration \

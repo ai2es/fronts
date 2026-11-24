@@ -90,8 +90,8 @@ through TensorFlow's `MirroredStrategy`.
 `configs/sooner_train_3d.yaml` trains the 3D model. Set `data_config.volume_inputs: true` to feed volumes instead of
 stacked channels.
 
-To fit a temperature-scaling calibration to a trained model on the validation set (this keeps the per-pixel
-scale; for maps on the AIES paper's scale, see [Neighborhood calibration](#neighborhood-calibration)):
+To fit a temperature-scaling calibration to a trained model on the validation set, use the command below. It keeps the
+per-pixel scale. For maps on the scale of the AIES paper, see [Neighborhood calibration](#neighborhood-calibration).
 
 ```
 pixi run -e schooner python -m fronts.calibrate --config_path configs/sooner_train.yaml
@@ -125,14 +125,16 @@ The `scripts/` folder holds the SLURM batch files used on sooner, such as `scrip
 
 ### Neighborhood calibration
 
-Raw probabilities answer "is this pixel inside the analyst's dilated label band?" Hand-drawn fronts land a cell or
-two from where the fields put them, and the spot changes from case to case, so raw values top out near 0.8.
-Neighborhood calibration answers a looser question: "is a front of this type within N km?" That is the scale the
-Justin et al. 2025 paper drew its maps on (100 km). `fronts.neighborhood_calibration` ports the legacy
-`calibrate_model.py`: it fits isotonic regression to each 50-250 km reliability curve.
+A raw probability answers this question: "is this pixel inside the analyst's dilated label band?" Analysts draw
+fronts one or two grid cells away from where the fields put them. The offset changes from case to case. For this
+reason, raw values reach only about 0.8.
 
-1. Run `fronts.evaluate` with this version on a year the model didn't train on, such as the 2018 validation year. It
-   writes the per-radius truth counts (`nbhd_truth_{ft}`) the fit needs.
+Neighborhood calibration answers a wider question: "is a front of this type within N km?" The Justin et al. 2025 paper
+drew its maps on this scale (100 km). `fronts.neighborhood_calibration` is a port of the legacy `calibrate_model.py`.
+It fits an isotonic regression (a fit that never decreases) to each 50-250 km reliability curve.
+
+1. Run `fronts.evaluate` with this version on a year that was not in the training data, such as the 2018 validation
+   year. It writes the per-radius truth counts (`nbhd_truth_{ft}`) that the fit needs.
 2. Fit the table:
 
    ```
@@ -140,13 +142,13 @@ Justin et al. 2025 paper drew its maps on (100 km). `fronts.neighborhood_calibra
        --output_path /path/to/neighborhood_calibration.nc
    ```
 
-3. Set `calibration_path` (and `calibration_km`, which defaults to 100) in `predict_config` to draw case-study maps on
-   that scale.
+3. Set `calibration_path` in `predict_config`. Set `calibration_km` too if you want a radius other than 100. The
+   case-study maps then use the calibrated scale.
 
-On sooner, `sbatch scripts/sooner_eval_2018_calibration.sbatch` runs steps 1 and 2 for v2.0.0 (with
-`configs/sooner_eval_2018.yaml`) and draws the 2018 performance diagrams.
+On sooner, `sbatch scripts/sooner_eval_2018_calibration.sbatch` runs steps 1 and 2 for v2.0.0. It uses
+`configs/sooner_eval_2018.yaml`. It also draws the 2018 performance diagrams.
 
-The mapping keeps the order of the values, so it changes the numbers on a map but not CSI, POD, or HSS.
+The mapping keeps the order of the values. It changes the numbers on a map. It does not change CSI, POD, or HSS.
 
 ### Comparing with the Justin et al. 2025 model
 
