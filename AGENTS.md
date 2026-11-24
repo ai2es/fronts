@@ -6,7 +6,10 @@ FrontFinder finds weather fronts in ERA5 reanalysis (a global record of past wea
 ## Stack
 - Language/framework: Python, TensorFlow 2.16+ / Keras 3; typed with `pyrefly`, linted and formatted with `ruff`.
 - Environments: `pixi` (HPC, glibc 2.17 on OU Sooner; lock in `pixi.lock`) and `uv` (development and CI; lock in `uv.lock`). Keep both locks in sync. CI checks them.
-- Data: ERA5 in Icechunk and zarr stores. `fronts.data.generate` makes them. One YAML file in `configs/` drives each run. The weights (`v2.0.0.keras`) are on Hugging Face (`aaaTman/FrontFinder`).
+- Data: ERA5 in Icechunk and zarr stores. `fronts.data.generate` makes them. One YAML file in `configs/` drives each run. The weights (`v2.0.1.keras`) are on Hugging Face (`aaaTman/FrontFinder`). `v2.0.1.keras` takes 27 input channels (no 2 m dewpoint); `v2.0.0.keras` takes 28. They are not interchangeable.
+- Eval truth: the global eval (`fronts.evaluation.global_eval`, `fronts.data.gml`, `scripts/gml_to_zarr.py`) scores
+  against TWC fronts and the global surface analyses behind them. Neither is published, so that path cannot run on
+  open data. It is here so the team's internal scoring lives with the code it scores.
 - Compute: training, evaluation, and data generation run on OU Sooner and Schooner (GPU, Slurm). See `scripts/*.sbatch`. Unit tests and lint run locally with no GPU.
 
 ## Commands
@@ -26,6 +29,7 @@ FrontFinder finds weather fronts in ERA5 reanalysis (a global record of past wea
 ## Do not
 - Edit `uv.lock` or `pixi.lock` by hand.
 - Deploy directly. Open a PR and let CI check it.
+- Try to run the global eval on open data. The TWC fronts it scores against are not published.
 
 ## Current state
 `docs/decisions.md` lists decisions and open questions.

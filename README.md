@@ -20,7 +20,9 @@ is also published there (it is the model served at fronts.espr.ai), but it takes
   checked-in 28-channel ones.
 - **Global evaluation.** `fronts.evaluation.global_eval` scores a checkpoint against the TWC global surface analysis,
   running each timestep direct over the northern hemisphere and hemisphere-flipped over the southern one, and reports
-  the composite as the model's global skill. See `configs/sooner_eval_global.yaml`.
+  the composite as the model's global skill. See `configs/sooner_eval_global.yaml`. The TWC fronts are a NOAA product
+  and are not published, so this scoring only works where you have those analyses. It is not usable on the open data
+  this repository otherwise runs on.
 
 ## Key updates for v2.0.0
 

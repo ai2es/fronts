@@ -31,6 +31,11 @@ inputs, which is how 2.0.1 was scored.
 The code side is global evaluation against the TWC global surface analysis, plus the SLURM and Weights & Biases
 helpers that came out of running it. No changes to config schema or checkpoint format.
 
+**Note on data availability.** Neither the TWC fronts nor the global surface analyses behind them are published, so
+`fronts.data.gml`, `scripts/gml_to_zarr.py`, and `fronts.evaluation.global_eval` cannot run on open data. They are in
+the release so the scoring the team does internally lives with the code it scores, and nothing else in this release
+needs them.
+
 ### Added
 
 - **Global evaluation.** `fronts.evaluation.global_eval` scores a checkpoint against the TWC global surface analysis.
