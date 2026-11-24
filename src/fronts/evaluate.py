@@ -26,6 +26,7 @@ import dataclasses
 import datetime
 import logging
 import os
+import typing
 
 import numpy as np
 import regionmask
@@ -130,7 +131,7 @@ def _expand_all_neighborhoods(
 
 def compute_derived_stats(
     aggregate_ds: xr.Dataset,
-    spatial_ds: xr.Dataset,
+    spatial_ds: xr.Dataset | None,
     front_types: list[str],
 ) -> xr.Dataset:
     """Derive POD, SR, CSI, FB, HSS, and reliability metrics from raw TP/FP/TN/FN datasets.
@@ -142,6 +143,7 @@ def compute_derived_stats(
             derived too, verified against the exact-pixel truth rather than a neighborhood-
             expanded one.
         spatial_ds: Per-front-type spatial TP/FP/TN/FN with dims (lat, lon, neighborhood, threshold).
+            None skips ``spatial_csi_{ft}``.
         front_types: Front type labels in class order excluding background.
 
     Returns:
@@ -183,11 +185,12 @@ def compute_derived_stats(
             total_0 > 0, 100 * (tp + fp).isel(neighborhood=0) / total_0, 0.0
         ).astype(np.float32)
 
-        tp_sp = spatial_ds[f"tp_spatial_{ft}"]
-        fp_sp = spatial_ds[f"fp_spatial_{ft}"]
-        fn_sp = spatial_ds[f"fn_spatial_{ft}"]
-        sp_denom = tp_sp + fp_sp + fn_sp
-        data_vars[f"spatial_csi_{ft}"] = xr.where(sp_denom > 0, tp_sp / sp_denom, 0.0).astype(np.float32)
+        if spatial_ds is not None:
+            tp_sp = spatial_ds[f"tp_spatial_{ft}"]
+            fp_sp = spatial_ds[f"fp_spatial_{ft}"]
+            fn_sp = spatial_ds[f"fn_spatial_{ft}"]
+            sp_denom = tp_sp + fp_sp + fn_sp
+            data_vars[f"spatial_csi_{ft}"] = xr.where(sp_denom > 0, tp_sp / sp_denom, 0.0).astype(np.float32)
 
     return xr.Dataset(data_vars)
 
@@ -250,6 +253,7 @@ def predict_batches(
     return all_preds, all_targets
 
 
+@typing.overload
 def accumulate_stats(
     all_preds: np.ndarray,
     all_targets: np.ndarray,
@@ -257,7 +261,31 @@ def accumulate_stats(
     lats: np.ndarray,
     lons: np.ndarray,
     spatial_mask: np.ndarray | None,
-) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
+    spatial: typing.Literal[True] = True,
+) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]: ...
+
+
+@typing.overload
+def accumulate_stats(
+    all_preds: np.ndarray,
+    all_targets: np.ndarray,
+    front_types: list[str],
+    lats: np.ndarray,
+    lons: np.ndarray,
+    spatial_mask: np.ndarray | None,
+    spatial: bool,
+) -> tuple[xr.Dataset | None, xr.Dataset, xr.Dataset]: ...
+
+
+def accumulate_stats(
+    all_preds: np.ndarray,
+    all_targets: np.ndarray,
+    front_types: list[str],
+    lats: np.ndarray,
+    lons: np.ndarray,
+    spatial_mask: np.ndarray | None,
+    spatial: bool = True,
+) -> tuple[xr.Dataset | None, xr.Dataset, xr.Dataset]:
     """Accumulate TP/FP/TN/FN over all timesteps from precomputed predictions and targets.
 
     Args:
@@ -269,6 +297,9 @@ def accumulate_stats(
         lats: 1-D latitude array.
         lons: 1-D longitude array.
         spatial_mask: Boolean (n_lat, n_lon) mask — True for included points. None = all.
+        spatial: If False, skip the per-pixel counts. They are (n_fronts, lat, lon, 5, 100) float32
+            arrays, so on a global grid they dominate both memory and run time. ``spatial_ds`` is
+            then None and ``derived_ds`` has no ``spatial_csi_{ft}``.
 
     Returns:
         Tuple of (spatial_ds, aggregate_ds, derived_ds) xr.Datasets.
@@ -277,7 +308,10 @@ def accumulate_stats(
         ``tp_pointwise_{ft}``/``fp_pointwise_{ft}`` with dims (threshold,) — TP/FP against the
         exact-pixel truth (no neighborhood expansion), for diagnosing whether the neighborhood-
         matched reliability curves (b) reflect a real pointwise calibration problem or just the
-        looser 50-250 km match criterion.
+        looser 50-250 km match criterion. It also holds ``nbhd_truth_{ft}`` with dims
+        (neighborhood,): the weighted count of pixels within each radius of a front, at any
+        forecast probability. With TP at the lowest threshold, it gives the neighborhood hit
+        rate for pixels below that threshold (see ``fronts.neighborhood_calibration``).
         derived_ds contains POD, SR, CSI, FB, HSS, reliability (neighborhood-matched and
         pointwise), and spatial CSI.
     """
@@ -304,11 +338,14 @@ def accumulate_stats(
     spatial_shape = (n_fronts, n_lat, n_lon, n_nbhd, N_THRESHOLDS)
     aggregate_shape = (n_fronts, n_nbhd, N_THRESHOLDS)
     pointwise_shape = (n_fronts, N_THRESHOLDS)
-    spatial = {k: np.zeros(spatial_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
+    spatial_counts = (
+        {k: np.zeros(spatial_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")} if spatial else None
+    )
     aggregate = {k: np.zeros(aggregate_shape, dtype=np.float32) for k in ("tp", "fp", "tn", "fn")}
     # Exact-pixel (no neighborhood expansion) TP/FP, kept separately from the neighborhood-radius
     # aggregate above — see the module-level docstring on the reliability-diagram mismatch.
     aggregate_pointwise = {k: np.zeros(pointwise_shape, dtype=np.float32) for k in ("tp", "fp")}
+    nbhd_truth = np.zeros((n_fronts, n_nbhd), dtype=np.float32)
 
     class_indices = [constants.FRONT_TYPE_CLASS_INDEX[ft] for ft in front_types]
 
@@ -343,14 +380,16 @@ def accumulate_stats(
         np.logical_not(_above, out=_bool_buf)
         np.logical_and(_bool_buf, ~truth_4d, out=_bool_buf)
         np.multiply(_bool_buf, w_4d, out=_float_buf)
-        spatial["tn"] += _float_buf[:, :, :, np.newaxis, :]
+        if spatial_counts is not None:
+            spatial_counts["tn"] += _float_buf[:, :, :, np.newaxis, :]
         aggregate["tn"] += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
 
         # FN: ~above & truth, weighted.
         np.logical_not(_above, out=_bool_buf)
         np.logical_and(_bool_buf, truth_4d, out=_bool_buf)
         np.multiply(_bool_buf, w_4d, out=_float_buf)
-        spatial["fn"] += _float_buf[:, :, :, np.newaxis, :]
+        if spatial_counts is not None:
+            spatial_counts["fn"] += _float_buf[:, :, :, np.newaxis, :]
         aggregate["fn"] += _float_buf.sum(axis=(1, 2))[:, np.newaxis, :]
 
         # Pointwise TP/FP: above & exact-pixel truth (no neighborhood expansion), the same
@@ -369,27 +408,34 @@ def accumulate_stats(
 
         above_flat = _above_f32.reshape(n_fronts, n_lat * n_lon, N_THRESHOLDS)
         exp_flat = exp_f.reshape(n_fronts, n_nbhd, n_lat * n_lon)
-        aggregate["tp"] += np.matmul(exp_flat * w_flat, above_flat)
+        weighted_exp = exp_flat * w_flat
+        aggregate["tp"] += np.matmul(weighted_exp, above_flat)
+        nbhd_truth += weighted_exp.sum(axis=2)
         aggregate["fp"] += np.matmul((~exp_flat) * w_flat, above_flat)
 
         # TP + FP == above_weighted exactly for a 0/1 mask, so FP is derived by subtraction
         # instead of a second logical_and + multiply pass.
-        for ni in range(n_nbhd):
-            exp_ni = exp_f[:, ni, :, :, np.newaxis]  # (F, lat, lon, 1) — tiny view
-            np.multiply(_above_weighted, exp_ni, out=_float_buf)
-            spatial["tp"][:, :, :, ni, :] += _float_buf
-            np.subtract(_above_weighted, _float_buf, out=_float_buf2)
-            spatial["fp"][:, :, :, ni, :] += _float_buf2
+        if spatial_counts is not None:
+            for ni in range(n_nbhd):
+                exp_ni = exp_f[:, ni, :, :, np.newaxis]  # (F, lat, lon, 1) — tiny view
+                np.multiply(_above_weighted, exp_ni, out=_float_buf)
+                spatial_counts["tp"][:, :, :, ni, :] += _float_buf
+                np.subtract(_above_weighted, _float_buf, out=_float_buf2)
+                spatial_counts["fp"][:, :, :, ni, :] += _float_buf2
 
     dims_sp = ("latitude", "longitude", "neighborhood", "threshold")
     dims_ag = ("neighborhood", "threshold")
-    spatial_ds = xr.Dataset(
-        coords={"latitude": lats, "longitude": lons, "neighborhood": NEIGHBORHOODS_KM, "threshold": THRESHOLDS},
-        data_vars={
-            f"{k}_spatial_{ft}": (dims_sp, spatial[k][fi])
-            for fi, ft in enumerate(front_types)
-            for k in ("tp", "fp", "tn", "fn")
-        },
+    spatial_ds = (
+        xr.Dataset(
+            coords={"latitude": lats, "longitude": lons, "neighborhood": NEIGHBORHOODS_KM, "threshold": THRESHOLDS},
+            data_vars={
+                f"{k}_spatial_{ft}": (dims_sp, spatial_counts[k][fi])
+                for fi, ft in enumerate(front_types)
+                for k in ("tp", "fp", "tn", "fn")
+            },
+        )
+        if spatial_counts is not None
+        else None
     )
     dims_pw = ("threshold",)
     aggregate_ds = xr.Dataset(
@@ -405,6 +451,7 @@ def accumulate_stats(
                 for fi, ft in enumerate(front_types)
                 for k in ("tp", "fp")
             },
+            **{f"nbhd_truth_{ft}": (("neighborhood",), nbhd_truth[fi]) for fi, ft in enumerate(front_types)},
         },
     )
     derived_ds = compute_derived_stats(aggregate_ds, spatial_ds, front_types)

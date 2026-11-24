@@ -1,4 +1,5 @@
 import dataclasses
+import datetime
 import glob
 import logging
 import math
@@ -1190,6 +1191,78 @@ class TestEvalConfigMirrorsItsTrainingRun:
         training_data = self._data_config(self._TRAINING_CONFIG)
         assert training_data.coordinates is None, "training config now restricts its domain; eval must follow it"
         assert tuple(eval_cfg.coordinates) == (0.25, 80.0, 130.0, 369.75)
+
+
+class TestValidationEvalConfigMirrorsItsTrainingRun(TestEvalConfigMirrorsItsTrainingRun):
+    """sooner_eval_2018.yaml scores the v2.0.0 run on its validation year, which neighborhood calibration fits on."""
+
+    _EVAL_CONFIG = "configs/sooner_eval_2018.yaml"
+    _TRAINING_CONFIG = "configs/sooner_train.yaml"
+
+    def test_eval_window_is_the_validation_year(self) -> None:
+        from fronts import utils
+        from fronts.evaluate import EvalConfig
+
+        yaml_data = utils.load_yaml(self._EVAL_CONFIG)
+        eval_cfg = utils.parse_config_section(yaml_data, EvalConfig, "eval_config", utils.YAML_TYPE_HOOKS)
+        (val_year,) = self._data_config(self._TRAINING_CONFIG).val_years
+        assert eval_cfg.time_start == datetime.datetime(val_year, 1, 1)
+        assert eval_cfg.time_end == datetime.datetime(val_year + 1, 1, 1)
+
+
+class TestV201EvalConfigDropsOnlyTheDewpointChannel:
+    """configs/sooner_eval_regions_v2.0.1.yaml must equal the v2.0.0 region eval but for one input.
+
+    v2.0.1 was trained with the 2 m dewpoint dropped, so that channel and the run name are the only
+    legitimate differences. evaluate.load_eval_arrays builds the inputs from data_config, so any other
+    difference would score the v2.0.1 checkpoint on a different test set, domain, or target build than the
+    v2.0.0 checkpoint it is being compared against.
+    """
+
+    _V201_CONFIG = "configs/sooner_eval_regions_v2.0.1.yaml"
+    _V200_CONFIG = "configs/sooner_eval_regions.yaml"
+
+    def _data_config(self, path):
+        from fronts import utils
+        from fronts.data.datasets import DatasetConfig
+
+        return utils.parse_config_section(utils.load_yaml(path), DatasetConfig, "data_config")
+
+    def test_v201_drops_only_2m_dewpoint_from_the_inputs(self) -> None:
+        v200 = self._data_config(self._V200_CONFIG)
+        v201 = self._data_config(self._V201_CONFIG)
+        assert "2m_dewpoint_temperature" in v200.variables
+        assert "2m_dewpoint_temperature" not in v201.variables
+        assert [v for v in v200.variables if v != "2m_dewpoint_temperature"] == v201.variables
+
+    def test_everything_else_in_the_data_config_matches(self) -> None:
+        v200 = self._data_config(self._V200_CONFIG)
+        v201 = self._data_config(self._V201_CONFIG)
+        for field in dataclasses.fields(v200):
+            if field.name == "variables":
+                continue
+            assert getattr(v201, field.name) == getattr(v200, field.name), f"{field.name} differs"
+
+    def _harness_section_with_run_name_restored(self, path: str) -> dict[str, str]:
+        """The harness section of a config with the interpolated run name put back as ``${run_name}``.
+
+        load_yaml interpolates ``${run_name}`` before returning, so the two runs' paths only line up once
+        each config's own run name is restored.
+        """
+        from fronts import utils
+
+        yaml_data = utils.load_yaml(path)
+        run_name = str(yaml_data["run_name"])
+        section = yaml_data["harness_eval_config"]
+        return {key: str(value).replace(run_name, "${run_name}") for key, value in section.items()}
+
+    def test_only_the_run_name_separates_the_two_evals(self) -> None:
+        from fronts import utils
+
+        assert utils.load_yaml(self._V201_CONFIG)["run_name"] != utils.load_yaml(self._V200_CONFIG)["run_name"]
+        v201 = self._harness_section_with_run_name_restored(self._V201_CONFIG)
+        v200 = self._harness_section_with_run_name_restored(self._V200_CONFIG)
+        assert v201 == v200
 
 
 @pytest.mark.skipif(not _TF_AVAILABLE, reason="tensorflow not installed")

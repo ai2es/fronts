@@ -7,8 +7,23 @@ The model labels each grid point with one of nine classes: no front, cold front,
 front, dryline, trough, tropical trough, and instability axis. Forming and dissipating fronts are merged into their
 parent type.
 
-The pretrained v2.0.0 weights (`v2.0.0.keras`) are on Hugging Face:
-[aaaTman/FrontFinder](https://huggingface.co/aaaTman/FrontFinder).
+The pretrained v2.0.1 weights (`v2.0.1.keras`) are on Hugging Face:
+[aaaTman/FrontFinder](https://huggingface.co/aaaTman/FrontFinder). Use them with this version of the code. `v2.0.0.keras`
+is also published there (it is the model served at fronts.espr.ai), but it takes a different input stack — see below.
+
+## Key updates for v2.0.1
+
+- **No 2 m dewpoint input.** `v2.0.1.keras` is the same UNet3+, the same output classes, and the same normalization
+  and terrain inputs as 2.0.0, but it is trained on 27 channels instead of 28: the 2.0.0 channel order with the
+  `2m_dewpoint_temperature` channel removed. Inference therefore needs no dewpoint field. The two checkpoints are
+  not interchangeable: `configs/sooner_eval_regions_v2.0.1.yaml` is the committed 27-channel eval config for this
+  model, and every other config in `configs/` still builds the 28-channel stack.
+- **Global evaluation.** `fronts.evaluation.global_eval` scores a checkpoint against the TWC global surface analysis,
+  running each timestep direct over the northern hemisphere and hemisphere-flipped over the southern one, and reports
+  the composite as the model's global skill. The TWC fronts are a NOAA product and are not published, so this scoring
+  only works where you have those analyses: it is not usable on the open data this repository otherwise runs on. Its
+  config is therefore not committed either — the three global `scripts/*.sbatch` jobs take yours as `GLOBAL_CONFIG`,
+  and `GlobalEvalConfig` in `fronts.evaluation.global_eval` documents every field it needs.
 
 ## Key updates for v2.0.0
 
@@ -90,7 +105,8 @@ through TensorFlow's `MirroredStrategy`.
 `configs/sooner_train_3d.yaml` trains the 3D model. Set `data_config.volume_inputs: true` to feed volumes instead of
 stacked channels.
 
-To fit a temperature-scaling calibration to a trained model on the validation set:
+To fit a temperature-scaling calibration to a trained model on the validation set, use the command below. It keeps the
+per-pixel scale. For maps on the scale of the AIES paper, see [Neighborhood calibration](#neighborhood-calibration).
 
 ```
 pixi run -e schooner python -m fronts.calibrate --config_path configs/sooner_train.yaml
@@ -121,6 +137,33 @@ Run each one inside an environment, for example `pixi run -e schooner python -m 
 is a shortcut for the first row: `pixi run -e schooner eval --mask land`.
 
 The `scripts/` folder holds the SLURM batch files used on sooner, such as `scripts/sooner_eval_regions.sbatch`.
+
+### Neighborhood calibration
+
+A raw probability answers this question: "is this pixel inside the analyst's dilated label band?" Analysts draw
+fronts one or two grid cells away from where the fields put them. The offset changes from case to case. For this
+reason, raw values reach only about 0.8.
+
+Neighborhood calibration answers a wider question: "is a front of this type within N km?" The Justin et al. 2025 paper
+drew its maps on this scale (100 km). `fronts.neighborhood_calibration` is a port of the legacy `calibrate_model.py`.
+It fits an isotonic regression (a fit that never decreases) to each 50-250 km reliability curve.
+
+1. Run `fronts.evaluate` with this version on a year that was not in the training data, such as the 2018 validation
+   year. It writes the per-radius truth counts (`nbhd_truth_{ft}`) that the fit needs.
+2. Fit the table:
+
+   ```
+   python -m fronts.neighborhood_calibration --stats_path /path/to/stats/stats_aggregate.nc \
+       --output_path /path/to/neighborhood_calibration.nc
+   ```
+
+3. Set `calibration_path` in `predict_config`. Set `calibration_km` too if you want a radius other than 100. The
+   case-study maps then use the calibrated scale.
+
+On sooner, `sbatch scripts/sooner_eval_2018_calibration.sbatch` runs steps 1 and 2 for v2.0.0. It uses
+`configs/sooner_eval_2018.yaml`. It also draws the 2018 performance diagrams.
+
+The mapping keeps the order of the values. It changes the numbers on a map. It does not change CSI, POD, or HSS.
 
 ### Comparing with the Justin et al. 2025 model
 

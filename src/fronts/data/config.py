@@ -48,6 +48,9 @@ class PredictConfig:
         open_contours: Plot open (line) probability contours.
         targets: Overlay ground truth fronts from the icechunk fronts store.
         gpu_device: GPU index to use. None runs on CPU.
+        calibration_path: Table from ``fronts.neighborhood_calibration``. When set, maps show the
+            chance of a front within ``calibration_km`` instead of raw probabilities.
+        calibration_km: Neighborhood radius for ``calibration_path``: 50, 100, 150, 200, or 250.
     """
 
     model_path: str
@@ -65,3 +68,5 @@ class PredictConfig:
     open_contours: bool = False
     targets: bool = False
     gpu_device: int | None = None
+    calibration_path: str | None = None
+    calibration_km: int = 100
